@@ -636,7 +636,7 @@
         <view class="row" @tap="clearLearningData">
           <view class="row-main">
             <text class="row-title danger">{{ $t('清除学习数据') }}</text>
-            <text class="row-desc">{{ $t('重置掌握度、错题与统计，不可恢复') }}</text>
+            <text class="row-desc">{{ $t('删除全部目标、任务与番茄记录，不可恢复') }}</text>
           </view>
           <text class="row-arrow">›</text>
         </view>
@@ -749,7 +749,7 @@
 import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
-import * as store from '../../../utils/store'
+import * as pwreset from '../../../utils/pwreset.js'
 import { stop as voiceStop, status as voiceStatus, resetVoice } from '../../../services/voice.js'
 import { validateKeyFormat, testAIConnection } from '../../../services/ai-content.js'
 import { PROVIDER_PRESETS, providerSupportsTTS, TTS_MODELS } from '../../../services/config.js'
@@ -1469,7 +1469,7 @@ export default {
       this.confirm = Object.assign(this.blankConfirm(), {
         show: true,
         title: t('清除学习数据'),
-        content: t('将重置全部掌握度、错题与统计，且不可恢复。确定继续？'),
+        content: t('将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「备份」导出一份。确定继续？'),
         confirmText: t('清除'),
         action: 'clear'
       })
@@ -1520,8 +1520,11 @@ export default {
         return
       }
       if (act === 'clear') {
-        store.reset()
-        uni.showToast({ title: t('已清除'), icon: 'success' })
+        // 清的是 PWstudy 自己的库（目标/任务/番茄/Dock/每日统计 + 规划会话 + 要点 + AI 缓存）；
+        // AI 配置与外观属于偏好，走「退出登录」才清
+        const gone = pwreset.clearAll()
+        this.cacheStats = aiCache.stats()
+        uni.showToast({ title: t(pwreset.summary(gone)), icon: 'none', duration: 2200 })
       } else if (act === 'logout') {
         settings.reset()
         this.refresh()

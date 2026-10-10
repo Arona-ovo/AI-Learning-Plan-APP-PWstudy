@@ -586,6 +586,57 @@ function ok(cond, msg) {
     ok(fs.existsSync(p), '表情图存在 ' + mascot.FACES[k]);
   });
 
+  // ==================================================================
+  console.log('\n[19] 清除学习数据（pwreset）：清的是 PWstudy 自己的库');
+  const pwreset = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/pwreset.js');
+  const planTask = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/plan-task.js');
+  const guide = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/task-guide.js');
+  const aiCache = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/ai-cache.js');
+
+  // 造一点"脏"现场：正在跑的番茄 + 规划会话 + AI 缓存
+  focus.setCfg({ focus: 40, rest: 8 });          // 偏好：清数据不该被打回 25/5
+  focus.startFocus({ minutes: 25, taskId: 't1', goalId: 'g1', taskTitle: '清数据测试' });
+  planTask.startSession({ title: '待清的规划会话' });
+  aiCache.rememberWord({ word: 'wipe', pos: 'v.', meaning: '清除' });
+
+  ok(focus.current() !== null, '清之前确实有番茄在跑');
+  ok(planTask.snapshot().stage === 'ask', '清之前规划会话处于 ask');
+  ok(aiCache.stats().words > 0, '清之前 AI 缓存里有词条');
+
+  const gone = pwreset.clearAll();
+  ok(gone.running === true, 'clearAll 报告"刚才有番茄在跑"');
+  ok(gone.goals > 0 && gone.sessions > 0 && gone.days > 0, 'clearAll 汇报清掉的量（目标/番茄/天数）');
+  ok(focus.current() === null, '进行中的番茄被停掉（不落账）');
+  ok(pw.get().runtime === null, 'runtime 现场已清（focus 不会把现场写回来）');
+  ok(pw.get().goals.length === 0, 'goals 已空');
+  ok(pw.get().sessions.length === 0, 'sessions 已空');
+  ok(Object.keys(pw.get().daily).length === 0, 'daily 已空');
+  ok(pw.get().dock.length === 0, 'dock 已空');
+
+  // 偏好不跟着清：番茄时长是设置，不是学习数据
+  ok(pw.get().pomoCfg && pw.get().pomoCfg.focus === 40, 'pomoCfg 保留（偏好不属于学习数据）');
+  const cfgNow = (await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/settings.js')).get();
+  ok(cfgNow && cfgNow.focus && cfgNow.focus.notify === true, 'settings.js（AI 配置/外观）没被清');
+
+  ok(planTask.snapshot().stage === 'idle', '规划会话回到 idle');
+  ok(aiCache.stats().words === 0, 'AI 缓存已清');
+  ok(mem.get('fj_pw_data_v1') && mem.get('fj_pw_data_v1').goals.length === 0, 'storage 里也真的写空了');
+  ok(!mem.has('fj_eng_state_v1'), '老 App 的 fj_eng_state_v1 全程没被碰过');
+
+  // 空库再清一次：不该报错，汇报"本来就没有"
+  const gone2 = pwreset.clearAll();
+  ok(gone2.goals === 0 && gone2.running === false, '空库再清一次不出错');
+  ok(pwreset.summary(gone2).indexOf('本来就没有') >= 0, '空库汇报"本来就没有学习数据"');
+  ok(pwreset.summary(gone).indexOf('已清除') === 0, '有数据时汇报"已清除 …"');
+
+  // 清完之后还能正常继续用（不是把模块搞成死状态）
+  const gAfter = pw.addGoal(
+    { title: '清完再立一个', raw: 'x', deadline: pw.addDays(pw.today(), 30), dailyMin: 30, level: '' },
+    { strategy: '', risks: [], milestones: [{ title: 'm', days: 30 }], tasks: [{ title: 't', ms: 1, day: 1, pomos: 1 }] }
+  );
+  ok(pw.activeGoals().length === 1 && gAfter.tasks.length === 1, '清完之后还能正常立目标');
+  ok(typeof guide.get === 'function', 'task-guide 接口仍在（清缓存没把它搞坏）');
+
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('测试脚本异常:', e); process.exit(1); });

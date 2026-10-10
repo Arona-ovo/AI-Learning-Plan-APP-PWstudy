@@ -215,6 +215,23 @@ export function giveUp() {
   return null;
 }
 
+/**
+ * 外部收摊（清数据 / 导入 replace 备份前调用）：不落账，直接停。
+ * 与 giveUp() 的区别：giveUp 是人按了「放弃」，满 1 分钟要记一条中断会话；
+ * abort 是"这些记录马上就要没了"，记了也是白记。
+ */
+export function abort() {
+  const had = !!state;
+  state = null;
+  persist();
+  lastNotifyText = '';
+  fgsvc.stop();
+  ambient.stop();
+  notify.cancelOngoing();
+  notify.releaseWake();
+  return had;
+}
+
 // ---------- 每秒驱动 ----------
 // 返回 { state, justFinished: 'focus' | 'rest' | null }
 export function tick() {

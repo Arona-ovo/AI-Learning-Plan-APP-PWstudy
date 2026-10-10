@@ -93,6 +93,24 @@ export function flush() {
   writeNow();
 }
 
+/**
+ * 清空全部学习数据（设置页「清除学习数据」）。
+ * 只清数据，不动 pomoCfg —— 番茄时长是偏好（和主题色、昵称一样），
+ * 没人想因为清了一次数据就被打回 25/5。
+ * 调用方负责先让 focus 停下（见 utils/pwreset.js）：否则在跑的番茄
+ * 下一秒 persist() 又把现场写回来，清了等于没清。
+ */
+export function reset() {
+  if (timer) { clearTimeout(timer); timer = 0; }
+  const cfg = (cache && cache.pomoCfg) ? cache.pomoCfg : null;
+  cache = blank();
+  if (cfg) cache.pomoCfg = cfg;
+  dirty = false;
+  lastWriteAt = Date.now();
+  try { uni.setStorageSync(KEY, cache); } catch (e) { console.error('清除 PWstudy 数据失败', e); }
+  return cache;
+}
+
 // ---------- 目标 ----------
 export function activeGoals() {
   return get().goals.filter(g => g.status === 'active');

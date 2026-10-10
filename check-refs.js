@@ -5,6 +5,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, 'uniapp');
 
 const missing = [];
+const movedOut = [];   // 指向已挪出编译范围（_removed_vocab/）的导入：报告但不算缺失
 const seen = new Map();
 
 function exists(f) {
@@ -42,6 +43,12 @@ function walk(file) {
     }
     const hit = exists(target);
     if (!hit) {
+      // 老 App（背单词）的模块挪到工作区根 _removed_vocab/ 之后，uniapp/ 里剩下的死代码
+      // （utils/{dict,engine,importer,wordbook}.js）会指向一个"搬走了"的目标。
+      // 那边找得到 = 有意为之，不计入缺失（与 _tools/check-graph.js 同一条口径）；
+      // 死代码本身等 D1 那一轮统一清。
+      const moved = exists(path.resolve(ROOT, '..', '_removed_vocab', path.relative(ROOT, target)));
+      if (moved) { movedOut.push(path.relative(ROOT, file) + '  ->  ' + spec); continue; }
       missing.push(path.relative(ROOT, file) + '  ->  ' + spec);
     } else {
       if (/\.(js|ts|vue)$/.test(hit)) walk(hit);
@@ -65,6 +72,11 @@ collect(ROOT);
 entries.forEach(f => walk(f));
 
 console.log('扫描文件数: ' + seen.size);
+if (movedOut.length) {
+  const u = [...new Set(movedOut)];
+  console.log('注意：' + u.length + ' 条导入指向已挪到 _removed_vocab/ 的老模块（死代码遗留引用，D1 清理）:');
+  u.forEach(x => console.log('      ' + x));
+}
 if (missing.length) {
   console.error('缺失依赖 ' + missing.length + ' 条:');
   const uniq = [...new Set(missing)];

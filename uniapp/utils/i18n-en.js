@@ -668,14 +668,14 @@ export default {
     'Progress is stored on this device only and is cleared on uninstall',
   '重置学习数据': 'Reset learning data',
   '清除学习数据': 'Clear learning data',
-  '将重置全部掌握度、错题与统计，且不可恢复。确定继续？':
-    'This resets all mastery, wrong answers and stats, and can’t be undone. Continue?',
+  '将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「备份」导出一份。确定继续？':
+    'This deletes every goal, task, pomodoro and daily stat. A running pomodoro stops immediately and is not recorded. It can’t be undone — export a backup first. Continue?',
   '将重置个人资料与全部设置（AI 配置、朗读偏好等），学习数据保留。确定继续？':
     'This resets your profile and all settings (AI config, voice prefs, etc.). Learning data is kept. Continue?',
   '将清空全部掌握度、错题本和练习记录，且无法恢复。确定继续吗？':
     'This clears all mastery, wrong answers and records, and can’t be undone. Continue?',
-  '重置掌握度、错题与统计，不可恢复':
-    'Resets mastery, wrong answers and stats. Can’t be undone.',
+  '删除全部目标、任务与番茄记录，不可恢复':
+    'Deletes all goals, tasks and pomodoro records. Can’t be undone.',
   '重置个人资料与设置（学习数据保留）': 'Resets profile and settings (learning data kept)',
   '确定重置': 'Reset',
   '已重置': 'Reset',

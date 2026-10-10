@@ -118,8 +118,19 @@ function loadInner(src, rel, deps, cache) {
   return module.exports;
 }
 
+// 老 App（背单词）的模块从 uniapp/ 挪到工作区根的 _removed_vocab/ 之后，
+// 那些还在测引擎链路的脚本会找不到它们（store.js 等）。按"先 uniapp/、再 _removed_vocab/"
+// 的顺序找，脚本里的路径就不用逐个改 —— 挪走是事实，不用让 20 个脚本跟着重写一遍路径。
+function sourceOf(rel) {
+  const p = path.join(ROOT, rel);
+  if (fs.existsSync(p) && fs.statSync(p).isFile()) return fs.readFileSync(p, 'utf8');
+  const moved = path.resolve(ROOT, '..', '_removed_vocab', rel);
+  if (fs.existsSync(moved) && fs.statSync(moved).isFile()) return fs.readFileSync(moved, 'utf8');
+  throw new Error('load: 找不到模块 ' + rel);
+}
+
 function load(rel, deps) {
-  return loadInner(fs.readFileSync(path.join(ROOT, rel), 'utf8'), rel, deps, {});
+  return loadInner(sourceOf(rel), rel, deps, {});
 }
 
 module.exports = { load, loadCode, ROOT };

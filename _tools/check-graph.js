@@ -61,6 +61,7 @@ function exportsOf(file) {
 }
 
 let fail = 0;
+const movedOut = [];   // 指向"已挪出编译范围"的导入：记下来报告，但不算失败
 function bad(msg) { fail++; console.error('  ✗ ' + msg); }
 function ok(msg) { console.log('  ✓ ' + msg); }
 
@@ -90,7 +91,16 @@ for (const f of files) {
       const idx = ['index.js', 'index.ts'].map((n) => path.join(target, n)).find((p) => fs.existsSync(p));
       if (idx) target = idx;
     }
-    if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) { bad(rel + ' → 找不到模块 ' + spec); continue; }
+    if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) {
+      // 老 App（背单词）的模块被挪到工作区根的 _removed_vocab/ 之后，仍留在 uniapp/ 里的
+      // 死代码（utils/{dict,engine,importer,wordbook}.js 等）会指向一个"搬走了"的目标。
+      // 那边找得到 = 有意为之，不算导入坏掉；否则才是真的漏文件。
+      // 死代码本身等 D1 那一轮统一清（见调研文档），别在功能改动里顺手删。
+      const moved = path.resolve(ROOT, '..', '_removed_vocab', path.relative(ROOT, target));
+      if (fs.existsSync(moved)) { movedOut.push(rel + ' → ' + spec); continue; }
+      bad(rel + ' → 找不到模块 ' + spec);
+      continue;
+    }
     deps.add(target);
     const named = m[4]; // { a, b }
     if (named) {
@@ -136,6 +146,10 @@ for (const f of coreFiles) {
 
 console.log('');
 console.log('扫描文件数: ' + files.length);
+if (movedOut.length) {
+  console.log('注意：' + movedOut.length + ' 条导入指向已挪到 _removed_vocab/ 的老模块（死代码的遗留引用，D1 清理时一并处理）:');
+  movedOut.forEach(l => console.log('      ' + l));
+}
 if (!fail && !cycleFound) ok('所有相对导入均可解析，具名导入均存在，无循环依赖');
 else console.error(fail ? '导入检查失败 ' + fail + ' 项' : '');
 if (cycleFound && !fail) process.exitCode = 1;
