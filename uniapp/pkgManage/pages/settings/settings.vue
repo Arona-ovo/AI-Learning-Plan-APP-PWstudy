@@ -1469,7 +1469,7 @@ export default {
       this.confirm = Object.assign(this.blankConfirm(), {
         show: true,
         title: t('清除学习数据'),
-        content: t('将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「备份」导出一份。确定继续？'),
+        content: t('将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「我的 → 数据备份」导出一份。确定继续？'),
         confirmText: t('清除'),
         action: 'clear'
       })

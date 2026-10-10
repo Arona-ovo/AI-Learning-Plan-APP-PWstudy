@@ -668,7 +668,7 @@ export default {
     'Progress is stored on this device only and is cleared on uninstall',
   '重置学习数据': 'Reset learning data',
   '清除学习数据': 'Clear learning data',
-  '将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「备份」导出一份。确定继续？':
+  '将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「我的 → 数据备份」导出一份。确定继续？':
     'This deletes every goal, task, pomodoro and daily stat. A running pomodoro stops immediately and is not recorded. It can’t be undone — export a backup first. Continue?',
   '将重置个人资料与全部设置（AI 配置、朗读偏好等），学习数据保留。确定继续？':
     'This resets your profile and all settings (AI config, voice prefs, etc.). Learning data is kept. Continue?',
