@@ -1,6 +1,11 @@
 # ---- HBuilderX / uni-app ----
-unpackage/            # 云打包与运行产物（含 app-service.js 等生成文件）
-.hbuilderx/           # HBuilderX 工程缓存
+# 注意：gitignore 不支持行尾注释（写在同一行会被当成模式的一部分），
+# 说明一律单独起一行 —— 之前 "unpackage/  # 云打包产物" 整行变成了一个匹配不到的模式，
+# 结果 50MB 的构建产物被提交进了仓库。
+# 云打包与运行产物（含 app-service.js 等生成文件）
+unpackage/
+# HBuilderX 工程缓存
+.hbuilderx/
 node_modules/
 npm-debug.log*
 yarn-error.log*
@@ -8,6 +13,7 @@ pnpm-debug.log*
 
 # ---- 校验脚本的临时目录 ----
 _tools/.tmp/
+_tools/.esmcheck/
 
 # ---- WorkBuddy 工作区数据（非工程文件） ----
 .workbuddy/
