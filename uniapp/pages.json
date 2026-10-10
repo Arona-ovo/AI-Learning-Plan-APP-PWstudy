@@ -1,0 +1,154 @@
+{
+  "pages": [
+    {
+      "path": "pages/cover/cover",
+      "style": { "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/home/home",
+      "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/goals/goals",
+      "style": { "navigationBarTitleText": "目标", "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/stats/stats",
+      "style": { "navigationBarTitleText": "统计", "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": { "navigationBarTitleText": "我的", "navigationStyle": "custom" }
+    }
+  ],
+  "subPackages": [
+    {
+      "root": "pkgPlan",
+      "name": "pkgPlan",
+      "pages": [
+        {
+          "path": "pages/focus/focus",
+          "style": { "navigationBarTitleText": "番茄专注", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/wizard/wizard",
+          "style": { "navigationBarTitleText": "AI 目标规划", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/goal-detail/goal-detail",
+          "style": { "navigationBarTitleText": "目标详情", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/replan/replan",
+          "style": { "navigationBarTitleText": "重新规划", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/calendar/calendar",
+          "style": { "navigationBarTitleText": "日程", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/apps/apps",
+          "style": { "navigationBarTitleText": "学习 App", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/daily/daily",
+          "style": { "navigationBarTitleText": "今日收工", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/coach/coach",
+          "style": { "navigationBarTitleText": "跟 AI 说说今天", "navigationStyle": "custom" }
+        }
+      ]
+    },
+    {
+      "root": "pkgManage",
+      "name": "pkgManage",
+      "pages": [
+        {
+          "path": "pages/settings/settings",
+          "style": { "navigationBarTitleText": "设置", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/chat/chat",
+          "style": { "navigationBarTitleText": "AI 对话助手", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/login/login",
+          "style": { "navigationBarTitleText": "登录", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/donate/donate",
+          "style": { "navigationBarTitleText": "支持 PWstudy", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/backup/backup",
+          "style": { "navigationBarTitleText": "数据备份", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/setup/setup",
+          "style": { "navigationBarTitleText": "权限与后台保活", "navigationStyle": "custom" }
+        }
+      ]
+    }
+  ],
+  "preloadRule": {
+    "pages/home/home": {
+      "network": "all",
+      "packages": ["pkgPlan", "pkgManage"]
+    }
+  },
+  "globalStyle": {
+    "navigationBarBackgroundColor": "#FFE4E2",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "PWstudy",
+    "backgroundColor": "#ffe4e2",
+    "app-plus": {
+      "titleNView": {
+        "backgroundColor": "#FFE4E2",
+        "titleColor": "#17201A",
+        "splitLine": { "color": "#FFE4E2", "height": "1px" }
+      }
+    }
+  },
+  "tabBar": {
+    "color": "#98a19b",
+    "selectedColor": "#e11d48",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "专注",
+        "iconPath": "static/tabbar/focus.png",
+        "selectedIconPath": "static/tabbar/focus-active.png"
+      },
+      {
+        "pagePath": "pages/goals/goals",
+        "text": "目标",
+        "iconPath": "static/tabbar/goals.png",
+        "selectedIconPath": "static/tabbar/goals-active.png"
+      },
+      {
+        "pagePath": "pages/stats/stats",
+        "text": "统计",
+        "iconPath": "static/tabbar/stats.png",
+        "selectedIconPath": "static/tabbar/stats-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "static/tabbar/profile.png",
+        "selectedIconPath": "static/tabbar/profile-active.png"
+      }
+    ]
+  },
+	"condition" : { //模式配置，仅开发期间生效
+		"current": 0, //当前激活的模式(list 的索引项)
+		"list": [
+			{
+				"name": "", //模式名称
+				"path": "", //启动页面，必选
+				"query": "" //启动参数，在页面的onLoad函数里面得到
+			}
+		]
+	}
+}

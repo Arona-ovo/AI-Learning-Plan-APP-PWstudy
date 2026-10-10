@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="io.dcloud.uni_modules.pwstudy_focus">
+
+    <!-- 前台服务本体（Android 9+ 要求） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ 起前台服务必须声明类型，计时类应用用 specialUse -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 强制模式"把 PWstudy 拉回前台"要用到 moveTaskToFront（普通权限） -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
+
+    <application>
+        <service
+            android:name="uts.sdk.modules.pwstudyFocus.PWFocusService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Pomodoro study timer" />
+        </service>
+    </application>
+</manifest>

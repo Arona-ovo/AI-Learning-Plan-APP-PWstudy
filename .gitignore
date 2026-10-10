@@ -1,0 +1,24 @@
+# ---- HBuilderX / uni-app ----
+unpackage/            # 云打包与运行产物（含 app-service.js 等生成文件）
+.hbuilderx/           # HBuilderX 工程缓存
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- 校验脚本的临时目录 ----
+_tools/.tmp/
+
+# ---- WorkBuddy 工作区数据（非工程文件） ----
+.workbuddy/
+
+# ---- 本地环境 / 密钥 ----
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db

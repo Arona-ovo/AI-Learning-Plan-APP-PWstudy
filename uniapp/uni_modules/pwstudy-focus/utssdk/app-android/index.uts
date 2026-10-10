@@ -1,0 +1,232 @@
+/**
+ * pwstudy-focus（Android 实现）
+ *
+ * 结构参照 DCloud 官方示例 dcloudio/hello-uts 的 uts-nativepage/ForeService：
+ *   · Service 子类 + onStartCommand 里建通知并 startForeground
+ *   · Android 8+ 走 startForegroundService()，更老的走 startService()
+ *   · onDestroy 里 stopForeground(true) 收尾
+ *
+ * 与 JS 侧 utils/notify.js 的配合（重要）：
+ *   · 通知 id 用 8801、渠道 id 用 "pw_focus_ongoing"，与 notify.js 完全一致 ——
+ *     JS 层随时可以用 NotificationManager.notify(8801, ...) 直接刷新这条通知的文案，
+ *     两边写的是同一条通知，不会出现"服务一条 + JS 一条"。
+ *   · 渠道重要级 LOW（= 2）：常驻倒计时不该出声，notify.js 也是这么建的。
+ */
+import Service from 'android.app.Service';
+import Intent from 'android.content.Intent';
+import IBinder from 'android.os.IBinder';
+import Build from 'android.os.Build';
+import System from 'java.lang.System';
+import Notification from 'android.app.Notification';
+import NotificationChannel from 'android.app.NotificationChannel';
+import NotificationManager from 'android.app.NotificationManager';
+import Context from 'android.content.Context';
+import PendingIntent from 'android.app.PendingIntent';
+import NotificationCompat from 'androidx.core.app.NotificationCompat';
+import ActivityManager from 'android.app.ActivityManager';
+import ComponentName from 'android.content.ComponentName';
+
+// 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致
+const NOTIFY_ID = 8801;
+const CHANNEL_ID = 'pw_focus_ongoing';
+
+// PendingIntent 标志位（数值与 android.app.PendingIntent 常量一致）
+const PI_FLAGS = 0x08000000 | 0x04000000;   // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
+// ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE（Android 14+ 的 specialUse 类型）
+const FGS_TYPE_SPECIAL_USE = 1073741824;
+
+@UTSAndroid.Suppress("DEPRECATION")
+class PWFocusService extends Service {
+
+  constructor() {
+    super();
+  }
+
+  override onCreate(): void {
+    super.onCreate();
+  }
+
+  override onBind(_intent?: Intent): IBinder | null {
+    return null;
+  }
+
+  override onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+    let title = 'PWstudy 专注中';
+    let text = '';
+    try {
+      let t = intent.getStringExtra('title');
+      let x = intent.getStringExtra('text');
+      if (t != null) title = t;
+      if (x != null) text = x;
+    } catch (e) {
+      // 取不到就用心跳文案，前台服务本身照常起
+    }
+    let notification = buildNotification(this, title, text);
+    if (Build.VERSION.SDK_INT >= 34) {
+      // Android 14+：必须显式声明前台服务类型（清单里是 specialUse）
+      this.startForeground(NOTIFY_ID, notification, FGS_TYPE_SPECIAL_USE);
+    } else {
+      this.startForeground(NOTIFY_ID, notification);
+    }
+    return super.onStartCommand(intent, flags, startId);
+  }
+
+  @UTSAndroid.Suppress("DEPRECATION")
+  override onDestroy(): void {
+    super.onDestroy();
+    this.stopForeground(true);
+  }
+}
+
+/** 建通知渠道（Android 8+；渠道已存在时重复创建无害） */
+function ensureChannel(ctx: Context) {
+  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    let manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    let channel = new NotificationChannel(
+      CHANNEL_ID,
+      '专注进行中',
+      NotificationManager.IMPORTANCE_LOW        // 低打扰：常驻倒计时不该出声
+    )
+    channel.setDescription('番茄钟计时进行中')
+    manager.createNotificationChannel(channel)
+  }
+}
+
+function buildNotification(ctx: Context, title: string, text: string): Notification {
+  ensureChannel(ctx)
+  let builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+  builder.setContentTitle(title)
+  builder.setContentText(text)
+  builder.setSmallIcon(ctx.getApplicationInfo().icon)
+  builder.setWhen(System.currentTimeMillis())
+  builder.setOnlyAlertOnce(true)     // 刷新文案时不重复响铃
+  builder.setOngoing(true)           // 正在进行中：不可滑动清除
+  builder.setAutoCancel(false)
+  // 点击通知回到本 App
+  let launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName())
+  if (launch != null) {
+    launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    let pi = PendingIntent.getActivity(ctx, 0, launch, PI_FLAGS)
+    builder.setContentIntent(pi)
+  }
+  return builder.build()
+}
+
+function serviceIntent(ctx: Context): Intent {
+  return new Intent(ctx, (new PWFocusService()).javaClass)
+}
+
+/**
+ * 启动前台服务（番茄开始时调用）。
+ * 服务已在跑时重复调用只是再触发一次 onStartCommand —— 顺带刷新文案，天然幂等。
+ */
+export function startFocusService(title: string, text: string): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  try {
+    let intent = serviceIntent(ctx!)
+    intent.putExtra('title', title)
+    intent.putExtra('text', text)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      ctx!.startForegroundService(intent)
+    } else {
+      ctx!.startService(intent)
+    }
+    return true
+  } catch (e) {
+    console.error('pwstudy-focus: startForegroundService 失败', e)
+    return false
+  }
+}
+
+/** 只刷新常驻通知文案（通知 id 与服务持久的同一条，倒计时每 30 秒刷一次） */
+export function updateFocusNotification(title: string, text: string): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  try {
+    let manager = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.notify(NOTIFY_ID, buildNotification(ctx!, title, text))
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/** 停止前台服务并移除常驻通知（番茄结束 / 放弃时调用） */
+export function stopFocusService(): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  try {
+    ctx!.stopService(serviceIntent(ctx!))
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/** 探测：能调到这里说明插件的原生代码已经打进包里（自定义基座 / 云打包） */
+export function isAvailable(): boolean {
+  return UTSAndroid.getAppContext() != null
+}
+
+/**
+ * 强制模式用：把 PWstudy 自己拉回前台。
+ *
+ * 两条路，前者优先：
+ *   ① ActivityManager.moveTaskToFront —— 把自己那个还活着的 task 提到最前面，
+ *      不重建 Activity，专注页的计时状态原样留着（需要 REORDER_TASKS，已在清单声明）。
+ *   ② 兜底：launch intent + NEW_TASK|REORDER_TO_FRONT|SINGLE_TOP 重新起一次。
+ *
+ * 实话：Android 10 起系统限制"后台启动 Activity"，各 ROM 松紧不一，加上
+ * 我们没法真把别的 App 杀掉（安卓不允许，也不体面）。拉不回来时返回 false，
+ * 由 JS 侧照常弹通知提醒 —— 不假装有锁屏级的强制力。
+ */
+@UTSAndroid.Suppress("DEPRECATION")
+export function bringToFront(): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  let pkg = ctx!.getPackageName()
+
+  // ① 找自己还在跑的 task，提到前面
+  try {
+    let am = ctx!.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    let tasks = am.getRunningTasks(20)
+    if (tasks != null) {
+      // 先按 topActivity 找；有的 ROM 返回空，再按 baseActivity 找一遍
+      for (let i = 0; i < 2; i++) {
+        for (let t of tasks!) {
+          if (t == null) continue
+          let cn = i === 0 ? t.topActivity : t.baseActivity
+          if (cn != null && cn!.getPackageName() == pkg) {
+            am.moveTaskToFront(t.id, 0)
+            return true
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // 被 ROM 拦了 / 拿不到 task 列表 → 走兜底
+  }
+
+  // ② 兜底：重新把自己起一次
+  try {
+    let launch = ctx!.getPackageManager().getLaunchIntentForPackage(pkg)
+    if (launch != null) {
+      launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      ctx!.startActivity(launch)
+      return true
+    }
+  } catch (e) {
+    return false
+  }
+  return false
+}
+
+/**
+ * 有没有"拉回前台"的原生能力。
+ * 标准基座里插件代码没打进包 → false，界面上要说清楚这只是"提醒"不是"锁"，
+ * 别让用户以为开了就能锁死。
+ */
+export function bringToFrontSupported(): boolean {
+  return UTSAndroid.getAppContext() != null
+}
