@@ -89,6 +89,19 @@
       {{ drift ? '提交，让 AI 重排后面' : '提交今天的记录' }}
     </button>
     <text class="tip">{{ drift ? '检测到和计划有出入，提交后会先给你看 AI 的建议，确认了才改。' : '和计划一致，提交后就只记一笔。' }}</text>
+
+    <app-dialog
+      :show="dlg.show"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :mode="dlg.mode"
+      :items="dlg.items"
+      :danger="dlg.danger"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="dlg.show = false"
+    />
   </view>
 </template>
 
@@ -96,13 +109,16 @@
 import * as dailylog from '../../../utils/dailylog.js'
 import * as pw from '../../../utils/pwstore.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       draft: { date: '', items: [], ahead: [], extras: '', mood: '', note: '' },
-      moods: dailylog.MOODS
+      moods: dailylog.MOODS,
+      // 统一弹窗（components/app-dialog）：多个目标时用它选一个去重排
+      dlg: { show: false, mode: 'sheet', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [] }
     }
   },
   computed: {
@@ -149,10 +165,28 @@ export default {
       }
       if (alive.length === 1) { this.goReplan(alive[0]); return }
       const names = alive.map(id => { const g = pw.goalOf(id); return g ? g.title : id })
-      uni.showActionSheet({
-        itemList: names,
-        success: (r) => this.goReplan(alive[r.tapIndex])
+      this.ask({
+        title: '重排哪个目标？',
+        mode: 'sheet',
+        items: names,
+        action: 'replan',
+        ids: alive
       })
+    },
+    // ---------- 统一弹窗 ----------
+    ask(cfg) {
+      this.dlg = Object.assign(
+        { show: true, mode: 'confirm', title: '', content: '', confirmText: '确定',
+          danger: false, action: '', items: [], ids: [] },
+        cfg || {},
+        { seq: (this.dlg && this.dlg.seq || 0) + 1 }
+      )
+    },
+    onDlgYes(payload) {
+      const act = this.dlg.action
+      const ids = this.dlg.ids || []
+      this.dlg.show = false
+      if (act === 'replan') this.goReplan(ids[payload])
     },
     goReplan(goalId) {
       // from=log：replan 页会带上今天的收工填报去问 AI

@@ -18,32 +18,44 @@ function eq(a, b, label) {
   else bad(label + ' 期望 ' + b + '，实际 ' + a);
 }
 
+// tab 次序的真身在 pages.json 的 tabBar（TABS 只是它的镜像）。
+// 期望值一律从那里算 —— 以后换 tab（改名 / 加减）测试自动跟上，
+// 不会再出现"改成 goals/stats 之后脚本还在找 library/review"这种假失败。
+const fs = require('fs');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const pj = JSON.parse(fs.readFileSync(path.join(ROOT, 'pages.json'), 'utf8')
+  .replace(/^\s*\/\/.*$/gm, '').replace(/([^:])\/\/.*$/gm, '$1'));
+const KEYS = ((pj.tabBar && pj.tabBar.list) || [])
+  .map(x => String(x.pagePath || '').split('/').slice(-1)[0]);
+const K0 = KEYS[0], K1 = KEYS[1], K2 = KEYS[2], K3 = KEYS[3];
+
 console.log('== 1. tab 次序是唯一来源 ==');
-eq(ts.TABS.map(t => t.key).join(','), 'home,library,review,profile', 'tab 次序');
-eq(ts.tabIndex('library'), 1, 'library 下标');
+eq(ts.TABS.map(t => t.key).join(','), KEYS.join(','), 'tab 次序与 pages.json 的 tabBar 一致');
+eq(ts.tabIndex(K1), 1, K1 + ' 下标');
 eq(ts.tabIndex('nope'), -1, '未知 key');
 
 console.log('== 2. 方向：按索引大小决定从左还是从右滑入 ==');
 ts.clearPending();
-eq(ts.markSwitch('home', 'review'), 'right', '索引变大 → 从右滑入');
-eq(ts.takeEnter('review'), 'right', 'review 取到 right');
-eq(ts.takeEnter('review'), '', '只能取一次（不会重复播）');
+eq(ts.markSwitch(K0, K2), 'right', '索引变大 → 从右滑入');
+eq(ts.takeEnter(K2), 'right', K2 + ' 取到 right');
+eq(ts.takeEnter(K2), '', '只能取一次（不会重复播）');
 ts.clearPending();
-eq(ts.markSwitch('profile', 'home'), 'left', '索引变小 → 从左滑入');
-eq(ts.takeEnter('home'), 'left', 'home 取到 left');
+eq(ts.markSwitch(K3, K0), 'left', '索引变小 → 从左滑入');
+eq(ts.takeEnter(K0), 'left', K0 + ' 取到 left');
 ts.clearPending();
-eq(ts.markSwitch('home', 'home'), '', '同一个 tab 不记方向');
-eq(ts.takeEnter('home'), '', '没有意图时不播动画');
+eq(ts.markSwitch(K0, K0), '', '同一个 tab 不记方向');
+eq(ts.takeEnter(K0), '', '没有意图时不播动画');
 
 console.log('== 3. 非目标页 / 过期意图都不得播放 ==');
 ts.clearPending();
-ts.markSwitch('home', 'library');
-eq(ts.takeEnter('review'), '', '不是目标页 → 不播');
+ts.markSwitch(K0, K1);
+eq(ts.takeEnter(K2), '', '不是目标页 → 不播');
 ts.clearPending();
-ts.markSwitch('home', 'review');
+ts.markSwitch(K0, K2);
 const realNow = Date.now;
 Date.now = () => realNow() + 5000;      // 假装过了 5 秒
-eq(ts.takeEnter('review'), '', '过期意图不播（避免误播）');
+eq(ts.takeEnter(K2), '', '过期意图不播（避免误播）');
 Date.now = realNow;
 
 console.log('== 4. 手势：阻尼与阈值 ==');
@@ -54,8 +66,8 @@ if (damped > 120 && damped < 200) ok('超出上限后加阻尼 = ' + damped);
 else bad('阻尼异常：' + damped);
 eq(Math.sign(ts.dampOffset(-300)), -1, '阻尼保持方向');
 eq(ts.neighbor('home', -1), null, '首页再往左没有相邻页');
-eq(ts.neighbor('home', 1).key, 'library', '首页往右是词库');
-eq(ts.neighbor('profile', 1), null, '末页再往右没有相邻页');
+eq(ts.neighbor(K0, 1).key, K1, '首页往右是第 2 个 tab（' + K1 + '）');
+eq(ts.neighbor(K3, 1), null, '末页再往右没有相邻页');
 
 console.log('== 5. mixin：进场方向与复位 ==');
 function ctxOf(key) {
@@ -68,10 +80,10 @@ function ctxOf(key) {
   return ctx;
 }
 ts.clearPending();
-ts.markSwitch('home', 'review');
-const review = ctxOf('review');
+ts.markSwitch(K0, K2);
+const review = ctxOf(K2);
 review.onShow();
-eq(review.slideEnter, 'right', 'review 进场方向 = right');
+eq(review.slideEnter, 'right', K2 + ' 进场方向 = right');
 eq(review.slideCls.join(','), 'slide-in-right', 'class = slide-in-right');
 review.onHide();                      // 手动收尾（测试里不等 320ms）
 review.slideEnter = '';
@@ -108,8 +120,8 @@ home3.onSlideStart({ touches: [{ clientX: 300, clientY: 300 }] });
 home3.onSlideMove({ touches: [{ clientX: 220, clientY: 302 }] });  // 往左 80px
 home3.onSlideEnd();
 eq(navCalls.length, 1, '超过阈值触发切页');
-eq(navCalls[0], '/pages/library/library', '往左拖 → 下一个 tab（词库）');
-eq(ts.takeEnter('library'), 'right', '目标页从右滑入（与手势方向一致）');
+eq(navCalls[0], ts.TABS[1].path, '往左拖 → 下一个 tab（' + K1 + '）');
+eq(ts.takeEnter(K1), 'right', '目标页从右滑入（与手势方向一致）');
 
 console.log('== 9. 边缘：首尾页不越界 ==');
 navCalls.length = 0;

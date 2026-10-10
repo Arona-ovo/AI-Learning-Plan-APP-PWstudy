@@ -144,11 +144,10 @@ console.log('== 2. 相对路径能否解析到真实文件 ==');
 if (unresolved.length === 0) ok('所有相对路径都能解析到文件');
 else [...new Set(unresolved)].forEach(x => bad('路径解析不到：' + x));
 
-console.log('== 3. engine.js 不要转发外部依赖（避免踩 load.js 剥 import 的坑）==');
-const engineSrc = fs.readFileSync(path.join(ROOT, 'utils', 'engine.js'), 'utf8');
-if (!/\bfrom\s+'\.\/tokenize\.js'/.test(engineSrc)) {
-  ok('engine.js 未引入 tokenize（转发导出会让十几个校验脚本 ReferenceError）');
-} else bad('engine.js 引入了 tokenize —— 所有加载 engine 的校验脚本都会挂');
+// == 3. 已移除 ==
+// 原来是「engine.js 不要转发 tokenize（转发导出会让十几个校验脚本 ReferenceError）」。
+// utils/engine.js 随背单词模块整体挪到 _removed_vocab/（2026-10-10 D1），这一组失效，撤掉。
+// 同类教训仍适用于任何**留在 App 里**的模块：别用 export { x } from 转发外部依赖。
 
 console.log('');
 console.log(fail === 0 ? '模块导出一致性全部通过' : '失败 ' + fail + ' 项');

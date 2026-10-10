@@ -88,8 +88,10 @@ walkPages('.vue').forEach((f) => {
 });
 
 console.log('== 7. 页面不再调用系统弹窗 ==');
+// 先剥注释：说明性注释里常写着「不用 uni.showModal」，不剥会被当成真调用
+const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 walkPages('.vue').forEach((f) => {
-  const s = read(f);
+  const s = strip(read(f));
   const rel = path.relative(ROOT, f).replace(/\\/g, '/');
   eq(/uni\.showModal|uni\.showActionSheet/.test(s), false, rel + ' 未调用系统弹窗');
 });
@@ -98,107 +100,50 @@ console.log('== 8. 危险操作用统一 danger 样式 ==');
 assert(/\.dlg-btn\.danger/.test(app), 'App.vue 定义 .dlg-btn.danger');
 assert(/background:\s*#e5484d/.test(app), '危险色沿用 #e5484d');
 
-console.log('== 9. 页面弹窗派发（真实执行 book-switch 脚本） ==');
+console.log('== 9. 页面弹窗派发（真实执行 goals.vue 的「归档目标」） ==');
+// 原来跑的是 pkgManage/pages/book-switch（换词书页），那页随背单词一起退役了。
+// 现在跑 pages/goals：同一个契约 —— 危险操作必须先弹统一弹窗，确认后才真的落库。
 const { loadCode } = require('./lib/load');
-const bsRaw = read(path.join(ROOT, 'pkgManage', 'pages', 'book-switch', 'book-switch.vue'));
-const bsScript = (/<script[^>]*>([\s\S]*?)<\/script>/.exec(bsRaw) || [])[1] || '';
+const gRaw = read(path.join(ROOT, 'pages', 'goals', 'goals.vue'));
+const gScript = (/<script[^>]*>([\s\S]*?)<\/script>/.exec(gRaw) || [])[1] || '';
 
-const calls = [];
-const toasts = [];
-const sheets = [];
-const stub = {
-  listBooks: () => [
-    { id: 'core', name: '核心词书', desc: '', current: true, batchCount: 32, userBook: false },
-    { id: 'ub-1', name: '我的词书', desc: '', current: false, batchCount: 0, userBook: true }
-  ],
-  bookVocab: (id) => ({
-    list: id === 'core' ? new Array(640).fill(0).map((_, i) => ({ seen: i < 10 ? 1 : 0, mastery: 0 })) : [],
-    total: id === 'core' ? 640 : 0,
-    counts: { new: 0, learning: 0, familiar: 0, mastered: 0 }
-  }),
-  bookMode: (id) => (id === 'core' ? 'batch' : 'custom'),
-  currentBookId: () => 'core',
-  switchBook: (id) => { calls.push('switch:' + id); return true },
-  createUserBook: (n) => { calls.push('create:' + n); return 'ub-new' },
-  renameUserBook: (id, n) => { calls.push('rename:' + id + ':' + n); return true },
-  deleteUserBook: (id) => { calls.push('delete:' + id); return true },
-  isNameTaken: (n) => n === '核心词书'
-};
-
-global.uni = Object.assign({}, global.uni, {
-  showToast: (o) => toasts.push(String((o && o.title) || '')),
-  showModal: () => { calls.push('sys-modal') },
-  showActionSheet: (o) => { sheets.push(o); if (o && o.success) o.success({ tapIndex: 1 }) },
-  navigateBack: () => calls.push('back')
-});
-
-// 组件 import 会被 load.js 剥掉，这里补两个占位（页面只用到注册，不实例化）
-const comp = loadCode(bsScript, {
-  wordbook: stub,
+const archived = [];
+const comp = loadCode(gScript, {
+  pw: {
+    get: () => ({ goals: [] }),
+    archiveGoal: (id) => { archived.push(id) },
+    goalOf: () => null,
+    dayDiff: () => 0,
+    today: () => '2026-10-10',
+    todayQueue: () => [],
+    goalProgress: () => ({ pct: 0, done: 0, total: 0 })
+  },
+  hideNativeTabBar: () => {}, syncTabbar: () => {},
+  tabSlideMixin: () => ({}),
+  FloatTabbar: { name: 'FloatTabbar' },
   FloatNavbar: { name: 'FloatNavbar' },
-  AppDialog: { name: 'AppDialog' },
-  // 脚本里的 t()（i18n，见 utils/i18n.js）：中文态桩 = 原文 + 填占位符。
-  // 必须真的填 {name} / {n}：整句带占位符的写法要拼出来的文案里能看到词书名，
-  // 光返回原文的话 "将删除「{name}」…" 里就没有书名，断言会假失败。
-  t: (s, v) => String(s).replace(/\{(\w+)\}/g, (m, k) => (v && v[k] != null ? String(v[k]) : m))
-}, 'book-switch.vue').default;
+  AppDialog: { name: 'AppDialog' }
+}, 'goals.vue').default;
+
 const vm = Object.assign({}, comp.data ? comp.data() : {}, comp.methods || {});
-// 让 refresh() 里的 this.xxx = ... 生效：把返回值挂回
-vm.refresh = function () { const d = comp.methods.refresh.call(vm); Object.assign(vm, { books: d }) }
+assert(typeof comp.methods.ask === 'function', 'ask 存在');
+assert(typeof comp.methods.onDlgYes === 'function', 'onDlgYes 存在');
 
-assert(typeof comp.methods.openDlg === 'function', 'openDlg 存在');
-assert(typeof comp.methods.closeDlg === 'function', 'closeDlg 存在');
-assert(typeof comp.methods.onDlgConfirm === 'function', 'onDlgConfirm 存在');
+comp.methods.confirmArchive.call(vm, { id: 'g-1', title: '三个月英语上 90' });
+eq(vm.dlg.show, true, 'confirmArchive 弹出统一弹窗');
+assert(/三个月英语上 90/.test(vm.dlg.content), '确认文案带上目标名');
+eq(vm.dlg.action, 'archive', 'action = archive');
+eq(archived.length, 0, '光弹窗不落库（要等确认）');
 
-// 长按内置词书：给出提示而不是静默
-toasts.length = 0; calls.length = 0; sheets.length = 0;
-comp.methods.askDelete.call(vm, { id: 'core', name: '核心词书', userBook: false, current: true });
-assert(toasts.length === 1, '长按内置词书 → 弹出提示（实际 ' + toasts.length + ' 条）');
-eq(vm.dlg.show, false, '长按内置词书 → 不弹确认框');
+comp.methods.onDlgYes.call(vm);
+eq(archived.join(','), 'g-1', '确认后才真的归档');
+eq(vm.dlg.show, false, '确认后弹窗关闭');
 
-// 长按自建词书：弹操作菜单
-comp.methods.askDelete.call(vm, { id: 'ub-1', name: '我的词书', userBook: true, current: false, wordCount: 3 });
-eq(vm.dlg.mode, 'sheet', '长按自建词书 → sheet 模式');
-eq(vm.dlg.items.length, 2, '菜单 2 项（重命名 / 删除）');
-eq(vm.dlg.items[1].danger, true, '「删除词书」标为危险项');
-
-// 菜单 → 删除 → 确认框
-comp.methods.onDlgConfirm.call(vm, 1);
-eq(vm.dlg.mode, 'confirm', '选「删除词书」→ confirm 模式');
-eq(vm.dlg.danger, true, '删除确认框用 danger 样式');
-assert(/我的词书/.test(vm.dlg.content), '确认文案带上词书名');
-assert(/自动切换/.test(vm.dlg.content) === false, '非当前词书 → 不提自动切换');
-
-// 确认 → 真正删除
-comp.methods.onDlgConfirm.call(vm, true);
-assert(calls.indexOf('delete:ub-1') >= 0, '确认后调用 deleteUserBook');
-eq(vm.dlg.show, false, '删除后弹窗关闭');
-
-// 当前词书删除提示要说明自动切到哪本（重新走一次「长按 → 菜单 → 删除」）
-calls.length = 0;
-const currentBook = { id: 'ub-1', name: '我的词书', userBook: true, current: true, wordCount: 3 };
-comp.methods.askDelete.call(vm, currentBook);
-comp.methods.onDlgConfirm.call(vm, 1);
-assert(/自动切换到/.test(vm.dlg.content), '当前词书 → 提示会自动切换到「核心词书」');
-assert(vm.dlg.action === 'delete', '删除确认框 action = delete（实际 ' + vm.dlg.action + '）');
-
-// 菜单 → 重命名 → 输入框（重新长按一次）
-calls.length = 0;
-comp.methods.askDelete.call(vm, currentBook);
-comp.methods.onDlgConfirm.call(vm, 0);
-eq(vm.dlg.mode, 'input', '选「重命名」→ input 模式');
-eq(vm.dlg.value, '我的词书', '输入框带出旧名字');
-assert(vm.dlg.seq > 0, 'seq 递增（保证组件同步 draft）');
-
-// 重命名重名 → 报错且不落库
-comp.methods.onDlgConfirm.call(vm, '核心词书');
-assert(!!vm.dlg.error, '重名 → 弹窗内报错');
-eq(calls.length, 0, '重名 → 不调用 renameUserBook');
-
-// 换成合法名字 → 落库
-comp.methods.onDlgConfirm.call(vm, '新名字');
-assert(calls.indexOf('rename:ub-1:新名字') >= 0, '合法名字 → 调用 renameUserBook');
-eq(vm.dlg.show, false, '重命名成功后关闭弹窗');
+// 取消：点遮罩/取消只关弹窗，什么都不做
+archived.length = 0;
+comp.methods.confirmArchive.call(vm, { id: 'g-2', title: '另一个目标' });
+vm.dlg.show = false;
+eq(archived.length, 0, '取消 → 不归档');
 
 console.log('');
 console.log(fail === 0 ? '统一弹窗校验全部通过 ✓' : '失败 ' + fail + ' 项 ✗');

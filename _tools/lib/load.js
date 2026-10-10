@@ -7,11 +7,19 @@ const ROOT = path.resolve(__dirname, '../../uniapp');
 
 const IMPORT_RE = /^[ \t]*import\s+([^;]*?)\s+from\s+['"](\.[^'"]+)['"];?[ \t]*$/gm;
 
+// 解析一条 import：先在 uniapp/ 里找，找不到再去工作区根 _removed_vocab/ 的镜像位置找
+// （老 App 的模块整簇挪走后，剩下的老代码仍然 import 它们）。
+// 注意返回的 rel 必须是 **uniapp/ 相对路径**：collectImports 用它判断"是不是 data/ 模块"，
+// sourceOf 用它去 _removed_vocab/ 取源码 —— 写成 ../_removed_vocab/... 就两头都不认了。
 function resolveSpec(fromRel, spec) {
   const p = path.resolve(ROOT, path.dirname(fromRel), spec);
   const rel = path.relative(ROOT, p).replace(/\\/g, '/');
   for (const c of [p, p + '.js']) {
     if (fs.existsSync(c) && fs.statSync(c).isFile()) return { file: c, rel: path.relative(ROOT, c).replace(/\\/g, '/') };
+  }
+  const q = path.resolve(ROOT, '..', '_removed_vocab', rel);
+  for (const c of [q, q + '.js']) {
+    if (fs.existsSync(c) && fs.statSync(c).isFile()) return { file: c, rel: rel };
   }
   return null;
 }
@@ -22,7 +30,7 @@ function autoLoad(rel, deps, cache) {
   const key = rel;
   if (cache[key]) return cache[key];
   cache[key] = {}; // 先占位，防止循环导入打转
-  const mod = loadInner(fs.readFileSync(path.join(ROOT, rel), 'utf8'), rel, {}, cache);
+  const mod = loadInner(sourceOf(rel), rel, {}, cache);
   cache[key] = mod;
   return mod;
 }

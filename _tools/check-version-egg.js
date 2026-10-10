@@ -85,18 +85,14 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
   const kb = Math.round(fs.statSync(path.join(ROOT, 'data/build-info.js')).size / 1024 * 10) / 10;
   assert(kb < 4, 'build-info.js 足够小（' + kb + 'KB）');
 
-  console.log('== 5. 规模数字是可信的（不是写死的过期值）==');
-  const lex = await import(U('data/lexicon-data.js'));
-  eq(info.lexCount, lex.LEX_COUNT, 'lexCount 与词条表行数一致');
-  // 拿 BOOK_INDEX 的键当"考试词书"的真身：WORDBOOKS 里还挂着 custom_inbox（我的导入词书），
-  // 它不是一本考纲词书，不该算进这个数。
-  const bd = await import(U('data/bookdata.js'));
-  const examIds = Object.keys(bd.BOOK_INDEX || {});
-  eq(info.bookCount, examIds.length, 'bookCount 与考试词书数一致（' + examIds.join(',') + '）');
-  const wb = await import(U('data/wordbooks.js'));
-  const regIds = (wb.WORDBOOKS || []).map(b => b && b.id);
-  assert(examIds.every(id => regIds.indexOf(id) >= 0), '每本考试词书都在 WORDBOOKS 里注册过');
-  assert(info.sentenceCount > 100, 'sentenceCount 量级正常（' + info.sentenceCount + '）');
+  console.log('== 5. 面板只报 PWstudy 自己还讲得通的数字 ==');
+  // 语料整簇挪出 App（2026-10-10 D1）之后，lexCount / bookCount / sentenceCount
+  // 描述的是 App 里已经不存在的东西 —— 界面不许再拿它们当卖点。
+  ['lexCount', 'bookCount', 'sentenceCount'].forEach(k => {
+    assert(code.indexOf(k) < 0, '设置页不再展示 ' + k);
+  });
+  assert(code.indexOf('B.version') >= 0, '面板有版本号');
+  assert(code.indexOf('B.builtAt') >= 0, '面板有构建日期');
   assert(/^\d{4}-\d{2}-\d{2}$/.test(info.builtAt), 'builtAt 是 YYYY-MM-DD（' + info.builtAt + '）');
 
   console.log('== 6. 彩蛋文案都进了英文表 ==');
@@ -109,7 +105,7 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
   let miss = 0;
   lines.forEach(l => { if (!en[l]) { miss++; console.log('    缺英文: ' + l); } });
   assert(miss === 0, 'EGG_LINES 全部有英文译文（缺 ' + miss + ' 条）');
-  ['彩蛋', '收起来', '发现次数', '内置词条', '考试词书', '练习例句', '再点 {n} 下…', '{n} 本', '第 {n} 次']
+  ['彩蛋', '收起来', '发现次数', '构建日期', '再点 {n} 下…', '第 {n} 次']
     .forEach(k => assert(!!en[k], '英文表有「' + k + '」'));
 
   console.log('== 7. 生成脚本会产出这个快照 ==');

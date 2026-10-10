@@ -669,15 +669,13 @@
           <view class="row-main">
             <text class="row-title">{{ $t('介绍') }}</text>
           </view>
-          <text class="row-value">{{ $t('背单词 · 本地离线可用的翻译练习工具') }}</text>
+          <text class="row-value">{{ $t('番茄钟 · AI 学习规划 · 用时统计，全部离线') }}</text>
         </view>
-        <view class="row" @tap="replayGuide">
-          <view class="row-main">
-            <text class="row-title">{{ $t('新手引导') }}</text>
-            <text class="row-desc">{{ $t('回首页重新走一遍功能介绍') }}</text>
-          </view>
-          <text class="row-value">{{ $t('重看 ›') }}</text>
-        </view>
+        <!-- 原「新手引导 · 重看」入口 2026-10-10 撤掉：
+             引导的步骤内容全是背单词的（查词 / 开始背单词 / AI 指令），
+             遮罩组件 components/onboarding-mask.vue 已在 pivot 时随老页面挪走，
+             首页也不再放引导 —— 留着就是个点了没反应的按钮。等 PWstudy 自己的
+             引导步骤写好了再一起回来（utils/onboarding.js 在 _removed_vocab/ 里留着）。 -->
       </view>
     </view>
 
@@ -758,7 +756,6 @@ import { AI_FEATURES, featureMap, setFeature, setAll as setAllAiFeatures, offCou
 import { resetBreaker } from '../../../services/http.js'
 import * as aiCache from '../../../utils/ai-cache.js'
 import * as apiUsage from '../../../utils/api-usage.js'
-import * as onboarding from '../../../utils/onboarding.js'
 import { speakSentence as aiSpeak } from '../../../services/voice.js'
 import * as sfx from '../../../utils/sfx.js'
 // 只有几百字节的规模快照：设置页在分包里，不能为了显示几个数字去 import 语料本身
@@ -961,16 +958,15 @@ export default {
       void this.__lang;
       return t(this.eggLineKey);
     },
-    // 彩蛋里的规模面板。数字来自 data/build-info.js（几百字节的快照），
-    // 不直接引语料 —— 设置页在分包里，引了会把上百 KB 语料复制一份进分包。
+    // 彩蛋里的面板。只留 PWstudy 自己还讲得通的数字：
+    // 「内置词条 / 考试词书 / 练习例句」那几行是背单词时代的语料规模，
+    // 语料整簇挪出 App 之后（2026-10-10）它们描述的已经是不存在的东西，撤掉。
     eggStats() {
       void this.__lang;
       const B = BUILD_INFO;
       return [
         { k: t('版本'), v: B.version },
-        { k: t('内置词条'), v: t('{n} 条', { n: B.lexCount }) },
-        { k: t('考试词书'), v: t('{n} 本', { n: B.bookCount }) },
-        { k: t('练习例句'), v: t('{n} 条', { n: B.sentenceCount }) },
+        { k: t('构建日期'), v: B.builtAt },
         { k: t('发现次数'), v: t('第 {n} 次', { n: this.eggFound }) }
       ];
     },
@@ -1074,12 +1070,7 @@ export default {
     openDonate() {
       uni.navigateTo({ url: '/pkgManage/pages/donate/donate' })
     },
-    // 重看新手引导：清掉完成标记后跳回首页，首页 onShow 检测到未完成会自动放一遍。
-    // switchTab 会关掉设置页（非 tab 页），正好回到干净的首页。
-    replayGuide() {
-      try { onboarding.restart() } catch (e) { /* 清标记失败就当看过 */ }
-      uni.switchTab({ url: '/pages/home/home' })
-    },
+    // （replayGuide 随「新手引导」入口一起撤掉，见模板里那条注释）
     /**
      * 复制 QQ 群号。不跳外部链接 —— 只是把号码放进剪贴板，
      * 用户自己去 QQ 里加群；这样既不依赖任何第三方 SDK，也不会跳出 App。

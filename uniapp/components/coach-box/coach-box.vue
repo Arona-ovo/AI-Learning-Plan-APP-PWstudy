@@ -151,16 +151,16 @@ export default {
     },
     goFull() { uni.navigateTo({ url: '/pkgPlan/pages/coach/coach' }) },
     goSettings() { uni.navigateTo({ url: '/pkgManage/pages/settings/settings' }) },
+    // 弹窗不在这里弹：本组件是嵌在首页 .page-slide 里的，
+    // 而 .pop-mask 是 fixed —— 放在有 transform 的祖先里会跟着一起位移（硬约束 3/4）。
+    // 所以只往上抛一个 ask，由页面（弹窗在 .page-slide 之外）统一弹。
     clearAll() {
-      uni.showModal({
+      this.$emit('ask', {
         title: '清空今天的对话',
         content: '只清这段对话，今天已经记下的收工内容不受影响。',
-        success: (r) => {
-          if (!r.confirm) return
-          coach.clear(pw.today())
-          this.refresh()
-          this.$emit('changed')
-        }
+        confirmText: '清空',
+        danger: true,
+        action: 'coach-clear'
       })
     }
   }

@@ -63,9 +63,17 @@ function mount(curIndex, keep) {
   return ctx;
 }
 
+// tab 次序的真身在 pages.json 的 tabBar（TABS 只是它的镜像）：期望值从那里算，
+// 以后换 tab 测试自动跟上（以前这里硬写 library/review，改成 goals/stats 后假失败一片）
+const ROOT = path.join(__dirname, '..', 'uniapp');
+const pj = JSON.parse(fs.readFileSync(path.join(ROOT, 'pages.json'), 'utf8')
+  .replace(/^\s*\/\/.*$/gm, '').replace(/([^:])\/\/.*$/gm, '$1'));
+const K = ((pj.tabBar && pj.tabBar.list) || [])
+  .map(x => String(x.pagePath || '').split('/').slice(-1)[0]);
+
 console.log('== 1. tab 次序与页面路径 ==');
-eq(tabSlide.TABS.length, 4, 'tab 数量');
-eq(tabSlide.tabIndex('review'), 2, 'review 下标');
+eq(tabSlide.TABS.map(t => t.key).join(','), K.join(','), 'tab 次序与 pages.json 一致');
+eq(tabSlide.tabIndex(K[2]), 2, K[2] + ' 下标');
 eq(tabSlide.tabAt(9), null, '越界返回 null');
 
 console.log('== 2. 冷启动：没有上一个 tab，直接就位不播动画 ==');
@@ -76,7 +84,7 @@ eq(api.getLast(), 0, '模块级 lastIndex');
 eq(timers.length, 0, '不应排定时器（无需滑动）');
 eq(home.indAnim, true, '过渡是开着的');
 
-console.log('== 3. 切到「词库」：先无过渡落到上一个位置，再滑到目标 ==');
+console.log('== 3. 切到第 2 个 tab：先无过渡落到上一个位置，再滑到目标 ==');
 const lib = mount(1);
 lib.sync();
 eq(lib.indIndex, 0, '首帧停在起点（首页位置）');
@@ -106,47 +114,47 @@ const me0 = mount(3);
 me0.sync();
 flush();
 eq(api.getLast(), 3, '先切到「我的」，lastIndex = 3');
-// 模拟：当前停在「我的」(3)，回到常驻的「词库」页（实例里 indIndex 还是 1）
+// 模拟：当前停在最后一个 tab(3)，回到常驻的第 2 个 tab 页（实例里 indIndex 还是 1）
 const libCached = mount(1, { indIndex: 1 });
 libCached.sync();
 eq(libCached.indIndex, 3, '先无动画落到「我的」位置');
 eq(libCached.indAnim, false, '落起点时关掉过渡');
 flush();
-eq(libCached.indIndex, 1, '再滑回「词库」');
+eq(libCached.indIndex, 1, '再滑回 ' + K[1]);
 eq(libCached.indAnim, true, '过渡已恢复（真正可见的这一段有动画）');
-eq(api.getLast(), 1, 'lastIndex 回到词库');
+eq(api.getLast(), 1, 'lastIndex 回到 ' + K[1]);
 
 console.log('== 7. 残留 pending 必须清掉（选中态与页面同步） ==');
-const stale = mount(0, { pending: 'review' });
+const stale = mount(0, { pending: K[2] });
 stale.sync();
 eq(stale.pending, '', '回到缓存页面时残留的 pending 已清空');
-const fresh = mount(0, { pending: 'review', __navLock: true });
+const fresh = mount(0, { pending: K[2], __navLock: true });
 fresh.sync();
-eq(fresh.pending, 'review', '导航在途时的 pending 保留（点击反馈不被 sync 吃掉）');
+eq(fresh.pending, K[2], '导航在途时的 pending 保留（点击反馈不被 sync 吃掉）');
 
 console.log('== 8. 点击：即时高亮 + 记录方向 + 只导航一次 ==');
 navCalls.length = 0;
 switchCalls.length = 0;
 const me = mount(3);
-me.go({ currentTarget: { dataset: { k: 'home' } } });
-eq(me.pending, 'home', '点击瞬间 pending 已切换（不等页面挂载）');
+me.go({ currentTarget: { dataset: { k: K[0] } } });
+eq(me.pending, K[0], '点击瞬间 pending 已切换（不等页面挂载）');
 eq(navCalls.length, 1, '触发了一次 switchTab');
 eq(navCalls[0], '/pages/home/home', '目标路径');
 eq(switchCalls.length, 1, '记录了一次切换方向');
 eq(switchCalls[0].dir, 'left', '索引变小 → 从左滑入');
-me.go({ currentTarget: { dataset: { k: 'library' } } });   // 连点保护
+me.go({ currentTarget: { dataset: { k: K[1] } } });   // 连点保护
 eq(navCalls.length, 1, '350ms 内的连点被拦掉');
 me.__navLock = false;
 me.pending = '';                                    // 回到"当前就在 profile"的真实状态
-me.go({ currentTarget: { dataset: { k: 'profile' } } });
+me.go({ currentTarget: { dataset: { k: K[3] } } });
 eq(navCalls.length, 1, '点击当前 tab 不重复导航');
 me.go({ currentTarget: { dataset: { k: 'nope' } } });
 eq(navCalls.length, 1, '未知 key 不导航');
 
 console.log('== 9. activeKey：pending 优先于页面传入的 current ==');
 const comp = api.COMP;
-const vm = { pending: 'review', current: 'home', tabs: tabSlide.TABS };
-eq(comp.computed.activeKey.call(vm), 'review', 'pending 生效');
+const vm = { pending: K[2], current: K[0], tabs: tabSlide.TABS };
+eq(comp.computed.activeKey.call(vm), K[2], 'pending 生效');
 
 console.log('== 10. 指示器用 transform 平移，时长落在"跟手"区间 ==');
 const style = src.slice(src.lastIndexOf('<style'));

@@ -684,6 +684,8 @@ export default {
   '版本': 'Version',
   '介绍': 'About',
   '背单词 · 本地离线可用的翻译练习工具': 'Vocab trainer · offline translation practice',
+  '番茄钟 · AI 学习规划 · 用时统计，全部离线':
+    'Pomodoro · AI study planning · app time tracking — fully offline',
   '待配置': 'Not configured',
   '未开启': 'Off',
 
@@ -861,9 +863,35 @@ export default {
   '彩蛋': 'Easter egg',
   '收起来': 'Put it away',
   '发现次数': 'Found',
-  '内置词条': 'Built-in entries',
-  '考试词书': 'Exam wordbooks',
-  '练习例句': 'Practice sentences',
+  '构建日期': 'Built on',
+  // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
+  // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
+  '番茄专注': 'Pomodoro',
+  '今日任务': "Today's tasks",
+  '进行中的目标': 'Active goal',
+  '学习 App': 'Study apps',
+  'AI 今日对话': 'AI check-in',
+  '当前番茄的倒计时，点一下进入全屏专注页':
+    'The running pomodoro countdown — tap to open the full-screen focus page',
+  '今天要做的任务队列，点行直接开始专注':
+    "Today's queue — tap a row to start focusing on it",
+  '里程碑进度与剩余天数': 'Milestone progress and days left',
+  '登记的学习类 App，点图标直达并统计用时':
+    'Registered study apps — tap to launch and track time spent',
+  '一句话汇报今天，AI 判断要不要重排后面':
+    'Report your day in one line — the AI decides whether to reshuffle what follows',
+  // 我的（profile）菜单
+  '今日专注(分)': 'Focus today (min)',
+  '今日番茄': 'Pomodoros today',
+  '进行中目标': 'Active goals',
+  '学习 App 管理': 'Manage study apps',
+  '新建目标': 'New goal',
+  'AI 对话助手': 'AI assistant',
+  '权限与后台保活': 'Permissions & background',
+  '数据备份': 'Data backup',
+  '支持 PWstudy': 'Support PWstudy',
+  'PWstudy 一直免费、无广告、离线可用。如果它帮到了你， 扫码请作者喝杯咖啡就是最大的鼓励（金额随意，心意到了就行）。':
+    'PWstudy is free, ad-free and offline. If it helped you, scanning the code to buy the author a coffee is the best encouragement (any amount — it is the thought that counts).',
   '再点 {n} 下…': '{n} more taps…',
   '被你找到了。这张卡就是全部彩蛋，没有下一层了。':
     'You found it. This card is the whole easter egg — there is nothing underneath.',

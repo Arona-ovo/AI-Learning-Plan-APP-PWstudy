@@ -75,6 +75,17 @@
         导入（{{ mode === 'merge' ? '合并' : '覆盖' }}）
       </button>
     </view>
+
+    <app-dialog
+      :show="dlg.show"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :danger="dlg.danger"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="dlg.show = false"
+    />
   </view>
 </template>
 
@@ -82,9 +93,10 @@
 import * as backup from '../../../utils/backup.js'
 import * as pw from '../../../utils/pwstore.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       stat: { goals: 0, tasks: 0, sessions: 0, days: 0 },
@@ -92,7 +104,9 @@ export default {
       sizeText: '',
       incoming: '',
       mode: 'merge',
-      parsed: { ok: false, error: '', summary: null }
+      parsed: { ok: false, error: '', summary: null },
+      // 统一弹窗（components/app-dialog）：导入是不可撤销的操作，确认要用危险色
+      dlg: { show: false, title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', payload: null }
     }
   },
   onShow() {
@@ -153,27 +167,40 @@ export default {
         return
       }
       const isReplace = this.mode === 'replace'
-      uni.showModal({
+      this.ask({
         title: isReplace ? '整包覆盖？' : '合并导入？',
         content: isReplace
           ? '现有数据会被备份完全替换，且无法撤销。'
           : '只补进备份里有、你现在没有的数据。',
         confirmText: '导入',
-        confirmColor: '#E5484D',
-        success: (m) => {
-          if (!m.confirm) return
-          const res = backup.applyPayload(r.payload, this.mode)
-          if (!res.ok) {
-            uni.showToast({ title: res.error || '导入失败', icon: 'none' })
-            return
-          }
-          this.refreshStat()
-          uni.showToast({
-            title: '导入完成：+' + res.added.goals + ' 目标 / +' + res.added.sessions + ' 番茄',
-            icon: 'success',
-            duration: 2200
-          })
-        }
+        danger: true,
+        action: 'import',
+        payload: r.payload
+      })
+    },
+    // ---------- 统一弹窗 ----------
+    ask(cfg) {
+      this.dlg = Object.assign(
+        { show: true, title: '', content: '', confirmText: '确定', danger: false, action: '', payload: null },
+        cfg || {},
+        { seq: (this.dlg && this.dlg.seq || 0) + 1 }
+      )
+    },
+    onDlgYes() {
+      const act = this.dlg.action
+      const payload = this.dlg.payload
+      this.dlg.show = false
+      if (act !== 'import') return
+      const res = backup.applyPayload(payload, this.mode)
+      if (!res.ok) {
+        uni.showToast({ title: res.error || '导入失败', icon: 'none' })
+        return
+      }
+      this.refreshStat()
+      uni.showToast({
+        title: '导入完成：+' + res.added.goals + ' 目标 / +' + res.added.sessions + ' 番茄',
+        icon: 'success',
+        duration: 2200
       })
     }
   }

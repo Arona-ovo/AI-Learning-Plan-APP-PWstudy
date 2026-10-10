@@ -131,10 +131,11 @@ sfx.stop();
 assert(rec.stopped && rec.destroyed, 'stop() 停掉并销毁当前实例');
 
 console.log('== 7. 接线 ==');
-  const pr = fs.readFileSync(path.join(ROOT, 'pkgStudy', 'pages', 'practice', 'practice.vue'), 'utf8');
-  assert(/import \* as sfx from/.test(pr), '练习页引入 sfx');
-  assert(/sfx\.play\(status\)/.test(pr), 'finish() 里按判定结果播音效');
-  assert(/sfx\.durationOf\(status\)/.test(pr), '朗读延后到音效播完（用 durationOf 排开）');
+  // 练习页（pkgStudy/pages/practice）随背单词一起退役，这里改查当前真正的调用方：
+  // notify.js（番茄结束的响铃走 sfx）与设置页（音效开关 / 试听 / 彩蛋开奖音）
+  const nt = fs.readFileSync(path.join(ROOT, 'utils', 'notify.js'), 'utf8');
+  assert(/import \* as sfx from/.test(nt), 'notify.js 引入 sfx');
+  assert(/sfx\.play\('correct'\)/.test(nt), '提示音走 sfx.play');
   const app = fs.readFileSync(path.join(ROOT, 'App.vue'), 'utf8');
   assert(/sfx\.stop\(\)/.test(app), 'App onHide 掐掉音效');
   const st = fs.readFileSync(path.join(ROOT, 'pkgManage', 'pages', 'settings', 'settings.vue'), 'utf8');

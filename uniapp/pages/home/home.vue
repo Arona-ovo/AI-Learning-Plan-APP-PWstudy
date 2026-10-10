@@ -42,7 +42,8 @@
       <!-- ===== 空闲态：默认只留三张卡 ===== -->
       <block v-else>
       <!-- 番茄钟状态卡 -->
-      <view class="card focus-card" @tap="goFocus()">
+      <!-- 与其它卡一样按注册表显隐（以前这张是硬写的，收纳 focus 不会生效） -->
+      <view class="card focus-card" v-if="show('focus')" @tap="goFocus()">
         <view class="fc-main">
           <view class="fc-ring" :class="{ 'fc-ring-run': running }">
             <text class="fc-time">{{ running ? fmtMMSS(cur.remainSec) : fmtHM(todayMin) }}</text>
@@ -126,7 +127,7 @@
 
       <!-- 跟 AI 说说今天：不想逐项填表时，一句话说完，AI 自己判断算不算偏离 -->
       <view class="card coach-card" v-if="show('coach')">
-        <coach-box ref="coach" @changed="onCoachChanged" />
+        <coach-box ref="coach" @changed="onCoachChanged" @ask="ask" />
       </view>
 
       <!-- 目标进度 -->
@@ -180,6 +181,20 @@
 
     </view>
 
+    <!-- 统一弹窗（.pop-mask 是 fixed，必须放在 .page-slide 之外） -->
+    <app-dialog
+      :show="dlg.show"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :mode="dlg.mode"
+      :items="dlg.items"
+      :danger="dlg.danger"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="dlg.show = false"
+    />
+
     <float-tabbar ref="tabbar" current="home" />
   </view>
 </template>
@@ -193,15 +208,17 @@ import * as strict from '../../utils/strict.js'
 import * as forced from '../../utils/forced.js'
 import * as setup from '../../utils/setup.js'
 import * as dailylog from '../../utils/dailylog.js'
+import * as coach from '../../utils/coach.js'
 import * as layout from '../../utils/home-layout.ts'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
 import CoachBox from '../../components/coach-box/coach-box.vue'
+import AppDialog from '../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatTabbar, FloatNavbar, CoachBox },
+  components: { FloatTabbar, FloatNavbar, CoachBox, AppDialog },
   mixins: [tabSlideMixin('home')],
   data() {
     return {
@@ -221,7 +238,9 @@ export default {
       layoutIds: layout.layout(),
       strictOn: false,    // 严格模式：离开学习 App 就提醒，30 秒不回来作废
       forcedOn: false,    // 强制模式：离开就立刻把 PWstudy 拉回前台
-      usageOk: false      // 「使用情况访问」权限：强制模式的能力前提
+      usageOk: false,     // 「使用情况访问」权限：强制模式的能力前提
+      // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
+      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null }
     }
   },
   computed: {
@@ -349,17 +368,11 @@ export default {
       try { need = setup.shouldPrompt() } catch (e) { need = false }
       if (!need) return
       setup.markPrompted()
-      uni.showModal({
+      this.ask({
         title: '先开几个权限',
         content: '通知、使用情况访问、电池优化白名单 —— 不开的话番茄锁屏会被系统回收、学习 App 列表读不出来。现在去设置吗？',
         confirmText: '去设置',
-        cancelText: '以后再说',
-        success: (r) => {
-          if (r.confirm) {
-            this.__fromSetup = true
-            uni.navigateTo({ url: '/pkgManage/pages/setup/setup' })
-          }
-        }
+        action: 'setup'
       })
     },
     goSetup() {
@@ -390,20 +403,54 @@ export default {
       strict.sync()
       forced.sync()
     },
+    // ---------- 统一弹窗 ----------
+    // 全 App 只有一套弹窗（components/app-dialog）：系统弹窗在 App 端样式管不到，
+    // 跟这套毛玻璃卡片不是一个画风。ask() 只负责描述，动作在 onDlgYes 里按 action 分派。
+    ask(cfg) {
+      this.dlg = Object.assign(
+        { show: true, mode: 'confirm', title: '', content: '', confirmText: '确定',
+          danger: false, action: '', items: [], item: null },
+        cfg || {},
+        { seq: (this.dlg && this.dlg.seq || 0) + 1 }
+      )
+    },
+    onDlgYes(payload) {
+      const act = this.dlg.action
+      const item = this.dlg.item
+      this.dlg.show = false
+      if (act === 'task') {
+        if (payload === 0) this.startFor(item)
+        else if (payload === 1) this.markDone(item)
+        else if (payload === 2) this.pushTomorrow(item)
+        else if (payload === 3) this.goDetail(item.goal.id)
+        return
+      }
+      if (act === 'coach-clear') {
+        try { coach.clear(pw.today()) } catch (e) {}
+        if (this.$refs.coach && this.$refs.coach.refresh) this.$refs.coach.refresh()
+        this.refresh()
+        return
+      }
+      if (act === 'setup') {
+        this.__fromSetup = true
+        uni.navigateTo({ url: '/pkgManage/pages/setup/setup' })
+        return
+      }
+      if (act === 'giveup') {
+        focus.giveUp()
+        this.cur = null
+        this.refresh()
+        strict.sync()
+        forced.sync()
+      }
+    },
     confirmGiveUp() {
-      uni.showModal({
+      this.ask({
         title: '结束这一轮？',
         content: '满 1 分钟会按实际时长记录，但不算完成任务量。',
         confirmText: '结束',
-        confirmColor: '#E5484D',
-        success: (r) => {
-          if (!r.confirm) return
-          focus.giveUp()
-          this.cur = null
-          this.refresh()
-          strict.sync()
-          forced.sync()
-        }
+        danger: true,
+        action: 'giveup'
       })
     },
     // 强制模式的能力前提是 UsageStats：没有它就不知道前台是谁，只能提示
@@ -446,16 +493,12 @@ export default {
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
     taskMenu(item) {
-      const list = ['开始专注', '标记完成', '改到明天', '看目标详情']
-      uni.showActionSheet({
-        itemList: list,
-        success: (r) => {
-          if (r.tapIndex === 0) this.startFor(item)
-          else if (r.tapIndex === 1) this.markDone(item)
-          else if (r.tapIndex === 2) this.pushTomorrow(item)
-          else if (r.tapIndex === 3) this.goDetail(item.goal.id)
-        },
-        fail: () => {}
+      this.ask({
+        title: item.task.title,
+        mode: 'sheet',
+        items: ['开始专注', '标记完成', '改到明天', '看目标详情'],
+        action: 'task',
+        item: item
       })
     },
     markDone(item) {

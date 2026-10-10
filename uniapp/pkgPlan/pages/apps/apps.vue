@@ -118,6 +118,19 @@
     </view>
 
     <view style="height: 40rpx"></view>
+
+    <app-dialog
+      :show="dlg.show"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :mode="dlg.mode"
+      :items="dlg.items"
+      :danger="dlg.danger"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="dlg.show = false"
+    />
   </view>
 </template>
 
@@ -125,9 +138,10 @@
 import * as pw from '../../../utils/pwstore.js'
 import * as apptime from '../../../utils/apptime.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       dock: [],
@@ -139,6 +153,8 @@ export default {
       loadingApps: false,
       appsError: '',
       manual: { name: '', pkg: '', purpose: 'study' },
+      // 统一弹窗（components/app-dialog）
+      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], pkg: '' },
       manualOpen: false
     }
   },
@@ -202,18 +218,32 @@ export default {
       pw.dockSetPurpose(a.pkg, a.purpose === 'rest' ? 'study' : 'rest')
       this.refresh()
     },
+    // ---------- 统一弹窗 ----------
+    ask(cfg) {
+      this.dlg = Object.assign(
+        { show: true, mode: 'confirm', title: '', content: '', confirmText: '确定',
+          danger: false, action: '', items: [], pkg: '' },
+        cfg || {},
+        { seq: (this.dlg && this.dlg.seq || 0) + 1 }
+      )
+    },
+    onDlgYes() {
+      const act = this.dlg.action
+      const pkg = this.dlg.pkg
+      this.dlg.show = false
+      if (act === 'remove') {
+        pw.dockRemove(pkg)
+        this.refresh()
+      }
+    },
     askRemove(a) {
-      uni.showModal({
+      this.ask({
         title: '移除 App',
         content: '「' + a.name + '」不再出现在首页，历史统计保留。',
         confirmText: '移除',
-        confirmColor: '#E5484D',
-        success: (r) => {
-          if (r.confirm) {
-            pw.dockRemove(a.pkg)
-            this.refresh()
-          }
-        }
+        danger: true,
+        action: 'remove',
+        pkg: a.pkg
       })
     },
     openPerm() {

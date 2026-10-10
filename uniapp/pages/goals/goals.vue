@@ -62,6 +62,17 @@
 
     </view>
 
+    <app-dialog
+      :show="dlg.show"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :danger="dlg.danger"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="dlg.show = false"
+    />
+
     <float-tabbar ref="tabbar" current="goals" />
   </view>
 </template>
@@ -72,15 +83,18 @@ import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatTabbar, FloatNavbar },
+  components: { FloatTabbar, FloatNavbar, AppDialog },
   mixins: [tabSlideMixin('goals')],
   data() {
     return {
       goals: [],
       archived: [],
-      showArchived: false
+      showArchived: false,
+      // 统一弹窗（components/app-dialog）：不用 uni.showModal，样式跟卡片一致
+      dlg: { show: false, title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', goalId: '' }
     }
   },
   onShow() {
@@ -101,17 +115,30 @@ export default {
     goCalendar() { uni.navigateTo({ url: '/pkgPlan/pages/calendar/calendar' }) },
     goDetail(id) { uni.navigateTo({ url: '/pkgPlan/pages/goal-detail/goal-detail?id=' + id }) },
     goReplan(id) { uni.navigateTo({ url: '/pkgPlan/pages/replan/replan?id=' + id }) },
+    // ---------- 统一弹窗 ----------
+    ask(cfg) {
+      this.dlg = Object.assign(
+        { show: true, title: '', content: '', confirmText: '确定', danger: false, action: '', goalId: '' },
+        cfg || {},
+        { seq: (this.dlg && this.dlg.seq || 0) + 1 }
+      )
+    },
+    onDlgYes() {
+      const act = this.dlg.action
+      const id = this.dlg.goalId
+      this.dlg.show = false
+      if (act === 'archive') {
+        pw.archiveGoal(id)
+        this.refresh()
+      }
+    },
     confirmArchive(g) {
-      uni.showModal({
+      this.ask({
         title: '归档目标',
         content: '「' + g.title + '」会从进行中列表移开，数据保留。确定归档？',
         confirmText: '归档',
-        success: (r) => {
-          if (r.confirm) {
-            pw.archiveGoal(g.id)
-            this.refresh()
-          }
-        }
+        action: 'archive',
+        goalId: g.id
       })
     }
   }
