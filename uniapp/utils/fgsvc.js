@@ -59,6 +59,9 @@ export function start(title, text) {
     active = false;
   }
   // #endif
+  // 服务（重）起来了 → 把缓存的看门狗配置补推一次。
+  // 进程被杀后恢复现场走的就是这条路，不然强制模式会"看着像开着其实没盯"。
+  if (active) pushWatch();
   return active;
 }
 
@@ -73,10 +76,11 @@ export function update(title, text) {
   return false;
 }
 
-/** 番茄结束 / 放弃：停服务、撤常驻通知 */
+/** 番茄结束 / 放弃：停服务、撤常驻通知（看门狗跟着服务一起收摊，见 onDestroy） */
 export function stop() {
   if (!active) return false;
   active = false;
+  watchPushed = false;
   // #ifdef APP-PLUS
   try { fgs.stopFocusService(); } catch (e) {}
   // #endif
@@ -108,4 +112,96 @@ export function bringToFrontSupported() {
   } catch (e) {}
   // #endif
   return false;
+}
+
+/* ==================== 强制模式：后台看门狗 ====================
+ *
+ * 为什么要有这一层：强制模式原来是 JS 层 setInterval 每 2 秒查一次前台包名，
+ * 但用户一旦切出 App，WebView 的定时器就被系统挂起 —— 于是"人走了却一直没被拉回"，
+ * 这正是强制模式失效的直接原因。现在把看门狗下沉到原生前台服务里的真线程，
+ * 服务活着它就一直盯；JS 只负责下发配置和读战绩。
+ *
+ * 配置缓存在模块里：进程被杀后 focus.js 恢复现场会重新 start() 服务，
+ * 那时再推一次，看门狗不会因为"重启了一次 JS"就丢配置。
+ */
+
+let watchCfg = { on: false, allow: '', untilSec: 0, paused: false };
+let watchPushed = false;   // 配置最后一次真的推成功了没（watchRunning 用它，避免每次调用都发 Intent）
+
+/**
+ * 下发看门狗配置。
+ * @param {{on?:boolean, allow?:string, untilSec?:number}} cfg
+ *        allow 是英文逗号分隔的白名单（utils/apptime.js 的 allowList() 拼）；
+ *        untilSec 是兜底的自动收手倒计时（= 这个番茄还剩多少秒）。
+ * @returns {boolean} 真推下去了（插件可用 + 前台服务在跑）→ 调用方据此决定
+ *          还要不要跑 JS 兜底轮询
+ */
+export function setWatch(cfg) {
+  const c = cfg || {};
+  watchCfg = {
+    on: !!c.on,
+    allow: String(c.allow || ''),
+    // 兜到 Int 范围：原生侧收的是 Int，别让一个离谱的时长把它撑爆
+    untilSec: Math.max(0, Math.min(43200, Math.round(Number(c.untilSec) || 0))),
+    paused: false
+  };
+  return pushWatch();
+}
+
+/** 暂停计时（= 用户按了暂停）：看门狗先收手，恢复时再开 */
+export function pauseWatch() {
+  watchCfg.paused = true;
+  return pushWatch();
+}
+
+export function resumeWatch() {
+  watchCfg.paused = false;
+  return pushWatch();
+}
+
+/** 强制模式战绩：{ pulls, escapes } —— 拉回次数 / 逃逸（连续离开）次数 */
+export function watchStats() {
+  // #ifdef APP-PLUS
+  try {
+    const p = (typeof fgs.watchPulls === 'function') ? Number(fgs.watchPulls()) || 0 : 0;
+    const e = (typeof fgs.watchEscapes === 'function') ? Number(fgs.watchEscapes()) || 0 : 0;
+    return { pulls: p, escapes: e };
+  } catch (e) {}
+  // #endif
+  return { pulls: 0, escapes: 0 };
+}
+
+/** 清零战绩（每轮番茄开始时调一次，不然上一轮的数字会滚进来） */
+export function resetWatchStats() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.resetWatchStats === 'function') return !!fgs.resetWatchStats();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 看门狗现在真的在跑吗（原生线程）—— 没有的话 forced.js 得自己轮询 */
+export function watchRunning() {
+  return watchPushed;
+}
+
+function pushWatch() {
+  // 服务没在跑就别去推：随便 startService 会把它又拽起来（放弃番茄后重启前台服务，
+  // 用户会看到一条莫名其妙的常驻通知）
+  if (!available() || !active) { watchPushed = false; return false; }
+  const on = watchCfg.on && !watchCfg.paused && watchCfg.untilSec > 0;
+  let r = false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.setWatch === 'function') {
+      r = !!fgs.setWatch(on, on ? watchCfg.allow : '', on ? watchCfg.untilSec : 0);
+    }
+  } catch (e) {
+    r = false;
+  }
+  // #endif
+  watchPushed = r && on;
+  return watchPushed;
 }

@@ -24,9 +24,30 @@ export function stopFocusService(): boolean
 export function isAvailable(): boolean
 
 /**
+ * 强制模式：配置后台看门狗（原生线程，App 退到后台照样盯）。
+ *
+ * 为什么必须下沉到原生：WebView 里的 setInterval 在 App 退到后台后会被系统挂起，
+ * 光靠 JS 轮询会出现"人走了却一直没被拉回"——这就是强制模式失效的直接原因。
+ *
+ * @param on       是否启用
+ * @param allowCsv 白名单包名（英文逗号分隔）：本 App + 系统中性包 + 登记为「学习」的 App
+ * @param untilSec 自动收手倒计时（秒，= 本番茄剩余时间）；JS 被冻结时靠它兜底
+ */
+export function setWatch(on: boolean, allowCsv: string, untilSec: Int): boolean
+
+/** 强制模式战绩：已拉回次数 */
+export function watchPulls(): number
+
+/** 强制模式战绩：逃逸次数（连续离开学习 App 的"次"） */
+export function watchEscapes(): number
+
+/** 清零战绩（每轮番茄开始时调一次） */
+export function resetWatchStats(): boolean
+
+/**
  * 强制模式用：把 PWstudy 自己拉回前台。
  * 优先 moveTaskToFront（复用已有 task，专注页状态不丢），失败再退回 launch intent。
- * 被系统 / ROM 拦住时返回 false —— 调用方照常发通知，不假装锁得住。
+ * 被系统 / ROM 拦住时返回 false —— 调用方会升级成悬浮窗遮罩。
  */
 export function bringToFront(): boolean
 

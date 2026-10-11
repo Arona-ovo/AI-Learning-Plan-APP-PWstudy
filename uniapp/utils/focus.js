@@ -314,6 +314,9 @@ export function pause() {
   clearWatchdog();                 // 暂停期间不该结算，恢复时再排
   ambient.pause();
   pushOngoing();
+  // 强制模式看门狗也要跟着停：暂停是"我主动想歇会儿"，这时候还把人从别的 App
+  // 拽回来就太不讲道理了。恢复时 resume() 会再打开。
+  fgsvc.pauseWatch();
 }
 
 export function resume() {
@@ -326,6 +329,7 @@ export function resume() {
   armWatchdog();
   ambient.resume();
   pushOngoing();
+  fgsvc.resumeWatch();
 }
 
 /** 手动放弃：满 1 分钟按实际分钟记一条中断会话，不足 1 分钟不记 */

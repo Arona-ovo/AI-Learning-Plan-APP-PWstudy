@@ -551,7 +551,8 @@ export default {
   padding: 36rpx 32rpx;
   border-radius: 28rpx;
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.86);
-  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   border: 2rpx solid rgba(var(--surface-rgb, 255, 255, 255), 0.8);
   box-shadow: 0 24rpx 70rpx rgba(23, 32, 26, 0.16);
 }

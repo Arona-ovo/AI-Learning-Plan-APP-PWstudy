@@ -600,6 +600,34 @@ export function launchApp(pkg) {
 }
 
 /**
+ * 从"学习 App 入口"拉起一个 App 并开始计时（A 腿）。
+ *
+ * 与 launchApp() 的区别：这里是**带白名单校验**的入口 —— 专注页底部那排图标、
+ * 以及强制模式"专注期间只放行这些"的口径都用它，传进来的包名必须在
+ * AppDock 里且不是「休息」用途，否则直接拒掉并告诉用户为什么。
+ * 首页的 AppDock 仍走 launchApp()（那里连「休息」类 App 也要能点开）。
+ */
+export function launchStudyApp(pkg) {
+  const p = String(pkg || '');
+  if (!p) return false;
+  let hit = null;
+  try {
+    hit = pw.dock().filter(a => a && a.pkg === p)[0] || null;
+  } catch (e) {
+    hit = null;
+  }
+  if (!hit) {
+    uni.showToast({ title: '不在学习 App 名单里', icon: 'none' });
+    return false;
+  }
+  if (hit.purpose === 'rest') {
+    uni.showToast({ title: '「' + (hit.name || p) + '」登记的是休息用途', icon: 'none' });
+    return false;
+  }
+  return launchApp(p);
+}
+
+/**
  * 强制模式用：把自己拉回前台。
  * 刻意不复用 launchApp()—— 那条路会记 AppDock 的出发时刻（launchMark），
  * 而把自己拉起来不属于"去用学习 App"，不该混进用时统计里。
@@ -658,14 +686,30 @@ export function foregroundPackage(windowMs) {
 
 // 系统里"不算跑偏"的包：桌面、状态栏、设置、电话、输入法、安装器……
 // 用精确名单而不是关键词匹配——关键词里的 "android" 会把抖音之类一起放行。
+//
+// ⚠️ 国产 ROM 的**桌面**必须列全：强制模式的遮罩会盖在整个屏幕上，
+// 万一桌面被当成"跑偏"，用户按 Home 之后连桌面都点不动（只能重启）。
+// 原生侧另外还用 PackageManager 查了系统默认 Home 包兜底（见 index.uts 的 homePackage），
+// 这里是第二道保险 + 给 JS 兜底轮询用。
 const NEUTRAL = [
   'android',
   'com.android.launcher', 'com.android.launcher2', 'com.android.launcher3',
   'com.android.systemui', 'com.android.settings', 'com.android.dialer',
   'com.android.incallui', 'com.android.permissioncontroller',
-  'com.android.packageinstaller', 'com.android.documentsui',
+  'com.google.android.permissioncontroller',
+  'com.android.packageinstaller', 'com.google.android.packageinstaller',
+  'com.android.documentsui', 'com.android.keyguard',
   'com.google.android.inputmethod.latin', 'com.android.inputmethod.latin',
-  'com.android.keyguard', 'com.android.systemui.recents'
+  // 桌面（国产 ROM）
+  'com.miui.home',                          // 小米 / Redmi
+  'com.huawei.android.launcher',            // 华为 EMUI / HarmonyOS
+  'com.hihonor.android.launcher',           // 荣耀
+  'com.oppo.launcher', 'com.coloros.launcher',        // OPPO / realme
+  'com.bbk.launcher2', 'com.vivo.launcher',           // vivo / iQOO
+  'com.meizu.flyme.launcher',               // 魅族
+  'com.sec.android.app.launcher',           // 三星
+  'com.transsion.XOSLauncher',              // 传音
+  'com.android.launcher3u', 'com.tcl.launcher'
 ];
 
 /**
@@ -685,6 +729,61 @@ export function isAllowedPkg(pkg) {
   } catch (e) {
     return true;
   }
+}
+
+/**
+ * 强制模式白名单（导出给原生看门狗用，见 utils/fgsvc.js 的 setWatch）。
+ *
+ * 口径必须和 isAllowedPkg() 完全一致 —— 两边不一致的后果是
+ * "原生把用户拽回来、JS 又说没跑偏"，或者反过来漏放行。
+ *   = 本 App 自己 + 系统中性包（桌面/状态栏/设置…）+ 登记为「学习」的 App
+ * 登记为「休息」的和没登记过的一律不在名单里。
+ */
+export function allowList() {
+  const out = [selfPkg()].concat(NEUTRAL);
+  try {
+    pw.dock().forEach(a => {
+      if (a && a.pkg && a.purpose !== 'rest') out.push(String(a.pkg));
+    });
+  } catch (e) {}
+  // 去重 + 去空（selfPkg 在非安卓 / 桥异常时可能是空串）
+  return out.filter((p, i) => !!p && out.indexOf(p) === i);
+}
+
+/** 「显示在其他应用上层」（悬浮窗）是否已授权 —— 强制模式的"遮罩"那一层要用 */
+export function canDrawOverlays() {
+  if (!supported()) return false;
+  // #ifdef APP-PLUS
+  try {
+    const activity = main();
+    const Build = plus.android.importClass('android.os.Build');
+    if (Number(Build.VERSION.SDK_INT) < 23) return true;   // 6.0 之前装机即得
+    const Settings = plus.android.importClass('android.provider.Settings');
+    return !!Settings.canDrawOverlays(activity);
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 跳「显示在其他应用上层」授权页（各 ROM 入口不同，失败就退到应用详情页） */
+export function openOverlaySettings() {
+  if (!supported()) return false;
+  // #ifdef APP-PLUS
+  try {
+    const activity = main();
+    const Intent = plus.android.importClass('android.content.Intent');
+    const Uri = plus.android.importClass('android.net.Uri');
+    // Settings.ACTION_MANAGE_OVERLAY_PERMISSION
+    const intent = new Intent('android.settings.action.MANAGE_OVERLAY_PERMISSION');
+    intent.setData(Uri.parse('package:' + String(activity.getPackageName())));
+    intent.addFlags(0x10000000);   // FLAG_ACTIVITY_NEW_TASK
+    activity.startActivity(intent);
+    return true;
+  } catch (e) {
+    console.warn('[apptime] 打开悬浮窗权限页失败', e);
+  }
+  // #endif
+  return openAppDetails();
 }
 
 /** App 回到前台时由 App.vue onShow 调用：结算刚才从 AppDock 出去的那段时长 */

@@ -6,17 +6,29 @@
  *   · Android 8+ 走 startForegroundService()，更老的走 startService()
  *   · onDestroy 里 stopForeground(true) 收尾
  *
+ * 两件事在这个原生层做（JS 层做不到）：
+ *   ① 前台服务 —— 番茄期间进程不被回收，计时与结束提醒不中断；
+ *   ② 后台看门狗（强制模式）—— WebView 的 setInterval 在 App 退到后台后会被系统挂起，
+ *      所以"人一走就拉回来"必须由原生线程来盯；顺带用 moveTaskToFront /
+ *      startActivity / 全屏意图通知 / 悬浮窗遮罩 四条手段层层兜底。
+ *
  * 与 JS 侧 utils/notify.js 的配合（重要）：
  *   · 通知 id 用 8801、渠道 id 用 "pw_focus_ongoing"，与 notify.js 完全一致 ——
  *     JS 层随时可以用 NotificationManager.notify(8801, ...) 直接刷新这条通知的文案，
  *     两边写的是同一条通知，不会出现"服务一条 + JS 一条"。
  *   · 渠道重要级 LOW（= 2）：常驻倒计时不该出声，notify.js 也是这么建的。
+ *   · 拉回专用通知（8803 / pw_focus_pull）是另一种东西：只在一"逃逸"时发一次，
+ *     走 HIGH 渠道才能带 fullScreenIntent 把 PWstudy 直接弹到最前。
  */
 import Service from 'android.app.Service';
 import Intent from 'android.content.Intent';
 import IBinder from 'android.os.IBinder';
 import Build from 'android.os.Build';
 import System from 'java.lang.System';
+import Thread from 'java.lang.Thread';
+import Runnable from 'java.lang.Runnable';
+import Handler from 'android.os.Handler';
+import Looper from 'android.os.Looper';
 import Notification from 'android.app.Notification';
 import NotificationChannel from 'android.app.NotificationChannel';
 import NotificationManager from 'android.app.NotificationManager';
@@ -24,23 +36,90 @@ import Context from 'android.content.Context';
 import PendingIntent from 'android.app.PendingIntent';
 import NotificationCompat from 'androidx.core.app.NotificationCompat';
 import ActivityManager from 'android.app.ActivityManager';
-import ComponentName from 'android.content.ComponentName';
+import Settings from 'android.provider.Settings';
+import UsageStatsManager from 'android.app.usage.UsageStatsManager';
+import UsageEvents from 'android.app.usage.UsageEvents';
+import AppOpsManager from 'android.app.AppOpsManager';
+import Process from 'android.os.Process';
+import WindowManager from 'android.view.WindowManager';
+import TextView from 'android.widget.TextView';
+import ViewGroup from 'android.view.ViewGroup';
+import Gravity from 'android.view.Gravity';
+import Color from 'android.graphics.Color';
+import PixelFormat from 'android.graphics.PixelFormat';
+import MotionEvent from 'android.view.MotionEvent';
 
 // 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
-// ⚠️ 这三个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
+// ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
 // 而 Android 的 startForeground(id:Int, type:Int) / PendingIntent.getActivity(..., flags:Int) /
 // NotificationManager.notify(id:Int, ...) 收的是 Int，推成 Number 会编译失败
 //（kotlin 编译失败：参数类型不匹配，实际 'Number' 预期 'Int'）。
 const NOTIFY_ID: Int = 8801;
 const CHANNEL_ID = 'pw_focus_ongoing';
 
+// 强制模式"拉回"专用通知（与 notify.js 的 ID_ALERT = 8802 错开）
+const PULL_NOTIFY_ID: Int = 8803;
+const CHANNEL_PULL = 'pw_focus_pull';
+
 // PendingIntent 标志位（数值与 android.app.PendingIntent 常量一致）
 const PI_FLAGS: Int = 0x08000000 | 0x04000000;   // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
 // ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE（Android 14+ 的 specialUse 类型）
 const FGS_TYPE_SPECIAL_USE: Int = 1073741824;
 
+// 窗口类型：TYPE_APPLICATION_OVERLAY（API 26+）/ TYPE_PHONE（更老）
+const WINDOW_TYPE_OVERLAY: Int = 2038;
+const WINDOW_TYPE_PHONE: Int = 2002;
+
+// 看门狗节奏。⚠️ 这些要和 escTicks / 时间戳做算术，必须显式 : Int
+//（裸 const 会被推成 Number，Kotlin 里 Int 与 Number 不是一个类型，比较/传参都会编译不过）。
+// 传给 Thread.sleep() 的延时不能走常量（sleep 收 Long，Int 常量不会自动放宽），
+// 所以那两处直接写字面量，见 WatchLoop.run()。
+const PULL_GAP_SEC: Int = 2;       // 两次"拉回"之间的最小间隔（秒），免得跟系统切前台打架
+const ESC_TICKS: Int = 2;          // 连续几次判定为"非白名单前台"才算一次真逃逸（抗抖动）
+const FG_WINDOW_MS: Int = 5000;    // 查"现在前台是谁"的回溯窗口（毫秒）
+const WATCH_MAX_SEC: Int = 43200;  // 看门狗自动收手上限：12 小时
+const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24 次（约 50 秒）还没成功就先撤下来
+
+/**
+ * 当前时间（秒）。
+ *
+ * 为什么不直接存 System.currentTimeMillis()：那是 Java 的 long，塞进 UTS 的
+ * `number`/`Int` 字段都会踩类型坑（Number 与 Int 在 Kotlin 里不能直接比较）。
+ * 秒级精度只用来"到点收手"和"两次拉回的间隔"，够用；纪元秒到 2038 年都在 Int 范围内。
+ */
+function nowSec(): Int {
+  return ((System.currentTimeMillis() / 1000) as Number).toInt();
+}
+
+/* ==================== 模块级共享状态 ====================
+ * Service 实例由系统创建，但类和本文件同属一个 UTS 模块，
+ * 顶层 let 就是这一层共享的"单例态"：JS 侧通过下面导出的函数读。
+ */
+let lastTitle = 'PWstudy 专注中';   // 常驻通知文案（setWatch 那种不带文案的 Intent 不能把它冲掉）
+let lastText = '';
+
+let watchPullCount = 0;            // 拉回次数（强制模式的战绩，JS 拿来显示）
+let watchEscapeCount = 0;          // 逃逸次数（连续离开学习 App 的"次"，3 次作废的依据）
+
+let overlayWanted = false;         // 想不想挂遮罩（由看门狗线程置位，主线程消费）
+let overlayView: TextView | null = null;
+let mainHandler: Handler | null = null;
+
+/* ==================== 前台服务本体 ==================== */
+
 @UTSAndroid.Suppress("DEPRECATION")
 class PWFocusService extends Service {
+
+  // ---- 看门狗状态（强制模式；默认关） ----
+  watchOn = false;
+  private watchUntilSec: Int = 0;  // 0 = 不限时；否则到点自动收手（纪元秒）
+  private allowCsv = '';           // 白名单包名，英文逗号分隔
+  private escTicks: Int = 0;       // 连续跑偏的 tick 数
+  private inEpisode = false;       // 当前处在一次"逃逸"里（防止同一次离开被重复计数）
+  private pullTries: Int = 0;      // 本次逃逸已经尝试拉回几次（第 2 次起升级为遮罩）
+  private lastPullSec: Int = 0;
+  private stopped = false;
+  private loop: WatchLoop | null = null;
 
   constructor() {
     super();
@@ -55,22 +134,26 @@ class PWFocusService extends Service {
   }
 
   override onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-    let title = 'PWstudy 专注中';
-    let text = '';
-    try {
+    // ① 文案：只有带了 title 的 Intent 才更新 —— setWatch 只送配置，不能把倒计时冲成默认文案
+    if (intent.hasExtra('title')) {
       let t = intent.getStringExtra('title');
       let x = intent.getStringExtra('text');
-      if (t != null) title = t;
-      if (x != null) text = x;
-    } catch (e) {
-      // 取不到就用心跳文案，前台服务本身照常起
+      if (t != null) lastTitle = t;
+      if (x != null) lastText = x;
     }
-    let notification = buildNotification(this, title, text);
+    let notification = buildNotification(this, lastTitle, lastText);
     if (Build.VERSION.SDK_INT >= 34) {
       // Android 14+：必须显式声明前台服务类型（清单里是 specialUse）
       this.startForeground(NOTIFY_ID, notification, FGS_TYPE_SPECIAL_USE);
     } else {
       this.startForeground(NOTIFY_ID, notification);
+    }
+    // ② 看门狗配置：watch / allow / untilSec 三个 extra 一起来
+    if (intent.hasExtra('watch')) {
+      let on = intent.getIntExtra('watch', 0) == 1;
+      let allow = intent.getStringExtra('allow');
+      let untilSec = intent.getIntExtra('untilSec', 0);
+      this.setWatch(on, allow == null ? '' : allow!, untilSec);
     }
     return super.onStartCommand(intent, flags, startId);
   }
@@ -78,9 +161,269 @@ class PWFocusService extends Service {
   @UTSAndroid.Suppress("DEPRECATION")
   override onDestroy(): void {
     super.onDestroy();
+    this.setWatch(false, '', 0);
+    this.stopLoop();
+    postOverlay(false);
+    cancelPullNotify(UTSAndroid.getAppContext());
     this.stopForeground(true);
   }
+
+  /** 看门狗线程查询用：是否还该继续跑 */
+  loopStopped(): boolean {
+    return this.stopped || !this.watchOn;
+  }
+
+  /** 由 JS 侧（fgsvc.setWatch）经 Intent 下发的配置 */
+  setWatch(on: boolean, allowCsv: string, untilSec: Int): void {
+    this.watchOn = on;
+    let allow = allowCsv == null ? '' : allowCsv!;
+    // 系统默认桌面单独再兜一道：JS 的名单里虽然列了主流 ROM 的桌面包，
+    // 但第三方桌面（Nova 之类）认不出来 —— 这里直接问系统"谁是 Home"。
+    // 遮罩是盖全屏的，桌面一旦被当成跑偏，用户按 Home 之后连桌面都点不动。
+    if (on) {
+      let home = homePackage(UTSAndroid.getAppContext());
+      if (home.length > 0 && allow.indexOf(home) < 0) {
+        allow = allow.length > 0 ? allow + ',' + home : home;
+      }
+    }
+    this.allowCsv = allow;
+    this.escTicks = 0;
+    this.inEpisode = false;
+    this.pullTries = 0;
+    this.lastPullSec = nowSec();
+    if (untilSec > 0) {
+      let sec = untilSec > WATCH_MAX_SEC ? WATCH_MAX_SEC : untilSec;
+      this.watchUntilSec = nowSec() + sec;
+    } else {
+      this.watchUntilSec = 0;
+    }
+    if (this.watchOn && this.allowCsv.length > 0) {
+      this.startLoop();
+    } else {
+      this.stopLoop();
+      postOverlay(false);
+      cancelPullNotify(UTSAndroid.getAppContext());
+    }
+  }
+
+  private startLoop(): void {
+    this.stopLoop();
+    this.stopped = false;
+    let t = new WatchLoop(this);
+    this.loop = t;
+    try { t.start(); } catch (e) { this.loop = null; }
+  }
+
+  private stopLoop(): void {
+    this.stopped = true;
+    let t = this.loop;
+    this.loop = null;
+    if (t != null) {
+      try { t.interrupt(); } catch (e) {}
+    }
+  }
+
+  /** 白名单判定：自己在名单里就算合规（JS 侧把本 App / 系统中性包 / 学习 App 一起发过来） */
+  private isAllowed(pkg: string): boolean {
+    if (pkg.length == 0) return true;
+    let list = this.allowCsv.split(',');
+    for (let i = 0; i < list.length; i++) {
+      if (list[i] == pkg) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 一次心跳。返回 true = 现在处在"跑偏中"（线程据此切到高频重试）。
+   *
+   * 判定链：看门狗是否该停 → 权限还在不在 → 现在前台是谁 → 合规就收手，
+   * 跑偏就（够次数后）记一次逃逸 + 发拉回通知 + 尝试把 PWstudy 拽到最前。
+   */
+  tick(): boolean {
+    if (!this.watchOn) return false;
+    let ctx = UTSAndroid.getAppContext();
+    if (ctx == null) return false;
+
+    // 到点 / 被暂停：收手，别在专注结束后还到处拉人
+    if (this.watchUntilSec > 0 && nowSec() > this.watchUntilSec) {
+      this.watchOn = false;
+      this.stopLoop();
+      postOverlay(false);
+      cancelPullNotify(ctx!);
+      return false;
+    }
+    // 使用情况访问被撤了 → 判断不了前台是谁，宁可收手也不闭着眼睛拉人
+    if (!usageGranted(ctx!)) {
+      postOverlay(false);
+      return false;
+    }
+
+    let fg = queryForeground(ctx!);
+    if (fg.length == 0) return false;          // 查不到（锁屏 / 正在切换）：不误伤
+
+    if (this.isAllowed(fg)) {
+      // 回到合规状态：这一次逃逸结束，撤遮罩撤通知，下次离开重新计数
+      this.escTicks = 0;
+      this.pullTries = 0;
+      if (this.inEpisode) {
+        this.inEpisode = false;
+        postOverlay(false);
+        cancelPullNotify(ctx!);
+      }
+      return false;
+    }
+
+    this.escTicks = this.escTicks + 1;
+    if (this.escTicks < ESC_TICKS) return true;   // 刚划走不到一个来回：先看看，不算账
+
+    if (!this.inEpisode) {
+      this.inEpisode = true;
+      watchEscapeCount = watchEscapeCount + 1;
+      try {
+        let nm = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(PULL_NOTIFY_ID, buildPullNotification(ctx!))
+      } catch (e) {}
+    }
+
+    let now = nowSec();
+    if (now - this.lastPullSec < PULL_GAP_SEC) return true;
+    this.lastPullSec = now;
+    this.pullTries = this.pullTries + 1;
+    watchPullCount = watchPullCount + 1;
+
+    let ok = pullSelf();
+    // 第一次拉回先走"温柔"的（moveTaskToFront / startActivity / 全屏意图通知）；
+    // 一次没拽回来就升级成遮罩 —— 那层盖在别的 App 上面，用户点不动，也就绕不过去
+    if (!ok || this.pullTries >= 2) postOverlay(true);
+    // 安全阀：连续拉了很多次还回不来（多半是遇到了我们没认出来的桌面/输入法，
+    // 或某个 ROM 把前台事件吞了），先把遮罩撤掉，免得把人锁在屏幕外面。
+    // 拉回动作本身照旧继续（下面还在跑），下一轮逃逸会重新盖上。
+    if (this.pullTries >= OVERLAY_MAX_TRIES) postOverlay(false);
+    return true;
+  }
 }
+
+/* ==================== 看门狗线程 ====================
+ * 为什么不用 setInterval：WebView / JS 定时器在后台会被系统挂起（这正是"强制拉回失效"的
+ * 头号原因）；而 .uts 里跑的是真 JVM 线程，前台服务活着它就活着，退到后台照样每秒盯。
+ */
+class WatchLoop extends Thread {
+  private owner: PWFocusService;
+
+  constructor(owner: PWFocusService) {
+    super();
+    this.owner = owner;
+  }
+
+  override run(): void {
+    while (!this.owner.loopStopped()) {
+      let hot = false;
+      try {
+        hot = this.owner.tick();
+      } catch (e) {
+        hot = false;
+      }
+      try {
+        // 400 = 已经判定跑偏，高频重试（人一回来就能立刻撤遮罩）；
+        // 1500 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
+        // 而 UTS 的 Int 常量不会自动放宽成 Long。
+        if (hot) {
+          Thread.sleep(400);
+        } else {
+          Thread.sleep(1500);
+        }
+      } catch (e) {
+        break;    // 被 interrupt：收摊
+      }
+    }
+  }
+}
+
+/* ==================== 主线程任务（挂/撤遮罩必须在主线程） ==================== */
+
+class OverlaySyncTask implements Runnable {
+  override run(): void {
+    applyOverlay(UTSAndroid.getAppContext());
+  }
+}
+
+class PullNowTask implements Runnable {
+  override run(): void {
+    pullSelf();
+  }
+}
+
+function uiPost(task: Runnable) {
+  try {
+    if (mainHandler == null) mainHandler = new Handler(Looper.getMainLooper());
+    mainHandler!.post(task);
+  } catch (e) {}
+}
+
+/* ==================== 悬浮窗遮罩 ====================
+ * 安卓 10 起"后台启动 Activity"被系统限制，moveTaskToFront / startActivity 都可能被
+ * 悄悄拦掉。悬浮窗（TYPE_APPLICATION_OVERLAY）不吃这套限制：它直接盖在那个 App 上面，
+ * 用户点不到下面的内容 —— 这是唯一"绕不过去"的一层，代价是需要用户授权
+ * 「显示在其他应用上层」（SYSTEM_ALERT_WINDOW）。
+ *
+ * 安全阀：遮罩只在"前台确实是那个非白名单 App"时挂着。用户按 Home 回桌面（中性包）
+ * 或被拉回 PWstudy，下一次心跳（热态 400ms）就把遮罩撤掉，不会把手机锁死。
+ */
+class PullOverlay extends TextView {
+  constructor(ctx: Context) {
+    super(ctx);
+  }
+
+  override onTouchEvent(event: MotionEvent): boolean {
+    // 点哪儿都是"我要回去"：再拽一次（失败了遮罩继续挂着，用户也去不了别的 App）
+    uiPost(new PullNowTask());
+    return true;
+  }
+}
+
+function applyOverlay(ctx: Context | null) {
+  if (ctx == null) return;
+  if (overlayWanted && overlayView == null) {
+    if (!canDrawOverlays(ctx!)) { overlayWanted = false; return; }
+    try {
+      let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+      let v = new PullOverlay(ctx!)
+      v.setText('强制模式 · 这个番茄还没跑完\n\n点一下回到 PWstudy')
+      v.setTextSize(22.0.toFloat())
+      v.setTextColor(Color.WHITE)
+      v.setBackgroundColor(Color.argb(236, 23, 32, 26))
+      v.setGravity(Gravity.CENTER)
+      v.setPadding(60, 60, 60, 60)
+      let lp = new WindowManager.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT
+      )
+      lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
+      lp.format = PixelFormat.TRANSLUCENT
+      lp.gravity = Gravity.CENTER
+      lp.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+      wm.addView(v, lp)
+      overlayView = v
+    } catch (e) {
+      overlayView = null;
+      overlayWanted = false;
+    }
+  } else if (!overlayWanted && overlayView != null) {
+    try {
+      let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+      wm.removeView(overlayView!)
+    } catch (e) {}
+    overlayView = null;
+  }
+}
+
+function postOverlay(want: boolean) {
+  if (overlayWanted == want) return;
+  overlayWanted = want;
+  uiPost(new OverlaySyncTask());
+}
+
+/* ==================== 通知 ==================== */
 
 /** 建通知渠道（Android 8+；渠道已存在时重复创建无害） */
 function ensureChannel(ctx: Context) {
@@ -113,80 +456,153 @@ function buildNotification(ctx: Context, title: string, text: string): Notificat
     let pi = PendingIntent.getActivity(ctx, 0, launch, PI_FLAGS)
     builder.setContentIntent(pi)
   }
-  return builder.build()
+  return builder.build();
 }
 
-function serviceIntent(ctx: Context): Intent {
-  return new Intent(ctx, (new PWFocusService()).javaClass)
-}
-
-/**
- * 启动前台服务（番茄开始时调用）。
- * 服务已在跑时重复调用只是再触发一次 onStartCommand —— 顺带刷新文案，天然幂等。
- */
-export function startFocusService(title: string, text: string): boolean {
-  let ctx = UTSAndroid.getAppContext()
-  if (ctx == null) return false
-  try {
-    let intent = serviceIntent(ctx!)
-    intent.putExtra('title', title)
-    intent.putExtra('text', text)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      ctx!.startForegroundService(intent)
-    } else {
-      ctx!.startService(intent)
-    }
-    return true
-  } catch (e) {
-    console.error('pwstudy-focus: startForegroundService 失败', e)
-    return false
+/** 拉回专用渠道：必须高重要级，fullScreenIntent 才会被系统当真 */
+function ensurePullChannel(ctx: Context) {
+  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    try {
+      let manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      let channel = new NotificationChannel(
+        CHANNEL_PULL,
+        '强制拉回',
+        NotificationManager.IMPORTANCE_HIGH
+      )
+      channel.setDescription('离开学习 App 时把你拉回 PWstudy')
+      // 高重要级默认带提示音；这里想静音就静音，静不了也不影响拉回
+      try { channel.setSound(null, null) } catch (e) {}
+      try { channel.enableVibration(true) } catch (e) {}
+      manager.createNotificationChannel(channel)
+    } catch (e) {}
   }
 }
 
-/** 只刷新常驻通知文案（通知 id 与服务持久的同一条，倒计时每 30 秒刷一次） */
-export function updateFocusNotification(title: string, text: string): boolean {
-  let ctx = UTSAndroid.getAppContext()
-  if (ctx == null) return false
+/**
+ * 拉回通知：挂 fullScreenIntent。
+ * 安卓 10+ 允许应用在通知里带"全屏意图"，系统会直接把这个 Activity 弹到最前
+ *（需要 USE_FULL_SCREEN_INTENT；14 起未获授权会降级成横幅提示，不报错也不闪退）。
+ * 每次"逃逸"只发一条，回到学习 App 就撤掉。
+ */
+function buildPullNotification(ctx: Context): Notification {
+  ensurePullChannel(ctx)
+  let builder = new NotificationCompat.Builder(ctx, CHANNEL_PULL)
+  builder.setContentTitle('强制模式')
+  builder.setContentText('先把这个番茄跑完 —— 点这里回到 PWstudy')
+  builder.setSmallIcon(ctx.getApplicationInfo().icon)
+  builder.setWhen(System.currentTimeMillis())
+  builder.setPriority(1)          // NotificationCompat.PRIORITY_HIGH
+  builder.setCategory('alarm')    // 闹钟类别：ROM 更愿意放行全屏意图
+  builder.setOnlyAlertOnce(true)
+  builder.setOngoing(false)
+  builder.setAutoCancel(true)
+  let launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName())
+  if (launch != null) {
+    launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    let pi = PendingIntent.getActivity(ctx, 1, launch, PI_FLAGS)
+    builder.setContentIntent(pi)
+    try { builder.setFullScreenIntent(pi, true) } catch (e) {}
+  }
+  return builder.build();
+}
+
+function cancelPullNotify(ctx: Context | null) {
+  if (ctx == null) return;
   try {
     let manager = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    manager.notify(NOTIFY_ID, buildNotification(ctx!, title, text))
-    return true
-  } catch (e) {
-    return false
-  }
+    manager.cancel(PULL_NOTIFY_ID)
+  } catch (e) {}
 }
 
-/** 停止前台服务并移除常驻通知（番茄结束 / 放弃时调用） */
-export function stopFocusService(): boolean {
-  let ctx = UTSAndroid.getAppContext()
-  if (ctx == null) return false
+/* ==================== 探测：现在前台是谁 / 有没有权限 ==================== */
+
+/** 「使用情况访问」是否还开着。查不出来就当开着（查不出来时 queryEvents 也是空的，不会误判） */
+function usageGranted(ctx: Context): boolean {
   try {
-    ctx!.stopService(serviceIntent(ctx!))
-    return true
+    let appOps = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+    let mode = appOps.checkOpNoThrow(
+      AppOpsManager.OPSTR_GET_USAGE_STATS,
+      Process.myUid(),
+      ctx.getPackageName()
+    )
+    return mode == AppOpsManager.MODE_ALLOWED
   } catch (e) {
-    return false
+    return true
   }
 }
 
-/** 探测：能调到这里说明插件的原生代码已经打进包里（自定义基座 / 云打包） */
-export function isAvailable(): boolean {
-  return UTSAndroid.getAppContext() != null
+/** 有没有"盖在别的 App 上面"的权限（授权页在 utils/apptime.js 里跳） */
+function canDrawOverlays(ctx: Context): boolean {
+  try {
+    if (Build.VERSION.SDK_INT < 23) return true          // 6.0 之前装机即有此权限
+    return Settings.canDrawOverlays(ctx)
+  } catch (e) {
+    return false
+  }
 }
 
 /**
- * 强制模式用：把 PWstudy 自己拉回前台。
+ * 系统默认桌面（Home）的包名；查不到返回空串。
  *
- * 两条路，前者优先：
- *   ① ActivityManager.moveTaskToFront —— 把自己那个还活着的 task 提到最前面，
- *      不重建 Activity，专注页的计时状态原样留着（需要 REORDER_TASKS，已在清单声明）。
- *   ② 兜底：launch intent + NEW_TASK|REORDER_TO_FRONT|SINGLE_TOP 重新起一次。
- *
- * 实话：Android 10 起系统限制"后台启动 Activity"，各 ROM 松紧不一，加上
- * 我们没法真把别的 App 杀掉（安卓不允许，也不体面）。拉不回来时返回 false，
- * 由 JS 侧照常弹通知提醒 —— 不假装有锁屏级的强制力。
+ * 为什么值得单独问一次：遮罩是盖全屏的，桌面要是被判成"跑偏"，用户按 Home 之后
+ * 连桌面都点不动（只剩重启）。JS 侧名单里列了主流 ROM 的桌面包，这里再加一道
+ * 与 ROM 无关的兜底 —— 直接问系统"谁是 Home"，第三方桌面也能认出来。
+ */
+function homePackage(ctx: Context | null): string {
+  if (ctx == null) return '';
+  try {
+    let pm = ctx!.getPackageManager()
+    let it = new Intent(Intent.ACTION_MAIN)
+    it.addCategory(Intent.CATEGORY_HOME)
+    let ri = pm.resolveActivity(it, 0)     // 0 = PackageManager.MATCH_DEFAULT_ONLY
+    if (ri == null) return ''
+    let ai = ri!.activityInfo
+    if (ai == null) return ''
+    let p = ai!.packageName
+    return p == null ? '' : p!
+  } catch (e) {
+    return ''
+  }
+}
+
+/**
+ * 最近 FG_WINDOW_MS 毫秒内最后进入前台的包名；拿不到返回空串。
+ * 与 JS 侧 apptime.foregroundPackage 同一套逻辑（事件流配对），口径保持一致。
+ */
+function queryForeground(ctx: Context): string {
+  try {
+    let usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    let end = System.currentTimeMillis()
+    let events = usm.queryEvents(end - FG_WINDOW_MS, end)
+    let e = new UsageEvents.Event()
+    let fg = ''
+    while (events.hasNextEvent()) {
+      if (!events.getNextEvent(e)) break
+      let type = e.getEventType()
+      let p = e.getPackageName()
+      let pkg = p == null ? '' : p!
+      if (type == 1) {
+        fg = pkg                                     // ACTIVITY_RESUMED：进前台
+      } else if (type == 2 && pkg == fg) {
+        fg = ''                                      // ACTIVITY_PAUSED：离前台
+      }
+    }
+    return fg
+  } catch (e) {
+    return ''
+  }
+}
+
+/**
+ * 把 PWstudy 自己拽回前台。三条路依次试，任何一条成功就返回 true：
+ *   ① ActivityManager.moveTaskToFront —— 自己的 task 提到最前，不重建 Activity，
+ *      专注页的计时状态原样留着（需要 REORDER_TASKS，已在清单声明）。
+ *   ② launch intent + NEW_TASK|REORDER_TO_FRONT|SINGLE_TOP 重新起一次。
+ *   ③ 通知的 fullScreenIntent（在 tick 里另外发，这里只负责 ①②）。
+ * 全被 ROM 拦掉就返回 false，由调用方升级成悬浮窗遮罩。
  */
 @UTSAndroid.Suppress("DEPRECATION")
-export function bringToFront(): boolean {
+function pullSelf(): boolean {
   let ctx = UTSAndroid.getAppContext()
   if (ctx == null) return false
   let pkg = ctx!.getPackageName()
@@ -228,11 +644,120 @@ export function bringToFront(): boolean {
   return false
 }
 
+function serviceIntent(ctx: Context): Intent {
+  return new Intent(ctx, (new PWFocusService()).javaClass)
+}
+
+/** 起服务（服务已在跑时重复调用只是再触发一次 onStartCommand，天然幂等） */
+function startServiceWith(ctx: Context, intent: Intent): boolean {
+  try {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      ctx.startForegroundService(intent)
+    } else {
+      ctx.startService(intent)
+    }
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/* ==================== 对外 API ==================== */
+
 /**
- * 有没有"拉回前台"的原生能力。
- * 标准基座里插件代码没打进包 → false，界面上要说清楚这只是"提醒"不是"锁"，
- * 别让用户以为开了就能锁死。
+ * 启动前台服务（番茄开始时调用）。
+ * 服务已在跑时重复调用只是再触发一次 onStartCommand —— 顺带刷新文案，天然幂等。
  */
+export function startFocusService(title: string, text: string): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  let intent = serviceIntent(ctx!)
+  intent.putExtra('title', title)
+  intent.putExtra('text', text)
+  if (!startServiceWith(ctx!, intent)) {
+    console.error('pwstudy-focus: startForegroundService 失败')
+    return false
+  }
+  return true
+}
+
+/** 只刷新常驻通知文案（通知 id 与服务持久的同一条，倒计时每 30 秒刷一次） */
+export function updateFocusNotification(title: string, text: string): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  try {
+    let manager = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.notify(NOTIFY_ID, buildNotification(ctx!, title, text))
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/** 停止前台服务并移除常驻通知（番茄结束 / 放弃时调用） */
+export function stopFocusService(): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  try {
+    ctx!.stopService(serviceIntent(ctx!))
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/** 探测：能调到这里说明插件的原生代码已经打进包里（自定义基座 / 云打包） */
+export function isAvailable(): boolean {
+  return UTSAndroid.getAppContext() != null
+}
+
+/**
+ * 强制模式：配置后台看门狗。
+ *
+ * on = false 时立即收手（撤遮罩、撤拉回通知、停线程）—— 用户暂停/放弃/结束番茄、
+ * 或关掉强制模式，都必须走这里，否则会出现"番茄都结束了还在拉人"的鬼故事。
+ *
+ * untilSec 是兜底的自动收手时间（= 这个番茄还剩多少秒）：JS 在后台可能被冻结，
+ * 光靠它来通知停手不可靠，所以原生自己也掐着表。
+ */
+export function setWatch(on: boolean, allowCsv: string, untilSec: Int): boolean {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return false
+  let intent = serviceIntent(ctx!)
+  intent.putExtra('watch', on ? 1 : 0)
+  intent.putExtra('allow', allowCsv)
+  intent.putExtra('untilSec', untilSec)
+  if (!startServiceWith(ctx!, intent)) return false
+  return true
+}
+
+/** 强制模式战绩：拉回次数（JS 侧拿来显示"已拉回 N 次"） */
+export function watchPulls(): number {
+  return watchPullCount
+}
+
+/** 强制模式战绩：逃逸次数（连续离开学习 App 的"次"，JS 侧拿它判 3 次作废） */
+export function watchEscapes(): number {
+  return watchEscapeCount
+}
+
+/** 清零战绩（每轮番茄开始时调一次） */
+export function resetWatchStats(): boolean {
+  watchPullCount = 0
+  watchEscapeCount = 0
+  return true
+}
+
+/**
+ * 强制模式用：把 PWstudy 自己拉回前台（JS 侧兜底调用）。
+ * 优先 moveTaskToFront（复用已有 task，专注页状态不丢），失败再退回 launch intent。
+ * 被系统 / ROM 拦住时返回 false —— 调用方照常发通知，不假装锁得住。
+ */
+export function bringToFront(): boolean {
+  return pullSelf()
+}
+
+/** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean {
   return UTSAndroid.getAppContext() != null
 }

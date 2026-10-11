@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- 强制模式"把 PWstudy 拉回前台"要用到 moveTaskToFront（普通权限） -->
     <uses-permission android:name="android.permission.REORDER_TASKS" />
+    <!-- 拉回的通知带 fullScreenIntent（Android 10+ 靠它把界面直接弹到最前） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- 兜底遮罩：后台启动 Activity 被 ROM 拦掉时，用悬浮窗盖住那个 App -->
+    <!-- 这一条不是装机即得，要在设置里手动授「显示在其他应用上层」 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application>
         <service
