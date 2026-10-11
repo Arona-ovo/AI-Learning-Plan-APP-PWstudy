@@ -328,6 +328,26 @@ export function addAppMinutes(key, pkg, minutes) {
   touch();
 }
 
+/**
+ * 记"今天背了多少词"—— 来自伙伴 App（AWword）回传。
+ * 为什么必须由它回传：系统的 UsageStats 只知道"你在那个 App 待了 25 分钟"，
+ * 永远测不出"这 25 分钟里你过了几个词"。这两个数是两件事。
+ * 按天记（不是全局累计），否则"今天背了多少"算不出来。
+ */
+export function addVocabWords(key, n) {
+  const c = Math.round(Number(n));
+  if (!(c > 0)) return;
+  const d = dayOf(get(), key || today());
+  d.vocabWords = (d.vocabWords || 0) + c;
+  touch();
+}
+
+/** 某天背词数（缺省今天）；没有记录返回 0 */
+export function vocabWords(key) {
+  const d = get().daily[key || today()];
+  return d && d.vocabWords ? d.vocabWords : 0;
+}
+
 /** 系统级 UsageStats 拉平：直接覆盖某天各 App 分钟数（仅统计 dock 里登记的包） */
 export function setAppMinutes(key, byApp) {
   const st = get();

@@ -149,6 +149,7 @@
         <view v-else>
           <view v-for="r in appRows" :key="r.pkg" class="app-row">
             <text class="ar-name">{{ r.name }}</text>
+            <text v-if="r.words" class="ar-badge">{{ r.words }} 词</text>
             <view class="ar-track">
               <view class="ar-fill" :style="{ width: r.pct + '%' }"></view>
             </view>
@@ -170,6 +171,7 @@
 
 <script>
 import * as pw from '../../utils/pwstore.js'
+import * as link from '../../utils/link.js'
 import * as apptime from '../../utils/apptime.js'
 import * as holiday from '../../utils/holiday.js'
 import { reviewWeek } from '../../services/plan-agent.js'
@@ -325,10 +327,17 @@ export default {
       if (!d || !d.byApp) return []
       const names = {}
       pw.dock().forEach(a => { names[a.pkg] = a.name })
+      // 伙伴 App（背单词）不登记在「学习 App」里 —— 它的用时是那边学完回传进来的，
+      // 名字不补上，这一行就会原样显示成 "app:awword"
+      names[link.PARTNER_KEY] = '背单词'
+      // 词数只有伙伴 App 拿得到：系统的使用情况统计只知道"你待了多久"，
+      // 不知道你在里面过了几个词，所以这个数只能靠回传
+      const words = pw.vocabWords()
       const rows = Object.keys(d.byApp).map(pkg => ({
         pkg,
         name: names[pkg] || pkg,
-        min: d.byApp[pkg]
+        min: d.byApp[pkg],
+        words: pkg === link.PARTNER_KEY ? words : 0
       })).filter(r => r.min > 0).sort((a, b) => b.min - a.min)
       const max = rows.length ? rows[0].min : 1
       rows.forEach(r => { r.pct = Math.max(6, Math.round(r.min * 100 / max)) })
@@ -475,6 +484,19 @@ export default {
   background: var(--brand, #e11d48);
 }
 .ar-min { width: 90rpx; text-align: right; font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }
+
+/* 伙伴 App 回传的词数。用法对齐主按钮的 tint 模式：淡底 + 深字 + 描边，不写实心 */
+.ar-badge {
+  flex-shrink: 0;
+  margin-right: 12rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: var(--brand-strong, #be123c);
+  background: rgba(var(--brand-rgb), 0.1);
+  border: 1rpx solid rgba(var(--brand-rgb), 0.4);
+}
 
 .empty { padding: 10rpx 0; }
 .empty-txt { font-size: 25rpx; line-height: 1.7; color: #5a6560; color: var(--ink-2, #5a6560); }

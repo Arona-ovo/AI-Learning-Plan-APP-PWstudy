@@ -128,7 +128,13 @@ function ok(cond, msg) {
     milestones: [{ title: 'A' }, { title: 'B' }],
     tasks: [{ title: 't1', ms: 5, day: 999, pomos: 99 }]
   }, input);
-  ok(np.tasks[0].ms === 2 && np.tasks[0].day <= np.totalDays && np.tasks[0].pomos === 8, 'normalizePlan 数值夹取');
+  // ⚠️ 别断言 pomos === 8：normalizePlan 之后还有一道"假期/周末减量"（周末 ×0.8），
+  // 而这里的 day:999 会被夹到第 90 天 —— 第 90 天落在周几是随"今天"漂移的。
+  // （2026-10-11 跑：落点 2027-01-08 周五 → 8 保持；跨到 10-12 跑：落点 01-09 周六 → 8×0.8≈6）
+  // 这条只守"夹取上界"这个本意；减量本身的正确性由下面 holiday 那组日期写死的断言守着。
+  ok(np.tasks[0].ms === 2 && np.tasks[0].day <= np.totalDays &&
+     np.tasks[0].pomos >= 1 && np.tasks[0].pomos <= 8,
+     'normalizePlan 数值夹取（番茄上界 8；落地时还会被假期/周末再打折）');
   const tasks = [{ id: 'T1', title: 'a', day: 3, pomos: 2, status: 'todo' }, { id: 'T2', title: 'b', day: 4, pomos: 1, status: 'done' }];
   const nr = planAgent.normalizeReplan({
     summary: 'ok',

@@ -8,7 +8,8 @@
 //
 // ② 回来：背单词 App → PWstudy
 //      pwstudy://vocab-done?min=25&words=30&task=<taskId>
-//    收到就按 min 把时长记进当天统计（归到 app:awword 名下，和 AppDock 同一口径）。
+//    min → byApp['app:awword']（和 AppDock 同一张表，首页/统计页直接可见）
+//    words → daily[].vocabWords（UsageStats 测不到，只能靠回传）
 //
 // ③ 直达：外部 → PWstudy 的某个目标/任务
 //      pwstudy://goal/<goalId>?task=<taskId>
@@ -58,20 +59,22 @@ export function toPartner(task, minutes) {
     '&back=' + enc(back);
 }
 
-/** 外部 App 回报的学习时长落账（与 AppDock 同一张表，只是归属 key 不同） */
+/**
+ * 外部 App 回报的学习数据落账。两个数分开走，因为它们本来就是两件事：
+ *   · 时长 → byApp[PARTNER_KEY]：和 AppDock 同一张表，首页 sumAppMin() 与
+ *     统计页 buildAppRows() 都读它，所以"背单词 25 分钟"会直接出现在今日用时里。
+ *   · 词数 → daily[].vocabWords：UsageStats 只测得到时长、测不到你在里面过了几个词，
+ *     只能靠回传。按天记，才能回答"今天背了多少"。
+ * ⚠️ 别再另记一份"external 总账"—— 同一笔时长记两处，早晚对不上，而且没人读第二份。
+ */
 export function recordExternal(minutes, extra) {
   const min = Math.round(Number(minutes));
   if (!(min > 0)) return false;
   try {
-    pw.addAppMinutes(pw.today(), PARTNER_KEY, min);
-    const st = pw.get();
-    st.external = st.external || {};
-    const today = pw.today();
-    st.external[today] = (st.external[today] || 0) + min;
-    if (extra && extra.words) {
-      st.externalWords = (st.externalWords || 0) + Math.round(Number(extra.words) || 0);
-    }
-    pw.touch();
+    const day = pw.today();
+    pw.addAppMinutes(day, PARTNER_KEY, min);
+    const words = extra && extra.words ? Math.round(Number(extra.words)) : 0;
+    if (words > 0) pw.addVocabWords(day, words);
     return true;
   } catch (e) {
     return false;
@@ -86,9 +89,14 @@ export function handle(url) {
   const link = parse(url);
   if (!link) return false;
   if (link.kind === 'vocab-done') {
-    recordExternal(link.params.min, { words: link.params.words, task: link.taskId });
+    const min = Math.round(Number(link.params.min) || 0);
+    const words = Math.round(Number(link.params.words) || 0);
+    recordExternal(min, { words: link.params.words, task: link.taskId });
     try {
-      uni.showToast({ title: '背单词 ' + (link.params.min || 0) + ' 分钟已计入', icon: 'none' });
+      uni.showToast({
+        title: '背单词 ' + min + ' 分钟' + (words > 0 ? ' · ' + words + ' 词' : '') + '，已记入今日',
+        icon: 'none'
+      });
     } catch (e) {}
     return true;
   }
