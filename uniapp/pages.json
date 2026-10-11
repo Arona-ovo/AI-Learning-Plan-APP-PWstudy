@@ -98,15 +98,15 @@
     }
   },
   "globalStyle": {
-    "navigationBarBackgroundColor": "#FFE4E2",
+    "navigationBarBackgroundColor": "#F0E4D2",
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "PWstudy",
-    "backgroundColor": "#ffe4e2",
+    "backgroundColor": "#f0e4d2",
     "app-plus": {
       "titleNView": {
-        "backgroundColor": "#FFE4E2",
+        "backgroundColor": "#F0E4D2",
         "titleColor": "#17201A",
-        "splitLine": { "color": "#FFE4E2", "height": "1px" }
+        "splitLine": { "color": "#F0E4D2", "height": "1px" }
       }
     }
   },

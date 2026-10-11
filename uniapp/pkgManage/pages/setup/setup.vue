@@ -124,15 +124,15 @@ export default {
   display: flex; align-items: center; justify-content: center;
   font-size: 25rpx; letter-spacing: 1rpx; text-indent: 1rpx;
   border-radius: 999rpx;
-  color: #1d4fd8; color: var(--brand-strong, #1d4fd8);
+  color: #be123c; color: var(--brand-strong, #be123c);
   background: rgba(255, 255, 255, 0.6);
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.6);
-  border: 2rpx solid rgba(46, 107, 255, 0.34);
-  border: 2rpx solid rgba(var(--brand-rgb, 46, 107, 255), 0.34);
+  border: 2rpx solid rgba(225, 29, 72, 0.34);
+  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.34);
 }
 .su-btn-must {
   color: #ffffff;
-  background: #2e6bff; background: var(--brand, #2e6bff);
+  background: #e11d48; background: var(--brand, #e11d48);
   border-color: transparent;
 }
 .su-done {

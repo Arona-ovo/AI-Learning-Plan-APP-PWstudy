@@ -347,7 +347,7 @@ export default {
 <style>
 .strip { display: flex; padding: 34rpx 0; margin-bottom: 20rpx; }
 .st-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
-.st-num { font-size: 40rpx; font-weight: 600; color: #2e6bff; color: var(--brand, #2e6bff); font-family: Georgia, serif; }
+.st-num { font-size: 40rpx; font-weight: 600; color: #e11d48; color: var(--brand, #e11d48); font-family: Georgia, serif; }
 .st-label { font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; }
 
 .card-head {
@@ -355,7 +355,7 @@ export default {
   margin-bottom: 24rpx;
 }
 .card-title { font-size: 30rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-more { font-size: 24rpx; color: #1d4fd8; color: var(--brand-strong, #1d4fd8); }
+.card-more { font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
 
 /* ===== 柱状图 ===== */
 .chart { display: flex; align-items: flex-end; height: 260rpx; }
@@ -367,8 +367,8 @@ export default {
 .ch-bar {
   width: 34rpx;
   border-radius: 12rpx 12rpx 6rpx 6rpx;
-  background: rgba(46, 107, 255, 0.75);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.75);
+  background: rgba(225, 29, 72, 0.75);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.75);
   min-height: 6rpx;
   display: flex; align-items: flex-start; justify-content: center;
   transition: height 0.3s ease;
@@ -471,8 +471,8 @@ export default {
 .ar-fill {
   height: 100%;
   border-radius: 999rpx;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
 }
 .ar-min { width: 90rpx; text-align: right; font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }
 

@@ -58,11 +58,36 @@ if (new Set(keys).size === keys.length) ok('key 无重复');
 else bad('key 重复');
 
 console.log('== 2. 默认背景与兜底 ==');
-// 出厂默认：背景 sakura（红白渐变）+ 主题色 rose（玫红），与 settings.js defaults() 一致
-if (theme.current() === 'sakura') ok('默认 background = sakura');
-else bad('默认应为 sakura，实际 ' + theme.current());
+// 出厂默认：背景 sand（暖砂渐变）+ 主题色 rose（玫红，启动页同款），与 settings.js defaults() 一致
+if (theme.current() === 'sand') ok('默认 background = sand');
+else bad('默认应为 sand，实际 ' + theme.current());
 if (theme.currentAccent() === 'rose') ok('默认主题色 = rose');
 else bad('默认主题色应为 rose，实际 ' + theme.currentAccent());
+// 出厂背景必须避开粉白系：sakura / dawn 都偏粉，配红主色容易被误认成经期记录类 App
+const PINKISH = ['sakura', 'dawn'];
+if (PINKISH.indexOf(theme.current()) < 0) ok('出厂背景不在粉红系（' + PINKISH.join('/') + '）');
+else bad('出厂背景又回到粉红系：' + theme.current());
+// 出厂主色必须在红系（色相 330°–360° 或 0°–20°）：玫红 ~347°、番茄红 ~10° 都算；
+// 蓝绿紫当默认不符合"红色调为主"的定调
+function hueOf(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return -1;
+  const r = parseInt(m[1].slice(0, 2), 16) / 255;
+  const g = parseInt(m[1].slice(2, 4), 16) / 255;
+  const b = parseInt(m[1].slice(4, 6), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  if (!d) return 0;
+  let h;
+  if (mx === r) h = ((g - b) / d) % 6;
+  else if (mx === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+const acc0 = theme.ACCENTS.find(a => a.key === theme.currentAccent());
+const hue0 = hueOf(acc0 && acc0.main);
+if (hue0 >= 0 && (hue0 >= 330 || hue0 <= 20)) ok('出厂主色在红系（色相 ' + Math.round(hue0) + '°，' + (acc0 ? acc0.main : '?') + '）');
+else bad('出厂主色不在红系：色相 ' + Math.round(hue0) + '°（' + (acc0 ? acc0.main : '?') + '）');
 if (theme.currentBgImage() === '') ok('默认无自定义背景图');
 else bad('默认不应有背景图');
 
@@ -422,6 +447,20 @@ theme.setAccent('blue');
   // 窗体必须保持半透明毛玻璃（不能被改成不透明）
   if (/var\(--surface-rgb[^)]*\)\s*,\s*0?\.\d+\)/.test(appVue) && /backdrop-filter/.test(appVue)) ok('.card / .glass 仍是半透明 + 背景模糊');
   else bad('窗体被改成了不透明（应保留毛玻璃）');
+
+  console.log('== 15. 主按钮不做实心大色块 ==');
+  // 红只做小面积点缀（启动页思路）：主按钮 = 淡红底 + 深红字 + 红描边。
+  // 实心主色留给进度条 / 开关 / 选中态这些小元素，大块实心红就是"像经期 App"的根源。
+  const stripped = appVue.replace(/\/\*[\s\S]*?\*\//g, '');
+  function primaryBlock(sel) {
+    const m = stripped.match(new RegExp(sel + '\\s*\\{([^}]*)\\}'));
+    return m ? m[1] : '';
+  }
+  const isTint = (b) => /rgba\(\s*var\(--brand-rgb/.test(b) && /var\(--brand-strong/.test(b);
+  if (isTint(primaryBlock('\\.dlg-btn\\.primary'))) ok('.dlg-btn.primary = 淡色底 + 深色字');
+  else bad('.dlg-btn.primary 变回实心主色块');
+  if (isTint(primaryBlock('\\.btn-primary'))) ok('.btn-primary = 淡色底 + 深色字');
+  else bad('.btn-primary 变回实心主色块');
 
   console.log(fail === 0 ? '\n外观主题全部通过' : '\n存在 ' + fail + ' 项失败');
   process.exitCode = fail === 0 ? 0 : 1;

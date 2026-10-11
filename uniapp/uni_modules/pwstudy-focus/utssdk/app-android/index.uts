@@ -26,14 +26,18 @@ import NotificationCompat from 'androidx.core.app.NotificationCompat';
 import ActivityManager from 'android.app.ActivityManager';
 import ComponentName from 'android.content.ComponentName';
 
-// 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致
-const NOTIFY_ID = 8801;
+// 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
+// ⚠️ 这三个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
+// 而 Android 的 startForeground(id:Int, type:Int) / PendingIntent.getActivity(..., flags:Int) /
+// NotificationManager.notify(id:Int, ...) 收的是 Int，推成 Number 会编译失败
+//（kotlin 编译失败：参数类型不匹配，实际 'Number' 预期 'Int'）。
+const NOTIFY_ID: Int = 8801;
 const CHANNEL_ID = 'pw_focus_ongoing';
 
 // PendingIntent 标志位（数值与 android.app.PendingIntent 常量一致）
-const PI_FLAGS = 0x08000000 | 0x04000000;   // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
+const PI_FLAGS: Int = 0x08000000 | 0x04000000;   // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
 // ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE（Android 14+ 的 specialUse 类型）
-const FGS_TYPE_SPECIAL_USE = 1073741824;
+const FGS_TYPE_SPECIAL_USE: Int = 1073741824;
 
 @UTSAndroid.Suppress("DEPRECATION")
 class PWFocusService extends Service {
@@ -196,7 +200,9 @@ export function bringToFront(): boolean {
       for (let i = 0; i < 2; i++) {
         for (let t of tasks!) {
           if (t == null) continue
-          let cn = i === 0 ? t.topActivity : t.baseActivity
+          // 用 == 不用 ===：i 是 Int、字面量 0 会被装箱成 Number，
+          // 引用相等（===）在装箱后不稳定 —— kotlin 会警告 implicit boxing
+          let cn = i == 0 ? t.topActivity : t.baseActivity
           if (cn != null && cn!.getPackageName() == pkg) {
             am.moveTaskToFront(t.id, 0)
             return true

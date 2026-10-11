@@ -154,14 +154,14 @@ export default {
 .be-ring {
   width: 140rpx; height: 140rpx;
   border-radius: 50%;
-  border: 6rpx solid rgba(46, 107, 255, 0.2);
-  border: 6rpx solid rgba(var(--brand-rgb, 46, 107, 255), 0.2);
+  border: 6rpx solid rgba(225, 29, 72, 0.2);
+  border: 6rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.2);
   display: flex; align-items: center; justify-content: center;
 }
 .be-dot {
   width: 44rpx; height: 44rpx; border-radius: 50%;
-  background: rgba(46, 107, 255, 0.3);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.3);
+  background: rgba(225, 29, 72, 0.3);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.3);
 }
 .be-title { margin-top: 26rpx; font-size: 30rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .be-sub { margin-top: 14rpx; font-size: 25rpx; line-height: 1.7; color: #5a6560; color: var(--ink-2, #5a6560); }
@@ -178,10 +178,10 @@ export default {
 .g-badge {
   flex-shrink: 0; margin-left: 16rpx;
   font-size: 22rpx;
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
-  background: rgba(46, 107, 255, 0.1);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
+  background: rgba(225, 29, 72, 0.1);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
   border-radius: 999rpx;
   padding: 6rpx 18rpx;
 }
@@ -202,12 +202,12 @@ export default {
 }
 .g-btn {
   font-size: 25rpx;
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
   padding: 6rpx 22rpx;
   border-radius: 999rpx;
-  background: rgba(46, 107, 255, 0.08);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.08);
+  background: rgba(225, 29, 72, 0.08);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.08);
   margin-left: 14rpx;
 }
 .g-btn-danger { color: #e5484d; background: rgba(229, 72, 77, 0.08); }

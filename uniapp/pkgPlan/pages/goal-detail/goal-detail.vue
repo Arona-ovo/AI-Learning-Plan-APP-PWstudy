@@ -208,8 +208,8 @@ export default {
 .gd-strategy {
   margin-top: 18rpx; padding: 18rpx 22rpx;
   border-radius: 16rpx;
-  background: rgba(46, 107, 255, 0.07);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.07);
+  background: rgba(225, 29, 72, 0.07);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.07);
   font-size: 25rpx; line-height: 1.7;
   color: #17201a;
   color: var(--ink-1, #17201a);
@@ -235,7 +235,7 @@ export default {
   color: #ffffff;
   flex-shrink: 0;
 }
-.tk-check-on { background: #2e6bff; background: var(--brand, #2e6bff); border-color: transparent; }
+.tk-check-on { background: #e11d48; background: var(--brand, #e11d48); border-color: transparent; }
 .tk-check-drop { background: rgba(23, 32, 26, 0.15); border-color: transparent; }
 .tk-main { flex: 1; min-width: 0; margin: 0 20rpx; }
 .tk-title { font-size: 27rpx; line-height: 1.5; color: #17201a; color: var(--ink-1, #17201a); }
@@ -269,10 +269,10 @@ export default {
   flex-shrink: 0;
   margin-left: 12rpx;
   font-size: 23rpx;
-  color: var(--brand-strong, #1d4fd8);
+  color: var(--brand-strong, #be123c);
   padding: 6rpx 20rpx;
   border-radius: 999rpx;
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
 }
 
 /* ===== 学习要点弹层 ===== */

@@ -179,7 +179,15 @@ export function setTaskStatus(goalId, taskId, status) {
   const t = g.tasks.filter(x => x.id === taskId)[0];
   if (!t) return;
   t.status = status;
-  if (status === 'done') t.doneAt = Date.now();
+  if (status === 'done') {
+    t.doneAt = Date.now();
+    // 手工勾完成要把番茄数补齐：进度条 / 统计只认 donePomos（见 goalProgress），
+    // 不补的话勾完状态是"已完成"但进度仍是 0%，和番茄钟路径两套口径。
+    // 差额走 creditPomo（而不是直接改字段）—— 补的这些也要进 sessions / daily，
+    // 否则"勾一下完成"在热力图和 forecast 里等于没学过
+    creditPomo(goalId, taskId, Math.max(1, t.pomos || 1) - (t.donePomos || 0), { src: 'manual' });
+    t.donePomos = Math.max(t.donePomos || 0, t.pomos || 1);
+  }
   touch();
 }
 
@@ -241,13 +249,74 @@ export function recordPomo(session) {
   const st = get();
   st.sessions.push(session);
   if (st.sessions.length > 500) st.sessions = st.sessions.slice(-400);
-  const d = dayOf(st, today());
+  // 按"番茄开始那天"记账，而不是"落账这一刻"。跨零点跑完的番茄（23:50 → 00:10）
+  // 以前会整个记到新的一天，昨天那 10 分钟凭空消失，今天又多出一笔没坐过的时长。
+  // 不拆成两天：一个完整的番茄不该在统计里变成 0.4 + 0.6 两个。
+  // 与下面的 byHour 口径一致（它也是按 startAt 的小时记的）。
+  const d = dayOf(st, session.startAt ? dateStr(new Date(session.startAt)) : today());
+  // 分钟照记（中断的那段也是真坐下来的时间），但"完成番茄数"只统计跑完的 ——
+  // 否则中断会话会把今日番茄数与 forecast 的速度算虚高
   d.focusMin += session.min;
-  d.pomo += 1;
+  if (session.done) d.pomo += 1;
   // 按小时分布：用来看"一天里哪几段真的学得进去"（统计页的时段条）
   const h = new Date(session.startAt || session.endAt || Date.now()).getHours();
   d.byHour[h] = (d.byHour[h] || 0) + session.min;
   touch();
+}
+
+/** 一个番茄算多少分钟：补记时按设置里的专注时长折算 */
+function focusLen() {
+  const c = get().pomoCfg || {};
+  const n = Number(c.focus) || 0;
+  return n > 0 ? n : 25;
+}
+
+/**
+ * 补记番茄 —— 收工填报 / 对话记功 / 手工勾完成，三条路都走这里。
+ *
+ * 为什么不能只改 task.donePomos：统计口径只认 sessions 与 daily.pomo|focusMin。
+ * 只改任务字段的话，热力图那天仍是一片空白、forecast 算出的速度不含这些番茄、
+ * 重排拿到的 reality.days 也少一截 —— 结果是"任务显示已完成，但这个人今天像没学过，
+ * AI 下次重排还以为他进度落后"。
+ *
+ * 与 recordPomo 的区别：这是事后补记，没有真实起止时间，所以
+ *   ① 分钟数按"番茄时长 × 个数"折算；
+ *   ② 不写 byHour —— 凭空塞一个时段会污染"一天里哪几段真学得进去"的分析；
+ *   ③ session 带 src 标记（log / chat / manual），需要时能单独区分。
+ *
+ * 只补到任务上限（1 个番茄的任务不会因为填了 3 就补成 3），返回实际补了几个。
+ */
+export function creditPomo(goalId, taskId, n, opt) {
+  const o = opt || {};
+  const g = goalOf(goalId);
+  if (!g) return 0;
+  const t = g.tasks.filter(x => x.id === taskId)[0];
+  if (!t) return 0;
+  const cap = Math.max(1, t.pomos || 1);
+  const add = Math.min(Math.floor(Number(n) || 0), Math.max(0, cap - (t.donePomos || 0)));
+  if (add <= 0) return 0;
+  t.donePomos = (t.donePomos || 0) + add;
+  if (t.donePomos >= cap && t.status === 'todo') { t.status = 'done'; t.doneAt = Date.now(); }
+
+  const st = get();
+  const key = o.date || today();
+  const min = add * focusLen();
+  st.sessions.push({
+    id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    goalId: goalId,
+    taskId: taskId,
+    startAt: Date.now(),
+    endAt: Date.now(),
+    min: min,
+    done: true,
+    src: o.src || 'log'
+  });
+  if (st.sessions.length > 500) st.sessions = st.sessions.slice(-400);
+  const d = dayOf(st, key);
+  d.focusMin += min;
+  d.pomo += add;
+  touch();
+  return add;
 }
 
 /** 累加某天某 App 的使用分钟（前台计时 / 系统统计融合） */

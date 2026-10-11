@@ -104,10 +104,19 @@
     </view>
 
     <!-- ============ 第二步：对话式收集需求 ============ -->
-    <view v-else-if="stage === 'chat'" class="stage chat-stage">
-      <scroll-view class="chat-scroll" scroll-y :scroll-into-view="'msg' + (messages.length - 1)">
+    <view v-else-if="stage === 'chat'" class="stage chat-stage" :style="kbStyle">
+      <scroll-view class="chat-scroll" scroll-y :scroll-into-view="anchorId">
         <view v-for="(m, i) in messages" :key="i" :id="'msg' + i" class="bubble-wrap" :class="{ 'mine': m.role === 'user' }">
-          <view class="bubble" :class="m.role === 'user' ? 'b-mine' : 'b-ai'">{{ m.content }}</view>
+          <view class="bubble" :class="m.role === 'user' ? 'b-mine' : 'b-ai'">
+            <view v-if="m.images && m.images.length" class="b-imgs">
+              <image
+                v-for="(p, j) in m.images" :key="j"
+                :src="p" mode="aspectFill" class="b-img"
+                @tap="previewImg(m.images, j)"
+              />
+            </view>
+            <text>{{ m.content }}</text>
+          </view>
         </view>
         <view v-if="task.running && !task.paused" class="bubble-wrap">
           <view class="bubble b-ai b-typing">
@@ -117,7 +126,7 @@
         </view>
         <view v-if="error" class="inline-error">{{ error }}</view>
         <view v-if="task.enough && !task.running" class="ready-tip">信息够了，可以开始生成计划。</view>
-        <view style="height: 24rpx"></view>
+        <view :id="anchorId" style="height: 1rpx"></view>
       </scroll-view>
 
       <!-- 暂停态：改完再继续 -->
@@ -126,6 +135,8 @@
           class="pause-input"
           v-model="pendingText"
           :maxlength="300"
+          :adjust-position="false"
+          :show-confirm-bar="false"
           placeholder="已暂停。改一改这句话，或补充点信息，再点继续"
           placeholder-style="color:#a8b0ab;font-size:25rpx"
         />
@@ -137,18 +148,29 @@
 
       <!-- 常态输入条 -->
       <view v-else class="input-bar">
-        <textarea
-          class="chat-input"
-          v-model="input"
-          :maxlength="300"
-          :auto-height="true"
-          :show-confirm-bar="false"
-          placeholder="回答 AI 的问题…"
-          placeholder-style="color:#a8b0ab;font-size:26rpx"
-        />
-        <view class="ib-actions">
-          <text v-if="task.running" class="ib-pause" @tap="doPause">暂停</text>
-          <text class="ib-send" :class="{ 'ib-send-off': !input.trim() || task.running }" @tap="doSend">发送</text>
+        <view v-if="pendingImgs.length" class="img-strip">
+          <view v-for="(p, i) in pendingImgs" :key="i" class="img-thumb">
+            <image :src="p" mode="aspectFill" @tap="previewImg(pendingImgs, i)" />
+            <text class="img-x" @tap.stop="removeImg(i)">×</text>
+          </view>
+        </view>
+        <view class="input-row">
+          <textarea
+            class="chat-input"
+            v-model="input"
+            :maxlength="300"
+            :auto-height="true"
+            :show-confirm-bar="false"
+            :adjust-position="false"
+            :cursor-spacing="16"
+            placeholder="回答 AI 的问题…（可附图，如报班日程）"
+            placeholder-style="color:#a8b0ab;font-size:26rpx"
+          />
+          <view class="ib-actions">
+            <text v-if="task.running" class="ib-pause" @tap="doPause">暂停</text>
+            <text class="ib-img" @tap="pickImg">图片</text>
+            <text class="ib-send" :class="{ 'ib-send-off': (!input.trim() && !pendingImgs.length) || task.running }" @tap="doSend">发送</text>
+          </view>
         </view>
       </view>
 
@@ -156,12 +178,18 @@
       <view class="chat-bottom">
         <button v-if="task.enough && !task.running" class="btn-primary" @tap="doGenerate">开始规划</button>
         <button v-else class="btn-ghost" :disabled="task.running" @tap="doGenerate">直接开始规划（跳过追问）</button>
+        <!-- 残留会话的出口：问到一半不想问了 / 生成失败卡住，以前只能杀进程重进 -->
+        <text class="chat-abandon" @tap="doAbandon">放弃这次，重新填</text>
       </view>
     </view>
 
     <!-- ============ 第三步：结果预览（逐条勾选后才落地） ============ -->
     <view v-else class="stage">
       <view class="card">
+        <view v-if="plan.local" class="p-local">
+          没接 AI，这份是按通用节奏套的模板：阶段和任务名是通用的，得你自己改。
+          想要贴合你情况的排期，到「我的 › AI 设置」填好服务商和密钥再重新生成。
+        </view>
         <view class="p-title">{{ draft.title }}</view>
         <view class="p-meta">截止 {{ draft.deadline }} · 每天 {{ draft.dailyMin }} 分钟 · 共 {{ plan.tasks.length }} 个任务</view>
         <view v-if="plan.strategy" class="p-strategy">{{ plan.strategy }}</view>
@@ -224,6 +252,9 @@ export default {
       messages: [],
       input: '',
       pendingText: '',
+      pendingImgs: [],   // 本轮要随消息一起发的图（本地临时路径，最多 3 张）
+      kbH: 0,            // 软键盘高度（px）：键盘弹起时给对话区加同值 padding，页面顶端不再被顶走
+      anchorN: 0,        // 滚动锚点的自增序号：键盘弹出/发消息时换 id，强制 scroll-view 滚到底
       plan: null,
       picked: {},
       error: '',
@@ -231,6 +262,14 @@ export default {
     }
   },
   computed: {
+    anchorId() {
+      // 锚点 id 里带上消息数与自增序号：新消息、键盘弹出都会变成新 id，
+      // scroll-into-view 才会真的重新滚（同值不会重触发）
+      return 'anchor' + this.anchorN + '-' + this.messages.length
+    },
+    kbStyle() {
+      return this.kbH > 0 ? { paddingBottom: this.kbH + 'px' } : {}
+    },
     canGo() {
       return String(this.draft.title).trim().length >= 4 && !!this.draft.deadline
     },
@@ -262,12 +301,20 @@ export default {
     try { this.aiReady = !aiGateReason() } catch (e) { this.aiReady = false }
     this.__onChange = () => this.syncFromTask()
     try { uni.$on(planTask.CHANGE_EVENT, this.__onChange) } catch (e) {}
+    // 键盘：adjust-position=false 关掉"整页上推"（顶端会被顶出屏幕），
+    // 改成自己听高度，给对话区加 padding，只动底部
+    this.__onKb = (res) => {
+      this.kbH = (res && res.height) || 0
+      if (this.kbH > 0) this.anchorN++
+    }
+    try { uni.onKeyboardHeightChange(this.__onKb) } catch (e) {}
   },
   onShow() {
     this.syncFromTask()
   },
   onUnload() {
     try { if (this.__onChange) uni.$off(planTask.CHANGE_EVENT, this.__onChange) } catch (e) {}
+    try { if (this.__onKb) uni.offKeyboardHeightChange(this.__onKb) } catch (e) {}
   },
   methods: {
     // ---------- 日期（内嵌月历点选） ----------
@@ -381,9 +428,47 @@ export default {
     },
     doSend() {
       const text = String(this.input || '').trim()
-      if (!text || this.task.running) return
+      const imgs = this.pendingImgs.slice()
+      if ((!text && !imgs.length) || this.task.running) return
       this.input = ''
-      planTask.send(text)
+      this.pendingImgs = []
+      planTask.send(text || '（见图）', imgs)
+    },
+
+    // ---------- 附图（报班日程截图等） ----------
+    pickImg() {
+      const left = 3 - this.pendingImgs.length
+      if (left <= 0) {
+        uni.showToast({ title: '一次最多带 3 张图', icon: 'none' })
+        return
+      }
+      uni.chooseImage({
+        count: left,
+        sizeType: ['compressed'],
+        success: (res) => {
+          this.pendingImgs = this.pendingImgs.concat(res.tempFilePaths || []).slice(0, 3)
+          this.compressPending()
+        }
+      })
+    },
+    // 截图动辄 2-4MB，base64 塞请求体太肥：压一道质量，压不动就按原图发
+    compressPending() {
+      // #ifdef APP-PLUS
+      Promise.all(this.pendingImgs.map((p) => new Promise((resolve) => {
+        uni.compressImage({
+          src: p,
+          quality: 55,
+          success: (r) => resolve((r && r.tempFilePath) || p),
+          fail: () => resolve(p)
+        })
+      }))).then((arr) => { this.pendingImgs = arr })
+      // #endif
+    },
+    removeImg(i) {
+      this.pendingImgs = this.pendingImgs.filter((x, idx) => idx !== i)
+    },
+    previewImg(list, i) {
+      uni.previewImage({ urls: list, current: i })
     },
     doPause() {
       planTask.pause()
@@ -397,6 +482,27 @@ export default {
     },
     doGenerate() { planTask.generate() },
     doRegenerate() { planTask.regenerate() },
+    /**
+     * 放弃这段会话，回到第一步重填。
+     * 以前没有这个出口：问到一半改主意、或者生成失败卡在对话页，只能杀进程重进。
+     */
+    doAbandon() {
+      uni.showModal({
+        title: '放弃这次规划？',
+        content: '这段对话会清掉，回到最开始重新填目标（已填的内容还在）。',
+        confirmText: '放弃',
+        confirmColor: '#E5484D',
+        success: (r) => {
+          if (!r.confirm) return
+          planTask.abandon()
+          this.plan = null
+          this.picked = {}
+          this.messages = []
+          this.error = ''
+          this.stage = 'form'
+        }
+      })
+    },
 
     // ---------- 落地 ----------
     togglePick(idx) {
@@ -445,7 +551,7 @@ export default {
 .tpl-icon {
   width: 56rpx; height: 56rpx; border-radius: 50%;
   background: rgba(var(--brand-rgb, 225, 29, 72), 0.14);
-  color: var(--brand-strong, #1d4fd8);
+  color: var(--brand-strong, #be123c);
   font-size: 26rpx; line-height: 56rpx; text-align: center;
   font-family: Georgia, serif;
 }
@@ -470,7 +576,7 @@ export default {
 
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
 .card-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-date { font-size: 26rpx; color: #1d4fd8; color: var(--brand-strong, #1d4fd8); font-family: Georgia, serif; }
+.card-date { font-size: 26rpx; color: #be123c; color: var(--brand-strong, #be123c); font-family: Georgia, serif; }
 .card-more { font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .chips { display: flex; flex-wrap: wrap; }
@@ -488,8 +594,8 @@ export default {
 }
 .chip-on {
   color: #ffffff;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
   border-color: transparent;
 }
 
@@ -546,8 +652,8 @@ export default {
   color: var(--ink-1, #17201a);
 }
 .b-mine {
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
   color: #ffffff;
   border-bottom-right-radius: 8rpx;
 }
@@ -568,11 +674,31 @@ export default {
 }
 
 .input-bar {
-  display: flex; align-items: flex-end;
-  padding: 16rpx 0 12rpx;
   border-top: 2rpx solid rgba(23, 32, 26, 0.07);
   border-top: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.07);
+  padding: 16rpx 0 12rpx;
 }
+.input-row { display: flex; align-items: flex-end; }
+.img-strip { display: flex; padding: 0 0 14rpx; }
+.img-thumb {
+  position: relative;
+  width: 108rpx; height: 108rpx;
+  margin-right: 14rpx;
+  border-radius: 14rpx;
+  overflow: hidden;
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.08));
+}
+.img-thumb image { width: 100%; height: 100%; display: block; }
+.img-x {
+  position: absolute; top: 0; right: 0;
+  width: 36rpx; height: 36rpx;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff; font-size: 26rpx; line-height: 1;
+  border-bottom-left-radius: 12rpx;
+}
+.b-imgs { display: flex; flex-wrap: wrap; gap: 10rpx; margin-bottom: 10rpx; }
+.b-img { width: 200rpx; height: 200rpx; border-radius: 12rpx; display: block; }
 .chat-input {
   flex: 1;
   max-height: 200rpx;
@@ -589,15 +715,25 @@ export default {
 .ib-actions { display: flex; flex-direction: column; align-items: flex-end; margin-left: 16rpx; }
 .ib-send {
   font-size: 27rpx; font-weight: 600;
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
   padding: 12rpx 26rpx;
   border-radius: 999rpx;
-  background: rgba(46, 107, 255, 0.1);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
+  background: rgba(225, 29, 72, 0.1);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
 }
 .ib-send-off { color: #b0b7b2; background: rgba(23, 32, 26, 0.05); }
 .ib-pause { font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-bottom: 12rpx; }
+.ib-img {
+  font-size: 23rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  margin-bottom: 12rpx;
+}
 
 .pause-bar {
   padding: 16rpx 0;
@@ -621,15 +757,25 @@ export default {
 .pa-btn:first-child { margin-right: 16rpx; }
 
 .chat-bottom { padding-top: 8rpx; }
+.chat-abandon {
+  display: block; margin-top: 22rpx; text-align: center;
+  font-size: 23rpx; color: #98a19b; color: var(--ink-3, #98a19b);
+}
 
 /* ===== 结果 ===== */
+.p-local {
+  margin-bottom: 18rpx; padding: 16rpx 20rpx; border-radius: 16rpx;
+  font-size: 23rpx; line-height: 1.65;
+  color: #92400e; color: var(--ink-2, #92400e);
+  background: rgba(247, 144, 9, 0.12);
+}
 .p-title { font-size: 32rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .p-meta { margin-top: 12rpx; font-size: 23rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 .p-strategy {
   margin-top: 18rpx; padding: 18rpx 22rpx;
   border-radius: 16rpx;
-  background: rgba(46, 107, 255, 0.07);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.07);
+  background: rgba(225, 29, 72, 0.07);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.07);
   font-size: 25rpx; line-height: 1.7;
   color: #17201a;
   color: var(--ink-1, #17201a);
@@ -647,7 +793,7 @@ export default {
   font-size: 26rpx; color: #ffffff;
   flex-shrink: 0; margin-top: 4rpx;
 }
-.pv-check-on { background: #2e6bff; background: var(--brand, #2e6bff); border-color: transparent; }
+.pv-check-on { background: #e11d48; background: var(--brand, #e11d48); border-color: transparent; }
 .pv-main { flex: 1; min-width: 0; margin-left: 20rpx; }
 .pv-txt { font-size: 27rpx; line-height: 1.5; color: #17201a; color: var(--ink-1, #17201a); }
 .pv-txt-off { color: #98a19b; color: var(--ink-3, #98a19b); text-decoration: line-through; }

@@ -22,6 +22,7 @@
         <text v-if="logText" class="log-tip">今天的出入：{{ logText }}</text>
         <text class="summary">{{ result.summary }}</text>
         <text v-if="overdueText" class="overdue-tip">{{ overdueText }}</text>
+        <text v-if="streakText" class="overdue-tip">{{ streakText }}</text>
       </view>
 
       <view class="card op-card" v-for="(op, i) in result.ops" :key="i" @tap="pick[i] = !pick[i]">
@@ -60,7 +61,7 @@ export default {
   data() {
     return {
       id: '', loading: false, error: '', result: null, pick: {},
-      overdueText: '', fromLog: false, logText: ''
+      overdueText: '', streakText: '', fromLog: false, logText: ''
     }
   },
   computed: {
@@ -95,16 +96,32 @@ export default {
         const week = pw.recentDays(7).map(d => d.focusMin).join(', ')
         const elapsed = pw.dayDiff(pw.dateStr(new Date(g.createdAt)), pw.today()) + 1
         const overdue = (g.tasks || []).filter(t => t.status === 'todo' && t.day < elapsed)
-        this.overdueText = overdue.length ? ('当前有 ' + overdue.length + ' 个任务超期未完成，会优先用策略/内容解决，实在跟不上才顺延时间。') : ''
+        // 连续少做天数：模型数不出来，而"能不能顺延期限"全靠它 ——
+        // 偶尔一天做不完不该动截止日，连续多天追不上才说明计划本身排错了
+        const streak = dailylog.shortStreak(g.id)
+        this.streakText = streak >= 2
+          ? ('已经连续 ' + streak + ' 天没做完，AI 可以提议顺延截止日（要你自己勾）。')
+          : ''
+        this.overdueText = overdue.length
+          ? ('当前有 ' + overdue.length + ' 个任务超期未完成，会优先用策略/内容解决，实在跟不上才顺延时间。')
+          : ''
         const reality = {
           days: week,
           overdue: overdue.length,
-          overdueIds: overdue.map(t => t.id)
+          overdueIds: overdue.map(t => t.id),
+          streak: streak
         }
+        // 顺延上限：连续 2 天以上才开门，且一次最多推"剩余天数的一半"（3-30 天）。
+        // 传 0 = 这次不许顺延，模型再想推也没这个 op
+        const remainDays = pw.dayDiff(pw.today(), g.deadline)
+        const maxDeferDays = streak >= 2
+          ? Math.max(3, Math.min(30, Math.round(remainDays * 0.5)))
+          : 0
+        const opt = { maxDeferDays: maxDeferDays }
         const log = this.fromLog ? dailylog.logOf(pw.today()) : null
         this.result = log
-          ? await replanFromToday(g, log, reality)
-          : await replanGoal(g, reality)
+          ? await replanFromToday(g, log, reality, opt)
+          : await replanGoal(g, reality, opt)
         this.pick = {}
         // 默认勾选：策略与内容类直接采纳；时间类（改期限/顺延）交给用户确认 —— 它是最后手段
         this.result.ops.forEach((op, i) => { this.pick[i] = op.op !== 'note' && op.level !== 'time' })
@@ -117,11 +134,13 @@ export default {
     taskTitle(op) {
       const g = this.goal()
       if (!g) return ''
+      // 顺延期限动的是整个目标，没有 taskId —— 显示目标名
+      if (op.op === 'defer') return g.title
       const t = g.tasks.filter(x => x.id === op.taskId)[0]
       return t ? t.title : ''
     },
     kindText(op) {
-      return { move: '改期', resize: '调整量', drop: '砍掉', note: '建议' }[op.op] || op.op
+      return { move: '改期', resize: '调整量', drop: '砍掉', defer: '顺延期限', note: '建议' }[op.op] || op.op
     },
     // 三档：策略 > 内容 > 时间（时间顺延是最后手段）
     levelText(op) {
@@ -130,22 +149,54 @@ export default {
     opDetail(op) {
       if (op.op === 'move') return '开始时间：第 ' + op.day + ' 天'
       if (op.op === 'resize') return '预估番茄：' + op.pomos + ' 个'
+      if (op.op === 'defer') {
+        const g = this.goal()
+        const to = g ? pw.addDays(g.deadline, op.days) : ''
+        return '截止日 ' + (g ? g.deadline : '') + ' → ' + to + '（往后 ' + op.days + ' 天）'
+      }
       return ''
+    },
+    /** 顺延截止日：整条重排里代价最大的一条，所以单独拎出来做边界检查 */
+    applyDefer(g, op) {
+      const days = Math.max(1, Math.min(90, Math.floor(Number(op.days) || 0)))
+      if (!days) return 0
+      // 只许往后推（days 恒正），且累计顺延不超过 90 天 ——
+      // 再多就不是"调整计划"而是"换个目标"了，那种该由人自己重新立一个
+      const total = (g.deferred || 0) + days
+      if (total > 90) return 0
+      if (!g.origDeadline) g.origDeadline = g.deadline   // 留着原期限，页面上能显示"已顺延 N 天"
+      g.deadline = pw.addDays(g.deadline, days)
+      g.deferred = total
+      g.deferredAt = Date.now()
+      return days
     },
     apply() {
       const g = this.goal()
       if (!g) return
+      // 顺延期限先落地：后面的 move 要按新的截止日夹取 maxDay
+      let moved = 0
       this.result.ops.forEach((op, i) => {
-        if (!this.pick[i]) return
+        if (this.pick[i] && op.op === 'defer') moved += this.applyDefer(g, op)
+      })
+      this.result.ops.forEach((op, i) => {
+        if (!this.pick[i] || op.op === 'defer') return
         const t = g.tasks.filter(x => x.id === op.taskId)[0]
         if (!t) return
-        if (op.op === 'move') t.day = op.day
+        if (op.op === 'move') {
+          // 夹到目标期限内：模型给的 day 上限是 3650，排到截止日之后的任务
+          // 永远不会出现在"今天该做"里，目标会显示"没有待办"但进度不满
+          const maxDay = Math.max(1, Math.round((new Date(g.deadline).getTime() - new Date(g.createdAt || Date.now()).getTime()) / 86400000) + 1)
+          t.day = Math.min(Math.max(1, op.day || t.day), maxDay)
+        }
         else if (op.op === 'resize') t.pomos = op.pomos
         else if (op.op === 'drop') { t.status = 'dropped'; t.droppedAt = Date.now() }
       })
       pw.touch()
       pw.flush()
-      uni.showToast({ title: '已应用', icon: 'success' })
+      uni.showToast({
+        title: moved ? ('已应用，截止日顺延 ' + moved + ' 天') : '已应用',
+        icon: 'success'
+      })
       setTimeout(() => uni.navigateBack(), 500)
     },
     back() { uni.navigateBack() }
@@ -162,10 +213,10 @@ export default {
 .spin {
   width: 64rpx; height: 64rpx;
   border-radius: 50%;
-  border: 6rpx solid rgba(46, 107, 255, 0.2);
-  border: 6rpx solid rgba(var(--brand-rgb, 46, 107, 255), 0.2);
-  border-top-color: #2e6bff;
-  border-top-color: var(--brand, #2e6bff);
+  border: 6rpx solid rgba(225, 29, 72, 0.2);
+  border: 6rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.2);
+  border-top-color: #e11d48;
+  border-top-color: var(--brand, #e11d48);
   animation: spin 0.9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -209,7 +260,7 @@ export default {
   flex-shrink: 0;
   margin-top: 4rpx;
 }
-.pv-check-on { background: #2e6bff; background: var(--brand, #2e6bff); border-color: transparent; }
+.pv-check-on { background: #e11d48; background: var(--brand, #e11d48); border-color: transparent; }
 .op-main { flex: 1; min-width: 0; margin-left: 20rpx; }
 .op-line { display: flex; align-items: center; flex-wrap: wrap; }
 .op-kind {
@@ -218,12 +269,13 @@ export default {
   padding: 4rpx 16rpx;
   border-radius: 999rpx;
   margin-right: 14rpx;
-  background: rgba(46, 107, 255, 0.1);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  background: rgba(225, 29, 72, 0.1);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
 }
 .op-drop { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
+.op-defer { background: rgba(194, 50, 58, 0.12); color: #c2323a; }
 .op-resize { background: rgba(247, 144, 9, 0.14); color: #b26400; }
 .op-note { background: rgba(23, 32, 26, 0.07); color: #5a6560; color: var(--ink-2, #5a6560); }
 .op-title { font-size: 27rpx; color: #17201a; color: var(--ink-1, #17201a); }

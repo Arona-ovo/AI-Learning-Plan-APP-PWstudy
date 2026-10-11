@@ -127,7 +127,11 @@
 
       <!-- 刚完成一个专注番茄：引导休息 -->
       <view v-if="finished" class="after">
-        <text class="after-txt">完成 {{ lastMin }} 分钟专注，休息 {{ restMin }} 分钟吧。</text>
+        <text class="after-txt">
+          完成 {{ lastMin }} 分钟专注，{{ longNext
+            ? '这是本轮第 ' + roundCount + ' 个番茄 —— 来一段 ' + restMin + ' 分钟的长休吧'
+            : '休息 ' + restMin + ' 分钟吧' }}。
+        </text>
         <button class="btn-primary after-btn" @tap="startRestNow">开始休息</button>
         <button class="btn-ghost after-btn" @tap="startNextFocus">跳过休息，再来一个</button>
       </view>
@@ -167,6 +171,10 @@ export default {
       finished: false,
       restDone: false,
       lastMin: 0,
+      // 本轮番茄进度与下一段休息时长（长休按"第几个番茄"触发，所以要显示出来）
+      roundCount: 0,
+      longNext: false,
+      restMin: 5,
       todayMin: 0,
       todayPomo: 0,
       strictOn: false,
@@ -211,10 +219,6 @@ export default {
     remainSec() {
       return this.cur ? this.cur.remainSec : this.minutes * 60
     },
-    restMin() {
-      const cfg = pw.get().pomoCfg || {}
-      return cfg.rest || 5
-    },
     // conic-gradient 比例
     ringStyle() {
       const total = this.cur ? this.cur.totalSec : this.minutes * 60
@@ -258,6 +262,7 @@ export default {
       if (!focus.current()) this.beginFocus()
     }
     this.cur = focus.current()
+    this.refreshRound()
     if (this.cur && this.cur.phase === 'rest') {
       // 进入页面时已经在休息
       this.finished = false
@@ -301,6 +306,16 @@ export default {
       this.todayMin = ov.todayMin
       this.todayPomo = ov.pomo
     },
+    /**
+     * 本轮第几个番茄 / 下一段是不是长休。
+     * 这两个值存在库里、不是响应式的，只能靠手动刷 —— computed 会一直拿旧值。
+     */
+    refreshRound() {
+      const r = focus.roundInfo()
+      this.roundCount = r.count
+      this.longNext = r.longNext
+      this.restMin = focus.nextRestMin()
+    },
     startTick() {
       this.stopTick()
       this.tick()
@@ -318,6 +333,8 @@ export default {
         this.finished = true
         this.restDone = false
         this.refreshToday()
+        // 番茄刚跑完 → 本轮计数变了，下一段可能是长休，得马上重算
+        this.refreshRound()
         try { uni.vibrateLong({}) } catch (e) {}
       } else if (r.justFinished === 'rest') {
         this.restDone = true
@@ -366,8 +383,10 @@ export default {
     },
     startRestNow() {
       this.finished = false
-      const cfg = pw.get().pomoCfg || {}
-      this.cur = focus.startBreak(cfg.rest || 5)
+      // 必须走 startRest：只有它按"本轮第几个番茄"决定短休还是长休。
+      // 以前这里自己拼了一段固定短休，长休就永远轮不到。
+      this.cur = focus.startRest()
+      this.refreshRound()
       strict.sync()
     },
     startNextFocus() {
@@ -543,8 +562,8 @@ export default {
 }
 .cfg-opt-on {
   color: #ffffff;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
   border-color: transparent;
 }
 .bind-card {
@@ -552,14 +571,14 @@ export default {
   display: flex; align-items: center;
   padding: 18rpx 26rpx;
   border-radius: 999rpx;
-  background: rgba(46, 107, 255, 0.1);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
+  background: rgba(225, 29, 72, 0.1);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
   max-width: 100%;
 }
 .bind-txt {
   font-size: 24rpx;
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .bind-clear { margin-left: 16rpx; font-size: 30rpx; color: #98a19b; color: var(--ink-3, #98a19b); padding: 0 8rpx; }
@@ -616,7 +635,7 @@ export default {
   font-size: 22rpx; line-height: 1.7;
   color: var(--ink-3, #98a19b);
 }
-.sn-go { margin-left: 12rpx; color: var(--brand-strong, #1d4fd8); }
+.sn-go { margin-left: 12rpx; color: var(--brand-strong, #be123c); }
 .noise-row { margin-top: 20rpx; justify-content: flex-start; }
 .noise-row .cfg-opt { margin: 6rpx 8rpx 0 0; padding: 10rpx 26rpx; }
 

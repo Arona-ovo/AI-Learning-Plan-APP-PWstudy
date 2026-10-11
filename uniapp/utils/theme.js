@@ -27,6 +27,9 @@ export const ACCENTS = [
   { key: 'green', name: '绿', rgb: '34, 139, 87', main: '#228b57', strong: '#1a6d43', rgbDark: '74, 222, 128', mainDark: '#4ade80', strongDark: '#86efac' },
   { key: 'purple', name: '紫', rgb: '124, 58, 237', main: '#7c3aed', strong: '#5b21b6', rgbDark: '167, 139, 250', mainDark: '#a78bfa', strongDark: '#c4b5fd' },
   { key: 'amber', name: '橙', rgb: '202, 111, 6', main: '#ca6f06', strong: '#a15405', rgbDark: '251, 191, 36', mainDark: '#fbbf24', strongDark: '#fcd34d' },
+  // 番茄红：偏橙的暖红（色相 ~12°）。当过一轮出厂默认，大块实心用时观感偏怪，
+  // 现在与玫红一样只作为可选项（红系点缀）。
+  { key: 'tomato', name: '番茄红', rgb: '229, 77, 46', main: '#e54d2e', strong: '#c43f22', rgbDark: '244, 117, 90', mainDark: '#f4755a', strongDark: '#f9a189' },
   { key: 'rose', name: '玫红', rgb: '225, 29, 72', main: '#e11d48', strong: '#be123c', rgbDark: '251, 113, 133', mainDark: '#fb7185', strongDark: '#fda4af' },
   { key: 'graphite', name: '墨绿灰', rgb: '62, 74, 66', main: '#3e4a42', strong: '#2b332d', rgbDark: '154, 167, 160', mainDark: '#9aa7a0', strongDark: '#c2ccc6' }
 ];
@@ -56,15 +59,18 @@ export const DENSITY_GAP = { compact: '14rpx', cozy: '24rpx', relaxed: '34rpx' }
 // 色相与配比不动，只把三个色标各压深一档，渐变两头也拉开一点，层次才看得出来。
 export const BACKGROUNDS = [
   { key: 'default', name: '浅灰', css: '#e4e9e4', solid: '#e4e9e4', darkCss: DARK_BG_CSS, darkSolid: DARK_BG },
-  // 红白渐变：PWstudy 的出厂默认背景（settings.theme.background 默认指向它）
+  // 暖砂渐变：PWstudy 的出厂默认背景（settings.theme.background 默认指向它）。
+  // 出厂主色是番茄红，配暖砂的米黄底 = 番茄 + 牛皮纸的暖调，
+  // 而不是"品红 + 粉白渐变"那种经期 App 的观感（色相从 348° 挪到 12°）。
+  { key: 'sand', name: '暖砂', css: 'linear-gradient(165deg, #f7f1e6 0%, #f0e4d2 52%, #e7d7bd 100%)', solid: '#f0e4d2',
+    darkCss: 'linear-gradient(165deg, #332a19 0%, #282013 52%, #1e180e 100%)', darkSolid: '#282013' },
+  // 粉/红系的两款都保留为可选项，但不再是出厂默认
   { key: 'sakura', name: '红白', css: 'linear-gradient(165deg, #fff4f2 0%, #ffe4e2 52%, #ffd3d5 100%)', solid: '#ffe4e2',
     darkCss: 'linear-gradient(165deg, #3a2020 0%, #2d1616 52%, #221010 100%)', darkSolid: '#2d1616' },
   { key: 'sky', name: '浅蓝', css: 'linear-gradient(165deg, #e6efff 0%, #d6e5ff 52%, #c2d9ff 100%)', solid: '#d6e5ff',
     darkCss: 'linear-gradient(165deg, #1c2d42 0%, #152234 52%, #101a29 100%)', darkSolid: '#152234' },
   { key: 'mint', name: '薄荷', css: 'linear-gradient(165deg, #e5f5ed 0%, #d1eadf 52%, #bfe1d2 100%)', solid: '#d1eadf',
     darkCss: 'linear-gradient(165deg, #193228 0%, #12281f 52%, #0d1f18 100%)', darkSolid: '#12281f' },
-  { key: 'sand', name: '暖砂', css: 'linear-gradient(165deg, #f7f1e6 0%, #f0e4d2 52%, #e7d7bd 100%)', solid: '#f0e4d2',
-    darkCss: 'linear-gradient(165deg, #332a19 0%, #282013 52%, #1e180e 100%)', darkSolid: '#282013' },
   { key: 'lilac', name: '淡紫', css: 'linear-gradient(165deg, #f1edff 0%, #e2dbf6 52%, #d5ccf2 100%)', solid: '#e2dbf6',
     darkCss: 'linear-gradient(165deg, #272039 0%, #1e182c 52%, #161221 100%)', darkSolid: '#1e182c' },
   { key: 'dawn', name: '晨曦', css: 'linear-gradient(165deg, #fff0ec 0%, #ffdbd5 52%, #ffccd3 100%)', solid: '#ffdbd5',
@@ -106,11 +112,13 @@ function themeState() {
 }
 
 export function current() {
-  return themeState().background || 'default';
+  // 兜底与 settings.js 的出厂默认保持一致：sand（暖砂渐变）
+  return themeState().background || 'sand';
 }
 
 export function currentAccent() {
-  return themeState().accent || 'blue';
+  // 兜底与 settings.js 的出厂默认保持一致：rose（玫红，启动页同款）
+  return themeState().accent || 'rose';
 }
 
 export function currentBgImage() {
@@ -579,7 +587,8 @@ export function rootStyle() {
   style.backgroundColor = solid;
   // 主色也走 inline 变量下发：
   // 原来只有 H5 能吃到 setVar() 写的 --brand（App 端逻辑层没有 document），
-  // App 端只能命中样式里写死的蓝色兜底值 —— 换主题色（尤其默认的玫红）在安卓上看不出变化。
+  // App 端只能命中样式里写死的兜底值 —— 换主题色在安卓上看不出变化。
+  //（兜底值也要跟着出厂色走：出厂色是青时样式兜底写玫红/蓝，未命中变量的地方就会串色）
   // 挂在页面根节点上，与 exo 变量同一通道，CSS 变量向下继承，全树可读。
   const acc = findIn(ACCENTS, currentAccent());
   style['--brand'] = dark ? (acc.mainDark || acc.main) : acc.main;

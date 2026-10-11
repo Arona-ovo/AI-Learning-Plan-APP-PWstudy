@@ -109,6 +109,7 @@ function ok(cond, msg) {
   ok(focus.current().phase === 'rest', 'startBreak 进入休息');
   r = focus.tick();
   ok(r.justFinished === null, '休息进行中不落账');
+  focus.abort();
 
   console.log('\n[4] plan-agent 校验器');
   const j = planAgent.extractJSON('```json\n{"a":1,}\n```');
@@ -191,8 +192,10 @@ function ok(cond, msg) {
   const settingsMod = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/settings.js');
   settingsMod.init();
   const stg = settingsMod.get();
+  // 红色调为主 + 红只做小面积点缀：主色玫红（启动页同款）、大按钮是淡红底+深红字；
+  // 背景暖砂（避开粉白渐变，那是"像经期 App"的另一半根源）
   ok(stg.theme.accent === 'rose', '默认主题色 = 玫红');
-  ok(stg.theme.background === 'sakura', '默认背景 = 红白渐变');
+  ok(stg.theme.background === 'sand', '默认背景 = 暖砂渐变');
   ok(stg.profile.nickname === 'plana', '默认昵称 = plana');
 
   console.log('\n[9] 节假日感知（国务院 2026 年安排）');
@@ -332,6 +335,12 @@ function ok(cond, msg) {
   const mine = draft.items.filter(i => i.goalId === dg.id);
   ok(mine.length === 1, '今天该做的任务进入收工表');
   ok(draft.ahead.some(i => i.taskId === dg.tasks[1].id), '后面几天的任务进入"提前做了"候选');
+  // "按实际番茄数填"的复位基准：必须是真实记录的 donePomos，不能是计划值。
+  // 以前的一键"全部按计划完成"直接把 actual 拉到 planned —— 番茄没跑也算完成，
+  // 后面几天的日程会从这个谎开始全错。
+  ok(draft.items.every(i => typeof i.done === 'number'), '草稿每项带真实番茄数 done');
+  ok(draft.items.every(i => i.actual <= i.done), '预填不会超过真实记录（没跑就是 0）');
+  ok(draft.items.every(i => i.actual <= Math.max(1, i.planned)), '预填不会超过计划值');
 
   const flat = (items, ahead, extras) => dailylog.driftOf({ items, ahead: ahead || [], extras: extras || '' });
   const full = mine.map(i => Object.assign({}, i, { actual: i.planned }));
@@ -401,13 +410,24 @@ function ok(cond, msg) {
   const c3 = planAgent.normalizeChat({ reply: '按计划走完了', facts: [], drift: false }, cctx.goalIds);
   ok(c3.drift === false, '照计划完成 → 不算偏差（不该惊动重排）');
 
-  // 事实写回收工记录：后面 replan?from=log 读的就是这一份
+  // 事实写回收工记录：后面 replan?from=log 读的就是这一份。
+  // 走独立的 facts 字段而不是 extras —— extras 是"计划外做了什么"（手填），
+  // 混在一起会让 AI 把"我把第 3 天的阅读做完了"误读成计划外的事。
   const before = (dailylog.logOf(today) || {}).extras || '';
   coach.applyFacts(today, c1.facts);
-  const after = dailylog.logOf(today).extras;
-  ok(after.indexOf('刷了 2 篇阅读') >= 0, 'AI 提炼的事实写进收工记录的 extras');
-  ok(after.indexOf(before) === 0, '原有内容没被覆盖（追加）');
-  ok(dailylog.logOf(today).drift === true, '补记事实后 log 判定为有出入');
+  const lg1 = dailylog.logOf(today);
+  ok((lg1.facts || []).indexOf('刷了 2 篇阅读') >= 0, 'AI 提炼的事实写进 log.facts');
+  ok(!lg1.extras && !before, '事实不再混进 extras（那条留给"计划外做了什么"）');
+  coach.applyFacts(today, ['又补了一句']);
+  const lg2 = dailylog.logOf(today);
+  ok((lg2.facts || []).length === 3, '第二次补记是追加，不是覆盖');
+  ok(dailylog.driftOf({ items: [], ahead: [], extras: '', facts: ['我把第 3 天的阅读做完了'] }) === false,
+    '对话事实本身不算偏差（按计划汇报不该逼用户去重排）');
+  ok(dailylog.driftOf({ items: [], ahead: [], extras: '临时刷了 30 道题', facts: [] }) === true,
+    '手填的"计划外做了什么"仍然算偏差');
+  ok(dailylog.summaryFor(lg2).indexOf('刷了 2 篇阅读') >= 0, '重排给 AI 看的底稿仍带上对话事实');
+  coach.setDrift(today, true);
+  ok(coach.driftToday(today) === true, 'AI 判定有出入 → driftToday 为真（首页才显示重排入口）');
 
   // 记功：AI 指认的任务 id 必须真在清单里，编造的 id 一律不记
   const tid = cctx.taskIds[0];
@@ -636,6 +656,170 @@ function ok(cond, msg) {
   );
   ok(pw.activeGoals().length === 1 && gAfter.tasks.length === 1, '清完之后还能正常立目标');
   ok(typeof guide.get === 'function', 'task-guide 接口仍在（清缓存没把它搞坏）');
+
+  console.log('\n[20] 番茄结算口径（2026-10-11 三处修复的回归）');
+  // 真实番茄是几十分钟，测试不可能真等 —— 临时把 Date.now 往前拨。
+  // focus 全程用 endAt 差值算时间，拨表等价于"时间过去了"。
+  // 放在最后跑：它会真落账，挪到前面会污染 [5] 的今日分钟断言。
+  const realNow = Date.now;
+  let off = 0;
+  Date.now = function () { return realNow.call(Date) + off; };
+  try {
+    // ① 暂停时长不能算进专注时长：25 分钟番茄中途停 1 小时，落账只能是 25 分钟
+    focus.startFocus({ minutes: 25, taskTitle: '扣暂停' });
+    focus.pause();
+    off = 60 * 60000;                        // 暂停了整整 1 小时
+    focus.resume();
+    off = 86 * 60000;                        // 恢复后跑完剩下的 25 分钟
+    const prevN = pw.get().sessions.length;
+    const expired = focus.current();          // 全程没调 tick
+    const lastS = pw.get().sessions[pw.get().sessions.length - 1];
+    ok(expired === null, '结束时间戳到了就算完，不需要页面驱动');
+    ok(pw.get().sessions.length === prevN + 1, '结算落了一条会话');
+    ok(lastS && lastS.min === 25, '净专注时长 = 25 分钟（暂停那 1 小时被扣掉了）');
+    ok(lastS && lastS.done === true, '自然跑完 → done=true');
+
+    // ② 看门狗：只有首页和专注页会每秒调 tick，切到别的 tab 时靠它结算
+    const pomo0 = pw.overview().pomo;
+    focus.startFocus({ minutes: 1, taskTitle: '看门狗' });
+    off = 87 * 60000;                        // 上面停在 86 分钟处，再走 1 分钟到点
+    focus.pause();                           // remainSec 被压成 0
+    focus.resume();                          // 重新排定时器 ≈ 1 秒后触发
+    await new Promise(r3 => setTimeout(r3, 1600));
+    ok(focus.current() === null, '看门狗自己到点结算（人在别的 tab 也不会挂住）');
+    ok(pw.overview().pomo === pomo0 + 1, '看门狗结算照常记一个完整番茄');
+  } finally {
+    Date.now = realNow;
+    focus.abort();
+  }
+  ok(pw.get().runtime == null, 'abort 后现场清空（不会把番茄留给下次启动）');
+
+  console.log('\n[21] 没配 AI 时的本地兜底计划');
+  // 没填过密钥的用户点「开始规划」必须也能拿到一份能落地的计划，
+  // 而不是一句"请先配置 AI" —— 那是把核心功能锁在门槛后面。
+  const lp = planAgent.localPlan({
+    title: '考研英语', raw: '', deadline: pw.addDays(pw.today(), 30), dailyMin: 60, level: ''
+  });
+  ok(lp.local === true, '本地模板带 local 标记（页面据此提示"没接 AI"）');
+  ok(lp.totalDays > 0 && lp.milestones.length >= 2, '模板切出至少 2 个阶段');
+  ok(lp.tasks.length > 0, '模板排出任务');
+  ok(lp.tasks.every(t => t.day >= 1 && t.day <= lp.totalDays), '任务起始天数都落在期限内');
+  ok(lp.tasks.every(t => t.ms >= 1 && t.ms <= lp.milestones.length), '任务归属的阶段号不越界');
+  ok(lp.tasks.every(t => t.pomos >= 1 && t.pomos <= 8), '番茄数夹在 1-8');
+  ok(/未接入 AI/.test(lp.strategy), '策略文案明说这是模板，不是 AI 排的');
+  const lp2 = planAgent.localPlan({ title: 'x', deadline: pw.addDays(pw.today(), 5), dailyMin: 30 });
+  ok(lp2.tasks.every(t => t.day <= lp2.totalDays), '5 天的目标也不会把任务排到期限外');
+
+  console.log('\n[22] 顺延期限 / 补记番茄进统计 / 长休 / 跨零点');
+  // ---- 顺延期限（defer）：以前 ops 只有 move/resize/drop/note，deadline 全库无赋值点 ----
+  const deferTasks = [{ id: 't1', day: 3, pomos: 2, status: 'todo' }, { id: 't2', day: 5, pomos: 1, status: 'todo' }];
+  const dOk = planAgent.normalizeReplan({
+    summary: 's',
+    ops: [
+      { op: 'defer', days: 7, reason: '连续追不上' },
+      { op: 'defer', days: 3 },                       // 第二条要被丢
+      { op: 'move', taskId: 't1', day: 9 }
+    ]
+  }, deferTasks, { maxDeferDays: 30 });
+  const defs = dOk.ops.filter(o => o.op === 'defer');
+  ok(defs.length === 1, 'defer 只认第一条（多条顺延叠加没意义）');
+  ok(defs[0] && defs[0].days === 7, 'defer 带顺延天数');
+  ok(defs[0] && defs[0].level === 'time', 'defer 恒为 time 档（动截止日是最后手段）');
+  ok(dOk.ops.some(o => o.op === 'move'), 'defer 不带 taskId，不会被"找不到任务"误杀');
+  const dBig = planAgent.normalizeReplan({ summary: 's', ops: [{ op: 'defer', days: 999 }] }, deferTasks, { maxDeferDays: 30 });
+  ok(dBig.ops.length === 1 && dBig.ops[0].days === 30, '顺延天数夹到上限（模型给 999 天也只给 30）');
+  ok(!planAgent.normalizeReplan({ summary: 's', ops: [{ op: 'defer', days: 5 }] }, deferTasks, { maxDeferDays: 0 })
+    .ops.some(o => o.op === 'defer'), 'maxDeferDays=0 → 不许顺延（还没连续多天做不完）');
+  ok(planAgent.normalizeReplan({ summary: 's', ops: [{ op: 'move', taskId: 't1', day: 6 }] }, deferTasks).ops.length === 1,
+    '不给上限时走 30 天兜底，且不影响别的 op');
+
+  // ---- 补记番茄必须进统计口径 ----
+  const g3 = pw.addGoal(
+    { title: '统计口径', raw: 'x', deadline: pw.addDays(pw.today(), 30), dailyMin: 30, level: '' },
+    { strategy: '', risks: [], milestones: [{ title: 'm', days: 30 }], tasks: [{ title: '补记用', ms: 1, day: 1, pomos: 3 }] }
+  );
+  const t3 = g3.tasks[0];
+  const nS0 = pw.get().sessions.length;
+  const pomo0 = pw.get().daily[pw.today()].pomo;
+  const min0 = pw.get().daily[pw.today()].focusMin;
+  const bh0 = Object.keys(pw.get().daily[pw.today()].byHour || {}).length;
+  ok(pw.creditPomo(g3.id, t3.id, 2) === 2, '补记 2 个番茄');
+  ok(pw.get().sessions.length === nS0 + 1, '补记也写进 sessions（统计认这笔）');
+  ok(pw.get().daily[pw.today()].pomo === pomo0 + 2, '今日番茄数 +2（热力图 / forecast 认）');
+  ok(pw.get().daily[pw.today()].focusMin > min0, '今日专注分钟也涨（不是只改任务字段）');
+  const sC = pw.get().sessions[pw.get().sessions.length - 1];
+  ok(sC.src === 'log' && sC.done === true, 'session 带 src 标记，能与真番茄分开看');
+  ok(Object.keys(pw.get().daily[pw.today()].byHour || {}).length === bh0,
+    '补记不写 byHour（没有真实时段，塞进去会污染"哪几段学得进去"）');
+  ok(pw.creditPomo(g3.id, t3.id, 5) === 1, '只补到任务上限（3 个的任务填 5 也只补 1）');
+  ok(t3.status === 'done', '补满自动完成');
+
+  const g4 = pw.addGoal(
+    { title: '手勾完成', raw: 'x', deadline: pw.addDays(pw.today(), 30), dailyMin: 30, level: '' },
+    { strategy: '', risks: [], milestones: [{ title: 'm', days: 30 }], tasks: [{ title: '手勾', ms: 1, day: 1, pomos: 2 }] }
+  );
+  const pomoB = pw.get().daily[pw.today()].pomo;
+  pw.setTaskStatus(g4.id, g4.tasks[0].id, 'done');
+  ok(g4.tasks[0].donePomos === 2, '手工勾完成补齐番茄数');
+  ok(pw.get().daily[pw.today()].pomo === pomoB + 2, '手工勾完成的差额也进今日番茄数（不再只改字段）');
+
+  // ---- 跨零点的番茄记在哪一天 ----
+  const yKey = pw.addDays(pw.today(), -1);
+  const yMin0 = (pw.get().daily[yKey] || {}).focusMin || 0;
+  const tMin0 = pw.get().daily[pw.today()].focusMin;
+  const y2350 = new Date();
+  y2350.setDate(y2350.getDate() - 1);
+  y2350.setHours(23, 50, 0, 0);
+  pw.recordPomo({ id: 'x-midnight', goalId: '', taskId: '', startAt: y2350.getTime(), endAt: y2350.getTime() + 20 * 60000, min: 20, done: true });
+  ok(((pw.get().daily[yKey] || {}).focusMin || 0) === yMin0 + 20, '跨零点的番茄记在开始那天（昨天那 20 分钟不会消失）');
+  ok(pw.get().daily[pw.today()].focusMin === tMin0, '今天不会被记上一段没坐过的时间');
+
+  // ---- 长休：以前 startRest 读 state.count（恒为 0 且 state 已清空），永远触发不了 ----
+  const pcfg = pw.get().pomoCfg || {};
+  const everyN = pcfg.every || 4;
+  const longMin = pcfg.long || 15;
+  const restMin = pcfg.rest || 5;
+  // [20] 那一节已经真跑落账过几个番茄，本轮计数不是 0 —— 先归零再测，才能对上"第几个"
+  pw.get().pomoRound = { count: 0, date: pw.today() };
+  const realNow2 = Date.now;
+  let off2 = 0;
+  Date.now = function () { return realNow2.call(Date) + off2; };
+  try {
+    for (let i = 1; i <= everyN; i++) {
+      focus.startFocus({ minutes: 1, taskTitle: '长休测试' });
+      off2 += 61 * 60000;
+      focus.current();                 // 到点自结算 → 本轮计数 +1
+      const rest = focus.startRest();  // state 此时已被清空，这里必须还能work
+      const want = (i === everyN) ? longMin : restMin;
+      ok(rest && rest.phase === 'rest' && rest.totalSec === want * 60,
+        '第 ' + i + ' 个番茄后是' + (i === everyN ? '长' : '短') + '休 ' + want + ' 分钟');
+      focus.abort();
+    }
+    ok(focus.roundInfo().count === everyN, '本轮计数跨状态机存活（番茄结束后仍读得到）');
+    ok(focus.isLongRestNext() === true, 'isLongRestNext 在整轮点上为真');
+    ok(focus.nextRestMin() === longMin, 'nextRestMin 给出长休时长');
+  } finally {
+    Date.now = realNow2;
+    focus.abort();
+  }
+
+  // ---- 连续少做天数：AI 拿它决定"这次能不能顺延期限" ----
+  const g5 = pw.addGoal(
+    { title: '连续少做', raw: 'x', deadline: pw.addDays(pw.today(), 30), dailyMin: 30, level: '' },
+    { strategy: '', risks: [], milestones: [{ title: 'm', days: 30 }], tasks: [{ title: '欠的', ms: 1, day: 1, pomos: 2 }] }
+  );
+  const t5 = g5.tasks[0];
+  const row = (date, actual) => ({
+    date: date,
+    items: [{ goalId: g5.id, taskId: t5.id, title: t5.title, goalTitle: g5.title, day: 1, planned: 2, actual: actual }],
+    ahead: [], extras: '', facts: [], mood: '', note: ''
+  });
+  dailylog.save(row(pw.addDays(pw.today(), -1), 0));
+  dailylog.save(row(pw.today(), 1));
+  ok(dailylog.shortStreak(g5.id) === 2, '连续两天没做完 → streak = 2（这才允许顺延期限）');
+  dailylog.save(row(pw.today(), 2));
+  ok(dailylog.shortStreak(g5.id) === 0, '今天补做完了 → 连续段断掉，streak 归 0（顺延的口子随之关上）');
+  ok(dailylog.shortStreak('不存在的目标') === 0, '没这个目标时返回 0（别把别的账算到它头上）');
 
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);

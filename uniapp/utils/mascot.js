@@ -2,7 +2,7 @@
 //
 // 表情不是随机换的：由「今天做没做 + 最近摆没摆 + 截止日紧不紧」三条确定性规则决定，
 // 优先级从高到低（命中最上面的就停）：
-//   0. 没有进行中的目标                     → plana    默认脸（捂嘴打招呼）
+//   0. 没有进行中的目标                     → plana    默认脸（平静打招呼）
 //   1. 截止日已过、还有任务没做完           → sad      委屈：拖过期了
 //   2. 截止日剩 ≤3 天、今天还没做完         → shock    震惊：要来不及了
 //   3. 今天一个番茄都没有：
@@ -20,7 +20,7 @@
 import * as pw from './pwstore.js';
 
 export const FACES = {
-  plana: '/static/mascot/plana.jpg',       // 捂嘴（默认脸，头像 / 图标同源）
+  plana: '/static/mascot/plana.jpg',       // 默认脸（2026-10-10 起 = 平静；旧捂嘴版随整套表情一起换了新画风）
   calm: '/static/mascot/calm.jpg',         // 平静
   happy: '/static/mascot/happy.jpg',       // 开心笑
   tongue: '/static/mascot/tongue.jpg',     // 吐舌得意

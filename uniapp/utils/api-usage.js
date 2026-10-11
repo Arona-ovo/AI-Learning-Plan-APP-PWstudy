@@ -106,7 +106,18 @@ export function estimateTokens(text) {
 export function estimateMessages(messages) {
   const list = Array.isArray(messages) ? messages : [];
   let n = 0;
-  list.forEach(m => { n += estimateTokens(m && m.content); });
+  list.forEach(m => {
+    const c = m && m.content;
+    if (Array.isArray(c)) {
+      // 视觉消息（content 是分段数组）：文字按字符估，图片每张按 ~800 tokens 估一档
+      c.forEach(p => {
+        if (p && p.type === 'image_url') n += 800;
+        else if (p && p.type === 'text') n += estimateTokens(p.text);
+      });
+    } else {
+      n += estimateTokens(c);
+    }
+  });
   return n;
 }
 

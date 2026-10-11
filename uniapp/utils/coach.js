@@ -47,6 +47,20 @@ export function driftFlag(date) {
   return !!(d && d.coach && d.coach.drift);
 }
 
+/**
+ * 今天到底有没有"和计划不一样"：收工表的判定 + 对话里 AI 的判定，任一为真就是真。
+ *
+ * 为什么两个都要看：这是两个独立入口 —— 用户可能只填了收工表没说过话，
+ * 也可能只在首页聊了一句没去勾表。只看一边就会漏。
+ * 注意对话里提炼的事实存在 log.facts，故意不算 dailylog.driftOf 的偏差
+ * （那多半是"做完了 X"的按计划汇报），但 AI 自己判的 driftFlag 仍然算。
+ */
+export function driftToday(date) {
+  const key = date || pw.today();
+  if (dailylog.driftOf(dailylog.logOf(key))) return true;
+  return driftFlag(key);
+}
+
 export function push(date, role, content) {
   const d = dayRec(date);
   const c = d.coach;

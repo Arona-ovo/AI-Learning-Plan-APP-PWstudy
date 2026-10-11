@@ -134,20 +134,24 @@ export function resume(text) {
   return send('（继续）');
 }
 
-function pushMsg(role, content) {
-  st.messages.push({ role, content, at: Date.now() });
+function pushMsg(role, content, images) {
+  const m = { role, content, at: Date.now() };
+  // 图片只存本地临时路径（几十字符），base64 不落库 —— 转换在 plan-agent 组包时做
+  if (images && images.length) m.images = images.slice();
+  st.messages.push(m);
 }
 
 /**
  * 用户说一句话（或点"继续"）。后台跑一轮追问。
+ * images: 可选，本轮附带的本地图（uni.chooseImage 的 tempFilePaths）。
  * 返回 Promise，但不要求页面 await —— 任务自己会广播进度。
  */
-export async function send(text) {
+export async function send(text, images) {
   init();
   if (!st.seed) return st;
   if (busy > 0) return st;              // 防重入：一轮没跑完不接受下一句
   stopFlag = false;
-  pushMsg('user', text);
+  pushMsg('user', text, images);
   set({ running: true, runningWhat: '追问', error: '', paused: false });
   busy++;
   try {
@@ -195,12 +199,27 @@ export async function generate() {
   }
 }
 
-/** 重跑一次生成（结果不满意） */
+/**
+ * 重跑一次生成（结果不满意）。
+ *
+ * plan 与 stage 必须一次 set 掉：分两次会先广播一个"plan 已清空、stage 还是 done"
+ * 的中间态，页面按它判定就会闪回第一步表单，然后才跳回对话页 —— 一闪一闪很难看。
+ */
 export function regenerate() {
   init();
   if (!st.seed) return Promise.resolve(st);
-  set({ plan: null, error: '' });
+  set({ plan: null, error: '', stage: 'plan' });
   return generate();
+}
+
+/**
+ * 放弃这次规划会话，回到初始状态。
+ * 页面用它做"重新填表"：残留会话（问了一半 / 生成失败）以前没有出口，
+ * 用户只能杀进程重进。
+ */
+export function abandon() {
+  init();
+  return reset();
 }
 
 /** 落地：把 plan 写进 pwstore，然后收尾（会话保留到用户下次进来前） */

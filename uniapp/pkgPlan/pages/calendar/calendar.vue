@@ -108,6 +108,13 @@ export default {
     this.build()
     this.refreshList()
   },
+  onShow() {
+    // 重排会改 tasks[].day，从重排页退回日历页必须重算。
+    // 以前只有 onLoad：页面常驻着，日历上还是重排前的排期，看着像"改了没生效"。
+    // 这里不重置 picked / 月份 —— 用户翻到别的月份再回来，不该被弹回今天。
+    this.build()
+    this.refreshList()
+  },
   methods: {
     build() {
       const first = new Date(this.year, this.month - 1, 1)
@@ -212,7 +219,7 @@ export default {
 
 .cm-nav { display: flex; align-items: center; }
 .cm-arrow { font-size: 34rpx; color: var(--ink-2, #5a6560); padding: 0 16rpx; }
-.cm-today { font-size: 23rpx; color: var(--brand-strong, #1d4fd8); }
+.cm-today { font-size: 23rpx; color: var(--brand-strong, #be123c); }
 
 .cm-week { display: flex; margin-bottom: 8rpx; }
 .cm-wname { flex: 1; text-align: center; font-size: 21rpx; color: var(--ink-3, #98a19b); }
@@ -259,8 +266,8 @@ export default {
 .ct-ops { flex-shrink: 0; display: flex; }
 .ct-op {
   margin-left: 14rpx; padding: 8rpx 18rpx; border-radius: 999rpx;
-  font-size: 22rpx; color: var(--brand-strong, #1d4fd8);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
+  font-size: 22rpx; color: var(--brand-strong, #be123c);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
 }
 .ct-tip { margin-top: 18rpx; font-size: 21rpx; line-height: 1.7; color: var(--ink-3, #98a19b); }
 

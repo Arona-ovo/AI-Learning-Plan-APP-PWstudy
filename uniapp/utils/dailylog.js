@@ -58,7 +58,15 @@ export function buildDraft() {
       goalTitle: q.goal.title,
       day: q.task.day,
       planned: q.task.pomos || 1,
-      actual: Math.min(q.task.pomos || 1, q.task.donePomos || 0)
+      actual: Math.min(q.task.pomos || 1, q.task.donePomos || 0),
+      // 真实记录的番茄数：「按实际填」按钮的复位基准，也是判断"填报有没有虚增"的尺子
+      done: q.task.donePomos || 0,
+      // 前几天的欠账会被 todayQueue 一起带出来。标出来给收工表分组 ——
+      // 混在"今天该做的"里，用户会以为今天必须把历史欠账全补完
+      overdue: !!q.overdue,
+      behind: q.overdue
+        ? Math.max(1, (pw.dayDiff(pw.dateStr(new Date(q.goal.createdAt)), today) + 1) - q.task.day)
+        : 0
     };
   });
 
@@ -78,7 +86,8 @@ export function buildDraft() {
           goalTitle: g.title,
           day: t.day,
           planned: t.pomos || 1,
-          actual: 0
+          actual: 0,
+          done: t.donePomos || 0
         });
       });
   });
@@ -89,6 +98,7 @@ export function buildDraft() {
     items: items,
     ahead: ahead,
     extras: old ? (old.extras || '') : '',
+    facts: old ? (old.facts || []) : [],
     mood: old ? (old.mood || '') : '',
     note: old ? (old.note || '') : ''
   };
@@ -99,11 +109,35 @@ function clampActual(v, planned) {
   return Math.min(n, Math.max(1, planned || 1));
 }
 
+/**
+ * 规范化「对话里听出来的事实」列表。
+ * 允许传字符串或数组，去重、去空，最多留 20 条（防止日志无限长）。
+ */
+function normFacts(v) {
+  let arr = [];
+  if (Array.isArray(v)) arr = v.slice();
+  else if (typeof v === 'string') arr = v.split(/[；;]/);
+  const out = [];
+  arr.forEach(x => {
+    const s = String(x || '').trim();
+    if (s && out.indexOf(s) < 0) out.push(s);
+  });
+  return out.slice(-20);
+}
+
+/** 今日对话里记下的事实（给人看的一句话） */
+export function factsText(log) {
+  return ((log && log.facts) || []).join('；');
+}
+
 /** 存下这次收工，返回落库后的 log（drift 已算好） */
 export function save(draft) {
   const d = dayRec(draft.date || pw.today());
+  const old = d.log;
   const log = {
     at: Date.now(),
+    // 补记番茄要按"填报的那天"落账，不能一律记到今天（补填昨天的表会记错天）
+    date: draft.date || pw.today(),
     items: (draft.items || []).map(i => ({
       goalId: i.goalId, taskId: i.taskId, title: i.title, goalTitle: i.goalTitle,
       day: i.day, planned: i.planned || 1, actual: clampActual(i.actual, i.planned)
@@ -116,6 +150,10 @@ export function save(draft) {
         day: i.day, planned: i.planned || 1, actual: clampActual(i.actual, i.planned)
       })),
     extras: String(draft.extras || '').trim(),
+    // 对话里记的事实不经过收工表，保存时要原样带过去，别被覆盖掉
+    facts: normFacts((draft.facts && draft.facts.length)
+      ? draft.facts
+      : ((old && old.facts) || [])),
     mood: String(draft.mood || ''),
     note: String(draft.note || '').trim()
   };
@@ -131,27 +169,60 @@ export function save(draft) {
 /**
  * 回填番茄数。只增不减 —— 用户少填了不会把已有的进度抹掉。
  * 做满即自动完成（与 addPomoToTask 同一口径）。
+ *
+ * 走 pw.creditPomo 而不是直接改 task.donePomos：填报表里做的这几个番茄
+ * 也要进 sessions / daily.pomo / daily.focusMin，否则热力图、forecast
+ * 和重排用的 reality.days 全都看不见它们 —— 等于白做。
  */
 function credit(log) {
   (log.items || []).concat(log.ahead || []).forEach(i => {
     if (!(i.actual > 0)) return;
-    const g = pw.goalOf(i.goalId);
-    if (!g) return;
-    const t = g.tasks.filter(x => x.id === i.taskId)[0];
-    if (!t) return;
-    if ((t.donePomos || 0) >= i.actual) return;
-    t.donePomos = i.actual;
-    if (t.donePomos >= (t.pomos || 1) && t.status === 'todo') {
-      t.status = 'done';
-      t.doneAt = Date.now();
-    }
+    pw.creditPomo(i.goalId, i.taskId, i.actual, { src: 'log', date: log.date });
   });
 }
 
 /**
+ * 连续"没做完"的天数（含今天，最多回溯 14 天）。
+ * 重排拿它决定"这次能不能顺延期限"：偶尔一天做不完不该动截止日，
+ * 连续多天追不上才说明是计划本身排错了。
+ *
+ * 口径：某天算没做完，当且仅当
+ *   - 有收工记录且里面存在 actual < planned 的项（他自己说没做完）；或
+ *   - 那天一分没学（focusMin === 0）—— 没填表但也没学时，多半是真没做。
+ * 有记录且全部做完 → 达标，链断。
+ * 完全没有数据的日子不猜（链断）—— 新用户刚装 App 不该被算成"连续 14 天没做"。
+ */
+export function shortStreak(goalId) {
+  const st = pw.get();
+  let n = 0;
+  for (let k = 0; k < 14; k++) {
+    const d = st.daily[pw.addDays(pw.today(), -k)];
+    if (!d) break;
+    let bad;
+    if (d.log && (d.log.items || []).length) {
+      const items = goalId
+        ? (d.log.items || []).filter(i => i.goalId === goalId)
+        : (d.log.items || []);
+      // 那天表里没这个目标的任务 → 不算他的账，链断
+      if (!items.length) break;
+      bad = items.some(i => (i.actual || 0) < (i.planned || 0));
+    } else {
+      bad = !(d.focusMin > 0);
+    }
+    if (!bad) break;
+    n++;
+  }
+  return n;
+}
+
+/**
  * 有没有"和规定不一样"。
- * 三种都算偏：少做了、提前做了后面的、做了计划外的。
+ * 三种都算偏：少做了、提前做了后面的、做了计划外的（手填的 extras）。
  * 完全照计划走完才是 false —— 那时没必要惊动 AI。
+ *
+ * 注意：对话里 AI 听出来的事实存在 facts 里，**不算偏差**。
+ * 那多半是"我把第 3 天的 X 做完了"这种按计划汇报，番茄已经由 creditPomos 真记上；
+ * 它只是给 AI 的上下文，不该因此逼用户去重排。
  */
 export function driftOf(log) {
   if (!log) return false;
@@ -163,23 +234,26 @@ export function driftOf(log) {
 }
 
 /**
- * 补记事实：把"AI 从对话里听出来的事实"写进今日收工记录（extras）。
+ * 补记事实：把"AI 从对话里听出来的事实"写进今日收工记录的 facts 字段。
  *
- * 为什么走 extras 而不是 note：extras 参与 driftOf，AI 说过"这算和计划不一样"
- * 的那部分就应该真的变成偏差，后面 replan?from=log 才拿得到；
- * 而 note 只是给人看的备注，不会影响重排判断。
+ * 为什么单独一个字段、不写 extras：extras 参与 driftOf，只要非空就会被判成
+ * "和计划有出入"。而对话里提炼出的多半是"我把第 3 天的 X 做完了"这种**按计划汇报**，
+ * 番茄已经由 creditPomos() 真记到任务上了；把它算成偏差，会让"今天明明照计划走完"
+ * 的用户每次都被推去点一遍 AI 重排。
+ *
+ * facts 只作为重排时的上下文（summaryFor 会给 AI 看），不触发强制重排。
+ * 真做了计划外的事，是用户在收工表里手填 extras —— 那条才算偏差。
  * 他说"今天按计划做完了"时 Coach 不会调这里 —— 那时没有事实可记。
  */
 export function appendFacts(date, facts) {
-  const list = (facts || []).map(x => String(x || '').trim()).filter(Boolean);
+  const list = normFacts(facts);
   if (!list.length) return null;
   const d = dayRec(date || pw.today());
-  const line = list.join('；');
   if (!d.log) {
     // 还没填过收工表：建一条只带事实的壳子（items 为空 = 今天没有逐项填报）
-    d.log = { at: Date.now(), items: [], ahead: [], extras: line, mood: '', note: '' };
+    d.log = { at: Date.now(), items: [], ahead: [], extras: '', facts: list, mood: '', note: '' };
   } else {
-    d.log.extras = (d.log.extras ? d.log.extras + '；' : '') + line;
+    d.log.facts = normFacts((d.log.facts || []).concat(list));
   }
   d.log.at = Date.now();
   d.log.drift = driftOf(d.log);
@@ -201,21 +275,17 @@ export function creditPomos(list) {
     if (!i || !i.taskId) return;
     const add = Math.floor(Number(i.add) || 0);
     if (add <= 0) return;
+    // 顺带找出任务属于哪个目标（creditPomo 需要 goalId 才能落到统计里）
     const gs = pw.get().goals;
-    let hit = null;
+    let gid = '';
     for (let k = 0; k < gs.length; k++) {
-      const t = (gs[k].tasks || []).filter(x => x.id === i.taskId)[0];
-      if (t) { hit = t; break; }
+      const hit = (gs[k].tasks || []).filter(x => x.id === i.taskId)[0];
+      if (hit) { gid = gs[k].id; break; }
     }
-    if (!hit) return;
-    const cap = Math.max(1, hit.pomos || 1);
-    const next = Math.min(cap, (hit.donePomos || 0) + add);
-    if (next <= (hit.donePomos || 0)) return;   // 只增不减
-    hit.donePomos = next;
-    if (next >= cap && hit.status === 'todo') { hit.status = 'done'; hit.doneAt = Date.now(); }
-    n++;
+    if (!gid) return;
+    // 同样走统计口径：对话里说过的话要变成热力图和 forecast 认的账
+    if (pw.creditPomo(gid, i.taskId, add, { src: 'chat' }) > 0) n++;
   });
-  if (n) pw.touch();
   return n;
 }
 
@@ -254,6 +324,7 @@ export function summaryFor(log) {
     lines.push('- 提前做了后面第' + i.day + '天的「' + i.title + '」' + (i.actual || 0) + ' 个番茄');
   });
   if (log.extras) lines.push('- 计划之外还做了：' + log.extras);
+  if ((log.facts || []).length) lines.push('- 本人今天补充说：' + factsText(log) + '（已核对任务进度，不必因此调整）');
   if (log.mood) lines.push('- 今天状态：' + moodLabel(log.mood));
   if (log.note) lines.push('- 本人备注：' + log.note);
   return lines.join('\n');

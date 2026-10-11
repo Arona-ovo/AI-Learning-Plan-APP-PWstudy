@@ -234,7 +234,6 @@ export default {
   pointer-events: auto;
 }
 
-
 /* 搜索模式：胶囊去掉左右内边距，输入框才能真正铺满 */
 .fnb-search-mode {
   padding: 0;
@@ -242,17 +241,17 @@ export default {
 
 /* 指令态：胶囊描边换成品牌色，一眼能看出"这条会改页面" */
 .fnb-cmd-mode {
-  border-color: rgba(46, 107, 255, 0.55);
-  border-color: rgba(var(--brand-rgb, 46, 107, 255), 0.55);
-  box-shadow: 0 10rpx 30rpx rgba(46, 107, 255, 0.14), 0 2rpx 6rpx rgba(23, 32, 26, 0.04);
-  box-shadow: 0 10rpx 30rpx rgba(var(--brand-rgb, 46, 107, 255), 0.14), 0 2rpx 6rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.04);
+  border-color: rgba(225, 29, 72, 0.55);
+  border-color: rgba(var(--brand-rgb, 225, 29, 72), 0.55);
+  box-shadow: 0 10rpx 30rpx rgba(225, 29, 72, 0.14), 0 2rpx 6rpx rgba(23, 32, 26, 0.04);
+  box-shadow: 0 10rpx 30rpx rgba(var(--brand-rgb, 225, 29, 72), 0.14), 0 2rpx 6rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.04);
 }
 
 .fnb-search-cmd {
-  background: rgba(46, 107, 255, 0.06);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.06);
-  border-color: rgba(46, 107, 255, 0.24);
-  border-color: rgba(var(--brand-rgb, 46, 107, 255), 0.24);
+  background: rgba(225, 29, 72, 0.06);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.06);
+  border-color: rgba(225, 29, 72, 0.24);
+  border-color: rgba(var(--brand-rgb, 225, 29, 72), 0.24);
 }
 
 /* 执行中转圈 */
@@ -262,8 +261,8 @@ export default {
   border-radius: 50%;
   border: 4rpx solid rgba(23, 32, 26, 0.12);
   border: 4rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.12);
-  border-top-color: #2e6bff;
-  border-top-color: var(--brand, #2e6bff);
+  border-top-color: #e11d48;
+  border-top-color: var(--brand, #e11d48);
   animation: fnb-rotate 0.9s linear infinite;
 }
 
@@ -307,15 +306,15 @@ export default {
 
 /* 指令态：整颗键染上品牌色，和胶囊描边、魔杖图标同一套语言 */
 .fnb-mode-on {
-  background: rgba(46, 107, 255, 0.12);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.12);
-  border-color: rgba(46, 107, 255, 0.34);
-  border-color: rgba(var(--brand-rgb, 46, 107, 255), 0.34);
+  background: rgba(225, 29, 72, 0.12);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  border-color: rgba(225, 29, 72, 0.34);
+  border-color: rgba(var(--brand-rgb, 225, 29, 72), 0.34);
 }
 
 .fnb-mode-on .fnb-mode-txt {
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
 }
 
 /* 锁定标记：右上角一个小点，提示"这条是我自己定的，不再自动改判" */
@@ -326,8 +325,8 @@ export default {
   width: 8rpx;
   height: 8rpx;
   border-radius: 50%;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
 }
 
 /* 指令态图标：一根小魔杖（两条短线交叉，纯 CSS） */
@@ -345,8 +344,8 @@ export default {
   width: 4rpx;
   height: 28rpx;
   border-radius: 2rpx;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
   transform: rotate(45deg);
 }
 
@@ -357,8 +356,8 @@ export default {
   width: 28rpx;
   height: 4rpx;
   border-radius: 2rpx;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
   transform: rotate(45deg);
 }
 
@@ -396,8 +395,8 @@ export default {
 .fnb-back {
   font-size: 48rpx;
   line-height: 1;
-  color: #2e6bff;
-  color: var(--brand, #2e6bff);
+  color: #e11d48;
+  color: var(--brand, #e11d48);
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
@@ -455,8 +454,8 @@ export default {
   width: 24rpx;
   height: 24rpx;
   box-sizing: border-box;
-  border: 3rpx solid #2e6bff;
-  border: 3rpx solid var(--brand, #2e6bff);
+  border: 3rpx solid #e11d48;
+  border: 3rpx solid var(--brand, #e11d48);
   border-radius: 50%;
 }
 
@@ -467,8 +466,8 @@ export default {
   width: 3rpx;
   height: 13rpx;
   border-radius: 2rpx;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  background: #e11d48;
+  background: var(--brand, #e11d48);
   transform: rotate(-45deg);
   transform-origin: 0 0;
 }

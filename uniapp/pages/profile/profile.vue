@@ -278,8 +278,8 @@ export default {
   white-space: nowrap;
 }
 
-.p-edit { font-size: 26rpx; color: #1d4fd8; flex-shrink: 0; }
-.p-edit { font-size: 26rpx; color: var(--brand-strong, #1d4fd8); flex-shrink: 0; }
+.p-edit { font-size: 26rpx; color: #be123c; flex-shrink: 0; }
+.p-edit { font-size: 26rpx; color: var(--brand-strong, #be123c); flex-shrink: 0; }
 
 /* 账号卡 */
 .account-card {
@@ -310,9 +310,9 @@ export default {
   flex-shrink: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #ffffff;
-  background: #2e6bff;
-  background: var(--brand, #2e6bff);
+  color: #be123c; color: var(--brand-strong, #be123c);
+  background: rgba(225, 29, 72, 0.1); background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  border: 2rpx solid rgba(225, 29, 72, 0.4); border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
   border-radius: 999rpx;
   padding: 14rpx 36rpx;
 }
@@ -356,8 +356,8 @@ export default {
 
 .st-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
 
-.st-num { font-size: 38rpx; font-weight: 700; color: #2e6bff; }
-.st-num { font-size: 38rpx; font-weight: 700; color: var(--brand, #2e6bff); }
+.st-num { font-size: 38rpx; font-weight: 700; color: #e11d48; }
+.st-num { font-size: 38rpx; font-weight: 700; color: var(--brand, #e11d48); }
 
 .st-label { font-size: 22rpx; color: #5a6560; margin-top: 6rpx; }
 .st-label { font-size: 22rpx; color: var(--ink-2, #5a6560); margin-top: 6rpx; }

@@ -6,6 +6,7 @@
 //   · 失败把上一轮报错回喂模型重试（最多 3 轮）；全部失败把人话错误抛给页面
 //   · 规划是重资产：结果一律先给用户预览，确认后才由页面调 pwstore 落库
 import { chatCompletion, LLMError } from './llm.js';
+import { isAIEnabled } from './config.js';
 import * as holiday from '../utils/holiday.js';
 import * as dailylog from '../utils/dailylog.js';
 
@@ -139,7 +140,9 @@ export function normalizePlan(raw, input) {
       : [];
     tasks.push({
       title,
-      ms: clampInt(t && t.ms, 1, msCount, 1),
+      // 提示词里写的是 milestone（模型照着写 milestone），早期版本读的是 ms ——
+      // 两个 key 都认，否则模型按提示词输出时 ms 全兜底成 1，任务全被塞进"阶段 1"
+      ms: clampInt((t && t.ms != null) ? t.ms : (t && t.milestone), 1, msCount, 1),
       day: clampInt(t && t.day, 1, totalDays, 1),
       pomos: clampInt(t && t.pomos, 1, 8, 2),
       tags: Array.isArray(t && t.tags) ? t.tags.map(x => clampStr(x, 10)).filter(Boolean).slice(0, 3) : [],
@@ -196,9 +199,77 @@ function planSystemPrompt(input) {
 }
 
 /**
+ * 没有 AI 时的本地兜底：按天数和每天投入量，确定性地排一份计划。
+ *
+ * 为什么必须有：README 承诺"不配 AI 也能用"，而配 Key 是可选动作。
+ * 没这条兜底时，未配置的用户点「直接开始规划」只会看到一句"请先配置 AI"，
+ * 永远到不了预览页 —— 等于核心功能不可用。
+ * 产出与 normalizePlan 同构（strategy/risks/milestones/tasks/totalDays），
+ * 页面与落库逻辑完全不用区分。
+ */
+export function localPlan(input) {
+  const deadline = String((input && input.deadline) || '');
+  const msDeadline = new Date(deadline).getTime();
+  const totalDays = Math.max(3, Math.min(3650,
+    isNaN(msDeadline) ? 90 : Math.ceil((msDeadline - Date.now()) / 86400000)));
+  const dailyMin = (input && input.dailyMin) || 60;
+  const perDay = Math.max(1, Math.round(dailyMin / 25));
+  const title = String((input && input.title) || '这个目标').trim();
+
+  // 四个阶段按 20% / 30% / 30% / 20% 切，天数不够就合并成 2-3 个
+  const cuts = totalDays >= 60 ? [0.2, 0.3, 0.3, 0.2] : (totalDays >= 21 ? [0.3, 0.4, 0.3] : [0.5, 0.5]);
+  const names = ['摸底与打基础', '系统推进', '强化与查漏', '冲刺与复盘'];
+  const milestones = [];
+  let acc = 0;
+  cuts.forEach((r, i) => {
+    const days = Math.max(1, Math.round(totalDays * r));
+    milestones.push({ title: names[i] || ('阶段 ' + (i + 1)), days: Math.min(days, totalDays - acc) });
+    acc += days;
+  });
+
+  // 每个阶段的骨架任务：同一套动词模板，day 铺在该阶段的天数区间里
+  const TPL = [
+    ['梳理' + title + '的考纲与范围，列出清单', 1],
+    ['做完一套摸底练习并统计正确率', 2],
+    ['按清单啃第一节内容并做笔记', 2],
+    ['刷对应章节的练习题并整理错题', 2],
+    ['回顾本周错题，重做仍不会的', 2],
+    ['做一套阶段自测并评分', 2]
+  ];
+  const tasks = [];
+  let day = 1;
+  milestones.forEach((m, mi) => {
+    const span = Math.max(1, m.days);
+    const per = Math.max(1, Math.round((span * perDay) / TPL.length));
+    TPL.forEach((t, ti) => {
+      if (tasks.length >= 30) return;
+      tasks.push({
+        title: (mi === 0 ? '' : '【' + m.title + '】') + t[0],
+        ms: mi + 1,
+        day: Math.min(totalDays, day),
+        pomos: Math.max(1, Math.min(8, t[1] * per)),
+        tags: [m.title]
+      });
+      day = Math.min(totalDays, day + Math.max(1, Math.round(span / TPL.length)));
+    });
+  });
+
+  return {
+    strategy: '未接入 AI，按' + totalDays + '天、每天' + dailyMin + '分钟排了一份通用计划：先摸底打基础，再系统推进，最后冲刺复盘。配好 AI 后会按你的具体情况重排。',
+    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天番茄数按 ' + perDay + ' 个估算，跟不上就及时收工填报让计划重排'],
+    milestones,
+    tasks,
+    totalDays,
+    local: true      // 页面拿它显示"本地模板，未用 AI"
+  };
+}
+
+/**
  * 远景规划。成功返回 normalizePlan 结果；失败抛 Error（message 已是人话）。
+ * AI 没配置时直接走本地兜底（localPlan），不再抛"请先配置 AI"。
  */
 export async function planGoal(input) {
+  if (!aiEnabled()) return localPlan(input);
   const sys = planSystemPrompt(input);
   const user = [
     '目标：' + input.title,
@@ -222,7 +293,8 @@ export async function planGoal(input) {
       return normalizePlan(raw, input);
     } catch (e) {
       if (e instanceof LLMError) {
-        if (e.notConfigured) throw humanPlanError(e);
+        // 配置中途失效（改了 Key / 关了开关）：不拦人，直接给本地模板
+        if (e.notConfigured) return localPlan(input);
         if (!e.retryable) throw humanPlanError(e);   // 401/402/404 快速失败
         lastErr = e.message;                          // 超时 / 429 / 5xx → 回喂重试
       } else {
@@ -238,12 +310,75 @@ function humanPlanError(e) {
   return e;
 }
 
+/** AI 是不是真能用（没配 Key / 关掉开关 → false）。
+ *  页面用它决定"要不要走追问"，planGoal 用它决定"要不要本地兜底"。 */
+export function aiEnabled() {
+  try {
+    return !!isAIEnabled();
+  } catch (e) {
+    return false;
+  }
+}
+
 /* ---------- 对话式收集需求（多轮追问） ---------- */
+
+/* ---------- 图片：把本地图读成 dataURL，喂给支持视觉的模型 ---------- */
+
+// 本地文件 → data:image/...;base64。失败返回 ''（临时文件可能已被系统清掉，那就当没这张图）
+function fileToDataUrl(p) {
+  return new Promise((resolve) => {
+    try {
+      // #ifdef APP-PLUS
+      plus.io.resolveLocalFileSystemURL(p, (entry) => {
+        entry.file((file) => {
+          const reader = new plus.io.FileReader();
+          reader.onloadend = (e) => {
+            const r = e && e.target && e.target.result;
+            resolve(typeof r === 'string' && r.indexOf('data:') === 0 ? r : '');
+          };
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+        }, () => resolve(''));
+      }, () => resolve(''));
+      // #endif
+      // #ifndef APP-PLUS
+      if (typeof fetch !== 'function' || typeof FileReader !== 'function') return resolve('');
+      fetch(p).then((r) => r.blob()).then((b) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result || ''));
+        fr.onerror = () => resolve('');
+        fr.readAsDataURL(b);
+      }).catch(() => resolve(''));
+      // #endif
+    } catch (e) {
+      resolve('');
+    }
+  });
+}
+
+// history → wire messages：带图的用户消息转成 [{type:'image_url'},{type:'text'}] 分段 content
+async function historyToWire(history) {
+  const out = [];
+  for (const m of (history || [])) {
+    if (m && m.role === 'user' && Array.isArray(m.images) && m.images.length) {
+      const parts = [];
+      for (const p of m.images) {
+        const url = await fileToDataUrl(p);
+        if (url) parts.push({ type: 'image_url', image_url: { url } });
+      }
+      parts.push({ type: 'text', text: String(m.content || '') });
+      out.push({ role: 'user', content: parts });
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
 
 /**
  * 一轮追问。
  * seed: { title, deadline, dailyMin, level }
- * history: [{role:'user'|'assistant', content}]  已经聊过的（不含本次）
+ * history: [{role:'user'|'assistant', content, images?}]  已经聊过的（不含本次）
  * 返回 { reply, enough, summary, missing }
  */
 export async function askRound(seed, history) {
@@ -258,7 +393,7 @@ export async function askRound(seed, history) {
     '4. 只输出 JSON：{"reply":"给用户看的话","enough":true|false,"summary":"需求摘要","missing":["还缺什么"]}'
   ].join('\n');
   const messages = [{ role: 'system', content: sys }]
-    .concat(history || [])
+    .concat(await historyToWire(history))
     .concat([{ role: 'user', content: '（该你说了）' }]);
 
   let lastErr = '';
@@ -386,14 +521,19 @@ export async function chatToday(text, ctx, history) {
 
 /**
  * 校验重排 diff。tasks = 该目标现有任务（id 索引）。
- * 返回 { summary, ops:[{op,taskId,day?,pomos?,reason?,text?}] }，非法 op 丢弃。
+ * opt: { maxDeferDays } —— 这次最多允许往后顺延几天（0 = 不允许，defer 一律丢弃）。
+ * 返回 { summary, ops:[{op,taskId,day?,pomos?,days?,reason?,text?}] }，非法 op 丢弃。
  */
-export function normalizeReplan(raw, tasks) {
+export function normalizeReplan(raw, tasks, opt) {
   const o = raw || {};
   const byId = {};
   tasks.forEach(t => { byId[t.id] = t; });
   const summary = clampStr(o.summary, 300);
   const ops = [];
+  // 顺延上限：页面按"还剩多少天"算好传进来，避免模型一次把期限推到半年后。
+  // 没传就按 30 天兜底；显式传 0 = 这次不许顺延（连续少做不够久时不给这个选项）。
+  const hasCap = !!(opt && typeof opt.maxDeferDays === 'number');
+  const maxDefer = Math.max(0, Math.min(90, hasCap ? Math.floor(opt.maxDeferDays) : 30));
   // 调整档位：策略 > 内容 > 时间（AI 没给就按 op 类型兜一个）
   const LEVELS = ['strategy', 'content', 'time'];
   const levelOf = (op, kind) => {
@@ -401,6 +541,7 @@ export function normalizeReplan(raw, tasks) {
     if (LEVELS.indexOf(lv) >= 0) return lv;
     return kind === 'note' ? 'strategy' : (kind === 'move' ? 'time' : 'content');
   };
+  let deferred = false;
   (Array.isArray(o.ops) ? o.ops : []).forEach(op => {
     if (!op || typeof op !== 'object') return;
     const kind = clampStr(op.op, 10);
@@ -408,6 +549,18 @@ export function normalizeReplan(raw, tasks) {
     if (kind === 'note') {
       const text = clampStr(op.text || op.reason, 200);
       if (text) ops.push({ op: 'note', level: lv, text });
+      return;
+    }
+    // defer 动的是整个目标的截止日期，本来就没有 taskId ——
+    // 必须放在下面的 byId 判定之前，否则会被"找不到任务"直接丢掉。
+    if (kind === 'defer') {
+      if (deferred) return;                 // 只认第一条：多条顺延叠加没有意义
+      if (!maxDefer) return;                // 这次不许顺延
+      const days = clampInt(op.days != null ? op.days : op.day, 1, maxDefer, 0);
+      if (!days) return;
+      deferred = true;
+      // 顺延期限恒为 time 档（最后手段），不接受模型自称的 level
+      ops.push({ op: 'defer', level: 'time', days: days, reason: clampStr(op.reason, 120) });
       return;
     }
     const t = byId[op.taskId];
@@ -554,8 +707,8 @@ export async function explainTask(task, goal) {
  * 动态重排：传入目标 + 近期真实投入（recentDays 的摘要），返回 diff 预览。
  * 只给建议不落库 —— 用户逐条确认后由页面应用（强制预览纪律）。
  */
-export function replanGoal(goal, reality) {
-  return runReplan(goal, reality, '');
+export function replanGoal(goal, reality, opt) {
+  return runReplan(goal, reality, '', opt);
 }
 
 /**
@@ -566,50 +719,61 @@ export function replanGoal(goal, reality) {
  *   B：今天提前把后面第 8 天的活干了（节奏变了 → 往前提）
  * 这两种情况该给的 op 完全相反。拿到填报之后它才判断得出来。
  */
-export function replanFromToday(goal, log, reality) {
-  return runReplan(goal, reality, dailylog.summaryFor(log));
+export function replanFromToday(goal, log, reality, opt) {
+  return runReplan(goal, reality, dailylog.summaryFor(log), opt);
 }
 
-async function runReplan(goal, reality, todayBlock) {
+async function runReplan(goal, reality, todayBlock, opt) {
   // reality 可以是对象（推荐）或老的字符串："近期每天分钟数"
   const rd = (typeof reality === 'string')
     ? { days: reality, overdue: 0 }
     : { days: (reality && reality.days) || '0', overdue: (reality && reality.overdue) || 0 };
+  // 连续少做天数由页面算好传进来：模型数不出来，而这正是"能不能顺延期限"的唯一凭据
+  const streak = Math.max(0, Math.floor(Number(rd.streak != null ? rd.streak : (reality && reality.streak)) || 0));
   const pending = (goal.tasks || []).filter(t => t.status === 'todo').map(t => ({
     id: t.id, title: t.title, day: t.day, pomos: t.pomos, donePomos: t.donePomos || 0,
     overdue: !!(reality && reality.overdueIds && reality.overdueIds.indexOf(t.id) >= 0)
   }));
+  const maxDefer = Math.max(0, Math.min(90, (opt && typeof opt.maxDeferDays === 'number') ? Math.floor(opt.maxDeferDays) : 30));
   const sys = [
     '你是学习规划专家。根据学习者的真实执行情况，对剩余任务提出调整建议。',
-    '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|note","level":"strategy|content|time","taskId":"任务id","day":新建议第几天,"pomos":新番茄数,"reason":"一句话理由","text":note类建议的正文}]}',
+    '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|defer|note","level":"strategy|content|time","taskId":"任务id","day":新建议第几天,"pomos":新番茄数,"days":顺延天数,"reason":"一句话理由","text":note类建议的正文}]}',
     '规则：',
     '1. 只调整未完成任务；已完成/已放弃的任务不要动；',
     '2. **调整优先级（必须严格遵守）**：① strategy 调策略（换个学法、调顺序、调配比——不动任务量与期限）',
     '   ② content 调内容（砍掉低价值任务、减量、合并）③ time 调时间（顺延任务日期/阶段，最后手段）；',
     '3. 有任务超期时：先想能不能用策略或内容解决（比如换成更省时的学法、砍掉次要任务），',
     '   只有当真实速度确实追不上时才用 time 顺延；超期严重且内容已无可砍，才允许 move 大幅后移；',
-    '4. op 只能是 move（改时间）/ resize（改番茄数）/ drop（砍掉）/ note（给学习者的建议文字，level 一律 strategy）；',
-    '5. 一次给 3-8 条，挑影响最大的说，不要为改而改。',
-    '6. 节假日：' + holiday.summaryFor(holiday.today(), goal.deadline) +
+    '4. op 只能是 move（改时间）/ resize（改番茄数）/ drop（砍掉）/ note（给学习者的建议文字，level 一律 strategy）' +
+      (maxDefer ? '/ defer（顺延整个目标的截止日期，days = 往后几天，最多 ' + maxDefer + ' 天，level 一律 time）' : ''),
+    maxDefer
+      ? '5. **defer 是最后中的最后**：它改的是目标截止日，代价最大。只有在"连续好几天都做不完、' +
+        '状态也正常、且策略和减量都救不回来"时才给；一次只顺延够用的天数，别一上来就顶格。'
+      : '5. 本次**不允许** defer（顺延截止日期）：他还没有连续多天做不完，先用策略和内容解决。',
+    '6. 一次给 3-8 条，挑影响最大的说，不要为改而改。',
+    '7. 节假日：' + holiday.summaryFor(holiday.today(), goal.deadline) +
       ' —— 撞上假期的任务优先"减量/换轻松学法"，别一股脑往后顺延。',
     // 只有带收工填报时才下发这段；没有填报就别用不存在的东西去约束模型
     todayBlock ? [
-      '7. **今天做了什么和计划不一样时，按这个顺序判断**（优先级高于第 3 条）：',
+      '8. **今天做了什么和计划不一样时，按这个顺序判断**（优先级高于第 3 条）：',
       '   a. 他提前做了后面某天的任务 → 说明节奏比计划快：用 move 把那项提前，',
       '      并考虑把同阶段后面的任务顺势前移，别再让他重复做；',
       '   b. 他做了计划之外的事（比如临时改练阅读）→ 这是真实需求在说话：',
       '      优先用 strategy 把后面的安排往这个方向靠，而不是硬拉回原计划；',
       '   c. 他少做了 → 先看"今天状态"：状态差（累/被占/卡住）多半是一次性的，',
       '      用 content 减量或给个更省时的学法就够了，不要动期限；',
-      '      只有连续多天都做不完、且状态正常，才说明是任务太重，再考虑 time 顺延；',
+      '      只有连续多天都做不完、且状态正常，才说明是任务太重，再考虑 time 顺延' +
+        (maxDefer ? '，必要时才用 defer 动截止日' : '') + '；',
       '   d. 完全按计划完成 → 只在有更优解时给一条 strategy note，不要为改而改。',
-      '8. 收工填报里的信息以"事实"对待，但判断权在你：一天的数据不足以推翻整个计划。'
+      '9. 收工填报里的信息以"事实"对待，但判断权在你：一天的数据不足以推翻整个计划。'
     ].join('\n') : ''
   ].filter(Boolean).join('\n');
   const user = [
     '目标：' + goal.title + '（截止 ' + goal.deadline + '）',
     '近期每天实际专注（分钟）：' + rd.days,
     rd.overdue ? '当前超期未完成任务：' + rd.overdue + ' 个' : '',
+    // 连续少做天数：模型自己数不出来，而它正是"能不能顺延期限"的唯一凭据
+    '连续没做完的天数（含今天）：' + streak + ' 天',
     todayBlock || '',
     '剩余任务（JSON）：' + JSON.stringify(pending)
   ].filter(Boolean).join('\n');
@@ -627,7 +791,7 @@ async function runReplan(goal, reality, todayBlock) {
     try {
       const r = await chatCompletion(messages, { temperature: 0.3, timeout: PLAN_TIMEOUT });
       const raw = extractJSON(r.content);
-      return normalizeReplan(raw, goal.tasks || []);
+      return normalizeReplan(raw, goal.tasks || [], opt);
     } catch (e) {
       if (e instanceof LLMError) throw humanPlanError(e);
       lastErr = (e && e.message) || '输出解析失败';

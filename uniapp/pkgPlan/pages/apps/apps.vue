@@ -266,7 +266,7 @@ export default {
   background: rgba(247, 144, 9, 0.12);
   font-size: 23rpx; line-height: 1.7; color: #8a5800;
 }
-.manual-toggle { margin-top: 22rpx; font-size: 24rpx; color: var(--brand-strong, #1d4fd8); text-align: center; }
+.manual-toggle { margin-top: 22rpx; font-size: 24rpx; color: var(--brand-strong, #be123c); text-align: center; }
 .manual-box { margin-top: 10rpx; padding-top: 6rpx; border-top: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.07); }
 .pc-btn { margin-top: 24rpx; height: 84rpx; font-size: 27rpx; }
 .pc-perm {
@@ -291,18 +291,18 @@ export default {
   margin-bottom: 20rpx;
 }
 .card-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-more { font-size: 24rpx; color: #1d4fd8; color: var(--brand-strong, #1d4fd8); }
+.card-more { font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
 
 .dock-row { display: flex; align-items: center; padding: 16rpx 0; }
 .dr-icon {
   width: 76rpx; height: 76rpx;
   border-radius: 20rpx;
-  background: rgba(46, 107, 255, 0.12);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.12);
+  background: rgba(225, 29, 72, 0.12);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
   display: flex; align-items: center; justify-content: center;
   font-size: 30rpx; font-weight: 600;
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
   flex-shrink: 0;
 }
 .dr-rest { background: rgba(122, 124, 122, 0.16); color: #5a6560; color: var(--ink-2, #5a6560); }
@@ -314,10 +314,10 @@ export default {
   font-size: 22rpx;
   padding: 8rpx 22rpx;
   border-radius: 999rpx;
-  background: rgba(46, 107, 255, 0.1);
-  background: rgba(var(--brand-rgb, 46, 107, 255), 0.1);
-  color: #1d4fd8;
-  color: var(--brand-strong, #1d4fd8);
+  background: rgba(225, 29, 72, 0.1);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
   margin-right: 16rpx;
 }
 .dr-del {
@@ -344,7 +344,7 @@ export default {
 .app-scroll { max-height: 640rpx; }
 .cand { display: flex; align-items: center; padding: 12rpx 0; }
 .cand-added { opacity: 0.45; }
-.cand-add { flex-shrink: 0; font-size: 24rpx; color: #1d4fd8; color: var(--brand-strong, #1d4fd8); }
+.cand-add { flex-shrink: 0; font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
 
 .m-row { display: flex; align-items: center; padding: 18rpx 0; }
 .m-label { width: 150rpx; font-size: 25rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }
@@ -360,5 +360,5 @@ export default {
   color: #5a6560;
   color: var(--ink-2, #5a6560);
 }
-.seg-on { background: #2e6bff; background: var(--brand, #2e6bff); color: #ffffff; }
+.seg-on { background: #e11d48; background: var(--brand, #e11d48); color: #ffffff; }
 </style>

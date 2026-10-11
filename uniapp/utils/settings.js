@@ -9,6 +9,11 @@ let cache = null;
 const DEFAULT_NICKNAME = 'plana';
 // 老版本沿用过的默认昵称，仅用于一次性迁移（arona 是上一个 App 的默认值）
 const LEGACY_NICKNAMES = ['学习者', 'arona'];
+// 出厂主题色换过几轮（blue → rose → teal → tomato → 回到 rose）、
+// 出厂背景换过两轮（sakura → mint → sand）。只把"从没自己挑过"的那批迁到当前出厂色：
+// 命中旧出厂值才算没挑过，用户亲手选的颜色一律不动。
+const LEGACY_ACCENTS = ['blue', 'teal', 'tomato'];
+const LEGACY_BACKGROUNDS = ['sakura', 'mint'];
 
 function defaults() {
   return {
@@ -42,9 +47,11 @@ function defaults() {
     privacy: { storeLocal: true },
     // 外观：主题色 / 背景（key 见 utils/theme.js 的 ACCENTS 与 BACKGROUNDS）
     theme: {
-      // 主题色：玫红，与出厂的红白渐变背景同一色系
+      // 主题色：玫红（rose，启动页同款）。红色调为主的定调 + 红只做小面积点缀：
+      // 大按钮一律"淡红底 + 深红字 + 红描边"（见 App.vue 的 .btn-primary / .dlg-btn.primary），
+      // 实心玫红只出现在进度条、开关、选中态这些小元素上 —— 大块实心红就是"像经期 App"的根源。
       accent: 'rose',
-      background: 'sakura', // 背景预设（红白渐变，PWstudy 出厂默认；'custom' = 用下面这个自定义色）
+      background: 'sand', // 背景预设（暖砂渐变，PWstudy 出厂默认；'custom' = 用下面这个自定义色）
       bgColor: '',         // 自定义底色（#rrggbb；空 = 还没挑过，用 DEFAULT_CUSTOM）
       bgImage: '',         // 自定义背景图（本地路径，空则用预设）
       bgMask: 0.35,        // 背景图上的蒙版强度（0-0.8；浅色叠白、深色叠黑）
@@ -156,9 +163,9 @@ function load() {
       // 连旧 App 的默认昵称（arona）也算"从没改过"，老用户升级后同样显示新默认值
       if (!nick || LEGACY_NICKNAMES.indexOf(nick) >= 0) {
         st.profile = Object.assign({}, st.profile, { nickname: DEFAULT_NICKNAME });
-        // 上一版 App 的出厂主色也是 blue：跟着一起迁到玫红，与红白渐变的出厂风格一致。
-        // 用户自己改过主题色（非 blue）则不动。
-        if (st.theme && st.theme.accent === 'blue') st.theme.accent = 'rose';
+        // 同一批"从未个性化"的用户，主题色与背景一起迁到当前出厂色（见 LEGACY_ACCENTS）
+        if (st.theme && LEGACY_ACCENTS.indexOf(st.theme.accent) >= 0) st.theme.accent = 'rose';
+        if (st.theme && LEGACY_BACKGROUNDS.indexOf(st.theme.background) >= 0) st.theme.background = 'sand';
         cache = st;
         save();
       }
