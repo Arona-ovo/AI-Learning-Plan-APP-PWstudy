@@ -112,15 +112,23 @@
             放行名单：PWstudy 本身 + 系统桌面 + 「学习 App」里登记为「学习」的 {{ learnApps.length }} 个 App
             <text class="sn-go" @tap="goApps">去管理 ›</text>
           </view>
-          <view v-if="forcedOn && !usageOk" class="sr-warn" @tap="openUsage">
-            需要「使用情况访问」权限才能判断你在用哪个 App，点这里去开启
-          </view>
-          <view v-else-if="forcedOn && !pullOk" class="sr-warn">
+          <!-- 能力提示按"可靠性从高到低"排：原生桥 → 无障碍 → 使用情况访问 → 遮罩。
+               顺序本身就是优先级：先看有没有能力拉，再看这份能力有没有被系统放行；
+               最后一条是"锦上添花"的兜底，所以排在最后（只提示、不阻拦继续用）。 -->
+          <view v-if="forcedOn && !pullOk" class="sr-warn">
             当前跑的不是自定义基座 / 正式打包，原生拉回能力没打进包里 —— 现在只能提醒，拦不住
           </view>
+          <view v-else-if="forcedOn && !a11yOk" class="sr-warn sw-block" @tap="openA11y">
+            <text class="sw-head">开「无障碍」，强制模式才真拦得住</text>
+            <text class="sw-body">安卓 10 起系统默认禁止应用从后台跳回前台，官方只给"由系统绑定的服务"（无障碍 / 通知监听这类）开口子。开了它：你一切走就被立刻拉回来，而且不必再开「使用情况访问」。</text>
+            <text class="sw-go">点这里去开 · 在列表里找「PWstudy 专注护卫」 ›</text>
+          </view>
+          <view v-else-if="forcedOn && !usageOk" class="sr-warn" @tap="openUsage">
+            无障碍没开时，得靠「使用情况访问」判断你在用哪个 App（点这里去开）
+          </view>
           <view v-else-if="forcedOn && !overlayOk" class="sr-warn" @tap="openOverlay">
-            再授一个「显示在其他应用上层」：安卓 10 起系统会拦后台跳转，有了它才能在拦不住时
-            用一层遮罩把那个 App 盖住（点这里去开）
+            再授一个「显示在其他应用上层」：极少数 ROM 连无障碍也拦得住后台跳转，那时用一层遮罩
+            把那个 App 盖住（点这里去开）
           </view>
         </view>
       </view>
@@ -223,6 +231,9 @@ export default {
       usageOk: false,
       pullOk: false,      // 原生"拉回前台"能力在不在（自定义基座 / 正式包）
       overlayOk: false,   // 「显示在其他应用上层」授权：拦不住时用遮罩兜底
+      a11yOk: false,      // 无障碍护卫已开启（强制模式最关键的一层：后台启动的官方豁免）
+      a11yLive: false,    // 护卫已连上（正在收窗口事件）
+      a11yEvents: 0,      // 护卫收到过多少窗口事件（>0 说明它真的在干活）
       learnApps: [],      // 放行名单里登记为「学习」的 App（专注页底部那排图标）
       iconMap: {},        // pkg -> data URL（懒加载，拿不到就退回首字母）
       _iconPending: {},   // 正在读图标的包名（防重复发起）
@@ -303,7 +314,9 @@ export default {
     // 强制模式那行实时状态：说清楚"它现在到底在不在干、干了什么"
     forceLine() {
       if (!this.pullOk) return '强制模式开启中 · 当前包没有原生拉回能力，只能提醒'
-      let s = '强制模式生效中 · 离开学习 App 立刻拉回'
+      let s = this.a11yOk
+        ? '强制模式生效中 · 无障碍已开启，离开立刻拉回'
+        : '强制模式生效中 · 未开无障碍，切走有概率拉不回来（见上方提示）'
       if (this.forcedPulls > 0) s += ' · 已拉回 ' + this.forcedPulls + ' 次'
       if (this.forcedEscapes > 0) s += '（离开 ' + this.forcedEscapes + '/' + forced.maxEscapes() + '）'
       return s
@@ -343,9 +356,15 @@ export default {
     }
     this.strictOn = !!strict.enabled()
     this.forcedOn = !!forced.enabled()
+    // 从系统设置页回来：先让缓存失效再实测，否则界面还显示着"没开"
+    if (this.__fromA11y) {
+      this.__fromA11y = false
+      apptime.refreshA11y()
+    }
     this.usageOk = apptime.hasUsagePermission()
     this.pullOk = !!forced.canPull()
     this.overlayOk = apptime.canDrawOverlays()
+    this.refreshA11y()
     this.refreshLearnApps()
     try {
       const f = (settings.get() && settings.get().focus) || {}
@@ -606,6 +625,29 @@ export default {
       apptime.openOverlaySettings()
       setTimeout(() => { this.overlayOk = apptime.canDrawOverlays() }, 1200)
     },
+    /**
+     * 刷新无障碍状态。
+     * a11yOk 是"系统里勾上了没"，a11yLive/a11yEvents 是"它真的在干活没" ——
+     * 两个都要看：勾上了但服务被系统回收（或抢不过省电策略），事件数会一直是 0。
+     */
+    refreshA11y() {
+      this.a11yOk = apptime.hasA11yPermission()
+      const st = apptime.a11yStats()
+      this.a11yLive = !!st.on
+      this.a11yEvents = Number(st.events) || 0
+    },
+    /**
+     * 跳系统「无障碍」设置页。
+     * 安卓 13+ 对侧载安装的应用有「受限设置」闸门：用户得先
+     * 「应用信息 → 右上角 ⋮ → 允许受限设置」，那个列表里才勾得上本服务 ——
+     * 系统故意不给应用跳这一步的捷径，只能靠文案讲清楚（提示里已经写了去哪找）。
+     */
+    openA11y() {
+      this.__fromA11y = true
+      apptime.openA11ySettings()
+      // 系统页是全屏的，回来才知道结果；这里再补一次，防止用户很快就切回来
+      setTimeout(() => { apptime.refreshA11y(); this.refreshA11y() }, 1200)
+    },
     // ---------- 强制模式 ----------
     toggleForced() {
       const next = !this.forcedOn
@@ -620,16 +662,19 @@ export default {
         settings.save()
       } catch (e) {}
       if (next) {
+        apptime.refreshA11y()
         this.usageOk = apptime.hasUsagePermission()
         this.pullOk = !!forced.canPull()
         this.overlayOk = apptime.canDrawOverlays()
+        this.refreshA11y()
         this.refreshLearnApps()
-        if (!this.usageOk) {
-          uni.showToast({ title: '还需开启使用情况访问权限', icon: 'none' })
+        // 提示只挑最要紧的一条说：无障碍 > 使用情况访问 > 学习 App > 遮罩
+        if (!this.a11yOk) {
+          uni.showToast({ title: '建议开「无障碍」，否则切走拉不回来', icon: 'none' })
         } else if (!this.learnApps.length) {
           uni.showToast({ title: '还没登记学习 App，切哪都算离开', icon: 'none' })
         } else if (!this.overlayOk) {
-          uni.showToast({ title: '建议再开「显示在其他应用上层」', icon: 'none' })
+          uni.showToast({ title: '可选：再开「显示在其他应用上层」做兜底', icon: 'none' })
         }
       }
       forced.sync()
@@ -848,6 +893,11 @@ export default {
   background: rgba(247, 144, 9, 0.14);
   font-size: 23rpx; line-height: 1.6; color: #b25e00;
 }
+/* 无障碍引导：它是"能不能真拦住"的关键，所以比一般提示更重一点（标题加粗 + 一行行动指引） */
+.sw-block { display: block; }
+.sw-head { display: block; font-weight: 600; font-size: 25rpx; color: #8a4a00; margin-bottom: 6rpx; }
+.sw-body { display: block; }
+.sw-go { display: block; margin-top: 6rpx; font-weight: 600; text-decoration: underline; }
 /* 放行名单说明：强制模式"到底放行谁"必须写在脸上 */
 .sr-note {
   margin-top: 18rpx;

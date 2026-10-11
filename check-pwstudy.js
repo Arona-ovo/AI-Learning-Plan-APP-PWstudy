@@ -248,10 +248,20 @@ function ok(cond, msg) {
 
   console.log('\n[12] 权限与后台保活清单');
   const setup = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/setup.js');
-  ok(setup.ITEMS.length === 4, '四项设置清单');
-  ok(setup.ITEMS.filter(x => x.must).length === 3, '三项必办（自启动可选）');
+  ok(setup.ITEMS.length === 5, '五项设置清单（含"无障碍"）');
+  ok(setup.ITEMS.some(x => x.key === 'a11y'), '清单里有 a11y —— 强制模式的能力前提');
+  // must 允许写成函数（随设置变化）：求值只在 setup 内部做，对外一律是布尔
   const su = setup.status();
-  ok(su.length === 4 && su.every(x => typeof x.ok === 'boolean'), 'status() 每项都有实测结果');
+  ok(su.length === setup.ITEMS.length && su.every(x => typeof x.ok === 'boolean'), 'status() 每项都有实测结果');
+  ok(su.every(x => typeof x.must === 'boolean'), 'status() 的 must 已求值成布尔（不外泄函数）');
+  // 默认没开强制模式 → 无障碍不是必办（不该去烦不用它的人）；开了才必办
+  ok(su.filter(x => x.must).length === 3, '默认三项必办（通知 / 使用情况 / 电池）');
+  ok(su.filter(x => x.key === 'a11y')[0].must === false, '没开强制模式时无障碍是"可选"');
+  const suSettings = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/settings.js');
+  const suFocusBefore = suSettings.get().focus || {};
+  suSettings.set({ focus: Object.assign({}, suFocusBefore, { forced: true }) });
+  ok(setup.status().filter(x => x.key === 'a11y')[0].must === true, '开了强制模式 → 无障碍变成必办');
+  suSettings.set({ focus: Object.assign({}, suFocusBefore, { forced: false }) });
   // 桩环境不是安卓：整套清单不适用，不该拿去提醒用户
   ok(setup.applicable() === false, '非安卓平台清单不适用');
   ok(setup.pending().length === 0, '非安卓不产生待办项');
@@ -264,6 +274,7 @@ function ok(cond, msg) {
   globalThis.uni.getSystemInfoSync = () => ({ platform: 'android' });
   ok(setup.applicable() === true, '安卓平台清单生效');
   ok(setup.pending().length === 1, '安卓上必办项 = 使用情况访问');
+  ok(setup.fixItem('a11y') !== undefined, '无障碍项可通过 fixItem 跳设置页（标准基座下返回 false 也算走通）');
   globalThis.uni.getSystemInfoSync = realSys;
 
   console.log('\n[13] 状态栏 / 安全区尺寸');
@@ -505,6 +516,21 @@ function ok(cond, msg) {
   ok(forced.nativeActive() === false, '没有原生看门狗时 nativeActive=false → JS 兜底轮询接手');
   ok(typeof forced.maxEscapes() === 'number' && forced.maxEscapes() >= 2, 'maxEscapes 暴露出去（页面别写死 "3"）');
 
+  // 能力盘点：界面靠它决定"该提示用户去开哪一项"，不能只有一句 canPull
+  const cap = forced.capability();
+  ok(cap && typeof cap.native === 'boolean' && typeof cap.a11y === 'boolean', 'capability() 给出四层能力明细');
+  ok(cap.canDetect === (cap.a11y || cap.usage), 'canDetect = 无障碍 或 使用情况访问（两条"眼睛"任一条即可）');
+  ok(cap.effective === (cap.native && (cap.a11y || cap.overlay) && (cap.a11y || cap.usage)),
+    'effective = 看得见 + 拉得动（标准基座下必为 false）');
+  ok(cap.effective === false, '桩环境没有原生桥 → 不谎报"拦得住"');
+  // 无障碍的三条桥在非安卓下必须安全降级（不能抛，也不能谎报 true）
+  ok(at.hasA11yPermission() === false, '非安卓 hasA11yPermission=false（如实降级）');
+  ok(at.a11ySupported() === false, '非安卓 a11ySupported=false');
+  ok(at.a11yStats() && at.a11yStats().on === false && at.a11yStats().events === 0, '非安卓 a11yStats 返回空战绩');
+  ok(at.openA11ySettings() === false, '非安卓 openA11ySettings 安全返回 false');
+  at.refreshA11y();
+  ok(at.hasA11yPermission() === false, 'refreshA11y 后仍为 false（不因缓存清空而误报）');
+
   // 白名单口径：原生看门狗按 allowList() 放行，JS 判定走 isAllowedPkg()。
   // 两边一旦不一致，就会"原生把人拽回来、JS 又说没跑偏"（或者反过来漏放行）。
   const oldDock = pw.dock().slice();
@@ -701,14 +727,23 @@ function ok(cond, msg) {
     ok(lastS && lastS.done === true, '自然跑完 → done=true');
 
     // ② 看门狗：只有首页和专注页会每秒调 tick，切到别的 tab 时靠它结算
-    const pomo0 = pw.overview().pomo;
+    const prevN2 = pw.get().sessions.length;
     focus.startFocus({ minutes: 1, taskTitle: '看门狗' });
     off = 87 * 60000;                        // 上面停在 86 分钟处，再走 1 分钟到点
     focus.pause();                           // remainSec 被压成 0
     focus.resume();                          // 重新排定时器 ≈ 1 秒后触发
     await new Promise(r3 => setTimeout(r3, 1600));
     ok(focus.current() === null, '看门狗自己到点结算（人在别的 tab 也不会挂住）');
-    ok(pw.overview().pomo === pomo0 + 1, '看门狗结算照常记一个完整番茄');
+    const s2 = pw.get().sessions[pw.get().sessions.length - 1];
+    ok(pw.get().sessions.length === prevN2 + 1 && !!s2 && s2.done === true,
+      '看门狗结算照常记一个完整番茄');
+    // ⚠️ 这里不能查 pw.overview().pomo（= 今天的番茄数）：本用例把 Date.now 往前拨了
+    // 86 分钟，本地时间过了 22:34 之后这个 startAt 就已经是"明天"了 —— 而 recordPomo
+    // 是按**开始那天**入账的（跨零点跑完的番茄不该算到第二天）。按"今天"查会变成
+    // "白天跑绿、晚上跑红"的假红。改成查"这条会话自己那一天"，跨零点也稳。
+    const dayKey = pw.dateStr(new Date(s2.startAt));
+    ok(!!pw.get().daily[dayKey] && pw.get().daily[dayKey].pomo >= 1,
+      '番茄记在"开始那天"上（跨零点跑完也归属开始日）');
   } finally {
     Date.now = realNow;
     focus.abort();

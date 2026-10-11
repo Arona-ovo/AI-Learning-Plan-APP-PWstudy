@@ -18,7 +18,7 @@ const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 // PWstudy 的首页模块（背单词那批 book / action / worddrill / chart / usage 已随老首页退役）。
 // 期望值不再写死顺序：顺序从注册表算，但"该有哪几个模块"必须写死 ——
 // 顺序改了不算错，少一个 / 改了名才是错。
-const MUST_IDS = ['focus', 'task', 'goal', 'dock', 'coach'];
+const MUST_IDS = ['focus', 'urgency', 'task', 'goal', 'dock', 'coach'];
 
 /* ---------------- mock：uni 存储 ---------------- */
 const kv = {};
@@ -121,9 +121,14 @@ function eq(a, b, label) {
   assert(/{{ todayMin }}/.test(tpl) && /{{ todayPomo }}/.test(tpl), '硬控屏仍能看到今日累计');
 
   // 空闲态：每一张卡都按注册表显隐（show(id)），条件卡不进注册表
-  ['focus', 'task', 'goal', 'dock', 'coach'].forEach(id => {
+  MUST_IDS.forEach(id => {
     assert(tpl.indexOf("show('" + id + "')") >= 0, '卡片按 show(' + id + ') 显隐');
   });
+  // 紧迫度卡：只有排了任务才出现（u.empty = 今天一个番茄都没排），
+  // 否则新用户进来会看到一张"全空"的环，不知道它在说什么
+  assert(/show\('urgency'\)[^>]*?&&\s*!u\.empty/.test(tpl), '紧迫度卡：今日无任务时不显示');
+  assert(/<urgency-meter/.test(tpl), '紧迫度卡渲染 urgency-meter 组件');
+  assert(/@help="explainUrgency"/.test(tpl), '紧迫度卡：? 按钮接出说明弹窗');
   assert(/class="card setup-card" v-if="setupPending\.length"/.test(tpl),
     '权限提醒卡：条件触发，不进注册表');
   assert(/class="card resume-card" v-if="resumePlan"/.test(tpl),
@@ -145,6 +150,15 @@ function eq(a, b, label) {
   // 硬控的判定与文案
   assert(/locked\(\)\s*\{[\s\S]*?c && c\.phase/.test(sc), 'locked = 有 phase 就硬控（休息/暂停也算）');
   assert(/lockFoot\(\)\s*\{[\s\S]*?强制模式[\s\S]*?严格模式/.test(sc), 'lockFoot 说清是哪档约束');
+
+  // 紧迫度卡：算在 utils/urgency.js（纯计算、可单测），页面只负责把结果喂给组件。
+  // 每次 refresh 都重算——剩余时间是走动的，隔一分钟不刷新时间条就失真。
+  assert(/from '[^']*utils\/urgency\.js'/.test(sc), '导入 utils/urgency.js');
+  assert(/components:\s*\{[^}]*UrgencyMeter/.test(sc), '注册 UrgencyMeter 组件');
+  assert(/u:\s*\{\}/.test(sc), 'data 里有 u（紧迫度结果）');
+  assert(/this\.u\s*=\s*urgency\.compute\(\)/.test(sc), 'refresh 里重算紧迫度');
+  assert(/explainUrgency\s*\(/.test(sc), 'explainUrgency 解释四个图形');
+  assert(/urgency\.levelName/.test(sc), '说明弹窗用 levelName 给出档位名');
 
   // 计时驱动与生命周期：onShow 起、onHide 停（切页不空转）
   ['refresh', 'goFocus', 'togglePause', 'confirmGiveUp', 'startTick', 'stopTick', 'show', 'syncLayout']

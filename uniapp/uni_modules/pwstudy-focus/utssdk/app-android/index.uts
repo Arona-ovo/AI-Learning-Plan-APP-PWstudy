@@ -48,6 +48,10 @@ import Gravity from 'android.view.Gravity';
 import Color from 'android.graphics.Color';
 import PixelFormat from 'android.graphics.PixelFormat';
 import MotionEvent from 'android.view.MotionEvent';
+import AccessibilityService from 'android.accessibilityservice.AccessibilityService';
+import AccessibilityEvent from 'android.view.accessibility.AccessibilityEvent';
+import AccessibilityManager from 'android.view.accessibility.AccessibilityManager';
+import InputMethodManager from 'android.view.inputmethod.InputMethodManager';
 
 // 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
@@ -79,6 +83,11 @@ const ESC_TICKS: Int = 2;          // 连续几次判定为"非白名单前台"�
 const FG_WINDOW_MS: Int = 5000;    // 查"现在前台是谁"的回溯窗口（毫秒）
 const WATCH_MAX_SEC: Int = 43200;  // 看门狗自动收手上限：12 小时
 const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24 次（约 50 秒）还没成功就先撤下来
+// 无障碍事件报上来的前台包名，多久算"还新鲜"（秒）。
+// 窗口事件是"变化才发"，用户长时间停在同一个 App 里不会有新事件；
+// 但不能无限期信任 —— 万一事件流断了（服务被系统回收），拿着过期包名会乱拉人。
+// 90 秒足够宽容，真过期了就退回 UsageStats 查询。
+const GUARD_FRESH_SEC: Int = 90;
 
 /**
  * 当前时间（秒）。
@@ -105,6 +114,18 @@ let overlayWanted = false;         // 想不想挂遮罩（由看门狗线程置
 let overlayView: TextView | null = null;
 let mainHandler: Handler | null = null;
 
+/* ==================== 无障碍护卫的共享状态 ====================
+ * 无障碍服务（PFGuardService）由系统创建并绑定，和 PWFocusService 同进程，
+ * 所以顶层变量就是两边共享的"单例态"：护卫负责报"现在前台是谁"，
+ * 看门狗负责按同一套策略决定拉不拉、拉多狠。
+ */
+let svcRef: PWFocusService | null = null;   // 看门狗服务的实例（护卫要靠它跑同一套判定）
+let guardOn = false;                // 无障碍服务是否已连上（系统绑定成功）
+let guardPkg = '';                  // 护卫最近一次报上来的"应用窗口"包名
+let guardAtSec = 0;                 // 上报时刻（秒），过期就不再信任
+let guardEvents = 0;                // 护卫累计收到的窗口事件数（诊断用）
+let kickWanted = false;             // 有"人刚切走"的信号 → 让看门狗线程立刻醒一次，别等满一轮
+
 /* ==================== 前台服务本体 ==================== */
 
 @UTSAndroid.Suppress("DEPRECATION")
@@ -127,6 +148,8 @@ class PWFocusService extends Service {
 
   override onCreate(): void {
     super.onCreate();
+    // 护卫要靠这个引用跑"同一套"判定；服务销毁时清掉（否则拿着死对象做判定）
+    svcRef = this;
   }
 
   override onBind(_intent?: Intent): IBinder | null {
@@ -166,6 +189,7 @@ class PWFocusService extends Service {
     postOverlay(false);
     cancelPullNotify(UTSAndroid.getAppContext());
     this.stopForeground(true);
+    if (svcRef === this) svcRef = null;
   }
 
   /** 看门狗线程查询用：是否还该继续跑 */
@@ -184,6 +208,15 @@ class PWFocusService extends Service {
       let home = homePackage(UTSAndroid.getAppContext());
       if (home.length > 0 && allow.indexOf(home) < 0) {
         allow = allow.length > 0 ? allow + ',' + home : home;
+      }
+      // 输入法也是"窗口"，但它是打字必需的中性界面；无障碍窗口事件比 UsageStats
+      // 多看到这一类，认成跑偏就会在用户每次输入时把人拽回来。名单多加一道。
+      let imes = imePackages(UTSAndroid.getAppContext());
+      for (let i = 0; i < imes.length; i++) {
+        let p = imes[i];
+        if (p.length > 0 && allow.indexOf(p) < 0) {
+          allow = allow.length > 0 ? allow + ',' + p : p;
+        }
       }
     }
     this.allowCsv = allow;
@@ -223,8 +256,11 @@ class PWFocusService extends Service {
     }
   }
 
-  /** 白名单判定：自己在名单里就算合规（JS 侧把本 App / 系统中性包 / 学习 App 一起发过来） */
-  private isAllowed(pkg: string): boolean {
+  /**
+   * 白名单判定：自己在名单里就算合规（JS 侧把本 App / 系统中性包 / 学习 App 一起发过来）。
+   * 公开（不是 private）是因为无障碍护卫也要用同一份判定 —— 两个服务各判一套必然分叉。
+   */
+  isAllowed(pkg: string): boolean {
     if (pkg.length == 0) return true;
     let list = this.allowCsv.split(',');
     for (let i = 0; i < list.length; i++) {
@@ -236,8 +272,7 @@ class PWFocusService extends Service {
   /**
    * 一次心跳。返回 true = 现在处在"跑偏中"（线程据此切到高频重试）。
    *
-   * 判定链：看门狗是否该停 → 权限还在不在 → 现在前台是谁 → 合规就收手，
-   * 跑偏就（够次数后）记一次逃逸 + 发拉回通知 + 尝试把 PWstudy 拽到最前。
+   * 判定链：看门狗是否该停 → 判断能力还在不在 → 现在前台是谁 → 交 seen() 决策。
    */
   tick(): boolean {
     if (!this.watchOn) return false;
@@ -252,37 +287,55 @@ class PWFocusService extends Service {
       cancelPullNotify(ctx!);
       return false;
     }
-    // 使用情况访问被撤了 → 判断不了前台是谁，宁可收手也不闭着眼睛拉人
-    if (!usageGranted(ctx!)) {
+    // 两种"能判断前台是谁"的路子，有任意一条就不收手：
+    //   ① 无障碍护卫在线 —— 包名由系统事件推过来，更准更快，**不需要「使用情况访问」**
+    //   ② 没开无障碍 —— 那就得靠 UsageStats，没授这个权限就判断不了
+    // 两条都没有 → 宁可收手也不闭着眼睛拉人（页面上有引导）。
+    if (!guardUsable() && !usageGranted(ctx!)) {
       postOverlay(false);
       return false;
     }
 
     let fg = queryForeground(ctx!);
     if (fg.length == 0) return false;          // 查不到（锁屏 / 正在切换）：不误伤
+    return this.seen(fg, false);
+  }
 
-    if (this.isAllowed(fg)) {
+  /**
+   * "前台是 pkg，该怎么办"—— tick 与无障碍事件共用的**唯一**一处策略。
+   *
+   * 为什么必须共用：两条输入源（定时轮询 / 窗口事件）如果各写一套判定，
+   * 迟早会出现"事件那边判跑偏、轮询这边说没事"，用户看到的就是忽拉忽不拉。
+   *
+   * @param fromEvent true = 来自无障碍窗口事件。事件本身就是"用户真的切走了"，
+   *                  不需要再攒两个 tick 去抖（那个 2 次的去抖是给轮询抗抖动的）。
+   * @returns true = 当前处在跑偏中（线程据此切高频）
+   */
+  seen(pkg: string, fromEvent: boolean): boolean {
+    if (!this.watchOn) return false;
+    if (pkg.length == 0) return false;
+
+    if (this.isAllowed(pkg)) {
       // 回到合规状态：这一次逃逸结束，撤遮罩撤通知，下次离开重新计数
       this.escTicks = 0;
       this.pullTries = 0;
       if (this.inEpisode) {
         this.inEpisode = false;
         postOverlay(false);
-        cancelPullNotify(ctx!);
+        cancelPullNotify(UTSAndroid.getAppContext());
       }
       return false;
     }
 
-    this.escTicks = this.escTicks + 1;
-    if (this.escTicks < ESC_TICKS) return true;   // 刚划走不到一个来回：先看看，不算账
+    if (!fromEvent) {
+      this.escTicks = this.escTicks + 1;
+      if (this.escTicks < ESC_TICKS) return true;   // 刚划走不到一个来回：先看看，不算账
+    }
 
     if (!this.inEpisode) {
       this.inEpisode = true;
       watchEscapeCount = watchEscapeCount + 1;
-      try {
-        let nm = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(PULL_NOTIFY_ID, buildPullNotification(ctx!))
-      } catch (e) {}
+      postPullNotify();
     }
 
     let now = nowSec();
@@ -323,17 +376,28 @@ class WatchLoop extends Thread {
       } catch (e) {
         hot = false;
       }
-      try {
-        // 400 = 已经判定跑偏，高频重试（人一回来就能立刻撤遮罩）；
-        // 1500 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
-        // 而 UTS 的 Int 常量不会自动放宽成 Long。
-        if (hot) {
-          Thread.sleep(400);
-        } else {
-          Thread.sleep(1500);
+      // 400 = 已经判定跑偏，高频重试（人一回来就能立刻撤遮罩）；
+      // 1500 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
+      // 而 UTS 的 Int 常量不会自动放宽成 Long。
+      // 切成 100ms 小段睡：无障碍事件一报"用户切走了"就置 kickWanted，
+      // 这样最迟 100ms 内就会重判一次（否则最坏要等满 1.5 秒才知道人跑了）。
+      // 小段的代价只是一次标志位判断，不建对象、不抢锁。
+      //
+      // ⚠️ 这里是"睡几轮"而不是"睡多少毫秒"：Thread.sleep 收 Long，
+      // 而 UTS 的 Int 变量**不会**自动放宽成 Long（Kotlin 里 Int→Long 也不隐式转换），
+      // 把算出来的毫秒数传进去会编译失败。字面量 100 才是安全的。
+      let rounds = hot ? 4 : 15;
+      for (let i = 0; i < rounds; i++) {
+        if (kickWanted) {
+          kickWanted = false;
+          break;
         }
-      } catch (e) {
-        break;    // 被 interrupt：收摊
+        if (this.owner.loopStopped()) break;
+        try {
+          Thread.sleep(100);
+        } catch (e) {
+          return;    // 被 interrupt：收摊
+        }
       }
     }
   }
@@ -506,12 +570,105 @@ function buildPullNotification(ctx: Context): Notification {
   return builder.build();
 }
 
+/** 发拉回通知（一次逃逸只发一条，回到学习 App 就撤） */
+function postPullNotify() {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return;
+  try {
+    let nm = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    nm.notify(PULL_NOTIFY_ID, buildPullNotification(ctx!))
+  } catch (e) {}
+}
+
 function cancelPullNotify(ctx: Context | null) {
   if (ctx == null) return;
   try {
     let manager = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     manager.cancel(PULL_NOTIFY_ID)
   } catch (e) {}
+}
+
+/* ==================== 无障碍护卫服务 ====================
+ * 它解决的是"看门狗看不见"这件事上的两处硬伤：
+ *
+ *   ① **前台是谁**：不必再轮询 UsageStats（粒度粗、还要用户单独去授「使用情况访问」）。
+ *      窗口切换事件是系统直接推过来的 —— 更快、更准，而且**不需要那个权限**。
+ *   ② **拉得动吗**：安卓 10 起系统限制"后台启动 Activity"，官方豁免清单里明确列了
+ *      "由系统绑定的服务（无障碍 / 通知监听 / VPN / 输入法）"这一类。
+ *      也就是说，本服务一旦被系统挂上，moveTaskToFront / startActivity 的可信度就上一个台阶
+ *      —— 这是悬浮窗遮罩之外唯一"提前拿到许可"的路子（遮罩是事后盖上去，观感差得多）。
+ *
+ * 边界（刻意不做的事）：
+ *   · 不读屏幕内容（虽然清单里申请了 canRetrieveWindowContent，但只用来分辨"这是应用窗口
+ *     还是输入法/通知栏窗口"，不解析控件文本、不截图、不上传任何东西）；
+ *   · 不模拟点击；
+ *   · **不吞按键**。理由是三条：一是 Home 键本来就拦不住（系统自己处理，任何三方应用都拿不到），
+ *     吞了返回键也拦不住 Home，收益有限；二是把返回/多任务键全局吞掉，用户在正常应用里
+ *     会莫名其妙按不动返回；三是来电、权限弹窗这类系统界面也可能被判成"非白名单"，
+ *     吞键会挡住用户接电话。所以"拦不住你走，但一定把你拽回来"才是这个能力该有的定位。
+ */
+class PFGuardService extends AccessibilityService {
+
+  override onServiceConnected(): void {
+    super.onServiceConnected();
+    guardOn = true;
+    guardPkg = '';
+    guardAtSec = nowSec();
+    kickWanted = true;
+  }
+
+  override onAccessibilityEvent(event: AccessibilityEvent): void {
+    guardOn = true;
+    guardEvents = guardEvents + 1;
+    // 1 = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED：只认"某个窗口拿到焦点"这件事
+    if (event.getEventType() != 1) return;
+    // 输入法、通知栏、系统浮层也会发窗口事件；只让"应用窗口"参与判定
+    if (!this.isAppWindow(event.getWindowId())) return;
+    let p = event.getPackageName();
+    let pkg = p == null ? '' : p!;
+    if (pkg.length == 0) return;
+    guardPkg = pkg;
+    guardAtSec = nowSec();
+    // 踢一下看门狗：它平时 1.5 秒一轮，这里让它别等满 —— 人刚切走就立刻判、立刻拉
+    kickWanted = true;
+    let s = svcRef;
+    if (s != null && s.watchOn) {
+      // 直接走同一个 seen()：这是"用户真的切走了"，不必再攒两个 tick 去抖
+      try { s.seen(pkg, true) } catch (e) {}
+    }
+  }
+
+  override onInterrupt(): void {
+  }
+
+  override onUnbind(intent: Intent): boolean {
+    guardOn = false;
+    guardPkg = '';
+    kickWanted = true;      // 让看门狗立刻重判一次（判定依据变了）
+    return super.onUnbind(intent);
+  }
+
+  override onDestroy(): void {
+    super.onDestroy();
+    guardOn = false;
+    guardPkg = '';
+  }
+
+  /** 只用"应用类窗口"参与判定：1 = AccessibilityWindowInfo.TYPE_APPLICATION */
+  private isAppWindow(winId: Int): boolean {
+    if (winId < 0) return true;        // 拿不到窗口 id → 退回按包名判定，不误伤
+    try {
+      let wins = this.getWindows();
+      if (wins == null) return true;
+      for (let w of wins!) {
+        if (w == null) continue;
+        if (w.getId() == winId) return w.getType() == 1;
+      }
+    } catch (e) {
+      return true;
+    }
+    return true;
+  }
 }
 
 /* ==================== 探测：现在前台是谁 / 有没有权限 ==================== */
@@ -565,11 +722,48 @@ function homePackage(ctx: Context | null): string {
   }
 }
 
+/** 无障碍护卫在线（= 有它就不用再要「使用情况访问」） */
+function guardUsable(): boolean {
+  return guardOn;
+}
+
+/** 护卫报上来的包名还新鲜吗（窗口事件是"变化才发"，但不能无限期信任） */
+function guardFresh(): boolean {
+  if (!guardOn) return false;
+  if (guardPkg.length == 0) return false;
+  return (nowSec() - guardAtSec) <= GUARD_FRESH_SEC;
+}
+
+/**
+ * 所有已启用输入法的包名。
+ * 它们是"窗口"，但绝不该算跑偏 —— 不看这个名单，用户每打一个字都会被拉回前台。
+ * 用系统列出来的实际输入法（而不是写死搜狗/百度那几个），换 ROM 也不会漏。
+ */
+function imePackages(ctx: Context | null): string[] {
+  let out: string[] = [];
+  if (ctx == null) return out;
+  try {
+    let imm = ctx!.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    let list = imm.getEnabledInputMethodList();
+    if (list != null) {
+      for (let info of list!) {
+        if (info == null) continue;
+        let p = info.getPackageName();
+        if (p != null && p!.length > 0) out.push(p!);
+      }
+    }
+  } catch (e) {}
+  return out;
+}
+
 /**
  * 最近 FG_WINDOW_MS 毫秒内最后进入前台的包名；拿不到返回空串。
- * 与 JS 侧 apptime.foregroundPackage 同一套逻辑（事件流配对），口径保持一致。
+ * ① 先信无障碍护卫（事件驱动，最快最准，且不需要「使用情况访问」）；
+ * ② 它不在 / 报的名字过期了，才退回 UsageStats 事件流配对。
+ * 两条都拿不到 → 返回空串，调用方"不误伤"。
  */
 function queryForeground(ctx: Context): string {
+  if (guardFresh()) return guardPkg;
   try {
     let usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     let end = System.currentTimeMillis()
@@ -760,4 +954,67 @@ export function bringToFront(): boolean {
 /** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean {
   return UTSAndroid.getAppContext() != null
+}
+
+/* ==================== 无障碍护卫：对外 API ==================== */
+
+/**
+ * 无障碍护卫在系统里是否已开启（用户在设置里打开过）。
+ *
+ * 为什么问 AccessibilityManager 而不是读 Settings.Secure 的字符串：
+ * 那个字符串只是"用户勾过"的记录，服务可能已经被系统回收 / 崩过；
+ * getEnabledAccessibilityServiceList() 反映的是系统当前真正认下的服务。
+ */
+export function a11yEnabled(): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return false;
+  try {
+    let am = ctx!.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+    let list = am.getEnabledAccessibilityServiceList(-1);   // -1 = FEEDBACK_ALL_MASK，不过滤反馈类型
+    if (list != null) {
+      let self = ctx!.getPackageName();
+      for (let s of list!) {
+        if (s == null) continue;
+        let id = s.getId();
+        if (id != null && id!.indexOf(self) == 0) return true;
+      }
+    }
+  } catch (e) {}
+  // 查询失败就退回"当前是否已连上"这个更保守的判断，别谎报"已开启"
+  return guardOn;
+}
+
+/** 护卫当前是否已连上（系统绑定成功，正在收窗口事件） */
+export function a11yActive(): boolean {
+  return guardOn;
+}
+
+/** 护卫累计收到的窗口事件数（诊断 / 状态行显示"它确实在干活"） */
+export function a11yEvents(): number {
+  return guardEvents;
+}
+
+/** 护卫最近报上来的前台包名（空串 = 还没报过） */
+export function a11yPkg(): string {
+  return guardPkg;
+}
+
+/**
+ * 跳系统的「无障碍」设置页。
+ *
+ * ⚠️ 安卓 13+ 对**侧载**安装的应用有「受限设置」闸门：用户得先
+ * 「应用信息 → 右上角 ⋮ → 允许受限设置」，无障碍列表里才勾得上本服务。
+ * 这一步系统有意不给捷径，只能靠引导文案讲清楚（见 utils/apptime.js 里的说明）。
+ */
+export function openA11ySettings(): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return false;
+  try {
+    let it = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    ctx!.startActivity(it);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }

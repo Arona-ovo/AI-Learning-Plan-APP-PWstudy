@@ -114,6 +114,72 @@ export function bringToFrontSupported() {
   return false;
 }
 
+/* ==================== 无障碍护卫（强制模式的能力前提） ====================
+ *
+ * 为什么强制模式需要它，两句话：
+ *   ① 安卓 10 起系统限制"后台启动 Activity"。官方豁免清单里明确列了
+ *      "由系统绑定的服务（无障碍 / 通知监听 / VPN / 输入法）"这一类 ——
+ *      无障碍服务挂上之后，moveTaskToFront / startActivity 才真的拉得动，
+ *      这是遮罩（事后盖上去）之外唯一"提前拿到许可"的路子；
+ *   ② 前台是谁：窗口事件由系统直推，比轮询 UsageStats 快得多也准得多，
+ *      而且**不再需要**用户单独去授「使用情况访问」。
+ *
+ * 查询有成本（要问 AccessibilityManager），所以缓存 —— 但缓存必须能被"主动失效"：
+ * 用户刚从设置页回来时，界面立刻要知道新状态（见 invalidateA11y）。
+ */
+let a11yCached = null;   // null = 没查过；true/false = 上次查到的结果
+
+/** 无障碍护卫是否已在系统里开启 */
+export function a11yEnabled() {
+  if (a11yCached !== null) return a11yCached;
+  let r = false;
+  // #ifdef APP-PLUS
+  try {
+    if (available() && typeof fgs.a11yEnabled === 'function') r = !!fgs.a11yEnabled();
+  } catch (e) {
+    r = false;
+  }
+  // #endif
+  a11yCached = r;
+  return r;
+}
+
+/** 丢掉缓存的授权状态（从系统设置页回来时调一次，否则会一直显示旧值） */
+export function invalidateA11y() {
+  a11yCached = null;
+}
+
+/** 护卫是否已连上 + 收了多少窗口事件（界面显示"它确实在干活"） */
+export function a11yStats() {
+  let on = false, events = 0, pkg = '';
+  // #ifdef APP-PLUS
+  try {
+    if (available()) {
+      if (typeof fgs.a11yActive === 'function') on = !!fgs.a11yActive();
+      if (typeof fgs.a11yEvents === 'function') events = Number(fgs.a11yEvents()) || 0;
+      if (typeof fgs.a11yPkg === 'function') pkg = String(fgs.a11yPkg() || '');
+    }
+  } catch (e) {}
+  // #endif
+  return { on: on, events: events, pkg: pkg };
+}
+
+/** 跳系统「无障碍」设置页；失败（插件不在）返回 false，调用方退到应用详情页 */
+export function openA11ySettings() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.openA11ySettings === 'function') return !!fgs.openA11ySettings();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 有没有"能用无障碍"的原生能力（标准基座 = false，界面上要如实说明） */
+export function a11ySupported() {
+  return available();
+}
+
 /* ==================== 强制模式：后台看门狗 ====================
  *
  * 为什么要有这一层：强制模式原来是 JS 层 setInterval 每 2 秒查一次前台包名，

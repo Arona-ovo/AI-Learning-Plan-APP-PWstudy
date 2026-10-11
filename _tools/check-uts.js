@@ -161,5 +161,98 @@ else bad('forced.js 没走 apptime.allowList() —— 两边口径会飘');
 if (/export function allowList/.test(apptime) && /purpose\s*!==\s*'rest'/.test(read(path.join(ROOT, 'utils', 'apptime.js')).split('export function allowList')[1] || '')) ok('allowList 只放「学习」用途（休息类 App 专注期间算跑偏）');
 else bad('apptime.allowList 没排除 rest 用途 —— 与 isAllowedPkg 口径不一致');
 
+/* ==================== 7. 无障碍护卫（强制模式的能力前提） ====================
+ * 这一块最容易"写了但没生效"，而且失效是静默的：清单少一条属性 → 服务根本不出现在
+ * 系统的无障碍列表里；少一个 meta-data → 服务连上了但拿不到窗口事件。
+ * 所以清单、资源、服务类、判定共用、JS 降级，五条一起静态守。
+ */
+console.log('== 7. 无障碍护卫（强制模式的能力前提） ==');
+
+// 7.1 服务声明：Android 对无障碍服务的要求很硬 —— 没 BIND_ACCESSIBILITY_SERVICE
+//     就绑不上，没 intent-filter 就不出现在列表里，没 meta-data 就拿不到事件配置。
+if (/uts\.sdk\.modules\.pwstudyFocus\.PFGuardService/.test(mf)) ok('无障碍服务已声明（包名与看门狗服务同一套规则）');
+else bad('清单没声明 PFGuardService —— 系统不会绑定，无障碍能力等于没写');
+if (/BIND_ACCESSIBILITY_SERVICE/.test(mf)) ok('声明了 BIND_ACCESSIBILITY_SERVICE（缺它服务绑不上）');
+else bad('缺 BIND_ACCESSIBILITY_SERVICE 权限声明');
+if (/android\.accessibilityservice\.AccessibilityService/.test(mf)) ok('有 accessibilityservice 的 intent-filter（否则不出现在系统列表）');
+else bad('缺 accessibilityservice intent-filter');
+if (/android:name="android\.accessibilityservice"\s*\n?\s*android:resource="@xml\/pw_accessibility_config"/.test(mf)) ok('meta-data 指向 @xml/pw_accessibility_config');
+else bad('meta-data 没指向无障碍配置 xml —— 事件类型/标志位全丢');
+// exported 必须为 true：无障碍服务是"系统来绑你"，不给导出绑不上
+if (/PFGuardService"[\s\S]{0,200}android:exported="true"/.test(mf)) ok('无障碍服务 exported=true（系统要来绑定）');
+else bad('PFGuardService 没写 exported="true" —— 系统绑不上');
+
+// 7.2 res 资源：UTS 插件支持 res/ 目录，但路径与属性写错在打包时才炸
+const A11Y_XML = path.join(PLUGIN, 'res', 'xml', 'pw_accessibility_config.xml');
+const a11yRaw = read(A11Y_XML);
+// 先剥 XML 注释再扫属性 —— 配置文件的注释里为了说明"刻意不开按键过滤"会写到
+// flagRequestFilterKeyEvents 这个词，不去注释就会被自己的说明误判成"申请了"。
+const a11yXml = a11yRaw.replace(/<!--[\s\S]*?-->/g, '');
+if (a11yRaw) ok('res/xml/pw_accessibility_config.xml 存在');
+else bad('缺 res/xml/pw_accessibility_config.xml');
+[['accessibilityEventTypes="typeWindowStateChanged"', '只收窗口状态变化（最省电、够用）'],
+['accessibilityFeedbackType=', '反馈类型'],
+['canRetrieveWindowContent="true"', '取窗口信息（用来分辨"应用窗口"还是"输入法/通知栏"）'],
+['android:description="@string/', '设置页里的说明（必须是 @string 引用，不能写裸字面量）'],
+['notificationTimeout=', '事件节流窗口']
+].forEach(([needle, label]) => {
+  if (a11yXml.indexOf(needle) >= 0) ok('无障碍配置含 ' + label);
+  else bad('无障碍配置缺 ' + label + '（找不到 ' + needle + '）');
+});
+// 刻意不开的：吞按键。Home 键本来就拦不住，吞返回/多任务会挡住来电与权限弹窗
+if (a11yXml.indexOf('flagRequestFilterKeyEvents') < 0) ok('没有申请 flagRequestFilterKeyEvents（不吞按键，避免挡住来电/权限弹窗）');
+else bad('申请了按键过滤 —— 会把用户在其它应用里的返回键也吞掉，误伤面太大');
+if (a11yXml.indexOf('canPerformGestures') < 0 && a11yXml.indexOf('canTakeScreenshot') < 0) ok('没有手势 / 截图权限（只做"前台是谁"这一件事）');
+else bad('无障碍配置申请了手势或截图权限 —— 与"只看前台包名"的用途不符，过审与用户信任都受影响');
+// strings.xml：description 引用的字符串必须真的存在
+const STRINGS = read(path.join(PLUGIN, 'res', 'values', 'strings.xml'));
+const descRef = (a11yXml.match(/android:description="@string\/([A-Za-z0-9_]+)"/) || [])[1];
+if (descRef && new RegExp('name="' + descRef + '"').test(STRINGS)) ok('description 引用的字符串 ' + descRef + ' 在 strings.xml 里存在');
+else bad('description 引用了 @string/' + descRef + '，但 strings.xml 里没有这个名字');
+
+// 7.3 服务类本体
+if (/class\s+PFGuardService\s+extends\s+AccessibilityService/.test(uts)) ok('PFGuardService extends AccessibilityService');
+else bad('找不到 PFGuardService extends AccessibilityService');
+['onAccessibilityEvent', 'onInterrupt'].forEach((m) => {
+  if (new RegExp('override\\s+' + m + '\\s*\\(').test(uts)) ok('实现了 ' + m + '()');
+  else bad('缺 ' + m + '() —— AccessibilityService 的抽象方法，不实现编译不过');
+});
+if (/getWindows\(\)/.test(uts) && /getType\(\)\s*==\s*1/.test(uts)) ok('用窗口类型过滤（1 = TYPE_APPLICATION，排掉输入法/通知栏/系统浮层）');
+else bad('没做窗口类型过滤 —— 输入法一弹出来就会被判成"跑偏"，用户每打字一次被拉回一次');
+if (/getEnabledInputMethodList\(\)/.test(uts)) ok('输入法包名动态进白名单（换 ROM 不会漏）');
+else bad('没把输入法加进白名单 —— 打字即"跑偏"');
+if (/getEnabledAccessibilityServiceList\(-1\)/.test(uts)) ok('用 AccessibilityManager 实测"到底开没开"（比读 Settings 字符串更可信）');
+else bad('没有实测无障碍是否开启 —— 界面只能靠猜');
+['a11yEnabled', 'a11yActive', 'a11yEvents', 'openA11ySettings'].forEach((f) => {
+  if (new RegExp('export function ' + f + '\\s*\\(').test(uts)) ok('导出 ' + f + '()');
+  else bad('缺导出 ' + f + '()');
+});
+// ACTION_ACCESSIBILITY_SETTINGS：跳系统无障碍设置页
+if (/Settings\.ACTION_ACCESSIBILITY_SETTINGS/.test(uts)) ok('用 Settings.ACTION_ACCESSIBILITY_SETTINGS 跳引导页');
+else bad('没有 ACTION_ACCESSIBILITY_SETTINGS —— 用户找不到去哪开');
+
+// 7.4 判定必须只有一处：两个服务各判一套必然分叉（"事件那边说跑偏、轮询这边说没事"）
+if (/seen\(pkg: string, fromEvent: boolean\)/.test(uts) && /this\.seen\(fg, false\)/.test(uts) && /s\.seen\(pkg, true\)/.test(uts)) ok('跑偏判定收敛在 seen()：轮询与无障碍事件共用同一份策略');
+else bad('判定没共用：轮询与无障碍各写一套，迟早判得不一样');
+if (/kickWanted/.test(uts)) ok('无障碍事件会踢醒看门狗（不必干等满一个轮询周期）');
+else bad('没有 kick 机制 —— 人切走后最坏要等满 1.5 秒才被发现');
+if (/guardFresh\(\)/.test(uts) && /GUARD_FRESH_SEC/.test(uts)) ok('无障碍报的包名有过期保护（事件流断了不会拿旧值乱拉人）');
+else bad('没有包名过期保护 —— 服务被回收后会拿着过期包名反复拉人');
+
+// 7.5 JS 侧降级：插件不在（标准基座 / H5）时必须安全返回 false，不能抛也不能谎报
+if (/export function a11yEnabled/.test(fgsvc) && /export function a11yStats/.test(fgsvc) &&
+    /export function openA11ySettings/.test(fgsvc) && /export function invalidateA11y/.test(fgsvc)) ok('fgsvc 有无障碍桥（含缓存失效，从设置页回来要立刻刷新）');
+else bad('fgsvc 缺无障碍桥 —— 页面只能直接碰插件，降级没人管');
+if (/#ifdef APP-PLUS[\s\S]{0,600}a11yEnabled[\s\S]{0,200}#endif/.test(fgsvc)) ok('无障碍调用也包在 #ifdef APP-PLUS 里');
+else bad('无障碍的插件调用没包 #ifdef APP-PLUS');
+// 无障碍要能顶替「使用情况访问」：tick 里的权限闸门必须认它
+if (/!guardUsable\(\)\s*&&\s*!usageGranted/.test(uts)) ok('看门狗认"无障碍在场"就不强制要使用情况访问');
+else bad('看门狗仍死要使用情况访问 —— 开了无障碍也白开，用户还要多授一个权限');
+const setupSrc = read(path.join(ROOT, 'utils', 'setup.js'));
+if (/key:\s*'a11y'/.test(setupSrc) && /openA11ySettings/.test(setupSrc)) ok('保活清单里有"无障碍"这一项并可跳转');
+else bad('setup.js 没把无障碍列进清单 —— 用户不知道要开它');
+if (/must:\s*\(\)\s*=>/.test(setupSrc)) ok('无障碍的 must 随"有没有开强制模式"变化（不用它的人不被骚扰）');
+else bad('setup 的 must 不支持函数 —— 无障碍会被当成对所有人必办');
+
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;

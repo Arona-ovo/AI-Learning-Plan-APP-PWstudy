@@ -1,10 +1,16 @@
 // utils/setup.js - 权限与后台保活清单
 //
-// PWstudy 有三件事必须靠系统放行，缺一件就会"看起来像坏了"：
+// PWstudy 有四件事必须靠系统放行，缺一件就会"看起来像坏了"：
 //   ① 通知权限        —— 番茄结束要提醒、专注中要显示剩余时间；没有就是"点了开始没反应"
 //   ② 使用情况访问    —— 统计学习 App 用时、严格模式判断你在用哪个 App；没有就是列表空白
 //   ③ 电池优化白名单  —— 不进白名单，锁屏几分钟后进程被回收，计时直接断在半路
-// 第 ④ 项（自启动 / 后台运行）各厂商入口不统一，只能跳到本应用详情页让用户自己开，
+//   ④ 无障碍（强制模式）—— 安卓 10 起限制"后台启动 Activity"，
+//      只有"由系统绑定的服务"（无障碍 / 通知监听 / VPN / 输入法）能拿到那份豁免；
+//      没开它，切走之后大概率拉不回来。**开了它还能顶替 ②**：前台是哪个应用
+//      由系统事件直接推过来，不必再单独授「使用情况访问」。
+//      这一项只在用户开了强制模式时才是"必办"（must 写成函数的原因），
+//      不开强制模式的人不该被它打扰。
+// 第 ⑤ 项（自启动 / 后台运行）各厂商入口不统一，只能跳到本应用详情页让用户自己开，
 // 所以它是"建议"而不是"必须" —— 不完成也算过。
 //
 // 这里只做两件事：给出每项当前是否满足（check），以及点一下去哪修（fix）。
@@ -46,6 +52,18 @@ export const ITEMS = [
     fix: () => apptime.openBatterySettings()
   },
   {
+    key: 'a11y',
+    title: '无障碍（强制模式：把你拉回来）',
+    why: '强制模式的核心能力。安卓 10 起系统限制"后台启动 Activity"，只有无障碍服务能拿到那份豁免 —— ' +
+      '没开它，切到别的 App 之后大概率拉不回来，只能事后盖一层悬浮窗遮罩。' +
+      '开了它还能顺带替代「使用情况访问」：前台是哪个应用由系统事件直接告知，更快也更省电。',
+    // 必办与否取决于用户有没有开强制模式：不开的人根本用不到，别拿它去烦人。
+    // （这也是这一项 must 写成函数而其它项是字面量的唯一原因）
+    must: () => forcedOn(),
+    check: () => apptime.hasA11yPermission(),
+    fix: () => apptime.openA11ySettings()
+  },
+  {
     key: 'autostart',
     title: '自启动 / 后台运行（可选）',
     why: '国产 ROM（小米、华为、OPPO、vivo 等）会额外限制后台。点一下会尽量直接跳到本机的自启动管理页；打不开就到应用详情页里手动开。',
@@ -54,6 +72,25 @@ export const ITEMS = [
     fix: () => apptime.openAutostartSettings()
   }
 ];
+
+/** 设置里是否开了强制模式（决定"无障碍"这一项是不是必办） */
+function forcedOn() {
+  try {
+    const f = settings.get().focus || {};
+    return !!f.forced;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** must 允许写成函数（随设置变化），这里是唯一的求值处 */
+function mustOf(it) {
+  try {
+    return typeof it.must === 'function' ? !!it.must() : !!it.must;
+  } catch (e) {
+    return false;
+  }
+}
 
 function flag(key) {
   try {
@@ -82,12 +119,12 @@ export function applicable() {
   try { return !!apptime.supported(); } catch (e) { return false; }
 }
 
-/** 逐项实测一次，返回 [{ ...item, ok }] */
+/** 逐项实测一次，返回 [{ key, title, why, must, ok }]（must 已求值成布尔） */
 export function status() {
   return ITEMS.map(it => {
     let ok = false;
     try { ok = !!it.check(); } catch (e) { ok = false; }
-    return { key: it.key, title: it.title, why: it.why, must: it.must, ok: ok };
+    return { key: it.key, title: it.title, why: it.why, must: mustOf(it), ok: ok };
   });
 }
 

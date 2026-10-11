@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<!-- 紧迫度卡预览：把 components/urgency-meter 的四个档位并排画出来。
+     纯静态复刻（rpx 按 1rpx = 0.5px 折算），只为看观感，不参与打包。
+     卡片本身没有文字 —— 这张预览图上的中文只出现在下面的图例里。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>今日紧迫度 · 四档预览</title>
+<style>
+  :root{
+    --surface-rgb:255,255,255;
+    --neutral-rgb:23,32,26;
+    --ink-1:#17201A;
+    --ink-3:#98A19B;
+    --hairline:rgba(23,32,26,.08);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;padding:28px 20px 40px;
+    background:#f0e4d2;
+    font:400 14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:#17201A;
+  }
+  h1{font-size:17px;font-weight:600;margin:0 0 4px;}
+  .lead{font-size:13px;color:#5A6560;margin:0 0 24px;}
+  .wrap{max-width:420px;display:flex;flex-direction:column;gap:16px;}
+  .phone{
+    background:rgba(var(--surface-rgb),.72);
+    border-radius:14px;
+    padding:16px 18px;
+    border:1px solid var(--hairline);
+    box-shadow:0 6px 18px rgba(23,32,26,.1),0 1px 4px rgba(23,32,26,.05);
+  }
+
+  /* ===== 以下复刻 urgency-meter.vue ===== */
+  .urg{position:relative;display:flex;align-items:center;}
+  .ug-ring{width:70px;height:70px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+  .ug-inner{width:52px;height:52px;border-radius:50%;background:rgba(var(--surface-rgb),.9);display:flex;align-items:center;justify-content:center;position:relative;}
+  .ug-core{width:22px;height:22px;border-radius:50%;animation-name:ug-breathe;animation-timing-function:ease-in-out;animation-iteration-count:infinite;}
+  .ug-halo{position:absolute;width:42px;height:42px;border-radius:50%;border:1px solid;animation-name:ug-breathe;animation-timing-function:ease-in-out;animation-iteration-count:infinite;animation-direction:reverse;}
+  @keyframes ug-breathe{0%{transform:scale(.70);opacity:.45}50%{transform:scale(1);opacity:1}100%{transform:scale(.70);opacity:.45}}
+  .ug-side{flex:1;min-width:0;margin-left:17px;padding-right:17px;}
+  .ug-blocks{display:flex;flex-wrap:wrap;margin-bottom:10px;}
+  .ug-blk{width:9px;height:9px;border-radius:3px;margin:0 3px 4px 0;background:rgba(var(--neutral-rgb),.1);}
+  .ug-blk-done{opacity:.55;}
+  .ug-blk-more{background:rgba(var(--neutral-rgb),.06);opacity:.6;}
+  .ug-track{position:relative;height:10px;border-radius:999px;background:rgba(var(--neutral-rgb),.09);}
+  .ug-past{position:absolute;left:0;top:0;height:100%;border-radius:999px;background:rgba(var(--neutral-rgb),.13);}
+  .ug-need{position:absolute;top:1.5px;height:7px;border-radius:999px;}
+  .ug-need-over{animation:ug-blink 900ms ease-in-out infinite;}
+  .ug-now{position:absolute;top:-2.5px;width:2px;height:15px;border-radius:1px;background:rgba(var(--ink-1),.5);}
+  @keyframes ug-blink{0%,100%{opacity:1}50%{opacity:.35}}
+  .urg-alarm .ug-ring{animation:ug-alarm 1600ms ease-in-out infinite;}
+  @keyframes ug-alarm{0%,100%{box-shadow:0 0 0 0 rgba(190,18,60,0)}50%{box-shadow:0 0 0 6px rgba(190,18,60,.16)}}
+  .ug-help{
+    position:absolute;top:-5px;right:-5px;width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink-3);
+    border:1px solid var(--hairline);background:rgba(var(--surface-rgb),.5);
+  }
+  /* ===== 复刻结束 ===== */
+
+  .legend{display:flex;align-items:baseline;gap:8px;margin:14px 0 0;font-size:12px;color:#5A6560;}
+  .swatch{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+  .legend b{font-weight:600;color:#17201A;font-size:13px;}
+  .note{margin-top:26px;max-width:420px;font-size:12px;color:#5A6560;}
+  .note b{color:#17201A;font-weight:600;}
+  .note p{margin:0 0 6px;}
+</style>
+</head>
+<body>
+<h1>今日紧迫度 · 四档预览</h1>
+<p class="lead">卡内零文字：环的填充、核心的呼吸、方块、时间条四件事各说一件事。</p>
+
+<div class="wrap" id="wrap"></div>
+
+<div class="note">
+  <p><b>① 环的填充</b>＝紧迫度 0-100　<b>② 核心呼吸</b>＝越急跳得越快（从容 3.2s → 告急 0.8s）</p>
+  <p><b>③ 方块</b>＝还剩几个番茄（实心）／已做几个（空心）　<b>④ 时间条</b>＝今天 24 小时，竖线是现在，色块是还要多久</p>
+  <p>色块顶到条尾并开始闪 ＝ 今天已经排不下；告急档环外多一圈呼吸的光晕。右上角 <b>?</b> 是卡内唯一的文字，点开才有说明。</p>
+</div>
+
+<script>
+const LV = [
+  { name:'从容', color:'#3b6d11', beat:3128, score:4,  done:6, left:2, nowPct:37.5, fillPct:3.5,  over:false },
+  { name:'正常', color:'#F79009', beat:2000, score:50, done:3, left:4, nowPct:37.5, fillPct:7.0,  over:false },
+  { name:'紧张', color:'#E5484D', beat:1220, score:70, done:2, left:6, nowPct:75.0, fillPct:10.4, over:false },
+  { name:'告急', color:'#be123c', beat:800,  score:100,done:1, left:9, nowPct:91.7, fillPct:15.6, over:true  }
+];
+
+function blocks(done, left) {
+  const out = [];
+  for (let i = 0; i < done; i++) out.push('done');
+  for (let i = 0; i < left; i++) out.push('left');
+  return out;
+}
+
+const wrap = document.getElementById('wrap');
+LV.forEach((v, i) => {
+  const card = document.createElement('div');
+  card.className = 'phone';
+  const deg = Math.round(v.score * 3.6);
+  const blks = blocks(v.done, v.left)
+    .map(b => '<i class="ug-blk ug-blk-' + b + '"' + (b === 'left' ? ' style="background:' + v.color + '"' : '') + '></i>')
+    .join('');
+  const needW = Math.min(v.fillPct, Math.max(0, 100 - v.nowPct));
+  card.innerHTML =
+    '<div class="urg' + (i === 3 ? ' urg-alarm' : '') + '">' +
+      '<div class="ug-ring" style="background:conic-gradient(' + v.color + ' ' + deg + 'deg, rgba(23,32,26,.08) ' + deg + 'deg)">' +
+        '<div class="ug-inner">' +
+          '<div class="ug-halo" style="border-color:' + v.color + ';animation-duration:' + v.beat + 'ms;opacity:' + (0.18 + i * 0.1) + '"></div>' +
+          '<div class="ug-core" style="background:' + v.color + ';animation-duration:' + v.beat + 'ms"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ug-side">' +
+        '<div class="ug-blocks">' + blks + '</div>' +
+        '<div class="ug-track">' +
+          '<div class="ug-past" style="width:' + v.nowPct + '%"></div>' +
+          '<div class="ug-need' + (v.over ? ' ug-need-over' : '') + '" style="left:' + v.nowPct + '%;width:' + needW + '%;background:' + v.color + '"></div>' +
+          '<div class="ug-now" style="left:' + v.nowPct + '%"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ug-help">?</div>' +
+    '</div>' +
+    '<div class="legend"><i class="swatch" style="background:' + v.color + '"></i><b>' + v.name + '</b>' +
+      '<span>紧迫度 ' + v.score + '/100 · 呼吸 ' + (v.beat / 1000).toFixed(1) + 's · 剩 ' + v.left + ' 个番茄</span></div>';
+  wrap.appendChild(card);
+});
+</script>
+</body>
+</html>

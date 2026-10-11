@@ -516,6 +516,12 @@ uni-toast .uni-sample-toast {
 .fx-motion-reduced .gd-hole,
 .fx-motion-reduced .ring,
 .fx-motion-reduced .float { animation: none !important; }
+/* 紧迫度卡的光晕是装饰（核心那一下呼吸才是"有多赶"的信号），
+   停掉光晕不影响读图；核心呼吸与时间条的闪烁一律保留 —— 它们跟加载指示器
+   一样是语义信号，关了用户就看不出今天排不排得下。 */
+.fx-motion-reduced .ug-halo,
+.fx-motion-reduced .urg-alarm .ug-ring { animation: none !important; }
+.fx-motion-reduced .ug-need { transition-duration: 140ms; }
 
 /* 动效 = 关闭（极简档）：不再有任何过渡与动画。
    注意：加载指示器（.sr-spin / .spin / .fnb-rotate / .cmd-rotate 等）一律不关 ——
@@ -529,6 +535,11 @@ uni-toast .uni-sample-toast {
 .fx-motion-off .ring,
 .fx-motion-off .float,
 .fx-motion-off .load-fill { animation: none !important; }
+/* 同上：光晕与告急光环停掉，核心呼吸（ug-core）与"排不下"的闪烁（ug-need-over）
+   保留 —— 这两条是这张卡要说的话，不是装饰。 */
+.fx-motion-off .ug-halo,
+.fx-motion-off .urg-alarm .ug-ring { animation: none !important; }
+.fx-motion-off .ug-need { transition: none !important; }
 
 /* 阴影 = 收窄（均衡 / 轻量档）：大半径投影同样是逐帧高斯，半径压到三分之一 */
 .fx-shadow-slim .card,

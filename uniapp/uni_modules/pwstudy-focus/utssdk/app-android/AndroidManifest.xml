@@ -23,5 +23,21 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Pomodoro study timer" />
         </service>
+
+        <!-- 无障碍护卫服务（强制模式的"眼睛"与"后台启动许可"）。
+             需要用户在系统设置里手动开启，属于运行时授权，不是装机即得。
+             它只用来判断"当前前台是哪个应用"，不读屏幕内容、不模拟点击、不吞按键。 -->
+        <service
+            android:name="uts.sdk.modules.pwstudyFocus.PFGuardService"
+            android:exported="true"
+            android:label="@string/pw_a11y_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/pw_accessibility_config" />
+        </service>
     </application>
 </manifest>

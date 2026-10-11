@@ -867,12 +867,27 @@ export default {
   // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '番茄专注': 'Pomodoro',
+  '今日紧迫度': "Today's urgency",
   '今日任务': "Today's tasks",
   '进行中的目标': 'Active goal',
   '学习 App': 'Study apps',
   'AI 今日对话': 'AI check-in',
   '当前番茄的倒计时，点一下进入全屏专注页':
     'The running pomodoro countdown — tap to open the full-screen focus page',
+  '图形化显示今天还剩多少时间、活有多重、有多赶（无文字）':
+    'Shows graphically how much time is left today, how heavy the load is, and how pressing it is (no text)',
+  // 紧迫度卡右上角的 ? 弹窗：四个图形各对应一句说明
+  '今日紧迫度 · {lv}': "Today's urgency · {lv}",
+  '剩下的活已经排不进今天了（时间条顶到头并在闪）':
+    "What's left no longer fits in today (the bar is full and blinking)",
+  '还剩 {n} 分钟可用，够做这些': '{n} min still available — enough for what is left',
+  '① 圆环填充 = 紧迫度 {n}/100': '① Ring fill = urgency {n}/100',
+  '② 中心呼吸 = 越急跳得越快': '② Core pulse = the faster it beats, the more urgent',
+  '③ 方块 = 还剩 {a} 个番茄（实心），已做 {b} 个（空心）':
+    '③ Blocks = {a} pomodoros left (solid), {b} done (hollow)',
+  '④ 时间条 = 今天 24 小时，竖线是现在，色块是还要多久 —— {s}':
+    '④ Time bar = 24 h of today, the marker is now, the block is how much longer — {s}',
+  '另有 {n} 项已超期': 'Plus {n} overdue item(s)',
   '今天要做的任务队列，点行直接开始专注':
     "Today's queue — tap a row to start focusing on it",
   '里程碑进度与剩余天数': 'Milestone progress and days left',

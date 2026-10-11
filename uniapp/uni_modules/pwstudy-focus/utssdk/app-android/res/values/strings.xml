@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  插件自带的中文字符串。名字统一 pw_ 前缀，避免与主工程 / 其它插件重名（资源合并会冲突）。
+  这两条只出现在系统的「无障碍」设置页里，不进 App 界面（App 内的文案走 i18n）。
+-->
+<resources>
+    <string name="pw_a11y_label">PWstudy 专注护卫</string>
+    <string name="pw_a11y_desc">强制模式需要它：只读取"当前前台是哪个应用"，判断你是否还在学习类应用里；一旦离开，立刻把 PWstudy 拉回前台。不读取屏幕内容、不模拟点击、不上传任何数据。</string>
+</resources>

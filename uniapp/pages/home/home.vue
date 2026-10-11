@@ -31,8 +31,10 @@
           <button class="lock-btn lock-btn-ghost" @tap="confirmGiveUp">放弃</button>
         </view>
 
-        <text v-if="(strictOn || forcedOn) && !usageOk" class="lock-warn" @tap="openUsage">
-          严格 / 强制模式需要「使用情况访问」权限才能判断你在用哪个 App，点这里去开启
+        <!-- 判断"你在用哪个 App"有两条路：开了无障碍就不必再要「使用情况访问」
+             （前台包名由系统事件直推，更快更省电），所以这里是"两条都没有"才提示。 -->
+        <text v-if="(strictOn || forcedOn) && !usageOk && !a11yOk" class="lock-warn" @tap="openUsage">
+          严格 / 强制模式需要「使用情况访问」或「无障碍」才能判断你在用哪个 App，点这里去开启
         </text>
         <text v-else class="lock-foot">{{ lockFoot }}</text>
 
@@ -54,6 +56,17 @@
           </view>
           <view class="fc-go">{{ running ? '继续' : '开始' }}</view>
         </view>
+      </view>
+
+      <!-- 今日紧迫度：整张卡没有文字 ——
+           环的填充 = 有多赶，核心呼吸的快慢 = 赶的程度，
+           方块 = 还剩几个番茄（实心）与已做几个（空心），
+           底下那条 = 今天 24 小时，竖线是"现在"，色块是"还要多久"，
+           色块顶到条尾并开始闪 = 今天已经排不下了。
+           右上角一个 ? —— 想看人话解释就点它，不点也能看懂个大概。
+           今天没排任务（u.empty）就整张不出现：空环没有信息量。 -->
+      <view class="card urg-card" v-if="show('urgency') && !u.empty">
+        <urgency-meter :u="u" @help="explainUrgency" />
       </view>
 
       <!-- 权限 / 后台保活：不开的话计时会中途断、应用列表读不出来 -->
@@ -211,16 +224,18 @@ import * as setup from '../../utils/setup.js'
 import * as dailylog from '../../utils/dailylog.js'
 import * as pacing from '../../utils/pacing.js'
 import * as coach from '../../utils/coach.js'
+import * as urgency from '../../utils/urgency.js'
 import * as layout from '../../utils/home-layout.ts'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
 import CoachBox from '../../components/coach-box/coach-box.vue'
+import UrgencyMeter from '../../components/urgency-meter/urgency-meter.vue'
 import AppDialog from '../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatTabbar, FloatNavbar, CoachBox, AppDialog },
+  components: { FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, AppDialog },
   mixins: [tabSlideMixin('home')],
   data() {
     return {
@@ -235,12 +250,15 @@ export default {
       setupPending: [],
       checked: false,
       checkText: '',
+      // 今日紧迫度（utils/urgency.js 算好，整张卡靠图形说话，不含文字）
+      u: {},
       // 当前首页放了哪些模块（见 utils/home-layout.ts）
       // 这里直接读一次而不是留空：留空会让首帧所有卡都闪一下才出现。
       layoutIds: layout.layout(),
       strictOn: false,    // 严格模式：离开学习 App 就提醒，30 秒不回来作废
       forcedOn: false,    // 强制模式：离开就立刻把 PWstudy 拉回前台
-      usageOk: false,     // 「使用情况访问」权限：强制模式的能力前提
+      usageOk: false,     // 「使用情况访问」权限：判断前台是谁的老路子
+      a11yOk: false,      // 无障碍护卫：判断前台是谁的新路子（且能拿到后台启动豁免）
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
       iconMap: {},
@@ -330,9 +348,11 @@ export default {
       this.refreshSetup()
       this.refreshCheck()
       this.syncLayout()
+      this.refreshUrgency()
       this.strictOn = !!strict.enabled()
       this.forcedOn = !!forced.enabled()
       this.usageOk = apptime.hasUsagePermission()
+      this.a11yOk = apptime.hasA11yPermission()
     },
     // ---------- 首页模块显隐 ----------
     // 出厂默认只放三张；用户可在「首页自定义」里加回来。layout 为空时
@@ -346,6 +366,33 @@ export default {
     },
     show(id) {
       return this.layoutIds.indexOf(id) >= 0
+    },
+    // ---------- 今日紧迫度 ----------
+    // 纯本地计算（utils/urgency.js，不调 AI）：首页每次刷新都要重算，
+    // 因为"还剩多少时间"是走动的 —— 时间条不跟着走就失真了。
+    refreshUrgency() {
+      try { this.u = urgency.compute() } catch (e) { this.u = {} }
+    },
+    // 卡片上唯一的文字入口：一个 ?。点开才把四个图形翻译成人话。
+    // 平时不显示，是因为"看一眼就知道今天紧不紧张"这件事，图形比文字快。
+    explainUrgency(u) {
+      const v = u || this.u || {}
+      const lv = urgency.levelName(v.level)
+      const left = v.over
+        ? this.$t('剩下的活已经排不进今天了（时间条顶到头并在闪）')
+        : this.$t('还剩 {n} 分钟可用，够做这些', { n: v.availMin || 0 })
+      this.ask({
+        title: this.$t('今日紧迫度 · {lv}', { lv: lv }),
+        content:
+          this.$t('① 圆环填充 = 紧迫度 {n}/100', { n: v.score || 0 }) + '\n' +
+          this.$t('② 中心呼吸 = 越急跳得越快') + '\n' +
+          this.$t('③ 方块 = 还剩 {a} 个番茄（实心），已做 {b} 个（空心）',
+            { a: v.leftPomos || 0, b: v.donePomos || 0 }) + '\n' +
+          this.$t('④ 时间条 = 今天 24 小时，竖线是现在，色块是还要多久 —— {s}', { s: left }) +
+          (v.overdue ? '\n' + this.$t('另有 {n} 项已超期', { n: v.overdue }) : ''),
+        confirmText: this.$t('知道了'),
+        action: 'urgency'
+      })
     },
     // ---------- 今日收工 ----------
     // 收工是"动态安排"的输入口：今天做的和计划不一样，AI 才有理由重排后面。
@@ -382,7 +429,7 @@ export default {
       setup.markPrompted()
       this.ask({
         title: '先开几个权限',
-        content: '通知、使用情况访问、电池优化白名单 —— 不开的话番茄锁屏会被系统回收、学习 App 列表读不出来。现在去设置吗？',
+        content: '通知、使用情况访问（开了无障碍就不必）、电池优化白名单 —— 不开的话番茄锁屏会被系统回收、学习 App 列表读不出来；开了强制模式还多一项无障碍，否则切走拉不回来。现在去设置吗？',
         confirmText: '去设置',
         action: 'setup'
       })
@@ -587,6 +634,10 @@ export default {
    之前只有带专属 class 的几张卡有 margin，剩下的今日任务/目标/AppDock 是贴着的。 */
 .home-slide > .card { margin-bottom: 20rpx; }
 .home-slide > .card:last-child { margin-bottom: 0; }
+
+/* 紧迫度卡：整张卡就是一个图形，不需要 card-head 那种标题行，
+   所以上下留白比通用卡紧一点，让四个图形自己撑住这张卡。 */
+.urg-card { padding: 32rpx 36rpx; }
 
 /* ===== 番茄进行中：首页被倒计时"硬控" =====
    这一屏刻意只留三样东西：还剩多久、在为谁计时、继续/停下。

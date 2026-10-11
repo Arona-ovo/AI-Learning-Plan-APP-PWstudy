@@ -91,6 +91,45 @@ export function canPull() {
 }
 
 /**
+ * 强制模式的能力盘点 —— 界面拿它决定"该提示用户去开哪一项"。
+ *
+ * 四层能力，可靠性从高到低：
+ *   a11y    无障碍护卫：既能拿到"后台启动 Activity"的官方豁免（拉得动），
+ *           又由系统事件直推前台包名（不用「使用情况访问」）——最强的一层
+ *   overlay 「显示在其他应用上层」：拉不动时盖一层遮罩挡住那个 App（事后兜底，观感差）
+ *   usage   「使用情况访问」：没有无障碍时的"眼睛"（轮询，慢且要单独授权）
+ *   native  原生桥在不在（标准基座 = false，其余全免谈）
+ *
+ * 判"能不能拦住"看的是 native && (a11y || overlay || usage)：
+ * 有原生能力 + 至少一条"看得见/挡得住"的路子，才不算是空喊。
+ *
+ * @param {{a11y?:boolean, overlay?:boolean}} ext 页面实测到的两个运行时权限
+ */
+export function capability(ext) {
+  const e = ext || {};
+  const native = canPull();
+  let a11y = false;
+  try { a11y = e.a11y === undefined ? !!apptime.hasA11yPermission() : !!e.a11y; } catch (err) { a11y = false; }
+  let overlay = false;
+  try { overlay = e.overlay === undefined ? !!apptime.canDrawOverlays() : !!e.overlay; } catch (err) { overlay = false; }
+  let usage = false;
+  try { usage = !!apptime.hasUsagePermission(); } catch (err) { usage = false; }
+
+  return {
+    native: native,
+    a11y: a11y,
+    overlay: overlay,
+    usage: usage,
+    // 有能力把界面在我们不在前台时拉回来（无障碍是官方豁免；遮罩是自建的一层）
+    canPullBack: native && (a11y || overlay),
+    // 有能力判断"你现在在不在学习 App 里"
+    canDetect: a11y || usage,
+    // 真正能拦住的条件：既看得见、又拉得动
+    effective: native && (a11y || overlay) && (a11y || usage)
+  };
+}
+
+/**
  * 原生看门狗现在真的在替我们盯着吗。
  * 判"到点"是为了不漏一种情况：原生到 untilSec 会自己收手，如果我们还当它在跑，
  * JS 兜底轮询就被让位掉了 —— 结果两头没人管（这个是"暂停很久再恢复"最容易踩的坑）。

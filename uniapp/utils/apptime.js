@@ -11,6 +11,9 @@
 // H5 / 小程序端所有函数安全降级为"不支持"。
 
 import * as pw from './pwstore.js';
+// 无障碍的判定与跳转在 UTS 插件那侧（AccessibilityManager），
+// 这里只借用 fgsvc 的桥；依赖方向 apptime → fgsvc → settings，没有环。
+import * as fgsvc from './fgsvc.js';
 
 let launchMark = null;   // { pkg, at }  从 AppDock 拉起别的 App 的现场
 
@@ -782,6 +785,70 @@ export function openOverlaySettings() {
   } catch (e) {
     console.warn('[apptime] 打开悬浮窗权限页失败', e);
   }
+  // #endif
+  return openAppDetails();
+}
+
+/* ==================== 无障碍（强制模式的能力前提） ====================
+ *
+ * 为什么强制模式离不开它（两句话说清，界面上也是这么解释的）：
+ *   ① 安卓 10 起系统限制"后台启动 Activity"，官方豁免清单里明确列了
+ *      "由系统绑定的服务（无障碍 / 通知监听 / VPN / 输入法）"这一类 ——
+ *      无障碍服务一旦被系统挂上，把 PWstudy 拉回前台才真的拉得动；
+ *      没有它就只能事后盖一层悬浮窗遮罩（观感差、还要另一个权限）。
+ *   ② 前台是谁：窗口事件由系统直接推过来，比轮询 UsageStats 更快更准，
+ *      而且不必再要用户单独去授「使用情况访问」。
+ *
+ * 判定与跳转都落在 UTS 插件里（AccessibilityManager / ACTION_ACCESSIBILITY_SETTINGS），
+ * 这一层只做缓存与降级，跟其它权限保持同一套写法。
+ */
+
+/** 无障碍护卫是否已开启 */
+export function hasA11yPermission() {
+  try {
+    return !!fgsvc.a11yEnabled();
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 清掉缓存的授权状态（从系统设置页回来时调一次） */
+export function refreshA11y() {
+  try { fgsvc.invalidateA11y(); } catch (e) {}
+}
+
+/** 护卫是否已连上 + 收了多少窗口事件 */
+export function a11yStats() {
+  try {
+    return fgsvc.a11yStats();
+  } catch (e) {
+    return { on: false, events: 0, pkg: '' };
+  }
+}
+
+/** 有没有"能用无障碍"的原生能力（标准基座 = false） */
+export function a11ySupported() {
+  try {
+    return !!fgsvc.a11ySupported();
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 跳系统的「无障碍」设置页。
+ *
+ * ⚠️ 安卓 13+ 有个"受限设置"闸门：**侧载安装**（不是从应用商店装的）的应用，
+ * 用户必须先到「应用信息 → 右上角 ⋮ → 允许受限设置」，无障碍列表里才勾得上本服务。
+ * 系统故意不给应用跳这一步的捷径（防止恶意软件自己开无障碍权限），
+ * 所以只能引导用户自己去点 —— 打不开无障碍页时退回应用详情页，让他顺手把这一项也办了。
+ */
+export function openA11ySettings() {
+  if (!supported()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (fgsvc.openA11ySettings()) return true;
+  } catch (e) {}
   // #endif
   return openAppDetails();
 }

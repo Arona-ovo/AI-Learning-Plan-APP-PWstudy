@@ -53,3 +53,33 @@ export function bringToFront(): boolean
 
 /** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean
+
+/* ==================== 无障碍护卫（强制模式的能力前提） ====================
+ *
+ * 为什么强制模式离不开它：
+ *   ① 安卓 10 起限制"后台启动 Activity"。官方豁免清单里列了
+ *      "由系统绑定的服务（无障碍 / 通知监听 / VPN / 输入法）"这一类 ——
+ *      无障碍服务一旦被系统挂上，moveTaskToFront / startActivity 才真的拉得动；
+ *   ② 前台是谁：窗口事件是系统直接推过来的，比轮询 UsageStats 更快更准，
+ *      而且**不需要**用户额外去授「使用情况访问」。
+ *
+ * 两个服务同进程，共享同一份白名单与逃逸计数（判定只在 PWFocusService.seen() 里做一次）。
+ */
+
+/** 无障碍护卫在系统里是否已开启（用户在设置里勾上了） */
+export function a11yEnabled(): boolean
+
+/** 护卫当前是否已连上（系统绑定成功，正在收窗口事件） */
+export function a11yActive(): boolean
+
+/** 护卫累计收到的窗口事件数（诊断 / 界面显示"它确实在干活"） */
+export function a11yEvents(): number
+
+/** 护卫最近报上来的前台包名（空串 = 还没报过） */
+export function a11yPkg(): string
+
+/**
+ * 跳系统的「无障碍」设置页。
+ * ⚠️ 安卓 13+ 对侧载安装的应用有「受限设置」闸门，用户需先允许受限设置才能勾上本服务。
+ */
+export function openA11ySettings(): boolean
