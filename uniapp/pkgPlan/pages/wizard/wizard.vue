@@ -137,6 +137,9 @@
           :maxlength="300"
           :adjust-position="false"
           :show-confirm-bar="false"
+          :cursor-spacing="16"
+          @focus="onFocusInput"
+          @blur="onBlurInput"
           placeholder="已暂停。改一改这句话，或补充点信息，再点继续"
           placeholder-style="color:#a8b0ab;font-size:25rpx"
         />
@@ -163,6 +166,8 @@
             :show-confirm-bar="false"
             :adjust-position="false"
             :cursor-spacing="16"
+            @focus="onFocusInput"
+            @blur="onBlurInput"
             placeholder="回答 AI 的问题…（可附图，如报班日程）"
             placeholder-style="color:#a8b0ab;font-size:26rpx"
           />
@@ -254,6 +259,7 @@ export default {
       pendingText: '',
       pendingImgs: [],   // 本轮要随消息一起发的图（本地临时路径，最多 3 张）
       kbH: 0,            // 软键盘高度（px）：键盘弹起时给对话区加同值 padding，页面顶端不再被顶走
+      kbGuess: false,    // kbH 是猜出来的兜底值（onKeyboardHeightChange 没回调的机器上）
       anchorN: 0,        // 滚动锚点的自增序号：键盘弹出/发消息时换 id，强制 scroll-view 滚到底
       plan: null,
       picked: {},
@@ -304,6 +310,9 @@ export default {
     // 键盘：adjust-position=false 关掉"整页上推"（顶端会被顶出屏幕），
     // 改成自己听高度，给对话区加 padding，只动底部
     this.__onKb = (res) => {
+      clearTimeout(this.__kbGuessT)
+      clearTimeout(this.__kbBlurT)
+      this.kbGuess = false
       this.kbH = (res && res.height) || 0
       if (this.kbH > 0) this.anchorN++
     }
@@ -315,8 +324,51 @@ export default {
   onUnload() {
     try { if (this.__onChange) uni.$off(planTask.CHANGE_EVENT, this.__onChange) } catch (e) {}
     try { if (this.__onKb) uni.offKeyboardHeightChange(this.__onKb) } catch (e) {}
+    clearTimeout(this.__kbGuessT)
+    clearTimeout(this.__kbBlurT)
   },
   methods: {
+    /**
+     * 点了输入框：键盘必然要弹出来。
+     *
+     * 为什么不能只靠 onKeyboardHeightChange：H5 端不支持这个 API，App 端部分
+     * 安卓输入法也不回调 —— 结果就是键盘把输入栏和刚发的消息全盖住，只能手动往上滑
+     * （用户实测就是这样）。所以 focus 本身也算一个信号：
+     *   ① 立刻换锚点滚到底 —— 让自己发的话先露出来；
+     *   ② 短暂等待后仍没有真实高度回调，就用屏高 40% 兜底把输入栏顶到键盘上方
+     *     （主流安卓键盘 260-300px，估不准没关系：宁可多留一点白，不能被盖住；
+     *      真实回调一旦来了就覆盖猜测值）。
+     */
+    onFocusInput() {
+      this.anchorN++
+      clearTimeout(this.__kbBlurT)
+      if (this.kbH > 0) return
+      clearTimeout(this.__kbGuessT)
+      this.__kbGuessT = setTimeout(() => {
+        if (this.kbH > 0) return
+        try {
+          const sys = uni.getSystemInfoSync()
+          this.kbH = Math.round(((sys.windowHeight || sys.screenHeight || 700) * 0.4))
+          this.kbGuess = true
+          this.anchorN++
+        } catch (e) {}
+      }, 180)
+    },
+    /**
+     * 键盘收起：真实回调自己会把 kbH 归 0，这里只收"猜出来"的那个值。
+     * 收起有动画，立刻撤 padding 会闪一下"输入栏被盖住"—— 稍等它收完。
+     */
+    onBlurInput() {
+      clearTimeout(this.__kbGuessT)
+      if (!this.kbGuess) return
+      clearTimeout(this.__kbBlurT)
+      this.__kbBlurT = setTimeout(() => {
+        if (this.kbGuess) {
+          this.kbH = 0
+          this.kbGuess = false
+        }
+      }, 300)
+    },
     // ---------- 日期（内嵌月历点选） ----------
     syncCal() {
       // 月历的初始月份跟随当前选中日期，保证选中态看得见
