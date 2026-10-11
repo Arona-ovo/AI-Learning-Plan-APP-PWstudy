@@ -148,6 +148,17 @@ else bad('focus.js 的 pause/resume 没通知看门狗 —— 暂停期间还会
 if (/onDestroy\(\)[\s\S]{0,400}setWatch\(false/.test(uts)) ok('服务 onDestroy 兜底收掉看门狗（放弃/结束的最后一道）');
 else bad('onDestroy 没收看门狗');
 
+// 6.4b 绕过口子：专注页拦了返回键不等于拦住了 —— 首页也有硬控屏，
+//      "回首页按一下返回"就能退出 App，强制模式白开。两处判据必须一致。
+const homeVue = read(path.join(ROOT, 'pages', 'home', 'home.vue'));
+if (/onBackPress\s*\(\)/.test(homeVue)) ok('首页也拦返回键（硬控屏按返回不能直接退出 App）');
+else bad('首页没有 onBackPress —— 强制模式在首页可被"一次返回"绕过');
+if (/onBackPress\(\)\s*\{[\s\S]{0,240}forcedOn[\s\S]{0,240}phase !== 'focus'/.test(homeVue)) ok('首页返回拦截与专注页同判据（forcedOn + 专注中且未暂停）');
+else bad('首页 onBackPress 判据与专注页不一致 —— 会出现"换个页面就能出去"');
+// 6.4c 落账后立刻落盘：pwstore 平时是 800ms 节流合并写，番茄结算是最不能等的那一刻
+if (/pw\.recordPomo\(session\)[\s\S]{0,700}pw\.flush\(\)/.test(fjs)) ok('番茄落账后立刻 flush（不等节流，进程被杀也不丢这一笔）');
+else bad('结算路径没有 flush —— 刚跑完的番茄可能在 800ms 窗口里整个丢掉');
+
 // 6.5 到点自动收手：JS 在后台可能被冻结，"靠 JS 通知停手"不可靠
 if (/untilSec/.test(uts) && /watchUntilSec/.test(uts)) ok('看门狗自带 untilSec 到点收手（JS 被冻结也不会拉过头）');
 else bad('看门狗没有到点自动收手 —— 番茄结束后会一直把人拽回来');

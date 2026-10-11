@@ -421,6 +421,11 @@ function settle(s, completed) {
   // 只有真跑完才记任务番茄：中途放弃的不算完成任务量（与弹窗文案一致），
   // 否则"只剩 1 颗的任务，专注满 1 分钟点放弃"会被 pwstore 判定成已完成
   if (completed && s.taskId && s.goalId) pw.addPomoToTask(s.goalId, s.taskId);
+  // 落账后立刻落盘。pwstore 平时是"改内存 + 800ms 节流合并写"，
+  // 但番茄结算恰恰是最不能等的那一刻：用户在这一秒划掉后台 / 系统在这一秒回收进程，
+  // 这 25 分钟就白坐了（整个 fj_pw_data_v1 是一次性写的，丢就一起丢）。
+  // flush 是同步写，代价可以忽略 —— 一次番茄只发生一次。
+  try { pw.flush(); } catch (e) {}
   return session;
 }
 

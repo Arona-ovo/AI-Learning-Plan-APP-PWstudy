@@ -329,6 +329,18 @@ export default {
   onUnload() {
     this.stopTick()
   },
+  /**
+   * 硬控期间拦返回键 —— 首页原来没有这一层，于是"回到首页按一下返回"就能退出 App，
+   * 强制模式白开了（专注页拦住了，首页没拦）。
+   * 只在「正在专注且没暂停」时拦：休息与暂停照常放行 —— 拦人是为了专注，不是把人困死。
+   * 判据与专注页 onBackPress 保持同一份（两处不一致就会出现"换个页面就能出去"）。
+   */
+  onBackPress() {
+    if (!this.forcedOn) return false
+    if (!this.cur || this.cur.paused || this.cur.phase !== 'focus') return false
+    uni.showToast({ title: '先把这个番茄跑完，或到专注页放弃', icon: 'none' })
+    return true
+  },
   methods: {
     refresh() {
       const ov = pw.overview()
