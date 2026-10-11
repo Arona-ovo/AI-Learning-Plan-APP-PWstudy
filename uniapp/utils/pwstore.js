@@ -46,7 +46,7 @@ function blank() {
     goals: [],        // Goal
     sessions: [],     // 已完成/中断的番茄 {id,goalId,taskId,startAt,endAt,min,done}
     daily: {},        // 'YYYY-MM-DD' -> {focusMin, pomo, byApp:{pkg:min}}
-    dock: [],         // 学习 App {pkg, name, purpose:'study'|'rest', sort}
+    dock: [],         // 学习 App {pkg, name, purpose:'study'|'rest', task, sort}
     pomoCfg: { focus: 25, rest: 5, long: 15, every: 4 },
     runtime: null     // 番茄进行中的现场（focus.js 读写）
   };
@@ -343,13 +343,19 @@ export function setAppMinutes(key, byApp) {
 // ---------- AppDock ----------
 export function dock() { return get().dock; }
 
-export function dockAdd(pkg, name, purpose) {
+export function dockAdd(pkg, name, purpose, task) {
   const st = get();
   pkg = String(pkg || '').trim();
   // 拦掉脏数据：之前真机上出现过 name/pkg 为 undefined 的死行
   if (!pkg) return st.dock;
   if (st.dock.some(a => a.pkg === pkg)) return st.dock;
-  st.dock.push({ pkg, name: String(name || pkg), purpose: purpose || 'study', sort: st.dock.length });
+  st.dock.push({
+    pkg,
+    name: String(name || pkg),
+    purpose: purpose || 'study',
+    task: String(task || '').trim(),
+    sort: st.dock.length
+  });
   touch();
   return st.dock;
 }
@@ -363,6 +369,11 @@ export function dockRemove(pkg) {
 export function dockSetPurpose(pkg, purpose) {
   const a = get().dock.filter(x => x.pkg === pkg)[0];
   if (a) { a.purpose = purpose; touch(); }
+}
+
+export function dockSetTask(pkg, task) {
+  const a = get().dock.filter(x => x.pkg === pkg)[0];
+  if (a) { a.task = String(task || '').trim(); touch(); }
 }
 
 // ---------- 汇总 ----------

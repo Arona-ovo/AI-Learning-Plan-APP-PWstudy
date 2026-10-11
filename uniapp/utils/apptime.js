@@ -490,6 +490,66 @@ export function installedApps() {
   }
 }
 
+// ---------- 应用图标 ----------
+/**
+ * 获取指定包名的应用图标，返回 PNG base64（不含 data URL 前缀）。
+ * 失败或拿不到时返回空字符串，由调用方用首字母兜底。
+ *
+ * 实现把 Drawable 画到等比缩放的 Bitmap 上再压缩为 PNG，兼容普通图标、
+ * 自适应图标和矢量图标；尺寸上限 160px，避免 base64 过大。
+ */
+export function appIconBase64(pkg) {
+  if (!supported() || !pkg) return '';
+  // #ifdef APP-PLUS
+  try {
+    const activity = main();
+    const pm = activity.getPackageManager();
+    plus.android.importClass(pm);
+    plus.android.importClass('android.content.pm.ApplicationInfo');
+    const info = pm.getApplicationInfo(pkg, 0);
+    plus.android.importClass(info);
+    const drawable = pm.getApplicationIcon(info);
+    if (!drawable) return '';
+    plus.android.importClass(drawable);
+    return drawableToBase64(drawable);
+  } catch (e) {
+    console.warn('[apptime] 图标获取失败', pkg, e && e.message);
+    return '';
+  }
+  // #endif
+  return '';
+}
+
+function drawableToBase64(drawable) {
+  const Bitmap = plus.android.importClass('android.graphics.Bitmap');
+  const BitmapConfig = plus.android.importClass('android.graphics.Bitmap$Config');
+  const Canvas = plus.android.importClass('android.graphics.Canvas');
+  const ByteArrayOutputStream = plus.android.importClass('java.io.ByteArrayOutputStream');
+  const CompressFormat = plus.android.importClass('android.graphics.Bitmap$CompressFormat');
+  const Base64 = plus.android.importClass('android.util.Base64');
+
+  const rawW = drawable.getIntrinsicWidth ? drawable.getIntrinsicWidth() : 0;
+  const rawH = drawable.getIntrinsicHeight ? drawable.getIntrinsicHeight() : 0;
+  const w = Math.min(Number(rawW) || 96, 160);
+  const h = Math.min(Number(rawH) || 96, 160);
+  const cfg = BitmapConfig.ARGB_8888;
+  const bitmap = Bitmap.createBitmap(w, h, cfg);
+  const canvas = new Canvas(bitmap);
+  drawable.setBounds(0, 0, w, h);
+  drawable.draw(canvas);
+
+  const os = new ByteArrayOutputStream();
+  bitmap.compress(CompressFormat.PNG, 100, os);
+  const bytes = os.toByteArray();
+  return String(Base64.encodeToString(bytes, Base64.NO_WRAP));
+}
+
+/** 包装成 <image> 可直接显示的 data URL */
+export function appIconDataUrl(pkg) {
+  const b64 = appIconBase64(pkg);
+  return b64 ? 'data:image/png;base64,' + b64 : '';
+}
+
 /** 近 days 天里用过（前台时长 > 0）的包名，按用时降序 */
 export function recentPackages(days) {
   if (!supported() || !hasUsagePermission()) return [];

@@ -171,7 +171,8 @@
             hover-class="dock-press"
             @tap="openApp(a)"
           >
-            <view class="dk-icon" :class="{ 'dk-rest': a.purpose === 'rest' }">{{ initialOf(a) }}</view>
+            <image v-if="iconMap[a.pkg]" class="dk-icon-img" :src="iconMap[a.pkg]" mode="aspectFit" />
+            <view v-else class="dk-icon" :class="{ 'dk-rest': a.purpose === 'rest' }">{{ initialOf(a) }}</view>
             <text class="dk-name">{{ a.name }}</text>
           </view>
         </view>
@@ -240,7 +241,9 @@ export default {
       forcedOn: false,    // 强制模式：离开就立刻把 PWstudy 拉回前台
       usageOk: false,     // 「使用情况访问」权限：强制模式的能力前提
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
-      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null }
+      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
+      iconMap: {},
+      _iconPending: {}
     }
   },
   computed: {
@@ -315,6 +318,7 @@ export default {
       this.queue = pw.todayQueue(6)
       this.goals = pw.activeGoals()
       this.dock = pw.dock()
+      this.dock.forEach(a => this.ensureIcon(a.pkg))
       this.appTodayMin = this.sumAppMin()
       this.syncResume()
       this.refreshSetup()
@@ -523,6 +527,19 @@ export default {
     switchGoals() { uni.switchTab({ url: '/pages/goals/goals' }) },
     openApp(a) {
       apptime.launchApp(a.pkg)
+    },
+    ensureIcon(pkg) {
+      if (!pkg || this.iconMap[pkg] || this._iconPending[pkg]) return
+      this._iconPending[pkg] = true
+      setTimeout(() => {
+        try {
+          const url = apptime.appIconDataUrl(pkg)
+          if (url) this.iconMap[pkg] = url
+        } catch (e) {
+          console.warn('[home] 加载图标失败', pkg, e)
+        }
+        delete this._iconPending[pkg]
+      }, 0)
     },
     // ---------- 展示 ----------
     fmtMMSS(sec) {
@@ -847,6 +864,12 @@ export default {
   background: rgba(122, 124, 122, 0.14);
   color: #5a6560;
   color: var(--ink-2, #5a6560);
+}
+.dk-icon-img {
+  width: 92rpx; height: 92rpx;
+  border-radius: 24rpx;
+  flex-shrink: 0;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.5);
 }
 .dk-name {
   margin-top: 10rpx;
