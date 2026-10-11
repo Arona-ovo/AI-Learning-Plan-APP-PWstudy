@@ -45,6 +45,14 @@ function defaults() {
     egg: { found: 0 },
     // 隐私
     privacy: { storeLocal: true },
+    // 伙伴 App（背单词 App）关联 —— 完整设计见 uniapp/docs/partner-link.md
+    //   state      undecided 未决定 / linked 已关联 / declined 已关闭（用户主动不选）
+    //   askedCount 已自动询问过几次（上限见 utils/partner.js 的 ASK_MAX，防骚扰）
+    //   lastAskAt  上次自动询问时间戳（间隔不够就不问）
+    //   lastSyncAt 上次真正收到回传数据的时间 —— 用来回答"关联了到底有没有在同步"
+    // ⚠️ 取消关联落到 declined，而不是退回 undecided：
+    //    否则下次启动又会重新弹一遍那张首次提示 —— 用户刚明确取消、转头又被问，最招人烦
+    partner: { v: 1, state: 'undecided', askedCount: 0, lastAskAt: 0, linkedAt: 0, lastSyncAt: 0, lastWords: 0 },
     // 外观：主题色 / 背景（key 见 utils/theme.js 的 ACCENTS 与 BACKGROUNDS）
     theme: {
       // 主题色：玫红（rose，启动页同款）。红色调为主的定调 + 红只做小面积点缀：

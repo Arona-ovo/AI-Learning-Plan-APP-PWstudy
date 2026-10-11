@@ -936,5 +936,83 @@ export default {
   'AI 这次没给出能用的结果，再试一次或换个说法。':
     "The AI didn't return anything usable this time — try again or rephrase.",
   '这条指令我没能解析成合法操作，换个说法再试试。':
-    "I couldn't turn that into a valid action — try rephrasing it."
+    "I couldn't turn that into a valid action — try rephrasing it.",
+
+  // ---------- 伙伴 App（背单词）可选关联 ----------
+  // 这组文案的共同要求：每一句都得让人读出「不关联也行」。
+  // PWstudy 不是用户唯一的背单词入口，语气上不能有任何「你应该打通」的暗示。
+  '伙伴 App':
+    'Partner app',
+  '可选':
+    'Optional',
+  '关联后可以从 PWstudy 直接跳过去背单词，学完自动把时长和词数记回今天。不关联也完全不影响 —— 你在任何别的背单词 App 里花的时间，PWstudy 一样统计。':
+    'Once linked you can jump straight into vocabulary study from PWstudy, and your time and word count come back into today automatically. Not linking changes nothing — time spent in any other vocabulary app is still counted.',
+  '未检测到背单词 App':
+    'No vocabulary app detected',
+  '装上之后再回到这一页，关联入口会自动出现':
+    'Install it and come back — the linking option will appear here on its own',
+  '去背单词':
+    'Go study words',
+  '直接跳过去，学完自动回到这里':
+    'Jump right over, and come back automatically when done',
+  '取消关联':
+    'Unlink',
+  '只断开跳转和回传，已经记下的时长与词数会保留':
+    'Only the jump and the reporting stop — time and words already recorded are kept',
+  '尚未关联':
+    'Not linked yet',
+  '之前选过不用这个功能，随时可以重新打开':
+    'You chose not to use this before — you can turn it back on any time',
+  '设备上检测到背单词 App，要不要打通？':
+    'A vocabulary app was found on this device — link them?',
+  '未设置':
+    'Not set',
+  '重新关联':
+    'Link again',
+  '关联':
+    'Link',
+  '不用了':
+    'No thanks',
+  '未检测到':
+    'Not detected',
+  '今天 {min} 分钟 · {words} 词':
+    'Today {min} min · {words} words',
+  '还没有同步记录':
+    'nothing synced yet',
+  '刚刚同步':
+    'synced just now',
+  '{n} 分钟前同步':
+    'synced {n} min ago',
+  '{n} 小时前同步':
+    'synced {n} h ago',
+  '{n} 天前同步':
+    'synced {n} d ago',
+  '已关联 · 过去背完会自动记回今天':
+    'Linked — what you finish over there is written back into today',
+  '已关闭 · 随时可以在这里重新打开':
+    'Off — you can turn it back on here any time',
+  '之后两边不再互相跳转，也不再回传词数。已经记进今天的时长与词数会原样保留 —— 那是真实发生过的学习，不跟着关联一起删。':
+    'The two apps will stop jumping to each other and stop reporting word counts. Time and words already written into today stay exactly as they are — that studying really happened, and it is not deleted along with the link.',
+  '没能打开背单词 App':
+    'Couldn\'t open the vocabulary app',
+  '已取消关联':
+    'Unlinked',
+  '要和背单词 App 打通吗？':
+    'Link with the vocabulary app?',
+  '检测到这台设备上装了背单词 App。打通之后：从 PWstudy 一键跳过去背，学完自动回来，时长和词数自动记进今天。\\n\\n不打通也不影响任何功能 —— 你用别的方式背，花的时间 PWstudy 照样统计得到。':
+    'A vocabulary app is installed on this device. Once linked: jump into it from PWstudy in one tap, come back automatically when done, and have your time and word count written into today.\\n\\nNot linking costs you nothing — study however you like, and PWstudy still counts the time.',
+  '打通（推荐）':
+    'Link them (recommended)',
+  '以后再说':
+    'Later',
+  '不用了，我按自己的方式背':
+    'No thanks, I\'ll stick with my own way',
+  '好 · 之后不再提示，设置里可以随时打开':
+    'Got it — no more prompts. You can turn it on in Settings any time.',
+  '好 · 需要时到设置里打开':
+    'Got it — turn it on in Settings whenever you want',
+  '已关联':
+    'Linked',
+  '已打通 · 过去背完会自动记回今天':
+    'Linked — what you finish over there is written back into today'
 };

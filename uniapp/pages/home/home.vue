@@ -225,6 +225,7 @@ import * as dailylog from '../../utils/dailylog.js'
 import * as pacing from '../../utils/pacing.js'
 import * as coach from '../../utils/coach.js'
 import * as urgency from '../../utils/urgency.js'
+import * as partner from '../../utils/partner.js'
 import * as layout from '../../utils/home-layout.ts'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
@@ -322,6 +323,7 @@ export default {
       return
     }
     this.maybeSetupPrompt()
+    this.maybePartnerAsk()
   },
   onHide() {
     this.stopTick()
@@ -450,6 +452,43 @@ export default {
       this.__fromSetup = true
       uni.navigateTo({ url: '/pkgManage/pages/setup/setup' })
     },
+    /**
+     * 伙伴 App（背单词）的首次询问。
+     *
+     * 五个条件缺一不可（都在 utils/partner.js 里判）：装了 + 还没决定 +
+     * 没问够 3 次 + 距上次 ≥ 2 天 + 当前不在专注中。
+     * 最后那条是硬规矩：一个"可选的关联"，不配打断一次番茄。
+     *
+     * 延迟 1.2s 再弹：首页刚渲染完就糊一张卡片上来，用户还没看清自己在哪。
+     * 已经有别的弹窗在（比如权限引导）就让路 —— 权限比这个重要。
+     */
+    maybePartnerAsk() {
+      setTimeout(() => {
+        if (this.dlg.show) return
+        let go = false
+        try {
+          go = partner.shouldAsk({
+            installed: partner.installed(),
+            focusing: !!(focus.current() && focus.current().phase)
+          })
+        } catch (e) { go = false }
+        if (!go) return
+        // 先记账再弹：不管最后选哪个，这一轮"问过了"都成立，
+        // 否则关掉弹窗立刻回前台会再弹一次。
+        partner.markAsked()
+        this.ask({
+          mode: 'sheet',
+          title: this.$t('要和背单词 App 打通吗？'),
+          content: this.$t('检测到这台设备上装了背单词 App。打通之后：从 PWstudy 一键跳过去背，学完自动回来，时长和词数自动记进今天。\n\n不打通也不影响任何功能 —— 你用别的方式背，花的时间 PWstudy 照样统计得到。'),
+          items: [
+            { label: this.$t('打通（推荐）') },
+            { label: this.$t('以后再说') },
+            { label: this.$t('不用了，我按自己的方式背') }
+          ],
+          action: 'partner-ask'
+        })
+      }, 1200)
+    },
     // 规划是后台任务，退出页面不丢：这里给一个回来的入口
     syncResume() {
       const s = planTask.snapshot()
@@ -505,6 +544,20 @@ export default {
       if (act === 'setup') {
         this.__fromSetup = true
         uni.navigateTo({ url: '/pkgManage/pages/setup/setup' })
+        return
+      }
+      // 伙伴 App 首次询问的三个选项（顺序 = items 下标）
+      if (act === 'partner-ask') {
+        if (payload === 0) {
+          partner.link()
+          uni.showToast({ title: this.$t('已打通 · 过去背完会自动记回今天'), icon: 'none', duration: 2200 })
+        } else if (payload === 2) {
+          // 落到 declined：明确拒绝之后不再自动问，但设置里随时能改回来
+          partner.unlink()
+          uni.showToast({ title: this.$t('好 · 之后不再提示，设置里可以随时打开'), icon: 'none', duration: 2200 })
+        } else {
+          uni.showToast({ title: this.$t('好 · 需要时到设置里打开'), icon: 'none' })
+        }
         return
       }
       if (act === 'giveup') {

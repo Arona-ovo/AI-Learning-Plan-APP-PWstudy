@@ -18,6 +18,7 @@
 // 字段名一律小写、时间统一分钟、id 用 PWstudy 自己的 uid。任何一端加字段都只能加可选。
 
 import * as pw from './pwstore.js';
+import * as partner from './partner.js';
 
 export const SCHEME = 'pwstudy';
 export const PARTNER_SCHEME = 'awword';   // 背单词 App 的 scheme（那边要配同样的）
@@ -50,11 +51,21 @@ export function parse(url) {
   return { kind, goalId, taskId: params.task || params.taskId || '', params };
 }
 
-/** 生成"呼起背单词 App"的链接 */
+/**
+ * 生成"呼起背单词 App"的链接。
+ *
+ * minutes 保持在第一个参数位（老版本对方也是这么解析的）；
+ * v 与 linked 是后加的可选字段，按协议第 10.2 条"加字段只能加可选"：
+ *   · v      = 协议版本，对方遇到不认识的版本按 v1 处理，不许拒绝服务
+ *   · linked = 这边当前是不是已关联，对方据此决定"要不要显示来路横幅 / 学完自动回来"
+ *             未关联时也照跳 —— 用户是点了 PWstudy 里的入口才过去的，回不去像被绑架。
+ */
 export function toPartner(task, minutes) {
   const taskId = task ? (task.id || task.taskId || '') : '';
   const back = SCHEME + '://vocab-done?min=' + (minutes || 25) + (taskId ? '&task=' + enc(taskId) : '');
   return PARTNER_SCHEME + '://study?minutes=' + (minutes || 25) +
+    '&v=' + partner.PROTOCOL_V +
+    '&linked=' + (partner.isLinked() ? '1' : '0') +
     (taskId ? '&task=' + enc(taskId) : '') +
     '&back=' + enc(back);
 }
@@ -75,6 +86,9 @@ export function recordExternal(minutes, extra) {
     pw.addAppMinutes(day, PARTNER_KEY, min);
     const words = extra && extra.words ? Math.round(Number(extra.words)) : 0;
     if (words > 0) pw.addVocabWords(day, words);
+    // 同步"意愿"与"事实"两件事：上面落的是今天背了多少，这里记的是"链路真的通了"。
+    // 设置页靠 lastSyncAt 才能说清"已关联但一直没同步到数据"——那种情况用户看不出来。
+    partner.noteSync(min, words);
     return true;
   } catch (e) {
     return false;

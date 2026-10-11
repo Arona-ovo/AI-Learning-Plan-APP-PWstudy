@@ -650,6 +650,80 @@
       </view>
     </view>
 
+    <!-- ===== 伙伴 App（背单词）=====
+         一个"可选增强"，不是必需步骤。四种状态走同一块区域：
+           未安装 / 未决定 / 已关联 / 已关闭
+         ⚠️ 这里的每一句话都必须能回答"不关联会怎样" —— 答案永远是"什么都不影响"，
+            因为 PWstudy 本来就不是用户唯一的背单词入口（dock 里第三方 App 照常统计）。 -->
+    <view class="sec" :class="{ open: openSec === 'partner' }">
+      <view class="sec-head" data-k="partner" @tap="toggleSec">
+        <text class="sec-name">{{ $t('伙伴 App') }}</text>
+        <text v-if="openSec !== 'partner'" class="sec-hint">{{ secHint('partner') }}</text>
+        <text class="sec-arrow">›</text>
+      </view>
+      <view class="sec-body" v-if="openSec === 'partner'">
+        <!-- 说明块：先讲清它是什么、不关联会怎样，再谈按钮 -->
+        <view class="pn-note">
+          <text class="pn-note-tag">{{ $t('可选') }}</text>
+          <text class="pn-note-text">{{ $t('关联后可以从 PWstudy 直接跳过去背单词，学完自动把时长和词数记回今天。不关联也完全不影响 —— 你在任何别的背单词 App 里花的时间，PWstudy 一样统计。') }}</text>
+        </view>
+
+        <!-- ① 没装：一个按钮都不给。给了也是点了没反应，不如明说"装了再来" -->
+        <view class="row" v-if="!pn.installed">
+          <view class="row-main">
+            <text class="row-title">{{ $t('未检测到背单词 App') }}</text>
+            <text class="row-desc">{{ $t('装上之后再回到这一页，关联入口会自动出现') }}</text>
+          </view>
+        </view>
+        <view class="pn-actions" v-if="!pn.installed">
+          <view class="pn-btn" @tap="refreshPartner">{{ $t('重新检测') }}</view>
+        </view>
+
+        <!-- ② 已关联：先把"链路真的通着"的证据摆出来，再给退出口 -->
+        <block v-if="pn.installed && pn.state === 'linked'">
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('已关联') }}</text>
+              <text class="row-desc">{{ partnerStatText }}</text>
+            </view>
+            <text class="row-value pn-on">{{ $t('已关联') }}</text>
+          </view>
+          <view class="row" @tap="goPartner">
+            <view class="row-main">
+              <text class="row-title">{{ $t('去背单词') }}</text>
+              <text class="row-desc">{{ $t('直接跳过去，学完自动回到这里') }}</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+          <view class="row" @tap="askUnlink">
+            <view class="row-main">
+              <text class="row-title danger">{{ $t('取消关联') }}</text>
+              <text class="row-desc">{{ $t('只断开跳转和回传，已经记下的时长与词数会保留') }}</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </block>
+
+        <!-- ③ 未决定 / 已关闭：一个接受键 + 一个拒绝键。
+             拒绝只在"未决定"时出现 —— 已经关掉了还摆个「不用了」是多余的一次点击 -->
+        <block v-if="pn.installed && pn.state !== 'linked'">
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ pn.state === 'declined' ? $t('已关闭') : $t('尚未关联') }}</text>
+              <text class="row-desc">{{ pn.state === 'declined' ? $t('之前选过不用这个功能，随时可以重新打开') : $t('设备上检测到背单词 App，要不要打通？') }}</text>
+            </view>
+            <text class="row-value">{{ pn.state === 'declined' ? $t('已关闭') : $t('未设置') }}</text>
+          </view>
+          <view class="pn-actions">
+            <view class="pn-btn primary" @tap="doLink">
+              {{ pn.state === 'declined' ? $t('重新关联') : $t('关联') }}
+            </view>
+            <view class="pn-btn" v-if="pn.state !== 'declined'" @tap="doDecline">{{ $t('不用了') }}</view>
+          </view>
+        </block>
+      </view>
+    </view>
+
     <!-- ===== 关于（大胶囊） ===== -->
     <view class="sec" :class="{ open: openSec === 'about' }">
       <view class="sec-head" data-k="about" @tap="toggleSec">
@@ -747,6 +821,9 @@
 import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
+import * as partner from '../../../utils/partner.js'
+// 只借它的"呼起伙伴 App"那一个函数；utils/link.js 同时被 App.vue 引着，不会重复打包
+import { openPartner as openPartnerLink } from '../../../utils/link.js'
 import * as pwreset from '../../../utils/pwreset.js'
 import { stop as voiceStop, status as voiceStatus, resetVoice } from '../../../services/voice.js'
 import { validateKeyFormat, testAIConnection } from '../../../services/ai-content.js'
@@ -854,6 +931,11 @@ export default {
       engineStatus: null,
       notifications: {},
       privacy: {},
+      // 伙伴 App（背单词）：可选关联。四个状态全靠 pn.state + pn.installed 组合出来
+      //   installed=false        → 未安装
+      //   undecided / declined   → 未决定 / 已关闭
+      //   linked                 → 已关联
+      pn: { installed: false, state: 'undecided', min: 0, words: 0, sync: 'never', syncN: 0 },
       // AI 缓存：只暴露条数，内容按类别整体清除
       cacheStats: { words: 0, sentences: 0, updatedAt: 0 },
       apiUsageText: '',
@@ -978,6 +1060,20 @@ export default {
       const n = (this.cacheStats.words || 0) + (this.cacheStats.sentences || 0);
       return n ? t('{n} 条', { n: n }) : t('暂无');
     },
+    // 伙伴 App 的状态行：把"今天同步到多少"和"上次同步是多久之前"合成一句。
+    // 为什么必须显示这两条：只写"已关联"的话，链接坏了用户根本发现不了 ——
+    // 他会以为是今天没背，而不是通道断了。
+    partnerStatText() {
+      void this.__lang;
+      const p = this.pn;
+      const today = t('今天 {min} 分钟 · {words} 词', { min: p.min || 0, words: p.words || 0 });
+      if (p.sync === 'never') return today + ' · ' + t('还没有同步记录');
+      if (p.sync === 'min') {
+        return today + ' · ' + (p.syncN < 1 ? t('刚刚同步') : t('{n} 分钟前同步', { n: p.syncN }));
+      }
+      if (p.sync === 'hour') return today + ' · ' + t('{n} 小时前同步', { n: p.syncN });
+      return today + ' · ' + t('{n} 天前同步', { n: p.syncN });
+    },
     // 档位说明：说清这档到底砍了什么，加上"当前是否有手工微调"
     qualityHint() {
       void this.__lang;
@@ -1097,6 +1193,14 @@ export default {
       if (k === 'about') return 'v' + this.version
       if (k === 'cache') return this.cacheHint
       if (k === 'perf') return this.smooth ? t('已开启') : t('已关闭')
+      if (k === 'partner') {
+        // 收起时一句话说清现在是哪一档；"未检测到"比"未安装"更准确 ——
+        // 也有可能是装了但系统不让查（Android 11+ 包可见性），文案不给打包票
+        if (!this.pn.installed) return t('未检测到')
+        if (this.pn.state === 'linked') return t('已关联')
+        if (this.pn.state === 'declined') return t('已关闭')
+        return t('未设置')
+      }
       return ''
     },
 
@@ -1154,6 +1258,49 @@ export default {
       if (this.smooth) this.blur = 0
       // 根节点 class 变了要立刻重算，否则当前页要等下次 onShow 才生效
       try { this.refreshAppTheme() } catch (err) {}
+    },
+
+    // ---------- 伙伴 App（背单词）：可选关联 ----------
+    // 三个源头每次重读：安装检测走系统、意愿存 settings、今天的数据在 pwstore。
+    // 不缓存 —— 用户可能刚在后台装完/卸掉，进设置页就该看到最新的。
+    refreshPartner() {
+      try {
+        const ago = partner.syncAgo()
+        this.pn = {
+          installed: partner.installed(),
+          state: partner.state().state,
+          min: partner.todayMin(),
+          words: partner.todayWords(),
+          sync: ago.unit,
+          syncN: ago.n
+        }
+      } catch (e) {}
+    },
+    doLink() {
+      partner.link()
+      this.refreshPartner()
+      uni.showToast({ title: t('已关联 · 过去背完会自动记回今天'), icon: 'none', duration: 2200 })
+    },
+    // 设置页主动点「不用了」= declined：和弹窗里那个选项同一个落点，之后不再自动问
+    doDecline() {
+      partner.unlink()
+      this.refreshPartner()
+      uni.showToast({ title: t('已关闭 · 随时可以在这里重新打开'), icon: 'none' })
+    },
+    askUnlink() {
+      this.confirm = Object.assign(this.blankConfirm(), {
+        show: true,
+        title: t('取消关联'),
+        content: t('之后两边不再互相跳转，也不再回传词数。已经记进今天的时长与词数会原样保留 —— 那是真实发生过的学习，不跟着关联一起删。'),
+        confirmText: t('取消关联'),
+        danger: false,
+        action: 'unlink'
+      })
+    },
+    // 从设置页过去不带具体任务：这里的意图是"想背一会儿"，不是"要完成某个任务"
+    goPartner() {
+      const ok = openPartnerLink(null, 25)
+      if (!ok) uni.showToast({ title: t('没能打开背单词 App'), icon: 'none' })
     },
 
     // ---------- AI 缓存（按类别整体清除，不支持逐条删） ----------
@@ -1294,6 +1441,7 @@ export default {
       this.voice = Object.assign({}, s.voice)
       this.notifications = Object.assign({}, s.notifications)
       this.privacy = Object.assign({}, s.privacy)
+      this.refreshPartner()
       this.cacheStats = aiCache.stats()
       this.apiUsageText = apiUsage.brief()
       this.smooth = currentSmooth()
@@ -1524,6 +1672,10 @@ export default {
         this.doClear('words')
       } else if (act === 'clear-sentences') {
         this.doClear('sentences')
+      } else if (act === 'unlink') {
+        partner.unlink()
+        this.refreshPartner()
+        uni.showToast({ title: t('已取消关联'), icon: 'none' })
       }
     }
   }
@@ -1847,6 +1999,81 @@ export default {
   border-radius: 50%;
   border: 2rpx solid rgba(23, 32, 26, 0.12);
   border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.12));
+}
+
+/* ---------- 伙伴 App（可选关联） ----------
+   说明块：一行小标签 + 一段正文。不用卡片也不加边框 ——
+   这块内容的作用是"降低决策压力"，视觉上越轻越好，别做成第二个任务。 */
+.pn-note {
+  display: flex;
+  align-items: flex-start;
+  margin: 0 0 18rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(23, 32, 26, 0.035);
+}
+.pn-note-tag {
+  flex-shrink: 0;
+  margin-right: 12rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  background: rgba(23, 32, 26, 0.06);
+}
+.pn-note-text {
+  flex: 1;
+  font-size: 24rpx;
+  line-height: 1.65;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+.pn-actions {
+  display: flex;
+  align-items: center;
+  margin-top: 18rpx;
+}
+.pn-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 168rpx;
+  height: 72rpx;
+  margin-right: 16rpx;
+  padding: 0 30rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid rgba(23, 32, 26, 0.12);
+  border: 1rpx solid var(--hairline, rgba(23, 32, 26, 0.12));
+  font-size: 27rpx;
+  font-weight: 500;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  text-indent: 2rpx;   /* 补字距：和项目里其它按钮保持一致 */
+}
+/* 主行动键走出厂 tint 模式（淡红底 + 深红字 + 红描边），不写实心红 */
+.pn-btn.primary {
+  background: rgba(var(--brand-rgb), 0.1);
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
+  border-color: rgba(var(--brand-rgb), 0.4);
+}
+/* 已关联的标记：小圆点 + 字，比整块底色更轻 */
+.pn-on {
+  display: flex;
+  align-items: center;
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
+}
+.pn-on::before {
+  content: "";
+  display: block;
+  width: 12rpx;
+  height: 12rpx;
+  margin-right: 10rpx;
+  border-radius: 50%;
+  background: #e11d48;
+  background: var(--brand, #e11d48);
 }
 
 /* hex 用等宽的衬线体：和项目里"英文走 Georgia"的习惯一致，也不会跳动 */

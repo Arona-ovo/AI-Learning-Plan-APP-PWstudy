@@ -133,11 +133,16 @@ console.log('== 5. 界面文案里还有没有拿老 App 当主语 ==');
 {
   // 允许例外：link.js（跳背单词 App 的联动）、goal-templates（福建专升本属于考试主题，不是 App 名）
   // 白名单：跨 App 联动（link.js / goal-detail 的「用背单词 App 学」）、考试主题词
-  // （福建专升本是考试名，不是 App 名）、以及还没清的词典条目
+  // （福建专升本是考试名，不是 App 名）、以及还没清的词典条目。
+  // ⚠️ 后面这几个是 2026-10-12 加进来的"伙伴 App 可选关联"：
+  //    utils/partner.js 里存的是对方的包名/名字，pages/home/home.vue 里是首次询问的文案 ——
+  //    它们提「背单词 App」指的是**另一款 App**，正是这条检查要放行的那一类，不是拿老 App 当主语。
+  //    措辞上必须保持"伙伴/另一款 App"的口径，不能让人以为 PWstudy 自己在教背单词。
   const ALLOW = ['utils/link.js', 'data/goal-templates.js', 'data/wordbooks.js', 'data/sentences.js',
     'utils/i18n-en.js', 'utils/onboarding.js', 'pkgManage/pages/settings/settings.vue',
     'pkgPlan/pages/apps/apps.vue', 'pkgPlan/pages/wizard/wizard.vue', 'utils/dict.js',
-    'pkgPlan/pages/goal-detail/goal-detail.vue'];
+    'pkgPlan/pages/goal-detail/goal-detail.vue',
+    'utils/partner.js', 'pages/home/home.vue'];
   const HIT = /(AWword|AWord|背单词软件|背单词 App|看板娘)/;
   const rows = [];
   function scan(d) {
