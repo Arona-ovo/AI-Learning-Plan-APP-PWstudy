@@ -226,8 +226,10 @@
       </view>
 
       <view class="pv-actions">
-        <button class="btn-ghost pv-btn" :disabled="task.running" @tap="doRegenerate">{{ task.running ? '生成中…' : '重新生成' }}</button>
         <button class="btn-primary pv-btn" :disabled="!pickedCount" @tap="commit">落地这 {{ pickedCount }} 个任务</button>
+        <text class="pv-tip">觉得 AI 对你的了解有偏差？回对话把偏差说出来再生成，比原样重roll有用得多。</text>
+        <button class="btn-ghost pv-btn" @tap="doBackToChat">回对话补充信息</button>
+        <button class="btn-ghost pv-btn" :disabled="task.running" @tap="doRegenerate">{{ task.running ? '生成中…' : '不补充，原样重新生成' }}</button>
       </view>
     </view>
   </view>
@@ -449,7 +451,11 @@ export default {
       if (s.seed) this.draft = Object.assign(this.draft, s.seed)
       this.error = s.error || ''
       // 阶段判定：结果出来了 → 结果页；有会话 → 对话页；否则表单页
-      if (s.plan) {
+      // 只有"生成完成"这一态才进结果页：回对话补充（stage 已拨回 ask）时 plan 还留着，
+      // 不能被它又拽回去
+      if (s.plan && s.stage === 'done') {
+        // 新一轮生成的计划是另一个对象引用：勾选必须全量重置，否则沿用旧下标会勾错任务
+        if (this.plan !== s.plan) this.picked = {}
         this.plan = s.plan
         if (!Object.keys(this.picked).length) {
           const p = {}
@@ -534,6 +540,8 @@ export default {
     },
     doGenerate() { planTask.generate() },
     doRegenerate() { planTask.regenerate() },
+    /** 回对话补充：plan 先留着，用户反悔直接落地也行；stage 拨回 ask 后对话可以接着说 */
+    doBackToChat() { planTask.backToChat() },
     /**
      * 放弃这段会话，回到第一步重填。
      * 以前没有这个出口：问到一半改主意、或者生成失败卡在对话页，只能杀进程重进。
@@ -855,7 +863,11 @@ export default {
   background: rgba(247, 144, 9, 0.16); color: #b25e00;
 }
 
-.pv-actions { display: flex; margin: 10rpx 0 30rpx; }
-.pv-btn { flex: 1; }
-.pv-btn:first-child { margin-right: 20rpx; }
+.pv-actions { display: flex; flex-direction: column; margin: 10rpx 0 30rpx; }
+.pv-tip {
+  margin: 18rpx 4rpx 0;
+  font-size: 22rpx; line-height: 1.65;
+  color: #98a19b; color: var(--ink-3, #98a19b);
+}
+.pv-btn { width: 100%; margin-top: 18rpx; }
 </style>
