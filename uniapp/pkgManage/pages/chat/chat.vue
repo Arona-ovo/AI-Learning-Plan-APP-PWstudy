@@ -165,8 +165,8 @@ export default {
 }
 
 .bubble.user {
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   color: #ffffff;
   border-bottom-right-radius: 6rpx;
 }
@@ -241,8 +241,8 @@ export default {
   height: 76rpx;
   line-height: 76rpx;
   padding: 0 36rpx;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   color: #ffffff;
   font-size: 28rpx;
   border-radius: 999rpx;

@@ -630,11 +630,11 @@ export default {
   display: flex; flex-direction: column; align-items: center;
 }
 .tpl:nth-child(3n) { margin-right: 0; }
-.tpl-on { border-color: var(--brand, #e11d48); background: rgba(var(--brand-rgb, 225, 29, 72), 0.08); }
+.tpl-on { border-color: var(--brand, #e4173d); background: rgba(var(--brand-rgb, 228, 23, 61), 0.08); }
 .tpl-icon {
   width: 56rpx; height: 56rpx; border-radius: 50%;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.14);
-  color: var(--brand-strong, #be123c);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.14);
+  color: var(--brand-strong, #bb1332);
   font-size: 26rpx; line-height: 56rpx; text-align: center;
   font-family: Georgia, serif;
 }
@@ -659,7 +659,7 @@ export default {
 
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
 .card-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-date { font-size: 26rpx; color: #be123c; color: var(--brand-strong, #be123c); font-family: Georgia, serif; }
+.card-date { font-size: 26rpx; color: #bb1332; color: var(--brand-strong, #bb1332); font-family: Georgia, serif; }
 .card-more { font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .chips { display: flex; flex-wrap: wrap; }
@@ -677,8 +677,8 @@ export default {
 }
 .chip-on {
   color: #ffffff;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   border-color: transparent;
 }
 
@@ -701,9 +701,9 @@ export default {
 .mcal-out .mcal-d { color: var(--ink-3, #98a19b); opacity: 0.45; }
 .mcal-off .mcal-d { color: var(--ink-3, #98a19b); opacity: 0.35; }
 .mcal-rest { background: rgba(247, 144, 9, 0.08); }
-.mcal-sel { background: var(--brand, #e11d48); }
+.mcal-sel { background: var(--brand, #e4173d); }
 .mcal-sel .mcal-d { color: #ffffff; font-weight: 600; }
-.mcal-today { border: 2rpx solid var(--brand, #e11d48); }
+.mcal-today { border: 2rpx solid var(--brand, #e4173d); }
 
 .tip { margin-top: 20rpx; font-size: 22rpx; line-height: 1.7; color: #98a19b; color: var(--ink-3, #98a19b); }
 .error-card {
@@ -735,8 +735,8 @@ export default {
   color: var(--ink-1, #17201a);
 }
 .b-mine {
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   color: #ffffff;
   border-bottom-right-radius: 8rpx;
 }
@@ -798,12 +798,12 @@ export default {
 .ib-actions { display: flex; flex-direction: column; align-items: flex-end; margin-left: 16rpx; }
 .ib-send {
   font-size: 27rpx; font-weight: 600;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   padding: 12rpx 26rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
 .ib-send-off { color: #b0b7b2; background: rgba(23, 32, 26, 0.05); }
 .ib-pause { font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-bottom: 12rpx; }
@@ -859,8 +859,8 @@ export default {
 .p-strategy {
   margin-top: 18rpx; padding: 18rpx 22rpx;
   border-radius: 16rpx;
-  background: rgba(225, 29, 72, 0.07);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.07);
+  background: rgba(228, 23, 61, 0.07);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.07);
   font-size: 25rpx; line-height: 1.7;
   color: #17201a;
   color: var(--ink-1, #17201a);
@@ -878,7 +878,7 @@ export default {
   font-size: 26rpx; color: #ffffff;
   flex-shrink: 0; margin-top: 4rpx;
 }
-.pv-check-on { background: #e11d48; background: var(--brand, #e11d48); border-color: transparent; }
+.pv-check-on { background: #e4173d; background: var(--brand, #e4173d); border-color: transparent; }
 .pv-main { flex: 1; min-width: 0; margin-left: 20rpx; }
 .pv-txt { font-size: 27rpx; line-height: 1.5; color: #17201a; color: var(--ink-1, #17201a); }
 .pv-txt-off { color: #98a19b; color: var(--ink-3, #98a19b); text-decoration: line-through; }

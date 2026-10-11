@@ -176,7 +176,7 @@ export default {
   font-size: 30rpx; font-weight: 600;
   color: #17201a; color: var(--ink-1, #17201a);
 }
-.cb-more { font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
+.cb-more { font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
 
 .cb-lead {
   display: block; margin-top: 12rpx;
@@ -212,7 +212,7 @@ export default {
   word-break: break-word;
 }
 .cb-bubble.user {
-  background: #e11d48; background: var(--brand, #e11d48);
+  background: #e4173d; background: var(--brand, #e4173d);
   color: #ffffff;
   border-bottom-right-radius: 6rpx;
 }
@@ -246,11 +246,11 @@ export default {
 .cb-act {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 16rpx; padding: 16rpx 22rpx; border-radius: 14rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
-.cb-act-txt { flex: 1; min-width: 0; font-size: 23rpx; line-height: 1.5; color: #be123c; color: var(--brand-strong, #be123c); }
-.cb-act-go { flex-shrink: 0; margin-left: 16rpx; font-size: 23rpx; font-weight: 600; color: #be123c; color: var(--brand-strong, #be123c); }
+.cb-act-txt { flex: 1; min-width: 0; font-size: 23rpx; line-height: 1.5; color: #bb1332; color: var(--brand-strong, #bb1332); }
+.cb-act-go { flex-shrink: 0; margin-left: 16rpx; font-size: 23rpx; font-weight: 600; color: #bb1332; color: var(--brand-strong, #bb1332); }
 
 /* 输入条 */
 .cb-bar { display: flex; align-items: flex-end; margin-top: 18rpx; }
@@ -273,13 +273,13 @@ export default {
   display: flex; align-items: center; justify-content: center;
   font-size: 26rpx; font-weight: 600;
   color: #ffffff;
-  background: #e11d48; background: var(--brand, #e11d48);
+  background: #e4173d; background: var(--brand, #e4173d);
   border-radius: 999rpx;
 }
 .cb-send:active { opacity: 0.75; }
 .cb-send-off {
   background: #a9c3ff;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.45);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.45);
 }
 
 .cb-err {

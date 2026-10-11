@@ -814,8 +814,8 @@ export default {
 }
 .cfg-opt-on {
   color: #ffffff;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   border-color: transparent;
 }
 .bind-card {
@@ -823,8 +823,8 @@ export default {
   display: flex; align-items: center;
   padding: 18rpx 26rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
   max-width: 100%;
 }
 .cfg-custom {
@@ -834,8 +834,8 @@ export default {
 }
 .bind-txt {
   font-size: 24rpx;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .bind-clear { margin-left: 16rpx; font-size: 30rpx; color: #98a19b; color: var(--ink-3, #98a19b); padding: 0 8rpx; }
@@ -879,7 +879,7 @@ export default {
   display: flex; align-items: center; flex-shrink: 0;
   transition: background 0.18s ease;
 }
-.sr-switch-on { background: var(--brand, #e11d48); }
+.sr-switch-on { background: var(--brand, #e4173d); }
 .sr-knob {
   width: 40rpx; height: 40rpx; border-radius: 50%;
   background: #ffffff;
@@ -904,7 +904,7 @@ export default {
   font-size: 22rpx; line-height: 1.7;
   color: var(--ink-3, #98a19b);
 }
-.sn-go { margin-left: 12rpx; color: var(--brand-strong, #be123c); }
+.sn-go { margin-left: 12rpx; color: var(--brand-strong, #bb1332); }
 .noise-row { margin-top: 20rpx; justify-content: flex-start; }
 .noise-row .cfg-opt { margin: 6rpx 8rpx 0 0; padding: 10rpx 26rpx; }
 
@@ -926,8 +926,8 @@ export default {
   flex: 1;
   margin-left: 20rpx;
   font-size: 25rpx;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
 }
 .ctrl-btn {
   height: 96rpx;
@@ -955,17 +955,17 @@ export default {
   display: flex; align-items: center; justify-content: center;
   padding: 14rpx 22rpx;
   border-radius: 999rpx;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
 .fs-dot {
   width: 12rpx; height: 12rpx; border-radius: 50%;
   margin-right: 14rpx;
   flex-shrink: 0;
-  background: var(--brand, #e11d48);
+  background: var(--brand, #e4173d);
 }
 .fs-txt {
   font-size: 22rpx; line-height: 1.5;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
 }
 
 /* ===== 学习 App 入口（= 强制模式放行名单） =====
@@ -983,7 +983,7 @@ export default {
   margin-bottom: 18rpx;
 }
 .ld-title { font-size: 25rpx; font-weight: 600; color: var(--ink-1, #17201a); }
-.ld-more { font-size: 23rpx; color: var(--brand-strong, #be123c); }
+.ld-more { font-size: 23rpx; color: var(--brand-strong, #bb1332); }
 .ld-row {
   display: flex; flex-wrap: wrap;
   margin: 0 -8rpx;
@@ -1003,8 +1003,8 @@ export default {
   border-radius: 22rpx;
   display: flex; align-items: center; justify-content: center;
   font-size: 32rpx; font-weight: 600;
-  color: var(--brand-strong, #be123c);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  color: var(--brand-strong, #bb1332);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
 }
 .ld-name {
   margin-top: 12rpx;

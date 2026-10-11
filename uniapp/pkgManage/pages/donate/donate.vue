@@ -123,12 +123,12 @@ export default {
 
 .qr-act {
   font-size: 23rpx;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   padding: 8rpx 20rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.12);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
 }
 
 .qr-img {

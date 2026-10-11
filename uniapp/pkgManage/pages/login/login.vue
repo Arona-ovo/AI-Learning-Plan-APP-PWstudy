@@ -190,8 +190,8 @@ export default {
 
 .mode-item.active {
   color: #ffffff;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
 }
 
 .field { display: flex; align-items: center; margin-bottom: 24rpx; }
@@ -225,8 +225,8 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 
-.tip-strong { color: #be123c; font-weight: 600; }
-.tip-strong { color: var(--brand-strong, #be123c); font-weight: 600; }
+.tip-strong { color: #bb1332; font-weight: 600; }
+.tip-strong { color: var(--brand-strong, #bb1332); font-weight: 600; }
 
 .env-card { padding: 28rpx 36rpx; }
 

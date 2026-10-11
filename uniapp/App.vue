@@ -207,7 +207,7 @@ body {
 .app-dark.acc-purple { --brand: #a78bfa; --brand-strong: #c4b5fd; --brand-rgb: 167, 139, 250; }
 .app-dark.acc-amber { --brand: #fbbf24; --brand-strong: #fcd34d; --brand-rgb: 251, 191, 36; }
 .app-dark.acc-tomato { --brand: #f4755a; --brand-strong: #f9a189; --brand-rgb: 244, 117, 90; }
-.app-dark.acc-rose { --brand: #fb7185; --brand-strong: #fda4af; --brand-rgb: 251, 113, 133; }
+.app-dark.acc-rose { --brand: #f97c8a; --brand-strong: #fda6b0; --brand-rgb: 249, 124, 138; }
 .app-dark.acc-graphite { --brand: #9aa7a0; --brand-strong: #c2ccc6; --brand-rgb: 154, 167, 160; }
 
 /* ===== 顶部导航栏 ===== */
@@ -270,8 +270,8 @@ uni-modal .uni-modal__btn {
 }
 
 uni-modal .uni-modal__btn_primary {
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   font-weight: 600;
 }
 
@@ -393,12 +393,12 @@ uni-toast .uni-sample-toast {
 .dlg-btn.primary {
   /* 主按钮不做实心大色块：淡红底 + 深红字 + 红描边（和启动页"红只做点缀"一个思路），
      实心主色留给进度条、开关、选中态这些小元素 */
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  border: 2rpx solid rgba(225, 29, 72, 0.4);
-  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.4);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
 }
 
 /* 危险操作（删除 / 重置 / 退出）：统一用 --danger，不再各写各的红色 */
@@ -688,12 +688,12 @@ uni-tabbar,
   align-items: center;
   justify-content: center;
   padding: 0;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  border: 2rpx solid rgba(225, 29, 72, 0.4);
-  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.4);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
   border-radius: 999rpx;
   font-size: 32rpx;
   font-weight: 500;
@@ -704,7 +704,7 @@ uni-tabbar,
 .btn-primary::after { border: none; }
 .btn-primary[disabled] {
   background: #a9c3ff;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.45);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.45);
   color: #ffffff;
 }
 
@@ -718,10 +718,10 @@ uni-tabbar,
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.66);
   -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
-  border: 2rpx solid rgba(225, 29, 72, 0.34);
-  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.34);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  border: 2rpx solid rgba(228, 23, 61, 0.34);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.34);
   border-radius: 999rpx;
   font-size: 32rpx;
   font-weight: 500;
@@ -752,8 +752,8 @@ uni-tabbar,
 }
 .progress-fill {
   height: 100%;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   border-radius: 999rpx;
   transition: width 0.3s ease;
 }

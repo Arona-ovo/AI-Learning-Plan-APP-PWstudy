@@ -23,7 +23,7 @@ const DAY_MIN = 1440;
 const MAX_BLOCKS = 12;
 
 /** 档位色：从容 → 正常 → 紧张 → 告急（红=危险，与项目其它警示色一致） */
-const LV_COLOR = ['#3b6d11', '#F79009', '#E5484D', '#be123c'];
+const LV_COLOR = ['#3b6d11', '#F79009', '#E5484D', '#bb1332'];
 
 function clamp(n, lo, hi) {
   const v = Number(n) || 0;

@@ -356,7 +356,7 @@ export default {
 <style>
 .strip { display: flex; padding: 34rpx 0; margin-bottom: 20rpx; }
 .st-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
-.st-num { font-size: 40rpx; font-weight: 600; color: #e11d48; color: var(--brand, #e11d48); font-family: Georgia, serif; }
+.st-num { font-size: 40rpx; font-weight: 600; color: #e4173d; color: var(--brand, #e4173d); font-family: Georgia, serif; }
 .st-label { font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; }
 
 .card-head {
@@ -364,7 +364,7 @@ export default {
   margin-bottom: 24rpx;
 }
 .card-title { font-size: 30rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-more { font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
+.card-more { font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
 
 /* ===== 柱状图 ===== */
 .chart { display: flex; align-items: flex-end; height: 260rpx; }
@@ -376,8 +376,8 @@ export default {
 .ch-bar {
   width: 34rpx;
   border-radius: 12rpx 12rpx 6rpx 6rpx;
-  background: rgba(225, 29, 72, 0.75);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.75);
+  background: rgba(228, 23, 61, 0.75);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.75);
   min-height: 6rpx;
   display: flex; align-items: flex-start; justify-content: center;
   transition: height 0.3s ease;
@@ -402,10 +402,10 @@ export default {
   background: rgba(var(--neutral-rgb, 23, 32, 26), 0.07);
 }
 .ht-l0 { background: rgba(var(--neutral-rgb, 23, 32, 26), 0.07); }
-.ht-l1 { background: rgba(var(--brand-rgb, 225, 29, 72), 0.22); }
-.ht-l2 { background: rgba(var(--brand-rgb, 225, 29, 72), 0.42); }
-.ht-l3 { background: rgba(var(--brand-rgb, 225, 29, 72), 0.68); }
-.ht-l4 { background: rgba(var(--brand-rgb, 225, 29, 72), 0.95); }
+.ht-l1 { background: rgba(var(--brand-rgb, 228, 23, 61), 0.22); }
+.ht-l2 { background: rgba(var(--brand-rgb, 228, 23, 61), 0.42); }
+.ht-l3 { background: rgba(var(--brand-rgb, 228, 23, 61), 0.68); }
+.ht-l4 { background: rgba(var(--brand-rgb, 228, 23, 61), 0.95); }
 .ht-col .ht-cell:last-child { margin-bottom: 0; }
 .heat-foot { display: flex; align-items: center; margin-top: 18rpx; }
 .hf-label { font-size: 20rpx; color: var(--ink-3, #98a19b); margin: 0 8rpx; }
@@ -417,7 +417,7 @@ export default {
 .hr-bar {
   width: 60%;
   border-radius: 6rpx 6rpx 2rpx 2rpx;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.7);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.7);
   min-height: 4rpx;
 }
 .hr-bar-zero { background: rgba(var(--neutral-rgb, 23, 32, 26), 0.1); }
@@ -454,7 +454,7 @@ export default {
 .rv-tag-bad { background: #e5484d; }
 .rv-focus {
   margin-top: 20rpx; padding: 18rpx 22rpx; border-radius: 14rpx;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
   font-size: 25rpx; line-height: 1.7; color: var(--ink-1, #17201a);
 }
 .rv-next { margin-top: 16rpx; }
@@ -480,8 +480,8 @@ export default {
 .ar-fill {
   height: 100%;
   border-radius: 999rpx;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
 }
 .ar-min { width: 90rpx; text-align: right; font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }
 
@@ -493,7 +493,7 @@ export default {
   border-radius: 999rpx;
   font-size: 21rpx;
   line-height: 1.6;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   background: rgba(var(--brand-rgb), 0.1);
   border: 1rpx solid rgba(var(--brand-rgb), 0.4);
 }

@@ -219,7 +219,7 @@ export default {
 
 .cm-nav { display: flex; align-items: center; }
 .cm-arrow { font-size: 34rpx; color: var(--ink-2, #5a6560); padding: 0 16rpx; }
-.cm-today { font-size: 23rpx; color: var(--brand-strong, #be123c); }
+.cm-today { font-size: 23rpx; color: var(--brand-strong, #bb1332); }
 
 .cm-week { display: flex; margin-bottom: 8rpx; }
 .cm-wname { flex: 1; text-align: center; font-size: 21rpx; color: var(--ink-3, #98a19b); }
@@ -236,12 +236,12 @@ export default {
 .cm-day { font-size: 25rpx; color: var(--ink-1, #17201a); font-family: Georgia, serif; }
 .cm-cell-out .cm-day { color: var(--ink-3, #98a19b); opacity: 0.5; }
 .cm-cell-rest { background: rgba(247, 144, 9, 0.08); }
-.cm-cell-today .cm-day { color: var(--brand, #e11d48); font-weight: 600; }
-.cm-cell-on { background: rgba(var(--brand-rgb, 225, 29, 72), 0.16); }
+.cm-cell-today .cm-day { color: var(--brand, #e4173d); font-weight: 600; }
+.cm-cell-on { background: rgba(var(--brand-rgb, 228, 23, 61), 0.16); }
 .cm-dots { display: flex; margin-top: 6rpx; }
 .cm-dot {
   width: 8rpx; height: 8rpx; border-radius: 50%; margin: 0 3rpx;
-  background: var(--brand, #e11d48);
+  background: var(--brand, #e4173d);
 }
 .cm-hol {
   position: absolute; bottom: 6rpx;
@@ -266,8 +266,8 @@ export default {
 .ct-ops { flex-shrink: 0; display: flex; }
 .ct-op {
   margin-left: 14rpx; padding: 8rpx 18rpx; border-radius: 999rpx;
-  font-size: 22rpx; color: var(--brand-strong, #be123c);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  font-size: 22rpx; color: var(--brand-strong, #bb1332);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
 .ct-tip { margin-top: 18rpx; font-size: 21rpx; line-height: 1.7; color: var(--ink-3, #98a19b); }
 

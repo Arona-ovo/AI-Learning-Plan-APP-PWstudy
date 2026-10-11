@@ -213,10 +213,10 @@ export default {
 .spin {
   width: 64rpx; height: 64rpx;
   border-radius: 50%;
-  border: 6rpx solid rgba(225, 29, 72, 0.2);
-  border: 6rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.2);
-  border-top-color: #e11d48;
-  border-top-color: var(--brand, #e11d48);
+  border: 6rpx solid rgba(228, 23, 61, 0.2);
+  border: 6rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.2);
+  border-top-color: #e4173d;
+  border-top-color: var(--brand, #e4173d);
   animation: spin 0.9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -260,7 +260,7 @@ export default {
   flex-shrink: 0;
   margin-top: 4rpx;
 }
-.pv-check-on { background: #e11d48; background: var(--brand, #e11d48); border-color: transparent; }
+.pv-check-on { background: #e4173d; background: var(--brand, #e4173d); border-color: transparent; }
 .op-main { flex: 1; min-width: 0; margin-left: 20rpx; }
 .op-line { display: flex; align-items: center; flex-wrap: wrap; }
 .op-kind {
@@ -269,10 +269,10 @@ export default {
   padding: 4rpx 16rpx;
   border-radius: 999rpx;
   margin-right: 14rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
 }
 .op-drop { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
 .op-defer { background: rgba(194, 50, 58, 0.12); color: #c2323a; }

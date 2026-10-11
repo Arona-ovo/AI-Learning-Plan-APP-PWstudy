@@ -265,5 +265,5 @@ export default {
 }
 .seg-opt:first-child { border-radius: 14rpx 0 0 14rpx; }
 .seg-opt:last-child { border-radius: 0 14rpx 14rpx 0; margin-left: -2rpx; }
-.seg-on { color: #ffffff; background: var(--brand, #e11d48); border-color: transparent; }
+.seg-on { color: #ffffff; background: var(--brand, #e4173d); border-color: transparent; }
 </style>

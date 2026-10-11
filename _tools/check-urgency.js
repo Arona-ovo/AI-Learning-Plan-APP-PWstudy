@@ -100,7 +100,7 @@ function at(hh, mm) {
   eq(hard.availMin, 120, '告急：可用分钟');
   assert(hard.over, '告急：时间排不下（over=true）');
   eq(hard.level, 3, '告急：档位 3');
-  eq(hard.color, '#be123c', '告急：档位色');
+  eq(hard.color, '#bb1332', '告急：档位色');
   eq(hard.score, 100, '告急：分数封顶 100（55 时间 + 20 超期 + 25 期限）');
 
   // 时间不够就必须脱离"从容"档：即使没有任何超期与期限压力

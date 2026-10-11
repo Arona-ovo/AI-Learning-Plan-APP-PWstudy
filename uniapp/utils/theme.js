@@ -28,9 +28,9 @@ export const ACCENTS = [
   { key: 'purple', name: '紫', rgb: '124, 58, 237', main: '#7c3aed', strong: '#5b21b6', rgbDark: '167, 139, 250', mainDark: '#a78bfa', strongDark: '#c4b5fd' },
   { key: 'amber', name: '橙', rgb: '202, 111, 6', main: '#ca6f06', strong: '#a15405', rgbDark: '251, 191, 36', mainDark: '#fbbf24', strongDark: '#fcd34d' },
   // 番茄红：偏橙的暖红（色相 ~12°）。当过一轮出厂默认，大块实心用时观感偏怪，
-  // 现在与玫红一样只作为可选项（红系点缀）。
+  // 现在与绯红一样只作为可选项（红系点缀）。
   { key: 'tomato', name: '番茄红', rgb: '229, 77, 46', main: '#e54d2e', strong: '#c43f22', rgbDark: '244, 117, 90', mainDark: '#f4755a', strongDark: '#f9a189' },
-  { key: 'rose', name: '玫红', rgb: '225, 29, 72', main: '#e11d48', strong: '#be123c', rgbDark: '251, 113, 133', mainDark: '#fb7185', strongDark: '#fda4af' },
+  { key: 'rose', name: '绯红', rgb: '228, 23, 61', main: '#e4173d', strong: '#bb1332', rgbDark: '249, 124, 138', mainDark: '#f97c8a', strongDark: '#fda6b0' },
   { key: 'graphite', name: '墨绿灰', rgb: '62, 74, 66', main: '#3e4a42', strong: '#2b332d', rgbDark: '154, 167, 160', mainDark: '#9aa7a0', strongDark: '#c2ccc6' }
 ];
 
@@ -117,7 +117,7 @@ export function current() {
 }
 
 export function currentAccent() {
-  // 兜底与 settings.js 的出厂默认保持一致：rose（玫红，启动页同款）
+  // 兜底与 settings.js 的出厂默认保持一致：rose（绯红，启动页同款）
   return themeState().accent || 'rose';
 }
 
@@ -588,7 +588,7 @@ export function rootStyle() {
   // 主色也走 inline 变量下发：
   // 原来只有 H5 能吃到 setVar() 写的 --brand（App 端逻辑层没有 document），
   // App 端只能命中样式里写死的兜底值 —— 换主题色在安卓上看不出变化。
-  //（兜底值也要跟着出厂色走：出厂色是青时样式兜底写玫红/蓝，未命中变量的地方就会串色）
+  //（兜底值也要跟着出厂色走：出厂色是青时样式兜底写绯红/蓝，未命中变量的地方就会串色）
   // 挂在页面根节点上，与 exo 变量同一通道，CSS 变量向下继承，全树可读。
   const acc = findIn(ACCENTS, currentAccent());
   style['--brand'] = dark ? (acc.mainDark || acc.main) : acc.main;

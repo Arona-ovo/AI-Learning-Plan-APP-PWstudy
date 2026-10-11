@@ -721,8 +721,8 @@ export default {
   width: 460rpx; height: 460rpx;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  border: 6rpx solid rgba(225, 29, 72, 0.22);
-  border: 6rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.22);
+  border: 6rpx solid rgba(228, 23, 61, 0.22);
+  border: 6rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.22);
 }
 .lock-ring-run { animation: lock-pulse 2.2s ease-in-out infinite; }
 @keyframes lock-pulse {
@@ -770,9 +770,9 @@ export default {
 .lock-btn::after { border: none; }
 .lock-btn-main {
   width: 280rpx;
-  color: #be123c; color: var(--brand-strong, #be123c);
-  background: rgba(225, 29, 72, 0.1); background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  border: 2rpx solid rgba(225, 29, 72, 0.4); border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
+  color: #bb1332; color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1); background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.4); border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
 }
 .lock-btn-ghost {
   width: 200rpx;
@@ -819,7 +819,7 @@ export default {
 .rc-info { flex: 1; min-width: 0; }
 .rc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .rc-sub { font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; }
-.rc-go { font-size: 25rpx; color: #be123c; color: var(--brand-strong, #be123c); flex-shrink: 0; }
+.rc-go { font-size: 25rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
 
 /* ===== 今日收工 ===== */
 .head-acts { display: flex; align-items: center; }
@@ -846,7 +846,7 @@ export default {
 .sc-info { flex: 1; min-width: 0; }
 .sc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .sc-sub { font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; line-height: 1.5; }
-.sc-go { font-size: 25rpx; color: #be123c; color: var(--brand-strong, #be123c); flex-shrink: 0; }
+.sc-go { font-size: 25rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
 
 /* ===== 超期提示条 ===== */
 .late-bar {
@@ -865,8 +865,8 @@ export default {
 .fc-ring {
   width: 150rpx; height: 150rpx;
   border-radius: 50%;
-  border: 6rpx solid rgba(225, 29, 72, 0.25);
-  border: 6rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.25);
+  border: 6rpx solid rgba(228, 23, 61, 0.25);
+  border: 6rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.25);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
@@ -899,9 +899,9 @@ export default {
 .fc-go {
   flex-shrink: 0;
   font-size: 26rpx; font-weight: 600;
-  color: #be123c; color: var(--brand-strong, #be123c);
-  background: rgba(225, 29, 72, 0.1); background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  border: 2rpx solid rgba(225, 29, 72, 0.4); border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
+  color: #bb1332; color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1); background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.4); border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
   border-radius: 999rpx;
   padding: 14rpx 32rpx;
 }
@@ -916,7 +916,7 @@ export default {
   color: #17201a;
   color: var(--ink-1, #17201a);
 }
-.card-more { font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
+.card-more { font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
 
 /* ===== 空态 ===== */
 .empty { padding: 20rpx 0 8rpx; }
@@ -940,8 +940,8 @@ export default {
 .task-press { opacity: 0.7; }
 .tk-dot {
   width: 18rpx; height: 18rpx; border-radius: 50%;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   flex-shrink: 0;
 }
 .tk-dot-late { background: #f79009; }
@@ -961,7 +961,7 @@ export default {
   margin-left: 10rpx;
   color: #e5484d;
 }
-.tk-play { font-size: 26rpx; color: #be123c; color: var(--brand-strong, #be123c); flex-shrink: 0; }
+.tk-play { font-size: 26rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
 
 /* ===== 目标进度 ===== */
 .goal-row { padding: 18rpx 0; }
@@ -986,12 +986,12 @@ export default {
 .dk-icon {
   width: 92rpx; height: 92rpx;
   border-radius: 24rpx;
-  background: rgba(225, 29, 72, 0.12);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
   display: flex; align-items: center; justify-content: center;
   font-size: 36rpx; font-weight: 600;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
 }
 .dk-rest {
   background: rgba(122, 124, 122, 0.14);

@@ -996,7 +996,7 @@ export default {
     // 当前主题色的十六进制（用于 switch / slider / modal 等只接受色值的组件属性）
     brandMain() {
       const a = ACCENTS.find(x => x.key === this.accentKey)
-      return a ? a.main : '#e11d48'
+      return a ? a.main : '#e4173d'
     },
     // 自定义色块：深色模式下显示压暗变体，和实际铺在屏幕上的底色一致
     customSwatch() {
@@ -1722,12 +1722,12 @@ export default {
   margin-left: 20rpx;
   font-size: 24rpx;
   font-weight: 500;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   padding: 10rpx 22rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.12);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
 }
 
 /* 交流群：群号用衬线数字，和打赏卡的"箭头"区分开（它是要抄走的号码） */
@@ -1802,8 +1802,8 @@ export default {
 
 .sec.open .sec-arrow {
   transform: rotate(90deg);
-  color: #e11d48;
-  color: var(--brand, #e11d48);
+  color: #e4173d;
+  color: var(--brand, #e4173d);
 }
 
 /* 展开：内容从 0 高度长出来（max-height 动画，起点由 CSS 动画第一帧给出，不需要 JS 量高度）。
@@ -1891,7 +1891,7 @@ export default {
 }
 
 .accent.active .accent-name {
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   font-weight: 600;
 }
 
@@ -1920,8 +1920,8 @@ export default {
 .bg-chip:nth-child(3n) { margin-right: 0; }
 
 .bg-chip.active {
-  border-color: var(--brand, #e11d48);
-  box-shadow: 0 6rpx 18rpx rgba(var(--brand-rgb, 225, 29, 72), 0.24);
+  border-color: var(--brand, #e4173d);
+  box-shadow: 0 6rpx 18rpx rgba(var(--brand-rgb, 228, 23, 61), 0.24);
 }
 
 .bg-chip-name {
@@ -1947,7 +1947,7 @@ export default {
 }
 
 .bg-chip.pick .bg-chip-name {
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   background: transparent;
 }
 
@@ -1963,7 +1963,7 @@ export default {
 
 .bg-clear {
   font-size: 24rpx;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
 }
 
 .bg-hint {
@@ -2054,16 +2054,16 @@ export default {
 /* 主行动键走出厂 tint 模式（淡红底 + 深红字 + 红描边），不写实心红 */
 .pn-btn.primary {
   background: rgba(var(--brand-rgb), 0.1);
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   border-color: rgba(var(--brand-rgb), 0.4);
 }
 /* 已关联的标记：小圆点 + 字，比整块底色更轻 */
 .pn-on {
   display: flex;
   align-items: center;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
 }
 .pn-on::before {
   content: "";
@@ -2072,8 +2072,8 @@ export default {
   height: 12rpx;
   margin-right: 10rpx;
   border-radius: 50%;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
 }
 
 /* hex 用等宽的衬线体：和项目里"英文走 Georgia"的习惯一致，也不会跳动 */
@@ -2089,8 +2089,8 @@ export default {
 .cp-reset {
   font-size: 24rpx;
   padding: 6rpx 10rpx;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
 }
 
 .cp-reset:active { opacity: 0.5; }
@@ -2114,10 +2114,10 @@ export default {
 .cp-sw-item:nth-child(6n) { margin-right: 0; }
 
 .cp-sw-item.on {
-  border-color: #e11d48;
-  border-color: var(--brand, #e11d48);
-  box-shadow: 0 0 0 4rpx rgba(225, 29, 72, 0.18);
-  box-shadow: 0 0 0 4rpx rgba(var(--brand-rgb, 225, 29, 72), 0.18);
+  border-color: #e4173d;
+  border-color: var(--brand, #e4173d);
+  box-shadow: 0 0 0 4rpx rgba(228, 23, 61, 0.18);
+  box-shadow: 0 0 0 4rpx rgba(var(--brand-rgb, 228, 23, 61), 0.18);
 }
 
 .row {
@@ -2155,8 +2155,8 @@ export default {
 /* 用半透明底色而不是实底：深色模式下这几个小标签才不会变成突兀的亮块 */
 .sfx-dot.ok {
   color: #3b74ff;
-  background: rgba(225, 29, 72, 0.14);
-  border-color: rgba(225, 29, 72, 0.3);
+  background: rgba(228, 23, 61, 0.14);
+  border-color: rgba(228, 23, 61, 0.3);
 }
 .sfx-dot.half {
   color: #d98324;
@@ -2180,12 +2180,12 @@ export default {
   font-size: 24rpx;
   font-weight: 500;
   letter-spacing: 1rpx;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   padding: 8rpx 22rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
 .row-action:active { opacity: 0.6; }
 
@@ -2194,7 +2194,7 @@ export default {
 
 .adv-toggle {
   font-size: 24rpx;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   flex-shrink: 0;
 }
 
@@ -2258,8 +2258,8 @@ export default {
 /* 选中态：用 --brand 而不是写死主色 —— 换强调色 / 切深色时会跟着变
    （深色档的主色由 App.vue 的 .app-dark.acc-* 提供，比浅色档提亮一档） */
 .seg-item.on {
-  background: var(--brand, #e11d48);
-  border-color: var(--brand, #e11d48);
+  background: var(--brand, #e4173d);
+  border-color: var(--brand, #e4173d);
   color: #fff;
   font-weight: 500;
 }
@@ -2292,8 +2292,8 @@ export default {
 .verify-text { font-size: 24rpx; color: #98a19b; line-height: 1.4; }
 .verify-text { font-size: 24rpx; color: var(--ink-3, #98a19b); line-height: 1.4; }
 
-.verify-status.ok .verify-dot { background: var(--brand-strong, #be123c); }
-.verify-status.ok .verify-text { color: var(--brand-strong, #be123c); font-weight: 600; }
+.verify-status.ok .verify-dot { background: var(--brand-strong, #bb1332); }
+.verify-status.ok .verify-text { color: var(--brand-strong, #bb1332); font-weight: 600; }
 
 .verify-status.warn .verify-dot { background: #f79009; }
 .verify-status.warn .verify-text { color: #b54708; }
@@ -2307,12 +2307,12 @@ export default {
   line-height: 68rpx;
   padding: 0 32rpx;
   font-size: 24rpx;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   background: rgba(255, 255, 255, 0.66);
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.66);
   -webkit-backdrop-filter: var(--glass-sm, blur(8px) saturate(180%));
   backdrop-filter: var(--glass-sm, blur(8px) saturate(180%));
-  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.3);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.3);
   border-radius: 999rpx;
 }
 
@@ -2347,7 +2347,7 @@ export default {
   color: var(--ink-1, #17201a);
 }
 
-.field-op { font-size: 24rpx; color: var(--brand, #e11d48); margin-left: 16rpx; flex-shrink: 0; }
+.field-op { font-size: 24rpx; color: var(--brand, #e4173d); margin-left: 16rpx; flex-shrink: 0; }
 
 /* 试听按钮 */
 .try-row { display: flex; flex: 1; }
@@ -2356,18 +2356,18 @@ export default {
   flex: 1;
   text-align: center;
   font-size: 24rpx;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   background: rgba(255, 255, 255, 0.66);
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.66);
   -webkit-backdrop-filter: var(--glass-sm, blur(8px) saturate(180%));
   backdrop-filter: var(--glass-sm, blur(8px) saturate(180%));
-  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.3);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.3);
   border-radius: 999rpx;
   padding: 12rpx 0;
   margin-right: 16rpx;
 }
 .try-btn:last-child { margin-right: 0; }
-.try-btn:active { background: rgba(var(--brand-rgb, 225, 29, 72), 0.12); }
+.try-btn:active { background: rgba(var(--brand-rgb, 228, 23, 61), 0.12); }
 
 .slider-field { align-items: center; }
 
@@ -2392,12 +2392,12 @@ export default {
 }
 
 .chip.active {
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   color: #ffffff;
   font-weight: 600;
-  border-color: #e11d48;
-  border-color: var(--brand, #e11d48);
+  border-color: #e4173d;
+  border-color: var(--brand, #e4173d);
 }
 
 .picker-value {
@@ -2517,9 +2517,9 @@ export default {
   font-size: 27rpx;
   font-weight: 500;
   letter-spacing: 1rpx;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
-  background: rgba(225, 29, 72, 0.12);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
 }
 </style>

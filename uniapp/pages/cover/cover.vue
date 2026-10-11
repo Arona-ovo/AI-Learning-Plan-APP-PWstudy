@@ -64,7 +64,7 @@ export default {
   position: relative;
   min-height: 100vh;
   background: linear-gradient(165deg, #f2f7ff 0%, #e0ecff 52%, #cfe0ff 100%);
-  background: linear-gradient(165deg, rgba(var(--brand-rgb, 225, 29, 72), 0.06) 0%, rgba(var(--brand-rgb, 225, 29, 72), 0.13) 52%, rgba(var(--brand-rgb, 225, 29, 72), 0.22) 100%);
+  background: linear-gradient(165deg, rgba(var(--brand-rgb, 228, 23, 61), 0.06) 0%, rgba(var(--brand-rgb, 228, 23, 61), 0.13) 52%, rgba(var(--brand-rgb, 228, 23, 61), 0.22) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -75,19 +75,19 @@ export default {
 
 /* 深色模式下的封面：避免夜里启动时闪一下亮屏 */
 .app-dark.cover {
-  background: linear-gradient(165deg, rgba(var(--brand-rgb, 225, 29, 72), 0.14) 0%, rgba(8, 10, 9, 0.6) 52%, #121513 100%);
+  background: linear-gradient(165deg, rgba(var(--brand-rgb, 228, 23, 61), 0.14) 0%, rgba(8, 10, 9, 0.6) 52%, #121513 100%);
 }
 
 .deco { position: absolute; border-radius: 50%; }
 .deco-1 {
   width: 420rpx; height: 420rpx; right: -160rpx; top: -140rpx;
-  background: radial-gradient(circle, rgba(225, 29, 72, 0.18), rgba(225, 29, 72, 0));
-  background: radial-gradient(circle, rgba(var(--brand-rgb, 225, 29, 72), 0.18), rgba(var(--brand-rgb, 225, 29, 72), 0));
+  background: radial-gradient(circle, rgba(228, 23, 61, 0.18), rgba(228, 23, 61, 0));
+  background: radial-gradient(circle, rgba(var(--brand-rgb, 228, 23, 61), 0.18), rgba(var(--brand-rgb, 228, 23, 61), 0));
 }
 .deco-2 {
   width: 300rpx; height: 300rpx; left: -120rpx; top: 46%;
-  background: radial-gradient(circle, rgba(225, 29, 72, 0.12), rgba(225, 29, 72, 0));
-  background: radial-gradient(circle, rgba(var(--brand-rgb, 225, 29, 72), 0.12), rgba(var(--brand-rgb, 225, 29, 72), 0));
+  background: radial-gradient(circle, rgba(228, 23, 61, 0.12), rgba(228, 23, 61, 0));
+  background: radial-gradient(circle, rgba(var(--brand-rgb, 228, 23, 61), 0.12), rgba(var(--brand-rgb, 228, 23, 61), 0));
 }
 .deco-3 {
   width: 200rpx; height: 200rpx; right: 8%; bottom: 14%;
@@ -105,8 +105,8 @@ export default {
   position: absolute;
   width: 340rpx; height: 340rpx;
   border-radius: 50%;
-  border: 3rpx solid rgba(225, 29, 72, 0.4);
-  border: 3rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
+  border: 3rpx solid rgba(228, 23, 61, 0.4);
+  border: 3rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
   animation: ringPulse 2.4s ease-out infinite;
 }
 
@@ -117,8 +117,8 @@ export default {
   background: var(--solid, #ffffff);
   border: 8rpx solid rgba(255, 255, 255, 0.95);
   border: 8rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.95));
-  box-shadow: 0 16rpx 56rpx rgba(225, 29, 72, 0.22);
-  box-shadow: 0 16rpx 56rpx rgba(var(--brand-rgb, 225, 29, 72), 0.22);
+  box-shadow: 0 16rpx 56rpx rgba(228, 23, 61, 0.22);
+  box-shadow: 0 16rpx 56rpx rgba(var(--brand-rgb, 228, 23, 61), 0.22);
   overflow: hidden;
   animation: float 3.2s ease-in-out infinite;
 }
@@ -133,8 +133,8 @@ export default {
 .app-name {
   font-size: 46rpx;
   font-weight: 500;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   letter-spacing: 10rpx;
   text-indent: 10rpx;
   font-family: Georgia, "Times New Roman", serif;
@@ -151,8 +151,8 @@ export default {
 
 .divider {
   width: 64rpx; height: 2rpx;
-  background: rgba(225, 29, 72, 0.38);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.38);
+  background: rgba(228, 23, 61, 0.38);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.38);
   margin-top: 36rpx;
 }
 
@@ -164,16 +164,16 @@ export default {
 .load-track {
   width: 240rpx; height: 4rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.18);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.18);
+  background: rgba(228, 23, 61, 0.18);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.18);
   overflow: hidden;
 }
 
 .load-fill {
   height: 100%; width: 0;
   border-radius: 999rpx;
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
   animation: load 2.4s linear forwards;
 }
 

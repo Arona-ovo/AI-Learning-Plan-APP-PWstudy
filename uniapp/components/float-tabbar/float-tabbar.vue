@@ -256,8 +256,8 @@ export default {
   left: 6rpx;
   right: 6rpx;
   border-radius: 44rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
 
 .ftb-item {
@@ -295,8 +295,8 @@ export default {
 }
 
 .ftb-icon-on {
-  color: #e11d48;
-  color: var(--brand, #e11d48);
+  color: #e4173d;
+  color: var(--brand, #e4173d);
 }
 
 /* 专注：秒表（顶部提手 + 圆环 + 指针） */
@@ -397,8 +397,8 @@ export default {
 }
 
 .ftb-item.active .ftb-text {
-  color: #e11d48;
-  color: var(--brand, #e11d48);
+  color: #e4173d;
+  color: var(--brand, #e4173d);
   font-weight: 600;
 }
 </style>

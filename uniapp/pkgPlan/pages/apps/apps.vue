@@ -413,7 +413,7 @@ export default {
   background: rgba(247, 144, 9, 0.12);
   font-size: 23rpx; line-height: 1.7; color: #8a5800;
 }
-.manual-toggle { margin-top: 22rpx; font-size: 24rpx; color: var(--brand-strong, #be123c); text-align: center; }
+.manual-toggle { margin-top: 22rpx; font-size: 24rpx; color: var(--brand-strong, #bb1332); text-align: center; }
 .manual-box { margin-top: 10rpx; padding-top: 6rpx; border-top: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.07); }
 .pc-btn { margin-top: 24rpx; height: 84rpx; font-size: 27rpx; }
 .pc-perm {
@@ -438,7 +438,7 @@ export default {
   margin-bottom: 20rpx;
 }
 .card-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-more { font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
+.card-more { font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
 
 .dock-row { display: flex; align-items: center; padding: 16rpx 0; }
 .dr-icon-img {
@@ -450,12 +450,12 @@ export default {
 .dr-icon {
   width: 76rpx; height: 76rpx;
   border-radius: 20rpx;
-  background: rgba(225, 29, 72, 0.12);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
   display: flex; align-items: center; justify-content: center;
   font-size: 30rpx; font-weight: 600;
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   flex-shrink: 0;
 }
 .dr-rest { background: rgba(122, 124, 122, 0.16); color: #5a6560; color: var(--ink-2, #5a6560); }
@@ -471,10 +471,10 @@ export default {
   flex-shrink: 0;
   padding: 2rpx 12rpx;
   border-radius: 999rpx;
-  background: rgba(225, 29, 72, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   margin-right: 10rpx;
 }
 .dr-task-label.rest { background: rgba(122, 124, 122, 0.14); color: #5a6560; color: var(--ink-2, #5a6560); }
@@ -497,9 +497,9 @@ export default {
   padding: 8rpx 22rpx;
   border-radius: 999rpx;
   background: rgba(225, 29, 29, 0.1);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  color: #be123c;
-  color: var(--brand-strong, #be123c);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
   margin-right: 16rpx;
 }
 .dr-del {
@@ -526,7 +526,7 @@ export default {
 .app-scroll { max-height: 640rpx; }
 .cand { display: flex; align-items: center; padding: 12rpx 0; }
 .cand-added { opacity: 0.45; }
-.cand-add { flex-shrink: 0; font-size: 24rpx; color: #be123c; color: var(--brand-strong, #be123c); }
+.cand-add { flex-shrink: 0; font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
 
 .m-row { display: flex; align-items: center; padding: 18rpx 0; }
 .m-label { width: 150rpx; font-size: 25rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }
@@ -542,7 +542,7 @@ export default {
   color: #5a6560;
   color: var(--ink-2, #5a6560);
 }
-.seg-on { background: #e11d48; background: var(--brand, #e11d48); color: #ffffff; }
+.seg-on { background: #e4173d; background: var(--brand, #e4173d); color: #ffffff; }
 
 /* 编辑/添加弹窗 */
 .edit-card {
@@ -572,10 +572,10 @@ export default {
 .edit-icon {
   width: 84rpx; height: 84rpx;
   border-radius: 22rpx;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
   display: flex; align-items: center; justify-content: center;
   font-size: 34rpx; font-weight: 600;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   flex-shrink: 0;
 }
 .edit-icon.fallback { background: rgba(var(--neutral-rgb, 23, 32, 26), 0.1); color: var(--ink-2, #5a6560); }
@@ -620,8 +620,8 @@ export default {
   color: var(--ink-2, #5a6560);
 }
 .edit-btn.primary {
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
-  color: var(--brand-strong, #be123c);
-  border: 2rpx solid rgba(var(--brand-rgb, 225, 29, 72), 0.4);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  color: var(--brand-strong, #bb1332);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
 }
 </style>

@@ -262,8 +262,8 @@ export default {
 }
 
 .dlg-sheet-item.multi.picked .dlg-sheet-label {
-  color: #e11d48;
-  color: var(--brand, #e11d48);
+  color: #e4173d;
+  color: var(--brand, #e4173d);
   font-weight: 600;
 }
 
@@ -283,10 +283,10 @@ export default {
 }
 
 .dlg-check.on {
-  border-color: #e11d48;
-  border-color: var(--brand, #e11d48);
-  background: #e11d48;
-  background: var(--brand, #e11d48);
+  border-color: #e4173d;
+  border-color: var(--brand, #e4173d);
+  background: #e4173d;
+  background: var(--brand, #e4173d);
 }
 
 .dlg-check-mark {

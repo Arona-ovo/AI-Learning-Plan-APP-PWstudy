@@ -210,8 +210,8 @@ export default {
 .gd-strategy {
   margin-top: 18rpx; padding: 18rpx 22rpx;
   border-radius: 16rpx;
-  background: rgba(225, 29, 72, 0.07);
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.07);
+  background: rgba(228, 23, 61, 0.07);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.07);
   font-size: 25rpx; line-height: 1.7;
   color: #17201a;
   color: var(--ink-1, #17201a);
@@ -237,7 +237,7 @@ export default {
   color: #ffffff;
   flex-shrink: 0;
 }
-.tk-check-on { background: #e11d48; background: var(--brand, #e11d48); border-color: transparent; }
+.tk-check-on { background: #e4173d; background: var(--brand, #e4173d); border-color: transparent; }
 .tk-check-drop { background: rgba(23, 32, 26, 0.15); border-color: transparent; }
 .tk-main { flex: 1; min-width: 0; margin: 0 20rpx; }
 .tk-title { font-size: 27rpx; line-height: 1.5; color: #17201a; color: var(--ink-1, #17201a); }
@@ -271,10 +271,10 @@ export default {
   flex-shrink: 0;
   margin-left: 12rpx;
   font-size: 23rpx;
-  color: var(--brand-strong, #be123c);
+  color: var(--brand-strong, #bb1332);
   padding: 6rpx 20rpx;
   border-radius: 999rpx;
-  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
 }
 
 /* ===== 学习要点弹层 ===== */
@@ -302,7 +302,7 @@ export default {
   width: 36rpx; height: 36rpx; flex-shrink: 0;
   margin-right: 14rpx; margin-top: 4rpx;
   border-radius: 50%;
-  background: var(--brand, #e11d48); color: #fff;
+  background: var(--brand, #e4173d); color: #fff;
   font-size: 20rpx; line-height: 36rpx; text-align: center;
   font-family: Georgia, serif;
 }
