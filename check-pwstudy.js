@@ -502,6 +502,27 @@ function ok(cond, msg) {
   // 降级：没有原生拉回能力时如实说，不假装锁得住
   ok(forced.canPull() === false, '标准基座下 canPull=false（如实降级）');
   ok(at.bringSelfFront() === false, '非安卓 / 无桥接时 bringSelfFront 安全返回 false');
+  ok(forced.nativeActive() === false, '没有原生看门狗时 nativeActive=false → JS 兜底轮询接手');
+  ok(typeof forced.maxEscapes() === 'number' && forced.maxEscapes() >= 2, 'maxEscapes 暴露出去（页面别写死 "3"）');
+
+  // 白名单口径：原生看门狗按 allowList() 放行，JS 判定走 isAllowedPkg()。
+  // 两边一旦不一致，就会"原生把人拽回来、JS 又说没跑偏"（或者反过来漏放行）。
+  const oldDock = pw.dock().slice();
+  pw.get().dock = [];
+  pw.dockAdd('com.demo.study', '刷题软件', 'study', '');
+  pw.dockAdd('com.demo.video', '短视频', 'rest', '');
+  const allow = at.allowList();
+  ok(allow.indexOf('com.demo.study') >= 0, 'allowList 收「学习」用途的 App（原生按它放行）');
+  ok(allow.indexOf('com.demo.video') < 0, 'allowList 不收「休息」用途的 App（专注期间去刷手机就是跑偏）');
+  ok(allow.filter(p => p === 'com.demo.study').length === 1, 'allowList 去重（同一个包不漏也不重）');
+  ok(at.isAllowedPkg('com.demo.study') === true && at.isAllowedPkg('com.demo.video') === false,
+    '两套判定同口径：isAllowedPkg 与 allowList 一致');
+  ok(at.isAllowedPkg('com.some.unknown.app') === false, '没登记过的 App 算跑偏');
+  ok(at.isAllowedPkg('com.miui.home') === true && at.isAllowedPkg('com.huawei.android.launcher') === true,
+    '国产桌面在名单里（强制模式的遮罩不会把用户锁在屏幕外）');
+  // 收尾：还原 dock，别影响后面的用例
+  pw.get().dock = oldDock;
+  pw.touch();
 
   // 收尾：把强制模式关回去，别污染同一进程里后面的用例
   try {
@@ -820,6 +841,34 @@ function ok(cond, msg) {
   dailylog.save(row(pw.today(), 2));
   ok(dailylog.shortStreak(g5.id) === 0, '今天补做完了 → 连续段断掉，streak 归 0（顺延的口子随之关上）');
   ok(dailylog.shortStreak('不存在的目标') === 0, '没这个目标时返回 0（别把别的账算到它头上）');
+
+  console.log('\n[23] 学习能力画像（排期按能力不按意愿）');
+  const pacing = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/pacing.js');
+  // 显式造 7 天历史：4,5,4,3,4,5,4 → 中位数 4 → 容量 = ceil(4×1.2) = 5
+  const setHist = (arr) => {
+    for (let k = 0; k < arr.length; k++) {
+      const key = pw.addDays(pw.today(), -(k + 1));
+      // 后写覆盖先写：想让 pomo=9 就得把造的数据放后面（这些天可能已有测试落下的账）
+      pw.get().daily[key] = Object.assign({}, pw.get().daily[key] || {},
+        { focusMin: arr[k] * 25, pomo: arr[k], byApp: {}, byHour: {}, log: null });
+    }
+    pw.touch();
+  };
+  setHist([4, 5, 4, 3, 4, 5, 4]);
+  const pac1 = pacing.profile();
+  ok(pac1.samples >= 7, '样本取近 14 天有学习记录的日子');
+  ok(pac1.med === 4, '容量用中位数（单日爆发不抬容量）');
+  ok(pac1.capacity === 5, '排期容量 = 中位数 × 1.2 = 5 个/天（略高于现状才会进步，高太多只会崩）');
+  ok(pac1.completeRate != null && pac1.completeRate >= 0 && pac1.completeRate <= 1, '完成率来自近 7 天填报（0-1）');
+  ok(/番茄/.test(pacing.promptText(60)) && /容量/.test(pacing.promptText(60)), '给 AI 的画像文字带容量口径');
+  ok(pacing.capacityOf(240) === pacing.DAILY_CAP, '意愿 240 分钟也越不过认知负荷上限（8 番茄/天）');
+  ok(pacing.capacityOf(30) >= 1, '目标很轻也有下限');
+  setHist([9, 9, 9, 9, 9, 9, 9]);
+  ok(pacing.profile().capacity === pacing.DAILY_CAP, '连续超量冲刺也不把容量推过 8（超过 4 小时/天的计划没人能维持）');
+  pw.get().daily[pw.addDays(pw.today(), -1)] = null;
+  pw.get().daily[pw.addDays(pw.today(), -2)] = null;
+  pw.touch();
+  ok(pacing.profile().samples >= 1, '删掉几天历史后仍能工作（不炸、按剩余样本算）');
 
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);

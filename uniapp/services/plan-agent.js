@@ -9,6 +9,7 @@ import { chatCompletion, LLMError } from './llm.js';
 import { isAIEnabled } from './config.js';
 import * as holiday from '../utils/holiday.js';
 import * as dailylog from '../utils/dailylog.js';
+import * as pacing from '../utils/pacing.js';
 
 const PLAN_TIMEOUT = 60000;
 const MAX_ROUNDS = 3;
@@ -177,7 +178,6 @@ export function normalizePlan(raw, input) {
 function planSystemPrompt(input) {
   const totalDays = Math.max(3, Math.ceil((new Date(input.deadline) - new Date()) / 86400000) || 90);
   const dailyMin = input.dailyMin || 60;
-  const pomoPerDay = Math.max(1, Math.round(dailyMin / 25));
   return [
     '你是学习规划专家。用户会给出一个远期学习目标，请把它拆解为可执行的日程计划。',
     '只输出一个 JSON 对象，不要任何解释、不要 markdown 围栏。格式：',
@@ -185,14 +185,21 @@ function planSystemPrompt(input) {
       (input.resOn ? ',"res":["资料/工具建议"]' : '') + ']}',
     '约束：',
     '1. 里程碑 2-6 个，任务总数 6-30 个，day 在 1-' + totalDays + ' 之间且按时间排序；',
-    '2. 每个番茄 25 分钟，用户每天约能投入 ' + dailyMin + ' 分钟（≈' + pomoPerDay + ' 个番茄），任务量要与总时间匹配，宁可留 20% 余量；',
-    '3. 任务要具体可执行（如"做完 2019 年真题卷并整理错题"），不要"努力学习"这类空话；',
-    '4. 用户当前水平：' + (input.level || '未提供，按零基础规划') + '；截止日期：' + input.deadline + '。',
-    '5. 节假日（已核对国务院安排，务必照做）：' + holiday.summaryFor(holiday.today(), input.deadline) + '。'
+    '2. 每个番茄 25 分钟。',
+    // 排期按"能力"而不是"意愿"：完不成的计划从第一天起就是假的，后面全部跟着错位
+    '3. **每日任务量以下面这条画像为准**：' + pacing.promptText(dailyMin),
+    '4. **认知负荷上限**：一天新学内容不超过 ' + pacing.DAILY_CAP +
+      ' 个番茄，超过就拆阶段 / 砍范围，不要靠"今天多学一会"硬扛 —— 长期日均超过 4 小时的计划没有人能维持；',
+    '5. **遗忘曲线 / 间隔重复**：背诵记忆类内容（单词、公式、概念、法条等）第一次学完后，' +
+      '必须安排轻量复习任务（如"重背第 1-3 批不熟的词"，1-2 个番茄），在第 1/2/4/7/15 天反复出现，' +
+      '间隔逐次拉长、单次番茄数递减 —— 没有复习排期的背诵计划等于白背；',
+    '6. 任务要具体可执行（如"做完 2019 年真题卷并整理错题"），不要"努力学习"这类空话；',
+    '7. 用户当前水平：' + (input.level || '未提供，按零基础规划') + '；截止日期：' + input.deadline + '。',
+    '8. 节假日（已核对国务院安排，务必照做）：' + holiday.summaryFor(holiday.today(), input.deadline) + '。'
   ]
     // res（资料建议）是可选增强，用户在设置里开了才下发这段
     .concat(input.resOn ? [
-      '6. res：给这个任务配 1-3 条具体的学习资料 / 工具建议（如《考研真相阅读分册》、Anki、"扇贝考研真题小程序"）。' +
+      '9. res：给这个任务配 1-3 条具体的学习资料 / 工具建议（如《考研真相阅读分册》、Anki、"扇贝考研真题小程序"）。' +
       '只写你确定真实存在的，**不要给任何网址**（你编不准 URL）；确实没有合适的就给空数组或不带该字段。'
     ] : [])
     .join('\n');
@@ -213,7 +220,9 @@ export function localPlan(input) {
   const totalDays = Math.max(3, Math.min(3650,
     isNaN(msDeadline) ? 90 : Math.ceil((msDeadline - Date.now()) / 86400000)));
   const dailyMin = (input && input.dailyMin) || 60;
-  const perDay = Math.max(1, Math.round(dailyMin / 25));
+  // 按画像排期：有历史用真实容量，没有才退回意愿时长折算。
+  // 意愿 240 分钟 ≠ 能力 240 分钟，第一天的计划就该按"能做到的"来
+  const perDay = pacing.profile().capacity || pacing.capacityOf(dailyMin);
   const title = String((input && input.title) || '这个目标').trim();
 
   // 四个阶段按 20% / 30% / 30% / 20% 切，天数不够就合并成 2-3 个
@@ -227,13 +236,14 @@ export function localPlan(input) {
     acc += days;
   });
 
-  // 每个阶段的骨架任务：同一套动词模板，day 铺在该阶段的天数区间里
+  // 每个阶段的骨架任务：同一套动词模板，day 铺在该阶段的天数区间里。
+  // 最后一条是间隔复习：背诵类内容没有复习排期等于白背（遗忘曲线：24h 内掉得最快）
   const TPL = [
     ['梳理' + title + '的考纲与范围，列出清单', 1],
     ['做完一套摸底练习并统计正确率', 2],
     ['按清单啃第一节内容并做笔记', 2],
     ['刷对应章节的练习题并整理错题', 2],
-    ['回顾本周错题，重做仍不会的', 2],
+    ['间隔复习：重背前面批次记不牢的内容（1/2/4/7 天节奏）', 1],
     ['做一套阶段自测并评分', 2]
   ];
   const tasks = [];
@@ -774,6 +784,8 @@ async function runReplan(goal, reality, todayBlock, opt) {
     rd.overdue ? '当前超期未完成任务：' + rd.overdue + ' 个' : '',
     // 连续少做天数：模型自己数不出来，而它正是"能不能顺延期限"的唯一凭据
     '连续没做完的天数（含今天）：' + streak + ' 天',
+    // 能力画像：调量时要对齐"这个人真能吃多少"，而不是他的意愿
+    '学习者画像：' + pacing.promptText(goal.dailyMin || 60),
     todayBlock || '',
     '剩余任务（JSON）：' + JSON.stringify(pending)
   ].filter(Boolean).join('\n');

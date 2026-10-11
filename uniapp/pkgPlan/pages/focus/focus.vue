@@ -36,9 +36,11 @@
             :class="{ 'cfg-opt-on': m === minutes }"
             @tap="minutes = m"
           >{{ m }} 分</text>
+          <text class="cfg-opt cfg-custom" @tap="customMinutes">自定义</text>
         </view>
         <view v-if="presetTask" class="bind-card">
           <text class="bind-txt">本次专注将计入：{{ presetTask.title }}</text>
+          <text v-if="taskProg" class="bind-prog">{{ taskProg }}</text>
           <text class="bind-clear" @tap="clearPreset">×</text>
         </view>
         <view class="tip">从首页点任务进来会自动绑定目标；直接开始则记为自由专注。</view>
@@ -107,7 +109,7 @@
             </view>
           </view>
           <view v-if="forcedOn" class="sr-note">
-            放行名单：PWstudy 本身 + 「学习 App」里登记为「学习」的 {{ learnAppCount }} 个 App
+            放行名单：PWstudy 本身 + 系统桌面 + 「学习 App」里登记为「学习」的 {{ learnApps.length }} 个 App
             <text class="sn-go" @tap="goApps">去管理 ›</text>
           </view>
           <view v-if="forcedOn && !usageOk" class="sr-warn" @tap="openUsage">
@@ -116,6 +118,10 @@
           <view v-else-if="forcedOn && !pullOk" class="sr-warn">
             当前跑的不是自定义基座 / 正式打包，原生拉回能力没打进包里 —— 现在只能提醒，拦不住
           </view>
+          <view v-else-if="forcedOn && !overlayOk" class="sr-warn" @tap="openOverlay">
+            再授一个「显示在其他应用上层」：安卓 10 起系统会拦后台跳转，有了它才能在拦不住时
+            用一层遮罩把那个 App 盖住（点这里去开）
+          </view>
         </view>
       </view>
 
@@ -123,6 +129,15 @@
       <view v-else class="ctrl">
         <button class="ctrl-btn ctrl-main" @tap="togglePause">{{ paused ? '继续' : '暂停' }}</button>
         <button class="ctrl-btn ctrl-ghost" @tap="confirmGiveUp">放弃</button>
+      </view>
+
+      <!-- 运行态的白噪音控制：以前开关只在空闲态，一开表想关噪音就得先放弃 -->
+      <view v-if="active" class="run-noise">
+        <text class="rn-label">白噪音</text>
+        <text class="rn-kind" @tap="cycleNoise">{{ noiseKindName }} ›</text>
+        <view class="sr-switch" :class="{ 'sr-switch-on': noiseOn }" @tap="toggleNoise">
+          <view class="sr-knob" :class="{ 'sr-knob-on': noiseOn }"></view>
+        </view>
       </view>
 
       <!-- 刚完成一个专注番茄：引导休息 -->
@@ -141,8 +156,33 @@
         <button class="btn-primary after-btn" @tap="startNextFocus">再来一个番茄</button>
       </view>
 
+      <!-- 强制模式实时状态：真拉回了几次要看得见，不然用户会怀疑它到底有没有干活 -->
+      <view v-if="forcedOn && active && !isRest" class="force-strip">
+        <text class="fs-dot"></text>
+        <text class="fs-txt">{{ forceLine }}</text>
+      </view>
+
+      <!-- 学习 App 入口：专注期间的白名单就摆在这儿，点图标直接跳过去。
+           强制模式放行的也正是这些（外加 PWstudy 自己与系统桌面/状态栏）。 -->
+      <view v-if="learnApps.length" class="learn-dock">
+        <view class="ld-head">
+          <text class="ld-title">学习 App</text>
+          <text class="ld-more" @tap="goApps">管理 ›</text>
+        </view>
+        <view class="ld-row">
+          <view v-for="a in learnApps" :key="a.pkg" class="ld-item" @tap="openLearnApp(a)">
+            <image v-if="iconMap[a.pkg]" class="ld-icon-img" :src="iconMap[a.pkg]" mode="aspectFit" />
+            <view v-else class="ld-icon">{{ initialOf(a) }}</view>
+            <text class="ld-name">{{ a.name }}</text>
+          </view>
+        </view>
+        <text v-if="forcedOn" class="ld-note">强制模式：专注期间只放行上面这些 App</text>
+        <text v-else class="ld-note">从这儿跳过去，回来会自动记下这段用时</text>
+      </view>
+
       <view class="today-strip">
-        今日 {{ todayMin }} 分钟 · {{ todayPomo }} 个番茄
+        <text v-if="taskProg" class="ts-prog">{{ taskProg }}</text>
+        <text>今日 {{ todayMin }} 分钟 · {{ todayPomo }} 个番茄</text>
       </view>
 
     </view>
@@ -152,6 +192,7 @@
 <script>
 import * as pw from '../../../utils/pwstore.js'
 import * as focus from '../../../utils/focus.js'
+import * as pacing from '../../../utils/pacing.js'
 import * as strict from '../../../utils/strict.js'
 import * as forced from '../../../utils/forced.js'
 import * as apptime from '../../../utils/apptime.js'
@@ -181,7 +222,12 @@ export default {
       forcedOn: false,    // 强制模式：离开学习 App 就当场拉回来
       usageOk: false,
       pullOk: false,      // 原生"拉回前台"能力在不在（自定义基座 / 正式包）
-      learnAppCount: 0,   // 放行名单里登记为「学习」的 App 数
+      overlayOk: false,   // 「显示在其他应用上层」授权：拦不住时用遮罩兜底
+      learnApps: [],      // 放行名单里登记为「学习」的 App（专注页底部那排图标）
+      iconMap: {},        // pkg -> data URL（懒加载，拿不到就退回首字母）
+      _iconPending: {},   // 正在读图标的包名（防重复发起）
+      forcedPulls: 0,     // 强制模式已经拉回几次（原生看门狗的战绩）
+      forcedEscapes: 0,   // 已经离开几次（满 3 次作废）
       opts: { notify: true, sound: true, vibe: true, fgservice: true },
       optRows: [
         { key: 'notify', title: '通知提醒', sub: '结束后发通知，专注中在状态栏显示剩余时间' },
@@ -235,6 +281,32 @@ export default {
       if (this.cur) return this.cur.taskTitle || '自由专注'
       if (this.presetTask) return this.presetTask.title
       return '自由专注'
+    },
+    /**
+     * 当前关联任务的进度一句话：任务进度 + 剩余量折算分钟。
+     * 让"计时"和"计划"看得见是同一件事 —— 只显示任务名的话，
+     * 用户不知道这个任务还要来几个番茄、今天专注算不算数。
+     */
+    taskProg() {
+      const t = this.presetTaskObj()
+      if (!t) return ''
+      const done = t.donePomos || 0
+      const total = t.pomos || 1
+      const remain = Math.max(0, total - done)
+      const len = pacing.focusLen()
+      return '任务 ' + done + '/' + total + ' 番茄 · 还剩 ' + remain + ' 个 ≈ ' + (remain * len) + ' 分钟'
+    },
+    noiseKindName() {
+      const k = this.noiseKinds.filter(x => x.k === this.noiseKind)[0]
+      return (k && k.t) || '音色'
+    },
+    // 强制模式那行实时状态：说清楚"它现在到底在不在干、干了什么"
+    forceLine() {
+      if (!this.pullOk) return '强制模式开启中 · 当前包没有原生拉回能力，只能提醒'
+      let s = '强制模式生效中 · 离开学习 App 立刻拉回'
+      if (this.forcedPulls > 0) s += ' · 已拉回 ' + this.forcedPulls + ' 次'
+      if (this.forcedEscapes > 0) s += '（离开 ' + this.forcedEscapes + '/' + forced.maxEscapes() + '）'
+      return s
     }
   },
   onLoad(query) {
@@ -251,9 +323,11 @@ export default {
     }
     const cfg = pw.get().pomoCfg || {}
     if (cfg.focus && this.minutesOptions.indexOf(cfg.focus) >= 0) this.minutes = cfg.focus
-    // 从首页"开始"进来：带 auto=1 就直接起表，不用再点一次。
+    // 从首页"开始"进来：带 auto=1 就直接起表，不用再点一次"开始"。
     // 只认第一次进页面（onLoad），onShow 里起表会导致每次回前台都重置计时。
     this.__auto = !!(query && (query.auto === '1' || query.auto === 1))
+    // 绑定了任务就用任务剩余量推荐时长（放最后：覆盖前面的默认值链）
+    this.applySuggest()
   },
   onShow() {
     this.refreshToday()
@@ -271,7 +345,8 @@ export default {
     this.forcedOn = !!forced.enabled()
     this.usageOk = apptime.hasUsagePermission()
     this.pullOk = !!forced.canPull()
-    this.learnAppCount = this.countLearnApps()
+    this.overlayOk = apptime.canDrawOverlays()
+    this.refreshLearnApps()
     try {
       const f = (settings.get() && settings.get().focus) || {}
       this.opts = {
@@ -327,6 +402,13 @@ export default {
     tick() {
       const r = focus.tick()
       this.cur = r.state
+      // 强制模式战绩：原生看门狗在后台拉回来的次数，每 ~1 秒对一次账就够
+      //（跨 JS↔原生桥取值不便宜，别跟着 500ms 的 UI 心跳一起刷）
+      const now = Date.now()
+      if (!this.__forceAt || now - this.__forceAt > 1000) {
+        this.__forceAt = now
+        this.refreshForce()
+      }
       if (r.justFinished === 'focus') {
         const s = this.lastSession()
         this.lastMin = s ? s.min : (this.minutes || 25)
@@ -395,12 +477,134 @@ export default {
       this.beginFocus()
     },
     clearPreset() { this.presetTask = null },
-    countLearnApps() {
-      try {
-        return pw.dock().filter(a => a.purpose !== 'rest').length
-      } catch (e) {
-        return 0
+    /** 绑定的任务对象（找不到目标/任务返回 null） */
+    presetTaskObj() {
+      if (!this.presetTask) return null
+      const g = pw.goalOf(this.presetTask.goalId)
+      if (!g) return null
+      return g.tasks.filter(x => x.id === this.presetTask.taskId)[0] || null
+    },
+    /**
+     * 按任务剩余量推荐本次专注时长。
+     * 25 分钟的"标准番茄"只对颗粒度负责，不对总量负责 —— 剩 3 个番茄的任务
+     * 推荐一次 60 分钟的深专注，剩 1 个就 25 分钟；但都夹在 15-60，
+     * 超过 60 分钟的单次专注违背番茄节奏，是"推荐值"而不是硬性值。
+     */
+    suggestMinutes() {
+      const t = this.presetTaskObj()
+      if (!t) return 0
+      const remain = Math.max(1, (t.pomos || 1) - (t.donePomos || 0))
+      return Math.min(60, Math.max(15, remain * pacing.focusLen()))
+    },
+    /** 把推荐值插进时长选项并选中（保留系统推荐档，用户仍可改） */
+    applySuggest() {
+      const sug = this.suggestMinutes()
+      if (!sug) return
+      if (this.minutesOptions.indexOf(sug) < 0) {
+        this.minutesOptions.push(sug)
+        this.minutesOptions.sort((a, b) => a - b)
       }
+      this.minutes = sug
+    },
+    /** 自由专注的任意时长：10-120 分钟 */
+    customMinutes() {
+      uni.showModal({
+        title: '自定义专注时长',
+        editable: true,
+        placeholderText: '输入 10-120 的分钟数',
+        success: (r) => {
+          if (!r.confirm) return
+          const n = Math.round(Number(r.content))
+          if (!(n >= 10 && n <= 120)) {
+            uni.showToast({ title: '请输入 10-120 的整数', icon: 'none' })
+            return
+          }
+          if (this.minutesOptions.indexOf(n) < 0) {
+            this.minutesOptions.push(n)
+            this.minutesOptions.sort((a, b) => a - b)
+          }
+          this.minutes = n
+        }
+      })
+    },
+    /** 运行态切音色：立即生效（空闲态走 pickNoise 只存偏好） */
+    cycleNoise() {
+      uni.showActionSheet({
+        itemList: this.noiseKinds.map(k => k.t),
+        success: (r) => {
+          const k = this.noiseKinds[r.tapIndex]
+          if (!k) return
+          this.noiseKind = k.k
+          if (this.noiseOn) {
+            this.pickNoise(k.k)
+            ambient.stop()
+            ambient.start(k.k)
+          }
+        }
+      })
+    },
+    /**
+     * 刷新底部"学习 App"入口 = 强制模式的放行名单。
+     * 口径与 utils/apptime.js 的 isAllowedPkg / allowList 完全一致：
+     * 只取登记为「学习」的，登记为「休息」的不算（专注期间去刷手机当然算跑偏）。
+     */
+    refreshLearnApps() {
+      let list = []
+      try {
+        list = pw.dock().filter(a => a && a.pkg && a.purpose !== 'rest')
+      } catch (e) {
+        list = []
+      }
+      this.learnApps = list
+      list.forEach(a => this.ensureIcon(a.pkg))
+    },
+    /** 应用图标懒加载（plus.android 桥读图标偏慢，延一帧，别卡首绘） */
+    ensureIcon(pkg) {
+      if (!pkg || this.iconMap[pkg] || this._iconPending[pkg]) return
+      this._iconPending[pkg] = true
+      setTimeout(() => {
+        try {
+          const url = apptime.appIconDataUrl(pkg)
+          if (url) this.$set(this.iconMap, pkg, url)
+        } catch (e) {
+          console.warn('[focus] 加载图标失败', pkg, e)
+        }
+        delete this._iconPending[pkg]
+      }, 0)
+    },
+    initialOf(a) {
+      return String((a && a.name) || (a && a.pkg) || '?').slice(0, 1).toUpperCase()
+    },
+    /**
+     * 点底部的学习 App → 跳过去（专注期间唯一被放行的离开理由）。
+     * 必须过白名单校验：这个列表是界面渲染出来的，但入口函数不能假设调用方一定合法
+     *（将来别的页面复用时，传进来的 pkg 也得自己再验一遍）。
+     */
+    openLearnApp(a) {
+      const pkg = String((a && a.pkg) || '')
+      const hit = this.learnApps.filter(x => x.pkg === pkg)[0]
+      if (!pkg || !hit) {
+        uni.showToast({ title: '不在学习 App 名单里', icon: 'none' })
+        return
+      }
+      if (!apptime.supported()) {
+        uni.showToast({ title: '在手机 App 里才能直接跳转', icon: 'none' })
+        return
+      }
+      const ok = apptime.launchStudyApp(pkg)
+      if (ok) {
+        uni.showToast({ title: '去「' + hit.name + '」，回来接着计时', icon: 'none' })
+      }
+    },
+    /** 刷新强制模式战绩（拉回次数 / 离开次数） */
+    refreshForce() {
+      if (!this.forcedOn || !this.cur || this.cur.phase !== 'focus') return
+      this.forcedPulls = forced.pullsOf()
+      this.forcedEscapes = forced.escapesOf()
+    },
+    openOverlay() {
+      apptime.openOverlaySettings()
+      setTimeout(() => { this.overlayOk = apptime.canDrawOverlays() }, 1200)
     },
     // ---------- 强制模式 ----------
     toggleForced() {
@@ -418,11 +622,14 @@ export default {
       if (next) {
         this.usageOk = apptime.hasUsagePermission()
         this.pullOk = !!forced.canPull()
-        this.learnAppCount = this.countLearnApps()
+        this.overlayOk = apptime.canDrawOverlays()
+        this.refreshLearnApps()
         if (!this.usageOk) {
           uni.showToast({ title: '还需开启使用情况访问权限', icon: 'none' })
-        } else if (!this.learnAppCount) {
+        } else if (!this.learnApps.length) {
           uni.showToast({ title: '还没登记学习 App，切哪都算离开', icon: 'none' })
+        } else if (!this.overlayOk) {
+          uni.showToast({ title: '建议再开「显示在其他应用上层」', icon: 'none' })
         }
       }
       forced.sync()
@@ -575,6 +782,11 @@ export default {
   background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
   max-width: 100%;
 }
+.cfg-custom {
+  border-style: dashed;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
 .bind-txt {
   font-size: 24rpx;
   color: #be123c;
@@ -582,6 +794,13 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .bind-clear { margin-left: 16rpx; font-size: 30rpx; color: #98a19b; color: var(--ink-3, #98a19b); padding: 0 8rpx; }
+.bind-prog {
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tip {
   margin-top: 30rpx;
   font-size: 22rpx; line-height: 1.7;
@@ -641,6 +860,25 @@ export default {
 
 /* ===== 控制 ===== */
 .ctrl { margin-top: 60rpx; display: flex; align-items: center; }
+/* 运行态白噪音行：在"暂停/放弃"下面，开着表也能关 */
+.run-noise {
+  margin-top: 40rpx;
+  display: flex; align-items: center;
+  padding: 16rpx 30rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.6);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.6);
+  border: 2rpx solid rgba(23, 32, 26, 0.08);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.08));
+}
+.rn-label { font-size: 25rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
+.rn-kind {
+  flex: 1;
+  margin-left: 20rpx;
+  font-size: 25rpx;
+  color: #be123c;
+  color: var(--brand-strong, #be123c);
+}
 .ctrl-btn {
   height: 96rpx;
   border-radius: 999rpx;
@@ -660,11 +898,84 @@ export default {
 .after-txt { font-size: 27rpx; color: #17201a; color: var(--ink-1, #17201a); text-align: center; }
 .after-btn { margin-top: 24rpx; width: 100%; height: 92rpx; font-size: 29rpx; }
 
+/* ===== 强制模式实时状态 ===== */
+.force-strip {
+  margin-top: 44rpx;
+  width: 86%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 14rpx 22rpx;
+  border-radius: 999rpx;
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.1);
+}
+.fs-dot {
+  width: 12rpx; height: 12rpx; border-radius: 50%;
+  margin-right: 14rpx;
+  flex-shrink: 0;
+  background: var(--brand, #e11d48);
+}
+.fs-txt {
+  font-size: 22rpx; line-height: 1.5;
+  color: var(--brand-strong, #be123c);
+}
+
+/* ===== 学习 App 入口（= 强制模式放行名单） =====
+   专注期间唯一"允许离开"的去处，所以放在最下面、常驻可见。 */
+.learn-dock {
+  margin-top: 40rpx;
+  width: 86%;
+  padding: 22rpx 24rpx;
+  border-radius: 18rpx;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.55);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.08));
+}
+.ld-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18rpx;
+}
+.ld-title { font-size: 25rpx; font-weight: 600; color: var(--ink-1, #17201a); }
+.ld-more { font-size: 23rpx; color: var(--brand-strong, #be123c); }
+.ld-row {
+  display: flex; flex-wrap: wrap;
+  margin: 0 -8rpx;
+}
+.ld-item {
+  width: 25%; box-sizing: border-box;
+  padding: 8rpx;
+  display: flex; flex-direction: column; align-items: center;
+}
+.ld-icon-img {
+  width: 84rpx; height: 84rpx;
+  border-radius: 22rpx;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.5);
+}
+.ld-icon {
+  width: 84rpx; height: 84rpx;
+  border-radius: 22rpx;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32rpx; font-weight: 600;
+  color: var(--brand-strong, #be123c);
+  background: rgba(var(--brand-rgb, 225, 29, 72), 0.12);
+}
+.ld-name {
+  margin-top: 12rpx;
+  max-width: 100%;
+  font-size: 21rpx;
+  color: var(--ink-2, #5a6560);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ld-note {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 21rpx; line-height: 1.6;
+  color: var(--ink-3, #98a19b);
+}
+
 .today-strip {
   margin-top: 70rpx;
   font-size: 24rpx;
   color: #98a19b;
   color: var(--ink-3, #98a19b);
+  display: flex; flex-direction: column; align-items: center; gap: 8rpx;
   padding-bottom: calc(60rpx + env(safe-area-inset-bottom));
 }
 </style>

@@ -83,6 +83,7 @@
 import * as pw from '../../../utils/pwstore.js'
 import * as taskGuide from '../../../utils/task-guide.js'
 import * as link from '../../../utils/link.js'
+import * as pacing from '../../../utils/pacing.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
 export default {
@@ -156,7 +157,8 @@ export default {
     openPartner() {
       const t = this.guideTask
       if (!t) return
-      const ok = link.openPartner(t, (t.pomos || 1) * 25)
+      // 给对端的"这次学多久"要跟本机的番茄时长一致（用户改过 45 分钟就传 45×番茄数）
+      const ok = link.openPartner(t, Math.max(1, (t.pomos || 1)) * pacing.focusLen())
       if (!ok) {
         uni.showToast({ title: '还没装背单词 App，或当前端不支持跳转', icon: 'none' })
         return

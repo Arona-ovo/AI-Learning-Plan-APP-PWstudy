@@ -115,7 +115,7 @@
             <view class="tk-main">
               <view class="tk-title">{{ item.task.title }}</view>
               <view class="tk-sub">
-                {{ item.goal.title }} · 第 {{ item.task.day }} 天 · {{ item.task.donePomos }}/{{ item.task.pomos }} 番茄
+                {{ item.goal.title }} · 第 {{ item.task.day }} 天 · {{ item.task.donePomos }}/{{ item.task.pomos }} 番茄 · 剩 ≈ {{ item.estMin }} 分
                 <text v-if="item.overdue" class="tk-late">已超期</text>
               </view>
             </view>
@@ -209,6 +209,7 @@ import * as strict from '../../utils/strict.js'
 import * as forced from '../../utils/forced.js'
 import * as setup from '../../utils/setup.js'
 import * as dailylog from '../../utils/dailylog.js'
+import * as pacing from '../../utils/pacing.js'
 import * as coach from '../../utils/coach.js'
 import * as layout from '../../utils/home-layout.ts'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
@@ -315,7 +316,12 @@ export default {
       const ov = pw.overview()
       this.todayMin = ov.todayMin
       this.todayPomo = ov.pomo
-      this.queue = pw.todayQueue(6)
+      this.queue = pw.todayQueue(6).map(q => {
+        // 剩余预计时长 = 还没做的番茄数 × 单番茄时长（跟随设置，别写死 25）
+        const left = Math.max(0, (q.task.pomos || 0) - (q.task.donePomos || 0))
+        q.estMin = left * pacing.focusLen()
+        return q
+      })
       this.goals = pw.activeGoals()
       this.dock = pw.dock()
       this.dock.forEach(a => this.ensureIcon(a.pkg))
@@ -494,8 +500,19 @@ export default {
       })
     },
     goFocus() {
+      // 默认绑当天第一个没做完的任务：首页的"开始"应该接着计划走，
+      // 而不是每次都是游离于计划之外的自由专注（想自由去专注页自己选）。
+      // 推荐时长由专注页按任务剩余量算（见 focus.applySuggest）。
+      let q = ''
+      try {
+        const first = pw.todayQueue(1)[0]
+        if (first) {
+          q = '&taskId=' + first.task.id + '&goalId=' + first.goal.id +
+            '&title=' + encodeURIComponent(first.task.title || '任务')
+        }
+      } catch (e) {}
       // auto=1：进页面直接起表（否则还得在专注页再点一次"开始"）
-      uni.navigateTo({ url: '/pkgPlan/pages/focus/focus?auto=1' })
+      uni.navigateTo({ url: '/pkgPlan/pages/focus/focus?auto=1' + q })
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
     taskMenu(item) {

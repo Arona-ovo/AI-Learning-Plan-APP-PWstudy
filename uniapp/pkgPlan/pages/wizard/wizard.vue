@@ -197,6 +197,7 @@
         </view>
         <view class="p-title">{{ draft.title }}</view>
         <view class="p-meta">截止 {{ draft.deadline }} · 每天 {{ draft.dailyMin }} 分钟 · 共 {{ plan.tasks.length }} 个任务</view>
+        <view v-if="capText" class="p-cap" :class="{ 'p-cap-warn': capOver }">{{ capText }}</view>
         <view v-if="plan.strategy" class="p-strategy">{{ plan.strategy }}</view>
         <view v-if="plan.risks && plan.risks.length" class="p-risks">
           <text v-for="(r, i) in plan.risks" :key="i" class="p-risk">⚠ {{ r }}</text>
@@ -238,6 +239,7 @@
 <script>
 import * as pw from '../../../utils/pwstore.js'
 import * as planTask from '../../../utils/plan-task.js'
+import * as pacing from '../../../utils/pacing.js'
 import { TEMPLATES, seedOf } from '../../../data/goal-templates.js'
 import * as holiday from '../../../utils/holiday.js'
 import { aiGateReason } from '../../../services/config.js'
@@ -293,7 +295,28 @@ export default {
     },
     pickedCount() {
       return Object.keys(this.picked).filter(k => this.picked[k]).length
-    }
+    },
+    /**
+     * 计划量 vs 实际能力：计划是"意愿"，近期真实完成的番茄数是"能力"。
+     * 超出容量的计划落地第一天就会开始欠账，后面全部跟着错位 —— 提前把话说清楚。
+     */
+    capInfo() {
+      if (!this.plan || !this.plan.totalDays) return { text: '', over: false }
+      const sum = (this.plan.tasks || []).reduce((a, t) => a + (t.pomos || 0), 0)
+      const perDay = Math.ceil((sum / this.plan.totalDays) * 10) / 10
+      const pac = pacing.profile()
+      const cap = pac.capacity || pacing.capacityOf(this.draft.dailyMin)
+      if (perDay > cap) {
+        return {
+          text: '这份计划平均每天 ' + perDay + ' 个番茄，高于你近期的实际容量 ' + cap +
+            ' 个 —— 落地后大概率完不成。建议回对话说明真实可用时间，让 AI 减量或改截止日期。',
+          over: true
+        }
+      }
+      return { text: '平均每天约 ' + perDay + ' 个番茄，在你近期的实际容量（' + cap + ' 个/天）之内。', over: false }
+    },
+    capText() { return this.capInfo.text },
+    capOver() { return this.capInfo.over }
   },
   onLoad() {
     const t0 = pw.today()
@@ -829,6 +852,8 @@ export default {
   color: #92400e; color: var(--ink-2, #92400e);
   background: rgba(247, 144, 9, 0.12);
 }
+.p-cap { margin-top: 14rpx; font-size: 23rpx; line-height: 1.65; color: #98a19b; color: var(--ink-3, #98a19b); }
+.p-cap-warn { color: #b26400; }
 .p-title { font-size: 32rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .p-meta { margin-top: 12rpx; font-size: 23rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 .p-strategy {
