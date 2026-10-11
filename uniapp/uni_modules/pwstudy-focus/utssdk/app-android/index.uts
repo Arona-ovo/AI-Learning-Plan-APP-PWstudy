@@ -51,6 +51,7 @@ import MotionEvent from 'android.view.MotionEvent';
 import AccessibilityService from 'android.accessibilityservice.AccessibilityService';
 import AccessibilityEvent from 'android.view.accessibility.AccessibilityEvent';
 import AccessibilityManager from 'android.view.accessibility.AccessibilityManager';
+import AccessibilityServiceInfo from 'android.accessibilityservice.AccessibilityServiceInfo';
 import InputMethodManager from 'android.view.inputmethod.InputMethodManager';
 
 // 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
@@ -88,6 +89,9 @@ const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24
 // 但不能无限期信任 —— 万一事件流断了（服务被系统回收），拿着过期包名会乱拉人。
 // 90 秒足够宽容，真过期了就退回 UsageStats 查询。
 const GUARD_FRESH_SEC: Int = 90;
+// 无障碍服务的事件节流（毫秒）。⚠️ 要赋给 AccessibilityServiceInfo 的 Int 字段，
+// 所以必须显式 : Int（裸字面量会被推成 Number，Kotlin 里 Int 与 Number 不通）
+const A11Y_NOTIFY_MS: Int = 100;
 
 /**
  * 当前时间（秒）。
@@ -165,11 +169,26 @@ class PWFocusService extends Service {
       if (x != null) lastText = x;
     }
     let notification = buildNotification(this, lastTitle, lastText);
-    if (Build.VERSION.SDK_INT >= 34) {
-      // Android 14+：必须显式声明前台服务类型（清单里是 specialUse）
-      this.startForeground(NOTIFY_ID, notification, FGS_TYPE_SPECIAL_USE);
-    } else {
-      this.startForeground(NOTIFY_ID, notification);
+    // Android 14+ 起 startForeground 可以带类型参数。
+    // ⚠️ 插件清单里**没有**声明 android:foregroundServiceType —— HBuilderX 内置的那套
+    // aapt2/android.jar 只到 API 30 级，既不认 <property> 也不认 specialUse 这个值，
+    // 写了就编不过（详见 AndroidManifest.xml 里的注释）。
+    // 好在"必须声明类型"只对 targetSdk >= 34 生效，本项目 targetSdk = 28，传位是安全的。
+    // 仍然 try 一层：万一哪天 targetSdk 抬上去、系统抛了
+    // MissingForegroundServiceTypeException（它是 SecurityException 的子类），
+    // 还能退回两参版本把前台服务撑起来 —— 起不来 = 整个强制模式失效。
+    try {
+      if (Build.VERSION.SDK_INT >= 34) {
+        this.startForeground(NOTIFY_ID, notification, FGS_TYPE_SPECIAL_USE);
+      } else {
+        this.startForeground(NOTIFY_ID, notification);
+      }
+    } catch (e) {
+      try {
+        this.startForeground(NOTIFY_ID, notification);
+      } catch (e2) {
+        console.error('pwstudy-focus: startForeground 兜底也失败');
+      }
     }
     // ② 看门狗配置：watch / allow / untilSec 三个 extra 一起来
     if (intent.hasExtra('watch')) {
@@ -611,6 +630,25 @@ class PFGuardService extends AccessibilityService {
 
   override onServiceConnected(): void {
     super.onServiceConnected();
+    // 服务的配置本来写在 res/xml/pw_accessibility_config.xml（清单 meta-data 指向它）。
+    // 这里再用代码设一份同样的值，兜的是两种情况：
+    //   ① 插件的 res 没被合并进 APK —— UTS 插件编译产物是 jar/classes.dex，
+    //      资源要单独拷贝，这取决于打包链版本；万一没拷，meta-data 指向的 xml 找不到，
+    //      系统照样绑定服务，但配置会退化成"什么都不监听"，护卫就成了摆设；
+    //   ② 个别 ROM 不读 meta-data。
+    // 取值与 XML 严格一致：只听窗口状态变化、只认应用窗口、不吞按键、不做手势/截图。
+    try {
+      let info = new AccessibilityServiceInfo();
+      info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
+      info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
+      info.notificationTimeout = A11Y_NOTIFY_MS;
+      info.flags = AccessibilityServiceInfo.FLAG_DEFAULT |
+                   AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+      this.setServiceInfo(info);
+    } catch (e) {
+      // 配不上也不致命：清单里的声明式配置还在
+      console.error('pwstudy-focus: 无障碍服务信息设置失败，退回清单声明式配置');
+    }
     guardOn = true;
     guardPkg = '';
     guardAtSec = nowSec();

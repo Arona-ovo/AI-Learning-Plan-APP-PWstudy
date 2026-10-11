@@ -4,7 +4,10 @@
 
     <!-- 前台服务本体（Android 9+ 要求） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- Android 14+ 起前台服务必须声明类型，计时类应用用 specialUse -->
+    <!-- Android 14+ 的 specialUse 类型配套权限。
+         ⚠️ 这里只声明权限、不在 <service> 上写类型，原因见下面 PWFocusService 的注释
+         （HBuilderX 内置的 aapt2/android.jar 只到 API 30 级，认不出 specialUse）。
+         等编译链升到 API 34+ 后，再把下面注释里的两行一起打开。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- 强制模式"把 PWstudy 拉回前台"要用到 moveTaskToFront（普通权限） -->
     <uses-permission android:name="android.permission.REORDER_TASKS" />
@@ -15,14 +18,28 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application>
+        <!-- ⚠️⚠️ 别给这个 Service 加 android:foregroundServiceType="specialUse" ⚠️⚠️
+             官方写法是对的（Android 14+ 就该这么声明），但 HBuilderX 打 UTS 插件时用的
+             是它自带的 aapt2 2.19 + android.jar（实测只到 API 30 级），两处都会硬报错：
+               · <property> → error: unexpected element <property> found in <service>
+               · specialUse → error: 'specialUse' is incompatible with attribute
+                              foregroundServiceType (attr) flags [camera, connectedDevice,
+                              dataSync, location, mediaPlayback, mediaProjection,
+                              microphone, phoneCall]      ← flag 列表里没有 specialUse
+             最终 APK 的 compileSdk 是 36，但插件这一步先过不去，所以只能不声明。
+             不声明会不会出事？不会 —— "前台服务必须声明类型"这条只对
+             targetSdk >= 34 生效，本项目 targetSdk = 28（见 manifest.json，未覆盖即默认），
+             前台服务照常跑。运行时侧 index.uts 的 startForeground 也留了降级兜底。
+
+             ★ 什么时候可以打开：把 targetSdkVersion 抬到 34+ 之前，必须先确认
+               HBuilderX 的 UTS 编译链已经升到 API 34+，然后把这两行加回来：
+                 android:foregroundServiceType="specialUse"
+                 <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                           android:value="Pomodoro study timer" />
+             否则会出现"编译链不认 → 只能不声明 → targetSdk 34 又强制要声明"的死结。 -->
         <service
             android:name="uts.sdk.modules.pwstudyFocus.PWFocusService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Pomodoro study timer" />
-        </service>
+            android:exported="false" />
 
         <!-- 无障碍护卫服务（强制模式的"眼睛"与"后台启动许可"）。
              需要用户在系统设置里手动开启，属于运行时授权，不是装机即得。

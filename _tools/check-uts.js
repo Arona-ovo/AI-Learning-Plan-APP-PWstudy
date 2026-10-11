@@ -16,10 +16,13 @@ function read(p) { return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; }
 
 console.log('== 1. 插件文件齐全 ==');
 const uts = read(UTS);
-const mf = read(MANIFEST);
+const mfRaw = read(MANIFEST);
+// ⚠️ 扫之前先剥注释：清单里会写"以后要加 android:foregroundServiceType"这类说明，
+// 不剥就会被自己的注释误判成"已经声明了"（和 7.2 那段 XML 注释是同一个坑）。
+const mf = mfRaw.replace(/<!--[\s\S]*?-->/g, '');
 if (uts) ok('index.uts 存在（' + uts.split('\n').length + ' 行）');
 else bad('缺 index.uts');
-if (mf) ok('插件自己的 AndroidManifest.xml 存在');
+if (mfRaw) ok('插件自己的 AndroidManifest.xml 存在');
 else bad('缺 AndroidManifest.xml —— Service 没声明，前台服务起不来');
 
 console.log('== 2. 传给 Android 的整数字面量必须是 Int ==');
@@ -65,8 +68,28 @@ if (/android:name="uts\.sdk\.modules\.pwstudyFocus\.PWFocusService"/.test(mf)) o
 else bad('Service 未声明或包名不对（插件 id 驼峰）');
 if (/FOREGROUND_SERVICE"/.test(mf) && /FOREGROUND_SERVICE_SPECIAL_USE"/.test(mf)) ok('前台服务权限 + specialUse 权限都在');
 else bad('缺前台服务权限');
-if (/foregroundServiceType="specialUse"/.test(mf) && /PROPERTY_SPECIAL_USE_FGS_SUBTYPE/.test(mf)) ok('Android 14+ 服务类型 = specialUse（含用途说明）');
-else bad('未声明 foregroundServiceType —— Android 14 起会抛 MissingForegroundServiceTypeException');
+// ⚠️ 这条反直觉，但它必须是"不声明"：
+// HBuilderX 打 UTS 插件用的是自带的 aapt2 2.19 + android.jar（实测只到 API 30 级）：
+//   · <property>  → error: unexpected element <property> found in <manifest><application><service>
+//   · specialUse  → error: 'specialUse' is incompatible with attribute foregroundServiceType
+//                   (attr) flags [camera, connectedDevice, dataSync, location,
+//                   mediaPlayback, mediaProjection, microphone, phoneCall]
+// 最终 APK 的 compileSdk 是 36，但插件这一步先过不去。而"前台服务必须声明类型"
+// 只对 targetSdk >= 34 生效，本项目 targetSdk 默认 28，所以不声明也不会出事。
+// 完整推导写在插件 AndroidManifest.xml 的注释里，改这里之前先读那段。
+if (/foregroundServiceType/.test(mf)) bad('插件清单写了 android:foregroundServiceType —— HBuilderX 内置 aapt2 只到 API 30 级，编不过（见清单注释）');
+else if (/PROPERTY_SPECIAL_USE_FGS_SUBTYPE/.test(mf)) bad('插件清单写了 <property> —— aapt2 报 unexpected element <property>');
+else ok('插件清单不声明 FGS 类型（编译链只到 API 30；本项目 targetSdk<34 也不强制）');
+// 清单没声明类型 → 类型校验一旦收紧，startForeground 会被系统拒，必须有降级兜底
+if (/startForeground\(NOTIFY_ID, notification, FGS_TYPE_SPECIAL_USE\)/.test(uts) &&
+    /catch[\s\S]{0,240}startForeground\(NOTIFY_ID, notification\)/.test(uts)) ok('startForeground 带类型参数且有降级兜底（抛异常就退回两参，服务不至于起不来）');
+else bad('startForeground 没有降级兜底 —— 类型校验一旦失败前台服务起不来，强制模式全废');
+// targetSdk 护栏：抬到 34+ 会强制要求 FGS 类型，而编译链又认不出 specialUse = 死结
+const appMf = read(path.join(ROOT, 'manifest.json'));
+const tsdk = (appMf.match(/"targetSdkVersion"\s*:\s*(\d+)/) || [])[1];
+if (!tsdk) ok('manifest.json 未覆盖 targetSdkVersion（走默认 28 < 34，不强制 FGS 类型）');
+else if (Number(tsdk) < 34) ok('targetSdkVersion = ' + tsdk + '（< 34，不强制 FGS 类型）');
+else bad('targetSdkVersion = ' + tsdk + ' >= 34 —— 前台服务会被强制要求声明类型，但编译链认不出 specialUse，必须先升 HBuilderX 的 UTS 编译链再动它');
 // 强制模式的两条权限：少一条，"拉回"就只剩一半手段
 if (/SYSTEM_ALERT_WINDOW/.test(mf)) ok('声明了 SYSTEM_ALERT_WINDOW（悬浮窗遮罩；用户还需在设置里手动授权）');
 else bad('清单缺 SYSTEM_ALERT_WINDOW —— 遮罩那一层永远拿不到权限');
@@ -192,6 +215,16 @@ else bad('meta-data 没指向无障碍配置 xml —— 事件类型/标志位�
 // exported 必须为 true：无障碍服务是"系统来绑你"，不给导出绑不上
 if (/PFGuardService"[\s\S]{0,200}android:exported="true"/.test(mf)) ok('无障碍服务 exported=true（系统要来绑定）');
 else bad('PFGuardService 没写 exported="true" —— 系统绑不上');
+// 7.1b 兜底：meta-data 指向的 xml 属于插件 res/，而 UTS 插件编译产物是 jar/classes.dex，
+//      资源要不要单独拷一份取决于打包链版本。真没拷进来，aapt2 link 阶段才会暴露；
+//      就算勉强过了，服务也会退化成"什么都不监听"（静默失效，最难查）。
+//      所以 onServiceConnected 里必须再用代码 setServiceInfo 设一遍同样的值。
+if (/new AccessibilityServiceInfo\(\)/.test(uts) && /setServiceInfo\(info\)/.test(uts) &&
+    /info\.eventTypes\s*=\s*AccessibilityEvent\.TYPE_WINDOW_STATE_CHANGED/.test(uts) &&
+    /info\.flags\s*=\s*AccessibilityServiceInfo\.FLAG_DEFAULT/.test(uts)) ok('onServiceConnected 用代码重设了一遍服务配置（res 没被合并时的兜底）');
+else bad('无障碍服务没有代码兜底配置 —— 一旦 meta-data 的 xml 没合进来，服务连上但什么都监听不到');
+if (/A11Y_NOTIFY_MS/.test(uts) && /const\s+A11Y_NOTIFY_MS\s*:\s*Int\s*=/.test(uts)) ok('A11Y_NOTIFY_MS 显式 : Int（赋给 AccessibilityServiceInfo 的 Int 字段）');
+else bad('A11Y_NOTIFY_MS 没写 : Int —— 会被推成 Number，赋给 Int 字段编译不过');
 
 // 7.2 res 资源：UTS 插件支持 res/ 目录，但路径与属性写错在打包时才炸
 const A11Y_XML = path.join(PLUGIN, 'res', 'xml', 'pw_accessibility_config.xml');
@@ -210,9 +243,11 @@ else bad('缺 res/xml/pw_accessibility_config.xml');
   if (a11yXml.indexOf(needle) >= 0) ok('无障碍配置含 ' + label);
   else bad('无障碍配置缺 ' + label + '（找不到 ' + needle + '）');
 });
-// 刻意不开的：吞按键。Home 键本来就拦不住，吞返回/多任务会挡住来电与权限弹窗
-if (a11yXml.indexOf('flagRequestFilterKeyEvents') < 0) ok('没有申请 flagRequestFilterKeyEvents（不吞按键，避免挡住来电/权限弹窗）');
-else bad('申请了按键过滤 —— 会把用户在其它应用里的返回键也吞掉，误伤面太大');
+// 刻意不开的：吞按键。Home 键本来就拦不住，吞返回/多任务会挡住来电与权限弹窗。
+// 这里连 UTS 侧一起扫：onServiceConnected 有代码兜底配置，两边口径必须一致，
+// 否则 XML 没合进来时代码那一套反而变成"偷偷申请了按键过滤"。
+if (a11yXml.indexOf('flagRequestFilterKeyEvents') < 0 && !/FLAG_REQUEST_FILTER_KEY_EVENTS/.test(uts)) ok('XML 与代码都没申请按键过滤（不吞按键，避免挡住来电/权限弹窗）');
+else bad('有一处申请了按键过滤 —— 会把用户在其它应用里的返回键也吞掉，误伤面太大');
 if (a11yXml.indexOf('canPerformGestures') < 0 && a11yXml.indexOf('canTakeScreenshot') < 0) ok('没有手势 / 截图权限（只做"前台是谁"这一件事）');
 else bad('无障碍配置申请了手势或截图权限 —— 与"只看前台包名"的用途不符，过审与用户信任都受影响');
 // strings.xml：description 引用的字符串必须真的存在
