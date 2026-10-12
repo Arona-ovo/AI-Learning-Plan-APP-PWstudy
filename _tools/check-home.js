@@ -109,6 +109,8 @@ function eq(a, b, label) {
   console.log('== 3. pages/home/home.vue 模板 ==');
   const home = R('pages/home/home.vue');
   const tpl = home.slice(0, home.indexOf('\n<script'));
+  // 少数判据（显隐门槛）住在脚本里，模板段要引用就得先切出来
+  const sc0 = home.slice(home.indexOf('\n<script'), home.indexOf('\n<style'));
 
   // 硬控：只要还有一轮在跑（专注 / 休息 / 暂停），首页就只剩倒计时
   assert(/v-if="locked"/.test(tpl) && /class="lock"/.test(tpl), '计时中走硬控分支 locked');
@@ -120,18 +122,32 @@ function eq(a, b, label) {
   assert(/{{ lockFoot }}/.test(tpl), '硬控屏底部说明当前是哪档约束');
   assert(/{{ todayMin }}/.test(tpl) && /{{ todayPomo }}/.test(tpl), '硬控屏仍能看到今日累计');
 
-  // 空闲态：每一张卡都按注册表显隐（show(id)），条件卡不进注册表
+  // 空闲态：卡片区改成 v-for 遍历注册表（2026-10-12 从 AWword 移植拖拽排序后），
+  // 每张卡由 v-if="id === 'xxx'" 分支渲染，显隐走 cardOrder（见脚本段断言）。
+  assert(/v-for="\(id,\s*i\)\s*in\s*cardOrder"/.test(tpl), '卡片区按 cardOrder 遍历渲染');
+  assert(/class="mod-list"/.test(tpl), '卡片区包在 .mod-list 里（拖拽测量与位移都靠它）');
   MUST_IDS.forEach(id => {
-    assert(tpl.indexOf("show('" + id + "')") >= 0, '卡片按 show(' + id + ') 显隐');
+    assert(tpl.indexOf("id === '" + id + "'") >= 0, '卡片分支 v-if="id === \'' + id + '\'"');
   });
   // 紧迫度卡：只有排了任务才出现（u.empty = 今天一个番茄都没排），
-  // 否则新用户进来会看到一张"全空"的环，不知道它在说什么
-  assert(/show\('urgency'\)[^>]*?&&\s*!u\.empty/.test(tpl), '紧迫度卡：今日无任务时不显示');
+  // 否则新用户进来会看到一张"全空"的环，不知道它在说什么。
+  // 这条判据现在在 cardVisible() 里，模板只管渲染 —— 少一层判断就会掉进
+  // "编辑态必须显形" 的坑，所以这里改成验脚本。
+  // 判据搬到脚本里了（cardVisible），这里拆开验两段：门槛是 !u.empty，且挂在 urgency 上
+  assert(/cardVisible\(id\)\s*\{[\s\S]*?id === 'urgency'[\s\S]*?!\s*this\.u\.empty/.test(sc0),
+    '紧迫度卡：今日无任务时不显示（cardVisible）');
+  // 编辑态必须反过来：哪怕 u.empty 也要显形，否则收纳后永远捞不回来
+  assert(/cardOrder\(\)\s*\{[\s\S]*?if\s*\(this\.editing\)\s*return ids/.test(sc0),
+    '编辑态 cardOrder 返回全部（条件卡也显形）');
   assert(/<urgency-meter/.test(tpl), '紧迫度卡渲染 urgency-meter 组件');
   assert(/@help="explainUrgency"/.test(tpl), '紧迫度卡：? 按钮接出说明弹窗');
-  assert(/class="card setup-card" v-if="setupPending\.length"/.test(tpl),
+  // 条件卡（权限提醒 / AI 规划中）不进注册表：它们是"有事才出现"的横幅，
+  // 用户收纳不掉才对（权限没开真的会让计时断掉）。断言不写死属性顺序。
+  const setupCard = /<view[^>]*class="card setup-card"[^>]*>/.exec(tpl);
+  assert(setupCard && /v-if="setupPending\.length"/.test(setupCard[0]),
     '权限提醒卡：条件触发，不进注册表');
-  assert(/class="card resume-card" v-if="resumePlan"/.test(tpl),
+  const resumeCard = /<view[^>]*class="card resume-card"[^>]*>/.exec(tpl);
+  assert(resumeCard && /v-if="resumePlan"/.test(resumeCard[0]),
     'AI 规划中卡：条件触发，不进注册表');
   assert(/<float-navbar/.test(tpl), '有自定义顶栏');
 
@@ -144,7 +160,7 @@ function eq(a, b, label) {
   assert(/layoutIds: layout\.layout\(\)/.test(sc),
     'layoutIds 首帧直接读一次（留空会让所有卡闪一下）');
   assert(/syncLayout\(\)\s*\{[\s\S]*?layout\.layout\(\)/.test(sc), 'syncLayout 读注册表');
-  assert(/show\(id\)\s*\{[\s\S]*?layoutIds\.indexOf\(id\)/.test(sc), 'show(id) 按当前布局判定');
+  assert(/cardOrder\(\)\s*\{[\s\S]*?layoutIds/.test(sc), 'cardOrder 由当前布局派生');
   assert(/this\.syncLayout\(\)/.test(sc), 'refresh 里同步一次模块（收纳/加回后立刻生效）');
 
   // 硬控的判定与文案
@@ -161,7 +177,7 @@ function eq(a, b, label) {
   assert(/urgency\.levelName/.test(sc), '说明弹窗用 levelName 给出档位名');
 
   // 计时驱动与生命周期：onShow 起、onHide 停（切页不空转）
-  ['refresh', 'goFocus', 'togglePause', 'confirmGiveUp', 'startTick', 'stopTick', 'show', 'syncLayout']
+  ['refresh', 'goFocus', 'togglePause', 'confirmGiveUp', 'startTick', 'stopTick', 'syncLayout']
     .forEach(m => assert(new RegExp('\\b' + m + '\\s*\\(').test(sc), 'method ' + m));
   assert(/onShow\s*\(\)\s*\{[\s\S]*?this\.refresh\(\)/.test(sc), 'onShow 刷新');
   assert(/onHide\s*\(\)\s*\{[\s\S]*?stopTick\(\)/.test(sc), 'onHide 停掉每秒轮询');
@@ -170,9 +186,13 @@ function eq(a, b, label) {
   assert(!/import\s+\*\s+as\s+ai\s+from[^']*services\/index/.test(sc),
     '未走 services 门面 namespace（避免 H5 丢成员）');
 
-  // 首页卡片间距只在这一处定义（改了会让卡片挤在一起）
-  assert(/\.home-slide > \.card\s*\{[^}]*margin-bottom:\s*20rpx/.test(home),
-    '卡片间距 20rpx（.home-slide > .card）');
+  // 首页卡片间距：注册表卡片现在包在 .mod-wrap 里，间距必须挂在这一层。
+  // 继续写 .home-slide > .card 会命中不到（卡片已不是 .home-slide 的直接子节点），
+  // 结果是整页卡片贴在一起且不报错 —— 所以两条都验。
+  assert(/\.mod-wrap\s*\{[^}]*margin-bottom:\s*20rpx/.test(home),
+    '卡片间距 20rpx（.mod-wrap）');
+  assert(/\.mod-wrap:last-child\s*\{[^}]*margin-bottom:\s*0/.test(home),
+    '最后一张卡不留底边距');
 
   /* ---------- 5. 页面注册 ---------- */
   console.log('== 5. 首页可达的页面都已注册 ==');

@@ -258,6 +258,7 @@ export default {
   '＋ 添加组件': '＋ Add widget',
   '所有组件都已在首页上': 'All widgets are already on home',
   '至少保留一个组件': 'Keep at least one widget',
+  '暂时没有进行中的目标': 'No goals in progress',
   '拖动': 'Drag',
   '收纳': 'Hide',
   '已收纳「': 'Hidden “',
