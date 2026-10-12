@@ -11,6 +11,12 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- 伙伴 App（背单词）：检测它装没装要用包名查，Android 11(targetSdk>=30) 起
+             必须声明包可见性，否则 isApplicationExist 一律返回 false —— 表现是
+             "明明装了，PWstudy 却说没装，关联入口永远不出现"。
+             现在 targetSdk 还是 28 看不出问题，升到 30+ 就会静默失效，所以先占住位。
+             与 AWword 侧对称（它那边已经声明了 com.pwstudy.app）。 -->
+        <package android:name="com.AWword" />
     </queries>
 
     <application>

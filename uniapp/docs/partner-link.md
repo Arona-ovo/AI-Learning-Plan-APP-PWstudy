@@ -342,7 +342,7 @@ AWword 只是第一个接入的，不该享受任何特殊硬编码待遇。
 
 ### 11.1 【必须】包名固定并告知
 
-PWstudy 需要用包名检测 AWword 是否已安装。请确认并固定 Android 包名（当前从截图看是 `com.AWword`），
+PWstudy 需要用包名检测 AWword 是否已安装。**2026-10-12 已确认固定为 `com.AWword`**（从 AWword 的 debug APK 清单读出），
 一旦发布就不要再改——包名变了，老用户的关联状态全部失效。
 
 ### 11.2 【必须】声明 `<queries>`（若 `targetSdk >= 30`）

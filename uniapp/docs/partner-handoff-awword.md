@@ -73,7 +73,7 @@ PWstudy 靠包名检测 AWword 是否已安装：
 plus.runtime.isApplicationExist({ pname: 'com.AWword' })
 ```
 
-当前从截图判断包名是 `com.AWword`，**请确认**。
+2026-10-12 已从 AWword 的 debug APK 的 AndroidManifest 里读到真包名并确认：**`com.AWword`**（发布后不再改）。
 ⚠️ **一旦发布就不要再改** —— 包名变了，老用户本地存的关联状态会全部失效（检测不到 = 变回"未安装"）。
 
 ### 11.2 【必须】若 `targetSdk >= 30`，manifest 必须补 `<queries>`
@@ -270,7 +270,7 @@ pwstudy://vocab-done?min=<真实停留分钟>&words=<correctCount>&task=<taskId>
 - PWstudy scheme：`pwstudy`
 - AWword scheme：`awword`
 - PWstudy 包名：`com.pwstudy.app`
-- AWword 包名：`com.AWword`（**待确认**）
+- AWword 包名：`com.AWword`（**已确认**，2026-10-12）
 
 ---
 
