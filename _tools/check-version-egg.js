@@ -33,8 +33,12 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
   assert(!!info && typeof info.version === 'string', 'data/build-info.js 导出了 BUILD_INFO.version');
   // 别写死具体版本号 —— 发一次版就要改一次脚本（1.0 Beta → 1.0.1 时就踩了）。
   // 格式才是要盯的：utils/updater.js 靠 x.y.z 算 code 来比新旧，写成别的新旧就判不出来。
-  assert(/^\d+\.\d+(\.\d+)?$/.test(String(info.version || '')),
-    '版本号是 x.y.z（' + info.version + '）—— updater 靠它算大小比新旧');
+  // 允许 beta / rc 之类的后缀：updater 的 parseVersion 只取前两段数字算 code，
+  // '1.1beta' 照样比得出新旧（= 10100），硬卡 x.y.z 是把能用的版本号判成违规。
+  // 代价：publish-wgt --bump 抬不动带后缀的版本，得用 --ver 手填 —— 那是发布
+  // 脚本的约定，不在这里拦。
+  assert(/^\d+\.\d+(\.\d+)?([ .-]?[A-Za-z][A-Za-z0-9]*)?$/.test(String(info.version || '')),
+    '版本号以 x.y[.z] 开头（' + info.version + '）—— updater 靠它算大小比新旧');
 
   // manifest 是严格 JSON（HBuilderX 会重写它），别加注释
   const mf = JSON.parse(R('manifest.json'));
