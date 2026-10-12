@@ -385,7 +385,17 @@ function labelOf(pm, pkg) {
   }
 }
 
+// 进程内缓存：应用列表一次枚举是两轮全量系统调用（getInstalledApplications +
+// queryIntentActivities），在低端机上上百毫秒。同一进程里它基本不会变，
+// 缓存住 —— apps 页每次 onShow 不再重复枚举（原来一进页面就干这个，是"先卡一会"的一半）。
+let _appsCache = null;
+let _appsCacheAt = 0;
+const APPS_CACHE_MS = 5 * 60 * 1000;
+export function installedAppsCacheClear() { _appsCache = null; _appsCacheAt = 0; }
+
 export function installedApps() {
+  const now = Date.now();
+  if (_appsCache && (now - _appsCacheAt) < APPS_CACHE_MS) return _appsCache;
   lastAppsError = '';
   usedUsageFallback = false;
   if (!supported()) return [];
@@ -485,6 +495,8 @@ export function installedApps() {
           ? '打包时「查询所有应用」权限没进 APK：请在 HBuilderX manifest 的 App 权限列表里确认 QUERY_ALL_PACKAGES 后重新打包。'
           : (errs.length ? '原因：' + errs.join('；') : '未知原因，可以试试下面的手动添加。'));
     }
+    // 只缓存"真读到了"的结果：空列表多半是权限/时机的偶发，别把失败锁进缓存
+    if (out.length) { _appsCache = out; _appsCacheAt = now; }
     return out;
   } catch (e) {
     console.warn('[apptime] 读取应用列表失败', e);
@@ -531,10 +543,16 @@ function drawableToBase64(drawable) {
   const CompressFormat = plus.android.importClass('android.graphics.Bitmap$CompressFormat');
   const Base64 = plus.android.importClass('android.util.Base64');
 
+  // ⚠️ 尺寸/格式是按"列表小图标"定的，别调大：
+  //   · 上限 96px —— 界面上图标最大 84rpx(≈42pt)，2x 屏 84px 就够了；
+  //     原来 160px + ARGB_8888，一张的绘制和编码都是两倍以上开销
+  //   · WEBP 有损 q60 —— 原来是 PNG（安卓里 quality 参数对 PNG 无效，等于全量无损编码，
+  //     是单个图标最贵的一步）；WEBP 编码快几倍、体积小几倍，<image> 对 data:image/webp 全支持
+  // 这两处直接决定"应用列表页会不会冻住"：真机上一页 200+ 个图标，每个贵一点就是整页卡死。
   const rawW = drawable.getIntrinsicWidth ? drawable.getIntrinsicWidth() : 0;
   const rawH = drawable.getIntrinsicHeight ? drawable.getIntrinsicHeight() : 0;
-  const w = Math.min(Number(rawW) || 96, 160);
-  const h = Math.min(Number(rawH) || 96, 160);
+  const w = Math.min(Number(rawW) || 96, 96);
+  const h = Math.min(Number(rawH) || 96, 96);
   const cfg = BitmapConfig.ARGB_8888;
   const bitmap = Bitmap.createBitmap(w, h, cfg);
   const canvas = new Canvas(bitmap);
@@ -542,15 +560,16 @@ function drawableToBase64(drawable) {
   drawable.draw(canvas);
 
   const os = new ByteArrayOutputStream();
-  bitmap.compress(CompressFormat.PNG, 100, os);
+  bitmap.compress(CompressFormat.WEBP, 60, os);
   const bytes = os.toByteArray();
   return String(Base64.encodeToString(bytes, Base64.NO_WRAP));
 }
 
-/** 包装成 <image> 可直接显示的 data URL */
+/** 包装成 <image> 可直接显示的 data URL（编码格式见 drawableToBase64：WEBP q60） */
 export function appIconDataUrl(pkg) {
   const b64 = appIconBase64(pkg);
-  return b64 ? 'data:image/png;base64,' + b64 : '';
+  // 前缀必须跟真实编码一致：PNG 时代写的 image/png，换成 WEBP 后不改这里会解码失败
+  return b64 ? 'data:image/webp;base64,' + b64 : '';
 }
 
 /** 近 days 天里用过（前台时长 > 0）的包名，按用时降序 */

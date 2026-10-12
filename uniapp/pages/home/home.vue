@@ -227,7 +227,7 @@ import * as coach from '../../utils/coach.js'
 import * as urgency from '../../utils/urgency.js'
 import * as partner from '../../utils/partner.js'
 import * as layout from '../../utils/home-layout.ts'
-import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
+import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
@@ -651,7 +651,7 @@ export default {
     // ---------- 跳转 ----------
     goWizard() { uni.navigateTo({ url: '/pkgPlan/pages/wizard/wizard' }) },
     goDetail(id) { uni.navigateTo({ url: '/pkgPlan/pages/goal-detail/goal-detail?id=' + id }) },
-    goApps() { uni.navigateTo({ url: '/pkgPlan/pages/apps/apps' }) },
+    goApps() { safeNav('/pkgPlan/pages/apps/apps') },
     goReplan(id) { uni.navigateTo({ url: '/pkgPlan/pages/replan/replan?id=' + id }) },
     switchGoals() { uni.switchTab({ url: '/pages/goals/goals' }) },
     openApp(a) {

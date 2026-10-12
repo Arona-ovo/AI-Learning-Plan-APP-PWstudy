@@ -203,6 +203,8 @@ export default {
       manual: { name: '', pkg: '', purpose: 'study' },
       iconMap: {},
       _iconPending: {},
+      _iconQueue: [],    // 图标串行队列（见 pumpIcon：一次一个，处理完让 UI 喘一帧）
+      _iconPumping: false,
       editor: {
         show: false,
         fromDock: false,
@@ -229,11 +231,17 @@ export default {
   watch: {
     candidates(list) {
       list.forEach(c => this.ensureIcon(c.pkg))
+    },
+    // 应用列表（两轮全量系统枚举 + 后面跟着一长串图标编码）只在用户真的要"添加"时才读：
+    // 进页面就读的话，首页点"设置学习 App"会先白卡一阵才进来（真机踩过：卡到路由 locked）
+    adding(open) {
+      if (open && this.isAndroid && !this.all.length) this.loadApps()
     }
   },
   onShow() {
     this.refresh()
-    if (this.isAndroid && !this.all.length) this.loadApps()
+    // ⚠️ onShow 不 loadApps：只加载已添加的少量图标（refresh 里已经 ensureIcon(dock)）。
+    // 全量列表延迟到 adding 面板打开时（见上面的 watch）。
   },
   methods: {
     refresh() {
@@ -253,13 +261,18 @@ export default {
       this.dock.forEach(a => this.ensureIcon(a.pkg))
     },
     loadApps() {
+      // 已经有缓存就直接用（apptime 内部也有 5 分钟缓存，这里是避免重复置 loading 态闪一下）
+      if (this.all.length) return
       this.loadingApps = true
       // 读应用列表在部分低端机上偏慢，延一帧再跑，先让页面完成首绘
       setTimeout(() => {
         try {
           this.all = apptime.installedApps()
           this.appsError = apptime.lastAppsError || ''
-          this.all.forEach(c => this.ensureIcon(c.pkg))
+          // ⚠️ 不要在这里对 this.all 全量 ensureIcon —— 200+ 个图标一口气排进宏任务队列，
+          //    每个都是"跨进程取图标 + 画 bitmap + 编码"，真机上会把主线程冻好几秒
+          //    （页面冻住、路由 locked、退出不了，就是它）。候选区图标由 candidates 的
+          //    watcher 按需加载（最多 60 个），再由下面的串行队列逐个消化。
         } catch (e) {
           this.all = []
           this.appsError = '读取应用列表失败：' + ((e && e.message) || '未知错误')
@@ -271,10 +284,21 @@ export default {
     isAdded(c) { return this.dock.some(a => a.pkg === c.pkg) },
 
     // ---------- 图标 ----------
+    // 串行队列：一次只编码一个图标，处理完歇 30ms 再取下一个。
+    // 为什么不能 setTimeout(0) 连发：每个图标都是"跨进程取 Drawable + 画 bitmap +
+    // 编码 + base64"，单个几十毫秒；几十个连发 = 主线程连续被占满，UI 一帧都排不上
+    // —— 真机上表现就是页面冻住、navigateTo 报 locked、退出键都没反应（踩过）。
     ensureIcon(pkg) {
       if (!pkg || this.iconMap[pkg] || this._iconPending[pkg]) return
       this._iconPending[pkg] = true
-      // 图标读取走 plus.android 桥，延到下一帧避免阻塞首绘
+      this._iconQueue.push(pkg)
+      this.pumpIcon()
+    },
+    pumpIcon() {
+      if (this._iconPumping) return
+      const pkg = this._iconQueue.shift()
+      if (!pkg) return
+      this._iconPumping = true
       setTimeout(() => {
         try {
           const url = apptime.appIconDataUrl(pkg)
@@ -283,6 +307,9 @@ export default {
           console.warn('[apps] 加载图标失败', pkg, e)
         }
         delete this._iconPending[pkg]
+        this._iconPumping = false
+        // 让 UI 先喘一帧，再消化下一个 —— 宁可图标出得慢，不能让页面冻住
+        setTimeout(() => this.pumpIcon(), 30)
       }, 0)
     },
 

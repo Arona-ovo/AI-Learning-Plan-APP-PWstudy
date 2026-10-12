@@ -176,7 +176,7 @@ import * as apptime from '../../utils/apptime.js'
 import * as holiday from '../../utils/holiday.js'
 import { reviewWeek } from '../../services/plan-agent.js'
 import { aiGateReason } from '../../services/config.js'
-import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
+import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
@@ -347,7 +347,7 @@ export default {
       const max = Math.max(1, ...this.week.map(d => d.focusMin))
       return Math.max(4, Math.round(min * 100 / max))
     },
-    goApps() { uni.navigateTo({ url: '/pkgPlan/pages/apps/apps' }) },
+    goApps() { safeNav('/pkgPlan/pages/apps/apps') },
     openPerm() { apptime.openUsageSettings() }
   }
 }

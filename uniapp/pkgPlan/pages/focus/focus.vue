@@ -210,6 +210,7 @@ import * as strict from '../../../utils/strict.js'
 import * as forced from '../../../utils/forced.js'
 import * as apptime from '../../../utils/apptime.js'
 import * as settings from '../../../utils/settings.js'
+import { safeNav } from '../../../utils/nav.js'
 import * as notify from '../../../utils/notify.js'
 import * as ambient from '../../../utils/ambient.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
@@ -711,7 +712,7 @@ export default {
       }
       forced.sync()
     },
-    goApps() { uni.navigateTo({ url: '/pkgPlan/pages/apps/apps' }) },
+    goApps() { safeNav('/pkgPlan/pages/apps/apps') },
     toggleOpt(key) {
       const next = !this.opts[key]
       this.opts[key] = next

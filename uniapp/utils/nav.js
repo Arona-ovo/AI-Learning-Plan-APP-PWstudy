@@ -82,3 +82,24 @@ export function syncTabbar(vm) {
     /* 兜底：拿不到组件就跳过动画，不影响导航 */
   }
 }
+
+/**
+ * 带一次重试的 navigateTo。
+ *
+ * uni 的路由在"上一次页面切换还没完成"时会拒绝新的跳转，报
+ * `navigateTo:fail <url> locked` —— 平时碰不到，但目标页/当前页恰好有重活时
+ * （比如应用列表页在枚举图标），第一次点击就会被吞掉，用户看起来就是"点了没反应"。
+ * locked 是暂态，歇一拍再跳就能过，所以这里自动补一次。
+ */
+export function safeNav(url) {
+  if (!url) return
+  uni.navigateTo({
+    url,
+    fail: () => {
+      setTimeout(() => {
+        uni.navigateTo({ url })
+      }, 350)
+    }
+  })
+}
+
