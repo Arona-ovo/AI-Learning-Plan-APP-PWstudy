@@ -151,8 +151,11 @@ const A11Y_BIND_MAX: Int = 2;           // 窗口内最多容忍几次 bind（�
 const A11Y_SP = 'pw_a11y';
 
 let a11yTripped = false;    // 是否已跳闸（进程内镜像，落盘为准）
-let a11yBindAt = 0;         // 拿不到落盘时的降级计数（进程内）
-let a11yBindN = 0;
+// ⚠️ 这两个必须显式 : Int —— 裸 `let x = 0` 会被 UTS 推成 **Number**，
+//    而 bumpBind() 声明返回 Int，`return a11yBindN` 就成了 "expected Int, actual Number"
+//    （云打包报过这条）。同理：任何要当 Int 用的顶层计数都得写类型。
+let a11yBindAt: Int = 0;    // 拿不到落盘时的降级计数（进程内）
+let a11yBindN: Int = 0;
 let a11yListed = false;     // 后台线程刷出来的"系统启用名单里有我"
 let a11yListedAt = 0;
 let a11yQuerying = false;
@@ -170,11 +173,18 @@ function bumpBind(): Int {
   try {
     let p = a11ySp();
     if (p != null) {
-      let last = Number(p!.getLong('bind_at', 0));
-      let n = Number(p!.getLong('bind_n', 0));
+      // ⚠️ 一律走 **Int 口径**（getInt/putInt），别碰 getLong/putLong：
+      //   Long 回到 UTS 里是 Number，而 `Number(x)` 在生成的 Kotlin 里是
+      //   **实例化抽象类 java.lang.Number** —— 编译直接挂
+      //   （云打包报错：Cannot create an instance of an abstract class /
+      //    Too many arguments for 'constructor(): Number'）。
+      //   这里存的只是"纪元秒"和"计数"，Int 完全够（秒到 2038 年），
+      //   统一口径后整条链没有 Long，也就没有转换。
+      let last: Int = p!.getInt('bind_at', 0);
+      let n: Int = p!.getInt('bind_n', 0);
       if (t - last > A11Y_BIND_WINDOW_SEC) n = 0;
       n = n + 1;
-      p!.edit().putLong('bind_at', t).putLong('bind_n', n).apply();
+      p!.edit().putInt('bind_at', t).putInt('bind_n', n).apply();
       return n;
     }
   } catch (e) {
@@ -189,7 +199,8 @@ function bumpBind(): Int {
 function clearBind(): void {
   try {
     let p = a11ySp();
-    if (p != null) p!.edit().putLong('bind_n', 0).putLong('bind_at', 0).apply();
+    // 同上：整条链统一 Int 口径，别用 putLong
+    if (p != null) p!.edit().putInt('bind_n', 0).putInt('bind_at', 0).apply();
   } catch (e) {}
   a11yBindN = 0;
   a11yBindAt = 0;
@@ -738,7 +749,11 @@ class PFGuardService extends AccessibilityService {
       if (event.getEventType() != 1) return;
       let p = event.getPackageName();
       if (p == null) return;
-      let pkg = String(p!);
+      // ⚠️ 别写 String(p!) —— 生成的 Kotlin 是 `String(p!!)`，而 Kotlin 的 String 只有
+      //    StringBuffer/StringBuilder/ByteArray/CharArray 四个构造，CharSequence 不在其中
+      //    （云打包：None of the following candidates is applicable）。
+      //    getPackageName() 返回的是 CharSequence，转成字符串用 toString()。
+      let pkg = p!.toString();
       if (pkg.length == 0) return;
       guardPkg = pkg;
       guardAtSec = nowSec();
@@ -777,8 +792,14 @@ function buildGuardInfo(): AccessibilityServiceInfo {
   let info = new AccessibilityServiceInfo();
   info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
   info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-  info.notificationTimeout = A11Y_NOTIFY_MS;
-  info.flags = AccessibilityServiceInfo.FLAG_DEFAULT;
+  // ⚠️ notificationTimeout 在 Android 里是 **long**（不是 int）。
+  //    写 `= A11Y_NOTIFY_MS`（Int 常量）会报 "actual type is 'Int', but 'Long' was expected" ——
+  //    Kotlin 的**字面量**能按目标类型推断成 Long，但 Int 常量不会自动放宽。
+  //    所以这里直接写字面量（与 Thread.sleep 那两处同一个规矩），常量留在上面当注释。
+  info.notificationTimeout = 100;
+  // ⚠️ 常量名是 DEFAULT，不是 FLAG_DEFAULT（后者不存在 → Unresolved reference）。
+  //    取值与 res/xml 的 android:accessibilityFlags="flagDefault" 对齐。
+  info.flags = AccessibilityServiceInfo.DEFAULT;
   return info;
 }
 

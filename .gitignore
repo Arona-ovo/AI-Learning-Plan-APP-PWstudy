@@ -28,3 +28,7 @@ _tools/.esmcheck/
 # ---- 系统 ----
 .DS_Store
 Thumbs.db
+
+# ---- 临时分析产物（APK 解包出的图标 / UTS 转译出的 Kotlin）----
+_tools/_scratch/_kt/
+_tools/_scratch/_img/*.png

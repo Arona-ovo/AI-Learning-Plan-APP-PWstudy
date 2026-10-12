@@ -219,12 +219,19 @@ else bad('PFGuardService 没写 exported="true" —— 系统绑不上');
 //      资源要不要单独拷一份取决于打包链版本。真没拷进来，aapt2 link 阶段才会暴露；
 //      就算勉强过了，服务也会退化成"什么都不监听"（静默失效，最难查）。
 //      所以 onServiceConnected 里必须再用代码 setServiceInfo 设一遍同样的值。
+// ⚠️ 判据里的常量名是 **DEFAULT**，不是 FLAG_DEFAULT —— 后者在 AccessibilityServiceInfo
+//    里根本不存在（2026-10-13 云打包报 Unresolved reference 'FLAG_DEFAULT' 才发现：
+//    这行代码以前从没被编译过）。第 10 节单独守"别把 FLAG_DEFAULT 写回来"。
 if (/function buildGuardInfo\(\)/.test(uts) && /setServiceInfo\(buildGuardInfo\(\)\)/.test(uts) &&
     /info\.eventTypes\s*=\s*AccessibilityEvent\.TYPE_WINDOW_STATE_CHANGED/.test(uts) &&
-    /info\.flags\s*=\s*AccessibilityServiceInfo\.FLAG_DEFAULT/.test(uts)) ok('onServiceConnected 用代码重设了一遍服务配置（res 没被合并时的兜底）');
+    /info\.flags\s*=\s*AccessibilityServiceInfo\.DEFAULT\b/.test(uts)) ok('onServiceConnected 用代码重设了一遍服务配置（res 没被合并时的兜底）');
 else bad('无障碍服务没有代码兜底配置 —— 一旦 meta-data 的 xml 没合进来，服务连上但什么都监听不到');
-if (/A11Y_NOTIFY_MS/.test(uts) && /const\s+A11Y_NOTIFY_MS\s*:\s*Int\s*=/.test(uts)) ok('A11Y_NOTIFY_MS 显式 : Int（赋给 AccessibilityServiceInfo 的 Int 字段）');
-else bad('A11Y_NOTIFY_MS 没写 : Int —— 会被推成 Number，赋给 Int 字段编译不过');
+// ⚠️ 常量留着是为了跟 res/xml 的 android:notificationTimeout="100" 对得上，
+//    **不能直接赋给 notificationTimeout**：那个字段是 long，Int 常量不会自动放宽
+//    （只能写字面量，见第 10.4 节与源码里的注释）。
+if (/const\s+A11Y_NOTIFY_MS\s*:\s*Int\s*=/.test(uts) &&
+    /info\.notificationTimeout\s*=\s*\d+/.test(uts)) ok('A11Y_NOTIFY_MS 显式 : Int，且 notificationTimeout 走字面量（字段是 long）');
+else bad('A11Y_NOTIFY_MS 没写 : Int，或 notificationTimeout 没用字面量 —— long 字段收不了 Int 常量');
 
 // 7.2 res 资源：UTS 插件支持 res/ 目录，但路径与属性写错在打包时才炸
 const A11Y_XML = path.join(PLUGIN, 'res', 'xml', 'pw_accessibility_config.xml');
@@ -400,6 +407,81 @@ declared.forEach((cls) => {
   else bad('清单声明了 ' + cls + '，但源码里只有 ' + n + ' 处（= 只有声明、没人引用）' +
     ' —— UTS 会把它整块剪掉，dex 里没有这个类');
 });
+
+/* ---------- 10. UTS 里"能写但编不过"的四个表达式（2026-10-13 云打包炸出来的） ----------
+ * 背景：上一轮把 PFGuardService 钉进编译产物（第 9 节），于是 bumpBind / buildGuardInfo
+ * 这些**从来没被编译过**的代码第一次进了 Kotlin 编译器 —— 一次性炸出 5 类错误。
+ * 它们共同的特点：在 UTS 里写得很自然、语法检查也不报错，只有转成 Kotlin 才炸。
+ *
+ * 配套工具 `_tools/uts-to-kotlin.js`：本地调 HBuilderX 自带的 UTS 编译器把 .uts 转成 .kt，
+ * 不用等云打包（一轮 3-30 分钟）就能看到生成物。改本节之前先跑它看一眼真实产出。
+ */
+console.log('== 10. 生成 Kotlin 时会炸的写法 ==');
+const lines = utsSrc.split('\n');
+const where = (re) => lines
+  .map((l, i) => (re.test(l) ? i + 1 : 0))
+  .filter(Boolean)
+  .map((n) => 'L' + n);
+
+// 10.1 Number(x) —— java.lang.Number 是**抽象类**，Kotlin 里 `Number(x)` 是在实例化它。
+//      报错：Cannot create an instance of an abstract class + Too many arguments for 'constructor(): Number'
+//      Long → Int 的正路是 `(x as Number).toInt()`，或者干脆别碰 Long（用 getInt/putInt 口径）。
+const numHits = where(/\bNumber\s*\(/);
+if (!numHits.length) ok('没有 Number(x)（java.lang.Number 是抽象类，实例化编不过）');
+else bad('Number(x) 在生成的 Kotlin 里是实例化抽象类：' + numHits.join(', ')
+  + ' —— 用 (x as Number).toInt()，或改成 Int 口径（getInt/putInt）');
+
+// 10.2 String(x) —— Kotlin 的 String 只有 StringBuffer/StringBuilder/ByteArray/CharArray 四个构造。
+//      Android 的 getPackageName() 这类返回 CharSequence 的方法，转字符串要 toString()。
+const strHits = where(/\bString\s*\(/);
+if (!strHits.length) ok('没有 String(x)（Kotlin 的 String 不接受 CharSequence）');
+else bad('String(x) 没有对应的 Kotlin 构造：' + strHits.join(', ')
+  + ' —— CharSequence 用 x.toString()');
+
+// 10.3 声明返回 : Int 的函数，不能 return 一个"裸 let x = 0"的顶层变量 ——
+//      裸字面量被 UTS 推成 **Number**，于是 "expected 'Int', actual 'Number'"。
+//      修法：给变量写类型 `let x: Int = 0`。
+const bareVars = [];
+lines.forEach((l) => {
+  // ⚠️ 必须允许缩进：顶层变量和函数里的局部变量都算，别写成 ^let
+  const m = l.match(/^\s*let\s+(\w+)\s*=\s*-?\d+\s*;/);
+  if (m) bareVars.push(m[1]);
+});
+const intFns = [];
+const fnRe = /function\s+(\w+)\s*\([^)]*\)\s*:\s*Int\s*\{/g;
+let fm;
+while ((fm = fnRe.exec(utsSrc)) !== null) {
+  const start = utsSrc.indexOf(fm[0]);
+  const end = utsSrc.indexOf('\n}', start);
+  intFns.push({ name: fm[1], body: end < 0 ? utsSrc.slice(start) : utsSrc.slice(start, end) });
+}
+const retHits = [];
+intFns.forEach((f) => {
+  bareVars.forEach((v) => {
+    if (new RegExp('return\\s+' + v + '\\b').test(f.body)) retHits.push(f.name + ' → ' + v);
+  });
+});
+if (!retHits.length) ok('返回 Int 的函数没有 return 未标注类型的顶层计数（' + intFns.length + ' 个 Int 函数）');
+else bad('返回 Int 的函数 return 了裸 let 变量（推成 Number）：' + retHits.join(', ')
+  + ' —— 给变量补 : Int');
+
+// 10.4 收 **long** 的位置不能传 Int 常量（Kotlin 只对**字面量**按目标类型推断，常量不放宽）。
+//      典型：Thread.sleep(Long)、AccessibilityServiceInfo.notificationTimeout(Long)。
+const longHits = [];
+lines.forEach((l, i) => {
+  const m = l.match(/(Thread\.sleep\(\s*|notificationTimeout\s*=\s*)([A-Za-z_]\w*)/);
+  // 只拦 UPPER_SNAKE 常量（= `const X: Int`）—— 变量可以是 Long，不该误伤
+  if (m && /^[A-Z][A-Z0-9_]*$/.test(m[2])) longHits.push('L' + (i + 1) + ' ' + m[2]);
+});
+if (!longHits.length) ok('long 入参/字段没传 Int 常量（字面量才会被推断成 Long）');
+else bad('long 位置传了 Int 常量（不会自动放宽成 Long）：' + longHits.join(', ')
+  + ' —— 直接写字面量');
+
+// 10.5 不存在的常量：AccessibilityServiceInfo 里是 DEFAULT，没有 FLAG_DEFAULT
+//      （报错 Unresolved reference 'FLAG_DEFAULT'；它只存在于 res/xml 的 flagDefault 里）。
+const flagHits = where(/\bFLAG_DEFAULT\b/);
+if (!flagHits.length) ok("没有 FLAG_DEFAULT（AccessibilityServiceInfo 里叫 DEFAULT）");
+else bad('FLAG_DEFAULT 不存在：' + flagHits.join(', ') + ' —— 写 AccessibilityServiceInfo.DEFAULT');
 
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;
