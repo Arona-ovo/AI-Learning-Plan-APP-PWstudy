@@ -170,6 +170,40 @@ function main() {
     });
   });
 
+  // APK 和 wgt 放在同一个 Release 里：各走各的路，谁也不碍着谁
+  steps.push(() => {
+    net.release = release([
+      '__UNI__53285BF__20261011204240.apk',   // 占位包
+      'PWstudy-9.9.9.apk',                    // 比本机新的整包
+      'PWstudy-1.0.2-n101.wgt'                // 热更包
+    ]);
+    return updater.check({ manual: true }).then(r => {
+      eq(r.state, 'update', 'Release 里同时有 APK → 照样走热更（wgt 优先）');
+      eq(r.remote.version, '1.0.2', '拿出来的是 wgt，不是那个 9.9.9 的整包');
+    });
+  });
+  steps.push(() => {
+    // apk 比本机旧，本机又已经热更到 wgt 那个版本了 → 不该被这个旧整包打扰
+    net.release = release(['PWstudy-1.0.2-n101.wgt', 'PWstudy-1.0.1.apk']);
+    plus.runtime.version = '1.0.2';
+    return updater.check({ manual: true }).then(r => {
+      eq(r.state, 'latest', '本机已是最新 wgt 的版本 → 不再被更旧的提示打扰');
+    });
+  });
+  steps.push(() => {
+    // 反过来：整包比已装的 wgt 版本还新 → 确实该提示装整包
+    net.release = release(['PWstudy-1.0.2-n101.wgt', 'PWstudy-1.0.9.apk']);
+    plus.runtime.version = '1.0.2';
+    return updater.check({ manual: true }).then(r => {
+      eq(r.state, 'apk', '整包比已装的还新 → 提示装完整包');
+      eq(r.remote.version, '1.0.9', '拿出来的是整包');
+    });
+  });
+  steps.push(() => {
+    plus.runtime.version = '1.0.1';
+    return Promise.resolve();
+  });
+
   // 跳过过的版本
   steps.push(() => {
     net.release = release(['PWstudy-1.0.2-n101.wgt']);

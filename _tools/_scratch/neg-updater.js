@@ -107,7 +107,10 @@ const cases = [
   ['清单接口改用 /releases/latest（会漂到别的 Release）', 'utils/updater.js',
     s => s.replace("releases/tags/' + RELEASE_TAG", 'releases/latest\'')],
   ['不校验 tag（拿到别人的清单照用）', 'utils/updater.js',
-    s => s.replace('if (d.tag_name && d.tag_name !== RELEASE_TAG) {', 'if (false) {')]
+    s => s.replace('if (d.tag_name && d.tag_name !== RELEASE_TAG) {', 'if (false) {')],
+  // 同一个 Release 里 wgt 与 APK 共存：APK 不该抢在热更前面
+  ['有可用 wgt 却因为 Release 里挂着 APK 走了整包', 'utils/updater.js',
+    s => s.replace('if (remote && local.code < remote.code) {', 'if (false) {')]
 ];
 
 (async () => {
