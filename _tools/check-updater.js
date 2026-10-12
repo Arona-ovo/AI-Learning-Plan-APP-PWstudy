@@ -428,6 +428,11 @@ assert(/--bump/.test(pub), '支持自动抬版本');
 assert(/data\/build-info\.js/.test(pub) && /_vocab/.test(pub), '抬版本同步三处（manifest / build-info / _vocab）');
 assert(/--dry/.test(pub), '支持空跑');
 assert(/RELEASE_URL/.test(pub), '打完打印上传指引');
+// 包内版本必须跟着文件名走：包里那个 manifest.json 是"发行那一刻"的值，
+// 不跟文件名对齐的话，装完 App 还报旧版本 → 客户端以为没装上，每次启动再提示一遍
+// 断言**调用点**（只断言函数存在的话，把调用删了照样绿）
+assert(/alignInnerVersion\(entries, ver, nativeCode\)/.test(pub), '打 wgt 时对齐包内版本');
+assert(/readZipEntry\(outPath, 'manifest\.json'\)/.test(pub), '打完把包内 manifest.json 读回来自验');
 
 /* ---------- 10. 源码：认不出就不许指路 ---------- */
 console.log('== 10. 占位包 / 清单接口（源码） ==');

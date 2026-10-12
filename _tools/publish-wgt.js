@@ -145,6 +145,44 @@ function verifyZip(p, n) {
   return '';
 }
 
+/**
+ * 把包内 manifest.json 的版本改成目标版本（**只改内存里这一条，不落盘**）。
+ *
+ * 为什么必须改：产物 `app-plus/manifest.json` 里的 version 是**发行那一刻**的值，
+ * 跟文件名没有关系。改了源码版本号却没重新发行，包里就还是旧版本 ——
+ * 装完 `plus.runtime.getProperty` 报旧版本，客户端拿它跟文件名里的版本一比，
+ * 以为没装上，**每次启动都再提示一遍更新（死循环）**。文件名说什么，包里就得是什么。
+ *
+ * `version.code` 也要跟着走：它是装完之后运行时报的 versionCode，
+ * 客户端拿它跟 `-n<基线>` 比，写成旧值会让"基座太老"永远成立，同样死循环。
+ */
+function alignInnerVersion(entries, ver, code) {
+  const hit = entries.filter(e => e.name === 'manifest.json')[0];
+  if (!hit) return null;
+  const m = JSON.parse(hit.data.toString('utf8'));
+  const old = (m && m.version && m.version.name) || '(没有)';
+  m.version = { name: ver, code: String(code) };
+  hit.data = Buffer.from(JSON.stringify(m), 'utf8');
+  return old;
+}
+
+/** 从刚写好的 zip 里读一条出来（自验用：确认包内版本真的写进去了） */
+function readZipEntry(p, want) {
+  const b = fs.readFileSync(p);
+  let i = 0;
+  while (i + 30 <= b.length && b.readUInt32LE(i) === 0x04034b50) {
+    const method = b.readUInt16LE(i + 8);
+    const csize = b.readUInt32LE(i + 18);
+    const nlen = b.readUInt16LE(i + 26);
+    const elen = b.readUInt16LE(i + 28);
+    const name = b.toString('utf8', i + 30, i + 30 + nlen);
+    const body = b.slice(i + 30 + nlen + elen, i + 30 + nlen + elen + csize);
+    if (name === want) return method === 8 ? zlib.inflateRawSync(body) : body;
+    i += 30 + nlen + elen + csize;
+  }
+  return null;
+}
+
 function walk(dir, base, out) {
   fs.readdirSync(dir).forEach((n) => {
     if (n === '.' || n === '..') return;
@@ -232,10 +270,21 @@ if (has('--bump') || val('--ver')) {
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 const entries = walk(SRC, '', []);
+const innerOld = alignInnerVersion(entries, ver, nativeCode);
+if (innerOld && innerOld !== ver) {
+  console.log('  对齐  包内版本 ' + innerOld + ' → ' + ver + '（文件名说 ' + ver + '，包里就得是 ' + ver + '）');
+}
 writeZip(outPath, entries);
 const size = fs.statSync(outPath).size;
 const why = verifyZip(outPath, entries.length);
 if (why) fail('包打坏了：' + why + '\n  ' + outPath);
+// 自验：从 zip 里把 manifest.json 读回来，确认包内版本就是文件名上那个版本
+const backRaw = readZipEntry(outPath, 'manifest.json');
+const back = backRaw ? JSON.parse(backRaw.toString('utf8')) : null;
+if (!back || !back.version || back.version.name !== ver) {
+  fail('包内 manifest.json 的版本没对齐（读到 ' +
+    ((back && back.version && back.version.name) || 'null') + '，期望 ' + ver + '）\n  ' + outPath);
+}
 console.log('  完成  ' + entries.length + ' 个文件，' + (Math.round(size / 1024)) + ' KB');
 // wgt 的根必须有 manifest.json：服务端不校验，但装的时候缺它就是"安装失败"
 if (!entries.some(e => e.name === 'manifest.json')) fail('产物里没有根目录的 manifest.json');
