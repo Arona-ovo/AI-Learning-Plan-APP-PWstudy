@@ -53,6 +53,15 @@ function defaults() {
     // ⚠️ 取消关联落到 declined，而不是退回 undecided：
     //    否则下次启动又会重新弹一遍那张首次提示 —— 用户刚明确取消、转头又被问，最招人烦
     partner: { v: 1, state: 'undecided', askedCount: 0, lastAskAt: 0, linkedAt: 0, lastSyncAt: 0, lastWords: 0 },
+    // 在线模式（以后接服务器用）。**现在没有服务器 → 默认关**，App 完全跑本地，
+    // 功能一条不少（跟伙伴 App 联动同一个原则：可选增强，关了不缺功能）。
+    // 服务端就绪后只要两步：填 baseUrl + 打开 enabled。这部分全是 JS/TS，
+    // 走 wgt 就能更新 —— 服务端契约见 uniapp/docs/online-mode.md。
+    //   deviceId   本机标识（多设备同步时区分来源），首次用到时生成
+    //   userId     服务端侧的用户 id（登录后回写，不是本地 uuid）
+    //   lastSyncAt 上次成功同步的时间戳（增量拉取的 since）
+    //   lastError  上次同步的错误摘要 —— 用户问"为什么没同步上"时有的答
+    online: { enabled: false, baseUrl: '', deviceId: '', userId: '', lastSyncAt: 0, lastError: '' },
     // 外观：主题色 / 背景（key 见 utils/theme.js 的 ACCENTS 与 BACKGROUNDS）
     theme: {
       // 主题色：绯红（rose，启动页同款）。红色调为主的定调 + 红只做小面积点缀：

@@ -79,7 +79,15 @@ const all = [];
   }
 })(ROOT);
 
-const dead = all.filter(f => !alive.has(f) && rel(f).indexOf('components/') !== 0);
+// 预留未接线：**在线模式**的基础（服务器通道 + 云同步骨架）。服务器还没接，
+// 现在没有任何页面调用它们 —— 等服务端就绪后接线，**接线后请把这里删掉**。
+// 它们不会腐烂：_tools/check-online.js 守着（默认关闭 / 凭证 / 同步红线），
+// _tools/_scratch/neg-online.js 反向测试 11 条。
+const RESERVED = ['services/backend.ts', 'services/cloud-sync.ts'];
+
+const dead = all.filter(f => !alive.has(f)
+  && rel(f).indexOf('components/') !== 0
+  && RESERVED.indexOf(rel(f)) < 0);
 const comps = all.filter(f => !alive.has(f) && rel(f).indexOf('components/') === 0);
 const kb = (arr) => arr.reduce((s, f) => s + fs.statSync(f).size, 0) / 1024;
 
@@ -98,6 +106,17 @@ console.log('\n== 2. components/ 下没被显式 import 的（easycom 可能自�
 if (!comps.length) console.log('  ✓ 没有');
 else comps.sort().forEach(f => console.log('      ' + rel(f) + '  (' + (fs.statSync(f).size / 1024).toFixed(0) + ' KB)'));
 
-const bad = dead.length;
-console.log(bad ? '\n死代码体检：' + bad + ' 个文件待清理（挪到工作区根 _removed_vocab/）' : '\n死代码体检：干净');
+// 白名单自己也要体检：文件改名了 / 已经接线了，都得提醒清理 ——
+// 否则白名单会变成一个"永远放过"的洞
+console.log('\n== 3. 预留白名单（接线后要删）==');
+const gone = RESERVED.filter(r => !all.some(f => rel(f) === r));
+const wired = RESERVED.filter(r => all.some(f => rel(f) === r && alive.has(f)));
+gone.forEach(r => console.log('  ✗ 白名单里的 ' + r + ' 已不存在（改名了？请清理 RESERVED）'));
+wired.forEach(r => console.log('  ✗ ' + r + ' 已经接线了 —— 把 check-deadcode.js 的 RESERVED 删掉'));
+if (!gone.length && !wired.length) {
+  console.log('  ✓ ' + RESERVED.length + ' 个预留文件都还在、也都还没接线');
+}
+
+const bad = dead.length + gone.length + wired.length;
+console.log(bad ? '\n死代码体检：' + bad + ' 项待处理' : '\n死代码体检：干净');
 process.exit(bad ? 1 : 0);
