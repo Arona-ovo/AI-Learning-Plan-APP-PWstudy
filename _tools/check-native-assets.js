@@ -244,13 +244,28 @@ console.log('== 5. 与 cover 首帧的衔接 ==');
         + (worst > 8 ? ' —— 封面配色变了但没重新跑 _tools/gen-splash.py' : ''));
     });
 
-    // 5.3 cover 的圆框必须淡入：启动图只画背景，图案若"啪"地出现就还是一次硬切
+    // 5.3 cover 的圆框必须淡入：启动图只画背景，图案若"啪"地出现就还是一次硬切。
+    //
+    // ⚠️ 这里钉的是**意图**不是写法。早期版本钉的是 `opacity:0` 这个字面量，
+    //    结果把"动画失效就白屏"的写法给保护起来了 —— 省电模式 / ROM 限制后台动画 /
+    //    webview 差异下 animation 不执行，opacity:0 会一直生效，启动页只剩一张空渐变，
+    //    而开发机上永远测不出来。
+    //    正确写法是 opacity 交给 stageIn 的 from 帧 + backwards（延迟期套用 from，
+    //    动画结束后回到元素自身 = 可见）。降级结果必须是"没有淡入"，不是"没有圆"。
     const si = cover.indexOf('<style');
     const stylePart = si >= 0 ? cover.slice(si) : '';
     const stageBlk = (stylePart.match(/\.stage\s*\{[^}]*\}/) || [''])[0];
-    assert(/opacity:\s*0/.test(stageBlk) && /animation:\s*stageIn/.test(stageBlk)
-      && /@keyframes\s+stageIn/.test(stylePart),
-      'cover 的 .stage 是淡入的（opacity:0 + stageIn），接得住纯渐变启动图');
+    const stageInBlk = (stylePart.match(/@keyframes\s+stageIn\s*\{[\s\S]*?\}\s*\}/) || [''])[0];
+    assert(/animation:\s*stageIn/.test(stageBlk),
+      'cover 的 .stage 走 stageIn 淡入（接得住纯渐变启动图）');
+    assert(/from\s*\{[^}]*opacity:\s*0/.test(stageInBlk),
+      'stageIn 的 from 帧是透明的（圆框确实是"浮"出来的，不是硬切）');
+    assert(!/opacity:\s*0\s*;/.test(stageBlk),
+      '.stage 不许写死 opacity:0 —— 动画一旦不执行圆框就永远不出现（改用 backwards）');
+    // 同理：品牌文字与底部提示（.anim）也不能靠 opacity:0 起步，否则整屏只剩一个圈
+    const animBlk = (stylePart.match(/^\.anim\s*\{[^}]*\}/m) || [''])[0];
+    assert(/animation:\s*fadeUp/.test(animBlk) && !/opacity:\s*0\s*;/.test(animBlk),
+      '.anim 用 fadeUp 淡入且不写死 opacity:0（动画失效时文字照常显示）');
   }
 }
 
