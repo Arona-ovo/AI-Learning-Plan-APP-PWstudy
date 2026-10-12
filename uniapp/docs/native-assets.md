@@ -149,7 +149,9 @@ Android 原生启动窗口只有**一张**图，不分深浅色。我们固定�
 
 ## 三、落地清单（改这两样东西时）
 
-1. 改图标：换 `uniapp/static/icons/icon-*.png`（尺寸必须 48/72/96/144/192 正方形）
+1. 改图标：换掉仓库根的源图 `icon-src.jpg`，跑 `python gen_icons.py`
+   （中心裁方 + 各尺寸 LANCZOS 缩放，顺带生成 `static/mascot.jpg`）；
+   手工换也可以，但尺寸必须是 48/72/96/144/192 的正方形
 2. 改启动图配色：先改 `cover.vue` / 出厂主题色，再跑 `_tools/gen-splash.py`
 3. 跑 `node _tools/check-native-assets.js`（应 ALL PASS）
 4. 跑一次反向测试 `node _tools/_scratch/neg-native-assets.js`（12 项，应全被抓到且还原后仍是绿）
