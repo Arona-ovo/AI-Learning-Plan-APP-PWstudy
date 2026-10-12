@@ -311,7 +311,8 @@ function ok(cond, msg) {
     android: {
       importClass: (x) => x,
       runtimeMainActivity: () => ({
-        getPackageName: () => 'com.pwstudy.app',
+        // 与 manifest 的 packagename 保持一致（实测打出来的就是这个）
+        getPackageName: () => 'com.PWstudy',
         getSystemService: () => null,     // 没授权"使用情况访问" → 走不到路 3
         getPackageManager: () => ({
           getInstalledApplications: () => ({

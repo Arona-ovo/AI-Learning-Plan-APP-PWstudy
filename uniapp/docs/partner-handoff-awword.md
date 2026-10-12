@@ -273,7 +273,7 @@ pwstudy://vocab-done?min=<真实停留分钟>&words=<correctCount>&task=<taskId>
 - AWword 包名：`com.AWword`（**已确认**，2026-10-12）
 
 ⚠️ **以 APK 实测为准，不要照抄 manifest.json 里的字面值。**
-PWstudy 的 `manifest.json` 里曾写成 `"packageName": "com.pwstudy.app"`（驼峰 N），
+PWstudy 的 `manifest.json` 里曾写成 `"packageName": "com.PWstudy"`（驼峰 N），
 但 uni-app 的规范字段是全小写的 `"packagename"` —— 驼峰那行**不生效**，
 打出来的其实是 DCloud 默认包名 `com.PWstudy`(= `com.` + App 名)。
 已按"保持现状"处理：manifest 改成全小写字段、值固定为 `com.PWstudy`，与实测一致。

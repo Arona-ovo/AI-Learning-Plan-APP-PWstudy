@@ -57,11 +57,11 @@ adb shell settings put secure enabled_accessibility_services ""
 adb shell settings put secure accessibility_enabled 0
 
 # 3. 只想关 PWstudy 这一个：把第 1 步的输出里
-#    "com.pwstudy.app/uts.sdk.modules.pwstudyFocus.PFGuardService" 那段删掉再写回去
+#    "com.PWstudy/uts.sdk.modules.pwstudyFocus.PFGuardService" 那段删掉再写回去
 adb shell settings put secure enabled_accessibility_services "<剩下那些，用冒号分隔>"
 
 # 4. 兜底：实在不行就卸了重装
-adb uninstall com.pwstudy.app
+adb uninstall com.PWstudy
 ```
 
 ## 五、定位时要抓什么
@@ -73,7 +73,7 @@ adb logcat -d > d:\logcat.txt
 # 重点看这四类：
 #   1. AndroidRuntime / FATAL EXCEPTION —— 服务崩在哪一行
 #   2. AccessibilityManagerService / bindService —— 系统是不是在反复 bind
-#   3. ANR in com.pwstudy.app —— 主线程被什么 Binder 调用堵住（traces 里看主线程栈）
+#   3. ANR in com.PWstudy —— 主线程被什么 Binder 调用堵住（traces 里看主线程栈）
 #   4. am_proc_died / am_proc_start —— 进程重启频率（崩循环的直接证据）
 ```
 

@@ -107,8 +107,31 @@ console.log('== 3. App 身份是否会跟老 App 撞车 ==');
   if (mf.name !== 'PWstudy') rows.push('manifest.name = ' + mf.name + '（应为 PWstudy）');
   const schemes = (mf['app-plus'] && mf['app-plus'].schemes) || [];
   if (schemes.indexOf('pwstudy') < 0) rows.push('未声明 pwstudy:// scheme');
+
+  // 全仓库扫"包名分叉"。分叉过两次，两次都很疼：
+  //   ① 驼峰 packageName 不生效 → 打出来是默认的 com.PWstudy，声明与实际对不上
+  //   ② 清理时把 com.PWstudy 手滑写成 com.PWStudy（大写 S）→ 又造出第二种写法
+  // 后果是实打实的：adb uninstall 敲错就是空操作，对面 App 按文档检测更是直接静默失效。
+  // 历史日志（.workbuddy/memory）是记录不是声明，不参与。
+  const CANON = 'com.PWstudy';
+  const stale = [];
+  (function scan(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (['node_modules', 'unpackage', '.git', '_removed_vocab', '.workbuddy', 'fujian-english-trainer'].indexOf(e.name) >= 0) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { scan(p); continue; }
+      if (!/\.(vue|js|ts|json|md)$/.test(e.name)) continue;
+      read(p).split('\n').forEach((l, i) => {
+        // 只抓"看起来像包名声明"的写法：com.pwstudy.app，或 com.PWStudy 这类大小写变体
+        const m = l.match(/com\.(?:pwstudy\.app|PWStudy|PWstudy)/g) || [];
+        m.forEach(hit => { if (hit !== CANON) stale.push(path.relative(ROOT, p) + ':' + (i + 1) + ' ' + hit); });
+      });
+    }
+  })(ROOT);
+  if (stale.length) rows.push('还有 ' + stale.length + ' 处包名写法与实测不一致：' + stale.slice(0, 6).join(' / '));
+
   report('App 身份与 scheme 已独立', rows,
-    '包名要显式写（当前 com.PWstudy，字段全小写 packagename）；storage key 也别和 AWword 复用同一个前缀');
+    '包名要显式写（当前 ' + CANON + '，字段全小写 packagename）；全仓库不许出现别的写法（含大小写变体）；storage key 也别和 AWword 复用同一个前缀');
 }
 
 console.log('== 4. 存储 key 命名空间 ==');
