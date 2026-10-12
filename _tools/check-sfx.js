@@ -34,7 +34,10 @@ function mkCtx() {
     destroy() { rec.destroyed = true; },
     onEnded(f) { rec.h.onEnded = f; },
     onError(f) { rec.h.onError = f; },
-    onStop(f) { rec.h.onStop = f; }
+    onStop(f) { rec.h.onStop = f; },
+    // ⚠️ 必须有 onCanplay：sfx.js 现在是"缓冲好再播一次"，mock 缺这个方法会直接抛
+    //    TypeError（而 run-all 里被别的脚本泄漏的 uni mock 恰好有 → 出现假绿，已踩）
+    onCanplay(f) { rec.h.onCanplay = f; }
   };
 }
 global.uni = {
@@ -71,7 +74,10 @@ assert(totalKB < 80, '三个音效合计 ' + totalKB.toFixed(0) + ' KB（< 80 KB
 /* ---------------- 装载 ---------------- */
 const settings = load('utils/settings.js');
 settings.init();
-const sfx = load('utils/sfx.js', { settings });
+// sfx 现在把路径转换与"播不出来就走系统蜂鸣"的兜底都交给 utils/audio.js 了，
+// 依赖袋里必须带上（load() 是按标识符注入的，漏了就是运行时 ReferenceError）
+const audio = load('utils/audio.js');
+const sfx = load('utils/sfx.js', { settings, audio });
 
 console.log('== 2. 时长表与实际音频一致 ==');
 names.forEach((n) => {
@@ -135,7 +141,11 @@ console.log('== 7. 接线 ==');
   // notify.js（番茄结束的响铃走 sfx）与设置页（音效开关 / 试听 / 彩蛋开奖音）
   const nt = fs.readFileSync(path.join(ROOT, 'utils', 'notify.js'), 'utf8');
   assert(/import \* as sfx from/.test(nt), 'notify.js 引入 sfx');
-  assert(/sfx\.play\('correct'\)/.test(nt), '提示音走 sfx.play');
+  assert(/sfx\.play\('correct'/.test(nt), '提示音走 sfx.play');
+  // ⚠️ 这条是真机事故换来的：番茄结束的「响铃」由 focus.sound 单独管，
+  //    不能再过 sfx 自己的 voice.sfx（设置里另一栏）判断 —— 否则用户开了响铃却没声音。
+  //    谁开谁负责，所以必须带 force。
+  assert(/sfx\.play\('correct',\s*\{[^}]*force:\s*true/.test(nt), '响铃带 force（不被设置里的音效开关二次掐掉）');
   const app = fs.readFileSync(path.join(ROOT, 'App.vue'), 'utf8');
   assert(/sfx\.stop\(\)/.test(app), 'App onHide 掐掉音效');
   const st = fs.readFileSync(path.join(ROOT, 'pkgManage', 'pages', 'settings', 'settings.vue'), 'utf8');

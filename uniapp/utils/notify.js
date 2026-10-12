@@ -249,8 +249,11 @@ export function vibrate(ms) {
 
 export function beep() {
   try {
-    // 复用答题音效里的"正确"（钟琴感），不新增素材
-    return !!sfx.play('correct');
+    // 复用答题音效里的"正确"（钟琴感），不新增素材。
+    // force：这个开关是 focus.sound（专注页「结束响铃」），
+    // 不要再过 sfx 自己的 voice.sfx（那是设置里另一栏）判断，否则会出现
+    // "响铃开关开了却没声音"（真机反馈过）。
+    return !!sfx.play('correct', { force: true });
   } catch (e) {}
   return false;
 }

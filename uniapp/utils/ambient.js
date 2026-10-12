@@ -9,6 +9,11 @@
 //   2) 生命周期归 focus.js 状态机管：开始专注 → start，暂停 → pause，恢复 → resume，
 //      结束/放弃/进休息 → stop。页面不用管，切页不影响（和计时本身一个待遇）。
 //   3) 没有全局静音开关耦合（sfx 关的是"音效"，白噪音有自己的开关）。
+//
+// 播放本身统一走 utils/audio.js 的路径转换（那一层也负责错误上报的口径），
+// 这里只管"该不该响"和"什么时候响"。
+
+import * as audio from './audio.js';
 
 export const KINDS = [
   { k: 'white', t: '白噪' },
@@ -17,24 +22,24 @@ export const KINDS = [
   { k: 'rain', t: '雨声' }
 ];
 
+const VOLUME = 0.7;
+
 let ctx = null;
 let cur = '';
+let lastErr = '';      // 最近一次播放错误（界面可以据此提示"播不出来"）
 
 export function current() { return cur; }
+export function lastError() { return lastErr; }
 
-function srcOf(kind) {
-  const p = '/static/noise/' + kind + '.wav';
-  // #ifdef APP-PLUS
-  if (typeof plus !== 'undefined' && plus.io && plus.io.convertLocalFileSystemURL) {
-    try {
-      return plus.io.convertLocalFileSystemURL('_www' + p);
-    } catch (e) { /* 转换失败就用原路径 */ }
-  }
-  // #endif
-  return p;
+function relOf(kind) {
+  return '/static/noise/' + kind + '.wav';
 }
 
-/** 开始循环播放。已在该音色上时等价于 resume */
+/**
+ * 开始循环播放。已在该音色上时等价于 resume。
+ * @returns {boolean} 是否成功发起。真出没出声看 lastError() ——
+ *   长循环音没有"蜂鸣兜底"那一路（那只会变成刺耳的一声），如实记错给界面显示。
+ */
 export function start(kind) {
   if (!KINDS.some(x => x.k === kind)) return false;
   if (ctx && cur === kind) {
@@ -42,25 +47,52 @@ export function start(kind) {
     return true;
   }
   stop();
+  lastErr = '';
   let c = null;
   try {
     c = uni.createInnerAudioContext();
   } catch (e) {
+    lastErr = '无法创建播放器';
     return false;
   }
   ctx = c;
   cur = kind;
   try {
     c.loop = true;
-    c.volume = 0.6;
-    c.onError(() => {});          // 播放失败静默（别让一条环境音弹 toast 打断专注）
-    c.src = srcOf(kind);
-    c.play();
+    c.volume = VOLUME;
+    c.onError((e) => {
+      const code = e && (e.errCode != null ? e.errCode : e.code);
+      lastErr = '白噪音播放失败' + (code ? '（' + code + '）' : '') +
+        '：' + ((e && (e.errMsg || e.message)) || '未知原因');
+      console.warn('[ambient] ' + lastErr);
+    });
+    c.onCanplay(() => {
+      lastErr = '';
+      try { c.play(); } catch (e) {}
+    });
+    c.src = audio.localUrl(relOf(kind));
+    // 缓冲好会再播一次；这里先发起，防的是部分平台 onCanplay 不触发就一直不响
+    try { c.play(); } catch (e) {}
     return true;
   } catch (e) {
+    lastErr = '白噪音启动失败';
     stop();
     return false;
   }
+}
+
+/**
+ * 试听某一种音色几秒（不影响正在播的那一路）。
+ * 真机上"开关开了却没声音"，点一下试听就能分辨：
+ * 是素材播不出来（回调给 err/code），还是媒体音量为 0（audio.quiet()）。
+ */
+export function preview(kind, ms, cb) {
+  if (!KINDS.some(x => x.k === kind)) return false;
+  return audio.playOnce(relOf(kind), {
+    volume: VOLUME,
+    ms: Math.max(1000, Number(ms) || 4000),
+    fallback: false        // 白噪音没有"蜂鸣兜底"这一说，那只会变成刺耳的一声
+  }, cb || function () {});
 }
 
 export function pause() {

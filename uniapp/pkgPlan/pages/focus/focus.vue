@@ -50,6 +50,10 @@
           <view class="sr-row" v-for="o in optRows" :key="o.key">
             <view class="sr-info">
               <text class="sr-title">{{ o.title }}</text>
+              <!-- 「响铃 / 震动」各给一个试一下的入口：真机上"开了没反应"时，
+                   点一下就能分辨是系统媒体音量为 0、素材播不出来，还是压根没触发 -->
+              <text v-if="o.key === 'sound'" class="sr-try" @tap.stop="testSound">试听 ›</text>
+              <text v-else-if="o.key === 'vibe'" class="sr-try" @tap.stop="testVibe">试一下 ›</text>
               <text class="sr-sub">{{ o.sub }}</text>
             </view>
             <view class="sr-switch" :class="{ 'sr-switch-on': opts[o.key] }" @tap="toggleOpt(o.key)">
@@ -63,6 +67,7 @@
           <view class="sr-head">
             <view class="sr-info">
               <text class="sr-title">专注白噪音</text>
+              <text class="sr-try" @tap.stop="testNoise">试听 ›</text>
               <text class="sr-sub">专注时循环播放环境音（本地合成，不联网），休息自动停</text>
             </view>
             <view class="sr-switch" :class="{ 'sr-switch-on': noiseOn }" @tap="toggleNoise">
@@ -213,6 +218,7 @@ import * as settings from '../../../utils/settings.js'
 import { safeNav } from '../../../utils/nav.js'
 import * as notify from '../../../utils/notify.js'
 import * as ambient from '../../../utils/ambient.js'
+import * as audio from '../../../utils/audio.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
 export default {
@@ -729,7 +735,18 @@ export default {
       const next = !this.noiseOn
       this.noiseOn = next
       this.saveNoise(next ? (this.noiseKind || 'rain') : '')
-      if (!next) ambient.stop()   // 关掉的瞬间就安静（下次开始专注前不会再响）
+      if (!next) {
+        ambient.stop()   // 关掉的瞬间就安静（下次开始专注前不会再响）
+        return
+      }
+      // 开了却听不见，八成是媒体音量为 0 —— 与其让用户一头雾水，不如当场说清
+      if (audio.quiet()) {
+        uni.showToast({
+          title: '系统媒体音量为 0，白噪音听不见 —— 请先按音量键调大',
+          icon: 'none',
+          duration: 3000
+        })
+      }
     },
     pickNoise(k) {
       this.noiseKind = k
@@ -742,6 +759,76 @@ export default {
         st.focus.noise = kind
         settings.save()
       } catch (e) {}
+    },
+    /**
+     * 声音自检：一次把三类"没声音"的原因分开问清楚。
+     *   ① 系统媒体音量为 0（最常见，安卓的播放器走 STREAM_MUSIC）
+     *   ② 素材播不出来（路径/格式/播放器报错，带错误码）
+     *   ③ 压根没走到播放（开关没开 / 状态机没调）
+     */
+    testSound() {
+      uni.showToast({ title: '正在试听…', icon: 'none', duration: 1200 })
+      audio.selfTest((r) => {
+        const mv = r.volume
+        const vTxt = mv ? '媒体音量 ' + mv.vol + '/' + mv.max : '读不到媒体音量'
+        if (r.quiet) {
+          uni.showToast({
+            title: '媒体音量为 0 —— 请先按音量键调大，这是没声音最常见的原因',
+            icon: 'none',
+            duration: 3200
+          })
+          return
+        }
+        if (!r.play.ok) {
+          uni.showToast({
+            title: '播放失败（' + vTxt + '）：' + (r.play.code || r.play.err || '未知错误'),
+            icon: 'none',
+            duration: 3200
+          })
+          return
+        }
+        // advanced = 播放进度有没有往前走；走不动通常就是"播了但没真出声"
+        const advTxt = r.play.advanced === false ? '（播放器进度没推进，可能没真出声）' : ''
+        uni.showToast({
+          title: '已响一声 · ' + vTxt + (r.play.via === 'tone' ? '（走的系统蜂鸣兜底）' : '') + advTxt,
+          icon: 'none',
+          duration: 3000
+        })
+      })
+    },
+    /** 震动自检：直接震一下，验证开关与权限是否真的通 */
+    testVibe() {
+      const ok = notify.vibrate()
+      uni.showToast({ title: ok ? '应该震了一下' : '震不动（机型不支持或没权限）', icon: 'none', duration: 2200 })
+    },
+    /** 白噪音试听：播 4 秒当前音色，把"播不出来 / 媒体音量为 0"分开说清楚 */
+    testNoise() {
+      const k = this.noiseKind || 'rain'
+      // 正在专注且已经在放同一路时，不用再叠一路：直接播报现状
+      if (this.active && ambient.current() === k) {
+        uni.showToast({
+          title: ambient.lastError() || '正在播放中；若听不见，多半是媒体音量为 0',
+          icon: 'none',
+          duration: 2600
+        })
+        return
+      }
+      uni.showToast({ title: '正在试听 ' + (this.noiseKindName || k) + '…', icon: 'none', duration: 1500 })
+      ambient.preview(k, 4000, (info) => {
+        if (!info || !info.ok) {
+          uni.showToast({
+            title: '白噪音播不出来：' + ((info && (info.code || info.err)) || '未知原因'),
+            icon: 'none',
+            duration: 3000
+          })
+          return
+        }
+        if (audio.quiet()) {
+          uni.showToast({ title: '试听已发起，但媒体音量为 0 —— 调大音量才听得见', icon: 'none', duration: 3000 })
+          return
+        }
+        uni.showToast({ title: '试听完毕（' + (this.noiseKindName || k) + '）', icon: 'none', duration: 1800 })
+      })
     },
     toggleStrict() {
       const next = !this.strictOn
@@ -904,6 +991,15 @@ export default {
 .sr-head { display: flex; align-items: center; justify-content: space-between; }
 .sr-info { flex: 1; min-width: 0; padding-right: 20rpx; }
 .sr-title { font-size: 27rpx; font-weight: 600; color: var(--ink-1, #17201a); }
+/* 「试听 / 试一下」：紧跟标题后面，点一下就能自检（不是装饰，是真机上定位"没声音"的入口） */
+.sr-try {
+  margin-left: 14rpx; font-size: 22rpx; font-weight: 500;
+  color: var(--brand-strong, #bb1332);
+  padding: 4rpx 14rpx; border-radius: 999rpx;
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 1rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+}
+.sr-try:active { background: rgba(var(--brand-rgb, 228, 23, 61), 0.2); }
 .sr-sub { display: block; margin-top: 8rpx; font-size: 22rpx; line-height: 1.6; color: var(--ink-3, #98a19b); }
 .sr-switch {
   width: 88rpx; height: 50rpx; border-radius: 999rpx;
