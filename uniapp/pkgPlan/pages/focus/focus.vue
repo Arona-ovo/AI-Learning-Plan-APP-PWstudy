@@ -118,6 +118,11 @@
           <view v-if="forcedOn && !pullOk" class="sr-warn">
             当前跑的不是自定义基座 / 正式打包，原生拉回能力没打进包里 —— 现在只能提醒，拦不住
           </view>
+          <view v-else-if="forcedOn && !a11ySafe && !a11yOk" class="sr-warn sw-block">
+            <text class="sw-head">这台手机的无障碍服务起不来，已自动让路</text>
+            <text class="sw-body">刚才它在被系统绑定的过程中反复重启（那会把手机一起拖卡），所以 PWstudy 已经把它停掉，改用「使用情况访问」+ 悬浮窗遮罩这条路 —— 只是拉回会慢半拍。</text>
+            <text class="sw-go" @tap.stop="retryA11y">想再试一次无障碍 ›</text>
+          </view>
           <view v-else-if="forcedOn && !a11yOk" class="sr-warn sw-block" @tap="openA11y">
             <text class="sw-head">开「无障碍」，强制模式才真拦得住</text>
             <text class="sw-body">安卓 10 起系统默认禁止应用从后台跳回前台，官方只给"由系统绑定的服务"（无障碍 / 通知监听这类）开口子。开了它：你一切走就被立刻拉回来，而且不必再开「使用情况访问」。</text>
@@ -231,6 +236,7 @@ export default {
       usageOk: false,
       pullOk: false,      // 原生"拉回前台"能力在不在（自定义基座 / 正式包）
       overlayOk: false,   // 「显示在其他应用上层」授权：拦不住时用遮罩兜底
+      a11ySafe: true,     // 无障碍护卫的保险丝：false = 这个 ROM 上起不来，别再引导用户去开
       a11yOk: false,      // 无障碍护卫已开启（强制模式最关键的一层：后台启动的官方豁免）
       a11yLive: false,    // 护卫已连上（正在收窗口事件）
       a11yEvents: 0,      // 护卫收到过多少窗口事件（>0 说明它真的在干活）
@@ -632,9 +638,25 @@ export default {
      */
     refreshA11y() {
       this.a11yOk = apptime.hasA11yPermission()
+      // 保险丝跳了 = 这个 ROM 上服务起不来（再开也是卡），界面改成另一套说法
+      this.a11ySafe = apptime.a11ySafe()
       const st = apptime.a11yStats()
       this.a11yLive = !!st.on
       this.a11yEvents = Number(st.events) || 0
+    },
+    /**
+     * 保险丝跳过闸之后，让用户能"再试一次"。
+     * 只清计数，不替用户去系统页 —— 开关在系统手里，我们只能把它自己的刹车松开。
+     */
+    retryA11y() {
+      apptime.resetA11y()
+      apptime.refreshA11y()
+      this.refreshA11y()
+      uni.showToast({
+        title: '已复位，可以去系统设置里再开一次试试',
+        icon: 'none',
+        duration: 2200
+      })
     },
     /**
      * 跳系统「无障碍」设置页。
@@ -643,9 +665,16 @@ export default {
      * 系统故意不给应用跳这一步的捷径，只能靠文案讲清楚（提示里已经写了去哪找）。
      */
     openA11y() {
+      // 已经跳过闸的话，先复位再去 —— 否则用户开着开关回来还是"没反应"，
+      // 而且那次 bind 大概率又会把进程拖进重启循环。
+      if (!this.a11ySafe) {
+        apptime.resetA11y()
+        this.a11ySafe = true
+      }
       this.__fromA11y = true
       apptime.openA11ySettings()
       // 系统页是全屏的，回来才知道结果；这里再补一次，防止用户很快就切回来
+      //（延迟着查还有一个好处：躲开系统刚 bind 服务时那段最容易 Binder 互等的窗口）
       setTimeout(() => { apptime.refreshA11y(); this.refreshA11y() }, 1200)
     },
     // ---------- 强制模式 ----------
@@ -669,7 +698,10 @@ export default {
         this.refreshA11y()
         this.refreshLearnApps()
         // 提示只挑最要紧的一条说：无障碍 > 使用情况访问 > 学习 App > 遮罩
-        if (!this.a11yOk) {
+        //（保险丝跳了就不提无障碍了 —— 那是这台机子起不来，不是用户没开）
+        if (!this.a11ySafe) {
+          uni.showToast({ title: '这台手机的无障碍起不来，已改用使用情况访问', icon: 'none' })
+        } else if (!this.a11yOk) {
           uni.showToast({ title: '建议开「无障碍」，否则切走拉不回来', icon: 'none' })
         } else if (!this.learnApps.length) {
           uni.showToast({ title: '还没登记学习 App，切哪都算离开', icon: 'none' })

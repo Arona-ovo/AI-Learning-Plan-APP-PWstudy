@@ -59,9 +59,16 @@ export const ITEMS = [
       '开了它还能顺带替代「使用情况访问」：前台是哪个应用由系统事件直接告知，更快也更省电。',
     // 必办与否取决于用户有没有开强制模式：不开的人根本用不到，别拿它去烦人。
     // （这也是这一项 must 写成函数而其它项是字面量的唯一原因）
-    must: () => forcedOn(),
-    check: () => apptime.hasA11yPermission(),
-    fix: () => apptime.openA11ySettings()
+    //
+    // 保险丝跳过闸的话这一项直接算"过了"：服务起不来是这台机子的问题，
+    // 再引导用户去开只会让他又卡一次（服务崩 → 系统重 bind → 进程重启循环）。
+    must: () => forcedOn() && apptime.a11ySafe(),
+    check: () => !apptime.a11ySafe() || apptime.hasA11yPermission(),
+    fix: () => {
+      // 已跳闸：先把刹车松开再去，否则那次 bind 大概率又是同样的循环
+      if (!apptime.a11ySafe()) apptime.resetA11y();
+      return apptime.openA11ySettings();
+    }
   },
   {
     key: 'autostart',

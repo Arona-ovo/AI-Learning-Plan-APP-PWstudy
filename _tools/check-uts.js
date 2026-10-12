@@ -219,7 +219,7 @@ else bad('PFGuardService 没写 exported="true" —— 系统绑不上');
 //      资源要不要单独拷一份取决于打包链版本。真没拷进来，aapt2 link 阶段才会暴露；
 //      就算勉强过了，服务也会退化成"什么都不监听"（静默失效，最难查）。
 //      所以 onServiceConnected 里必须再用代码 setServiceInfo 设一遍同样的值。
-if (/new AccessibilityServiceInfo\(\)/.test(uts) && /setServiceInfo\(info\)/.test(uts) &&
+if (/function buildGuardInfo\(\)/.test(uts) && /setServiceInfo\(buildGuardInfo\(\)\)/.test(uts) &&
     /info\.eventTypes\s*=\s*AccessibilityEvent\.TYPE_WINDOW_STATE_CHANGED/.test(uts) &&
     /info\.flags\s*=\s*AccessibilityServiceInfo\.FLAG_DEFAULT/.test(uts)) ok('onServiceConnected 用代码重设了一遍服务配置（res 没被合并时的兜底）');
 else bad('无障碍服务没有代码兜底配置 —— 一旦 meta-data 的 xml 没合进来，服务连上但什么都监听不到');
@@ -236,7 +236,7 @@ if (a11yRaw) ok('res/xml/pw_accessibility_config.xml 存在');
 else bad('缺 res/xml/pw_accessibility_config.xml');
 [['accessibilityEventTypes="typeWindowStateChanged"', '只收窗口状态变化（最省电、够用）'],
 ['accessibilityFeedbackType=', '反馈类型'],
-['canRetrieveWindowContent="true"', '取窗口信息（用来分辨"应用窗口"还是"输入法/通知栏"）'],
+['canRetrieveWindowContent=', '是否读取窗口内容（见 8.5：刻意 false）'],
 ['android:description="@string/', '设置页里的说明（必须是 @string 引用，不能写裸字面量）'],
 ['notificationTimeout=', '事件节流窗口']
 ].forEach(([needle, label]) => {
@@ -263,9 +263,11 @@ else bad('找不到 PFGuardService extends AccessibilityService');
   if (new RegExp('override\\s+' + m + '\\s*\\(').test(uts)) ok('实现了 ' + m + '()');
   else bad('缺 ' + m + '() —— AccessibilityService 的抽象方法，不实现编译不过');
 });
-if (/getWindows\(\)/.test(uts) && /getType\(\)\s*==\s*1/.test(uts)) ok('用窗口类型过滤（1 = TYPE_APPLICATION，排掉输入法/通知栏/系统浮层）');
-else bad('没做窗口类型过滤 —— 输入法一弹出来就会被判成"跑偏"，用户每打字一次被拉回一次');
-if (/getEnabledInputMethodList\(\)/.test(uts)) ok('输入法包名动态进白名单（换 ROM 不会漏）');
+// ⚠️ 2026-10-12 改设计：原来靠 getWindows() 拿窗口类型来排掉"输入法/通知栏"，
+// 代价是 canRetrieveWindowContent=true（等于申请读屏，且每次窗口变化都让系统构建整棵窗口树）。
+// 现在改成"输入法包名直接进白名单"—— 输入法本来就是发窗口事件的常见来源，
+// 按包名放行既不需要读屏，也跟 ROM 无关。第 8 节会守"不许再用 getWindows"。
+if (/getEnabledInputMethodList\(\)/.test(uts) && /imePackages\(/.test(uts)) ok('输入法包名动态进白名单（换 ROM 不会漏，且不需要读屏）');
 else bad('没把输入法加进白名单 —— 打字即"跑偏"');
 if (/getEnabledAccessibilityServiceList\(-1\)/.test(uts)) ok('用 AccessibilityManager 实测"到底开没开"（比读 Settings 字符串更可信）');
 else bad('没有实测无障碍是否开启 —— 界面只能靠猜');
@@ -299,6 +301,54 @@ if (/key:\s*'a11y'/.test(setupSrc) && /openA11ySettings/.test(setupSrc)) ok('保
 else bad('setup.js 没把无障碍列进清单 —— 用户不知道要开它');
 if (/must:\s*\(\)\s*=>/.test(setupSrc)) ok('无障碍的 must 随"有没有开强制模式"变化（不用它的人不被骚扰）');
 else bad('setup 的 must 不支持函数 —— 无障碍会被当成对所有人必办');
+
+console.log('== 8. 无障碍服务的"不能崩"红线（真机踩出来的死机事故） ==');
+// 背景：无障碍服务由**系统**创建并绑定，绑定时 APP 进程常常是裸的（uni / UTS 运行时
+// 还没初始化）。服务在绑定过程中抛任何异常 → 系统杀进程 → 重 bind → 再崩，
+// 循环起来是"APP 和整机一起卡死"，用户看到的就是"开了无障碍回来就死机"。
+// 只截到这个类结束（下一个顶层声明为止），否则后面模块的 console 会被误算成"服务里的日志"
+const guardCls = (() => {
+  const i = uts.indexOf('class PFGuardService');
+  if (i < 0) return '';
+  const rest = uts.slice(i);
+  const stop = rest.search(/\n(export )?function |\nclass |\n\/\* ={4,}/);
+  return stop > 0 ? rest.slice(0, stop) : rest;
+})();
+// 8.1 服务回调里不许出现"可能抛异常还没包 try"的裸调用：
+//     · getWindows() 要 canRetrieveWindowContent，是最容易被 ROM 拒/最贵的一档
+//     · console.* 在裸进程里本身就是风险点（UTS 运行时可能没起来）
+if (!/getWindows\s*\(/.test(guardCls)) ok('服务里不再调用 getWindows()（重量级 IPC + 需要读屏能力）');
+else bad('服务里还有 getWindows() —— 每次窗口变化都让系统构建整棵窗口树，真机上会明显掉帧');
+const guardCode = guardCls.replace(/\/\/.*$/gm, '');   // 剥行注释：注释里会提到 console.error 这个词
+if (!/console\.(log|error|warn)/.test(guardCode)) ok('服务回调里没有 console.*（裸进程里它可能就是崩溃点）');
+else bad('服务回调里还有 console.* —— 裸进程下 UTS 日志桥可能未初始化');
+// 8.2 四个回调必须各有一层 try，异常绝不能冒到系统那边
+const cbs = ['onServiceConnected', 'onAccessibilityEvent', 'onUnbind', 'onDestroy'];
+const missed = cbs.filter(c => {
+  const i = guardCls.indexOf('override ' + c);
+  if (i < 0) return true;
+  return !/try\s*\{/.test(guardCls.slice(i, i + 900));
+});
+if (missed.length === 0) ok('四个服务回调全部包了 try（异常不会冒给系统触发进程重启）');
+else bad('这些回调没包 try：' + missed.join('、'));
+// 8.3 保险丝：窗口期内被反复 bind = 服务在崩，必须能自己躺平
+if (/function bumpBind\(\)/.test(uts) && /A11Y_BIND_MAX/.test(uts) && /a11yTripped/.test(uts)) ok('有 bind 次数保险丝：崩循环会让服务自动躺平，不再拖垮整机');
+else bad('没有保险丝 —— 服务一旦崩，系统会无限重启进程，手机一起卡死');
+if (/getSharedPreferences/.test(uts) && /bind_n/.test(uts)) ok('bind 计数落盘（进程被杀也记得住，不会每次重启都从零开始数）');
+else bad('bind 计数只在内存里 —— 进程一被杀证据就没了，保险丝形同虚设');
+if (/export function a11ySafe\(\)/.test(uts) && /export function resetA11y\(\)/.test(uts)) ok('有 a11ySafe / resetA11y：界面能如实告知并能"再试一次"');
+else bad('界面拿不到跳闸状态 —— 服务躺平了用户还在被引导去开开关');
+// 8.4 主线程不许做同步 Binder 查询（系统正 bind 服务时会与 system_server 互等 → 死锁）
+const a11yFn = uts.slice(uts.indexOf('export function a11yEnabled'));
+if (!/getEnabledAccessibilityServiceList/.test(a11yFn.slice(0, a11yFn.indexOf('\n}')))) ok('a11yEnabled() 不在调用线程上查 AccessibilityManager（躲开 Binder 死锁）');
+else bad('a11yEnabled() 仍是同步跨进程查询 —— 与系统 bind 互等会让主线程冻住');
+if (/class A11yQueryThread extends Thread/.test(uts)) ok('跨进程查询挪到了后台线程');
+else bad('没有后台查询线程 —— 要么阻塞主线程，要么永远拿不到"系统里勾没勾"');
+// 8.5 配置里不许再申请读屏（沿用第 7 节剥过注释的 a11yXml，别重复读一遍）
+if (/canRetrieveWindowContent="false"/.test(a11yXml)) ok('无障碍配置不申请读取窗口内容（canRetrieveWindowContent=false）');
+else bad('canRetrieveWindowContent 还是 true —— 既贵又敏感，而代码已经不需要它了');
+if (!/flagRetrieveInteractiveWindows/.test(a11yXml)) ok('配置里去掉了 flagRetrieveInteractiveWindows');
+else bad('还留着 flagRetrieveInteractiveWindows —— 与 canRetrieveWindowContent=false 矛盾');
 
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;

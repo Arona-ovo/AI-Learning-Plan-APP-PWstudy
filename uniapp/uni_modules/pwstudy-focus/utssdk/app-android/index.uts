@@ -53,6 +53,7 @@ import AccessibilityEvent from 'android.view.accessibility.AccessibilityEvent';
 import AccessibilityManager from 'android.view.accessibility.AccessibilityManager';
 import AccessibilityServiceInfo from 'android.accessibilityservice.AccessibilityServiceInfo';
 import InputMethodManager from 'android.view.inputmethod.InputMethodManager';
+import SharedPreferences from 'android.content.SharedPreferences';
 
 // 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
@@ -128,7 +129,71 @@ let guardOn = false;                // 无障碍服务是否已连上（系统�
 let guardPkg = '';                  // 护卫最近一次报上来的"应用窗口"包名
 let guardAtSec = 0;                 // 上报时刻（秒），过期就不再信任
 let guardEvents = 0;                // 护卫累计收到的窗口事件数（诊断用）
+let guardConnAtSec = 0;             // 护卫最近一次连上的时刻（判断"这次稳不稳"用）
 let kickWanted = false;             // 有"人刚切走"的信号 → 让看门狗线程立刻醒一次，别等满一轮
+
+/* -------- 保险丝：服务被反复 bind = 服务在崩，不能再让它崩 --------
+ *
+ * 背景（真机踩出来的）：无障碍服务是**系统**创建并绑定的。用户在系统设置里一打开开关，
+ * 系统就 bind 它 —— 这时候 APP 进程常常是"裸"的：uni 的 Application/Activity 还没起来，
+ * UTX 运行时也没初始化过，进程里唯一活着的组件就是这个服务。
+ * 服务一旦在绑定过程中抛异常，系统会：**杀掉整个 APP 进程 → 重新 bind → 再崩**，
+ * 循环往复。表现不是"闪退"，而是**APP 和系统一起卡住**（system_server 也在反复重试），
+ * 用户看到的就是"开了无障碍，回到 APP 就死机"。
+ *
+ * 所以这里记一个窗口期内的 bind 次数并落盘（进程被杀也留得下）：
+ * 超过阈值就跳闸 —— 服务从此变成一个什么都不做的空壳，UI 如实告诉用户"这个 ROM 上
+ * 起不来，请用严格模式 / 悬浮窗那一档"，并提供"再试一次"重置。
+ * 宁可这个功能不可用，也不能把手机拖死。
+ */
+const A11Y_BIND_WINDOW_SEC: Int = 60;   // 统计窗口（秒）
+const A11Y_BIND_MAX: Int = 2;           // 窗口内最多容忍几次 bind（第 3 次跳闸）
+const A11Y_SP = 'pw_a11y';
+
+let a11yTripped = false;    // 是否已跳闸（进程内镜像，落盘为准）
+let a11yBindAt = 0;         // 拿不到落盘时的降级计数（进程内）
+let a11yBindN = 0;
+let a11yListed = false;     // 后台线程刷出来的"系统启用名单里有我"
+let a11yListedAt = 0;
+let a11yQuerying = false;
+
+function a11ySp(): SharedPreferences | null {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return null;
+  let p = ctx!.getSharedPreferences(A11Y_SP, 0);   // 0 = MODE_PRIVATE
+  return p;
+}
+
+/** 记一次 bind，返回窗口期内的累计次数（1 = 这次是第一次） */
+function bumpBind(): Int {
+  let t = nowSec();
+  try {
+    let p = a11ySp();
+    if (p != null) {
+      let last = Number(p!.getLong('bind_at', 0));
+      let n = Number(p!.getLong('bind_n', 0));
+      if (t - last > A11Y_BIND_WINDOW_SEC) n = 0;
+      n = n + 1;
+      p!.edit().putLong('bind_at', t).putLong('bind_n', n).apply();
+      return n;
+    }
+  } catch (e) {
+    // 落不了盘就退化为进程内计数（进程被杀会归零，但至少同一次运行内有效）
+  }
+  if (t - a11yBindAt > A11Y_BIND_WINDOW_SEC) { a11yBindAt = t; a11yBindN = 0; }
+  a11yBindN = a11yBindN + 1;
+  return a11yBindN;
+}
+
+/** 记一次"服务正常跑满了一段"（用于把计数清零，避免一次正常的长期运行被误判） */
+function clearBind(): void {
+  try {
+    let p = a11ySp();
+    if (p != null) p!.edit().putLong('bind_n', 0).putLong('bind_at', 0).apply();
+  } catch (e) {}
+  a11yBindN = 0;
+  a11yBindAt = 0;
+}
 
 /* ==================== 前台服务本体 ==================== */
 
@@ -626,53 +691,60 @@ function cancelPullNotify(ctx: Context | null) {
  *     会莫名其妙按不动返回；三是来电、权限弹窗这类系统界面也可能被判成"非白名单"，
  *     吞键会挡住用户接电话。所以"拦不住你走，但一定把你拽回来"才是这个能力该有的定位。
  */
+/**
+ * 把所有"跟 UTS 运行时交互"的活儿收进独立函数并逐个 try：
+ * 这个类的实例由**系统**创建，进程可能是裸的（UTS 运行时没初始化过），
+ * 任何一处异常都会让系统判定"服务崩了" → 杀进程 → 重 bind → 再崩（见上面的保险丝注释）。
+ * 所以原则只有一条：**这里不信任任何东西能成功**。
+ */
 class PFGuardService extends AccessibilityService {
 
   override onServiceConnected(): void {
-    super.onServiceConnected();
-    // 服务的配置本来写在 res/xml/pw_accessibility_config.xml（清单 meta-data 指向它）。
-    // 这里再用代码设一份同样的值，兜的是两种情况：
-    //   ① 插件的 res 没被合并进 APK —— UTS 插件编译产物是 jar/classes.dex，
-    //      资源要单独拷贝，这取决于打包链版本；万一没拷，meta-data 指向的 xml 找不到，
-    //      系统照样绑定服务，但配置会退化成"什么都不监听"，护卫就成了摆设；
-    //   ② 个别 ROM 不读 meta-data。
-    // 取值与 XML 严格一致：只听窗口状态变化、只认应用窗口、不吞按键、不做手势/截图。
-    try {
-      let info = new AccessibilityServiceInfo();
-      info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
-      info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-      info.notificationTimeout = A11Y_NOTIFY_MS;
-      info.flags = AccessibilityServiceInfo.FLAG_DEFAULT |
-                   AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
-      this.setServiceInfo(info);
-    } catch (e) {
-      // 配不上也不致命：清单里的声明式配置还在
-      console.error('pwstudy-focus: 无障碍服务信息设置失败，退回清单声明式配置');
+    // super 也要包：生成的 Kotlin 里它同样可能触到未初始化的运行时
+    try { super.onServiceConnected() } catch (e) {}
+
+    // 第一件事就是过保险丝 —— 已经跳过闸的话，连状态都别碰
+    let n: Int = 0;
+    try { n = bumpBind() } catch (e) {}
+    if (n > A11Y_BIND_MAX) {
+      a11yTripped = true;
+      return;
     }
-    guardOn = true;
-    guardPkg = '';
-    guardAtSec = nowSec();
-    kickWanted = true;
+    a11yTripped = false;
+
+    // 配置主要靠清单里的 res/xml（meta-data）；这里再补一份只是兜底，
+    // 失败就失败 —— 绝不能因为配不上而让服务崩（以前这里还 console.error 过，
+    // 在裸进程里那条日志本身就是风险点）。
+    try { this.setServiceInfo(buildGuardInfo()) } catch (e) {}
+
+    try { guardOn = true } catch (e) {}
+    try { guardPkg = '' } catch (e) {}
+    try { guardConnAtSec = nowSec() } catch (e) {}
+    try { guardAtSec = nowSec() } catch (e) {}
+    try { kickWanted = true } catch (e) {}
   }
 
   override onAccessibilityEvent(event: AccessibilityEvent): void {
-    guardOn = true;
-    guardEvents = guardEvents + 1;
-    // 1 = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED：只认"某个窗口拿到焦点"这件事
-    if (event.getEventType() != 1) return;
-    // 输入法、通知栏、系统浮层也会发窗口事件；只让"应用窗口"参与判定
-    if (!this.isAppWindow(event.getWindowId())) return;
-    let p = event.getPackageName();
-    let pkg = p == null ? '' : p!;
-    if (pkg.length == 0) return;
-    guardPkg = pkg;
-    guardAtSec = nowSec();
-    // 踢一下看门狗：它平时 1.5 秒一轮，这里让它别等满 —— 人刚切走就立刻判、立刻拉
-    kickWanted = true;
-    let s = svcRef;
-    if (s != null && s.watchOn) {
-      // 直接走同一个 seen()：这是"用户真的切走了"，不必再攒两个 tick 去抖
-      try { s.seen(pkg, true) } catch (e) {}
+    try {
+      if (a11yTripped) return;
+      guardEvents = guardEvents + 1;
+      if (event == null) return;
+      // 1 = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED：只认"某个窗口拿到焦点"
+      if (event.getEventType() != 1) return;
+      let p = event.getPackageName();
+      if (p == null) return;
+      let pkg = String(p!);
+      if (pkg.length == 0) return;
+      guardPkg = pkg;
+      guardAtSec = nowSec();
+      kickWanted = true;
+      let s = svcRef;
+      if (s != null && s.watchOn) {
+        // 走看门狗同一个 seen()：这是"用户真的切走了"，不必再攒两个 tick 去抖
+        try { s.seen(pkg, true) } catch (e) {}
+      }
+    } catch (e) {
+      // 事件回调里出任何岔子都只丢这一次事件，绝不让异常冒到系统那边去
     }
   }
 
@@ -680,33 +752,29 @@ class PFGuardService extends AccessibilityService {
   }
 
   override onUnbind(intent: Intent): boolean {
-    guardOn = false;
-    guardPkg = '';
-    kickWanted = true;      // 让看门狗立刻重判一次（判定依据变了）
-    return super.onUnbind(intent);
+    try {
+      guardOn = false;
+      guardPkg = '';
+      kickWanted = true;      // 让看门狗立刻重判一次（判定依据变了）
+    } catch (e) {}
+    try { return super.onUnbind(intent) } catch (e) { return false }
   }
 
   override onDestroy(): void {
-    super.onDestroy();
-    guardOn = false;
-    guardPkg = '';
+    try { super.onDestroy() } catch (e) {}
+    try { guardOn = false } catch (e) {}
+    try { guardPkg = '' } catch (e) {}
   }
+}
 
-  /** 只用"应用类窗口"参与判定：1 = AccessibilityWindowInfo.TYPE_APPLICATION */
-  private isAppWindow(winId: Int): boolean {
-    if (winId < 0) return true;        // 拿不到窗口 id → 退回按包名判定，不误伤
-    try {
-      let wins = this.getWindows();
-      if (wins == null) return true;
-      for (let w of wins!) {
-        if (w == null) continue;
-        if (w.getId() == winId) return w.getType() == 1;
-      }
-    } catch (e) {
-      return true;
-    }
-    return true;
-  }
+/** 护卫的服务配置（与 res/xml 保持一致；只在 setServiceInfo 兜底时用） */
+function buildGuardInfo(): AccessibilityServiceInfo {
+  let info = new AccessibilityServiceInfo();
+  info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
+  info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
+  info.notificationTimeout = A11Y_NOTIFY_MS;
+  info.flags = AccessibilityServiceInfo.FLAG_DEFAULT;
+  return info;
 }
 
 /* ==================== 探测：现在前台是谁 / 有没有权限 ==================== */
@@ -997,29 +1065,89 @@ export function bringToFrontSupported(): boolean {
 /* ==================== 无障碍护卫：对外 API ==================== */
 
 /**
- * 无障碍护卫在系统里是否已开启（用户在设置里打开过）。
+ * 无障碍护卫是否已开启。
  *
- * 为什么问 AccessibilityManager 而不是读 Settings.Secure 的字符串：
- * 那个字符串只是"用户勾过"的记录，服务可能已经被系统回收 / 崩过；
- * getEnabledAccessibilityServiceList() 反映的是系统当前真正认下的服务。
+ * ⚠️ 关键改动：这里**绝不在调用线程上做跨进程查询**。
+ * 原来的写法直接问 AccessibilityManager.getEnabledAccessibilityServiceList()，
+ * 那是一次**同步 Binder 调用** —— 用户刚在系统设置里打开开关的那一刻，
+ * system_server 正在 bind 我们的服务、等它的 onServiceConnected 回来（回调在 APP 主线程），
+ * 而我们的主线程又在等 system_server 返回列表……两边互相等，一次教科书式的死锁，
+ * 界面直接冻住。真机上"开了无障碍回来就死机"，这是主要贡献者之一。
+ *
+ * 现在的口径：
+ *   · 服务连上了（guardOn 是进程内布尔，零 IPC）→ 就是开了，立刻返回 true；
+ *   · 没连上 → 返回后台线程上次刷到的值（a11yListed），同时异步再刷一次，下次调用就有。
  */
 export function a11yEnabled(): boolean {
+  if (guardOn) {
+    maybeClearBind();      // 服务稳定跑过一阵子 → 清掉 bind 计数，别让历史累计误伤
+    return true;
+  }
+  scheduleA11yQuery();
+  return a11yListed;
+}
+
+/** 服务连上超过 30 秒视为"这次是稳的" → 把窗口内的 bind 次数清零（只清一次） */
+const A11Y_STABLE_SEC: Int = 30;
+let a11yCleared = false;
+function maybeClearBind(): void {
+  if (a11yCleared) return;
+  if (nowSec() - guardConnAtSec < A11Y_STABLE_SEC) return;
+  a11yCleared = true;
+  clearBind();
+}
+
+/** 后台线程刷一次"系统启用名单里有我"，结果放进 a11yListed 供下次读取 */
+function scheduleA11yQuery(): void {
+  if (a11yQuerying) return;
+  if (nowSec() - a11yListedAt < 2) return;      // 2 秒内刚刷过就别刷
+  a11yQuerying = true;
+  try {
+    let th = new A11yQueryThread();
+    th.start();
+  } catch (e) {
+    a11yQuerying = false;
+  }
+}
+
+class A11yQueryThread extends Thread {
+  override run(): void {
+    try {
+      a11yListed = queryA11yListed();
+      a11yListedAt = nowSec();
+    } catch (e) {
+    } finally {
+      a11yQuerying = false;
+    }
+  }
+}
+
+function queryA11yListed(): boolean {
   let ctx = UTSAndroid.getAppContext();
   if (ctx == null) return false;
-  try {
-    let am = ctx!.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-    let list = am.getEnabledAccessibilityServiceList(-1);   // -1 = FEEDBACK_ALL_MASK，不过滤反馈类型
-    if (list != null) {
-      let self = ctx!.getPackageName();
-      for (let s of list!) {
-        if (s == null) continue;
-        let id = s.getId();
-        if (id != null && id!.indexOf(self) == 0) return true;
-      }
-    }
-  } catch (e) {}
-  // 查询失败就退回"当前是否已连上"这个更保守的判断，别谎报"已开启"
-  return guardOn;
+  let am = ctx!.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+  let list = am.getEnabledAccessibilityServiceList(-1);   // -1 = FEEDBACK_ALL_MASK
+  if (list == null) return false;
+  let self = ctx!.getPackageName();
+  for (let s of list!) {
+    if (s == null) continue;
+    let id = s.getId();
+    if (id != null && id!.indexOf(self) == 0) return true;
+  }
+  return false;
+}
+
+/** 保险丝有没有跳过闸（界面据此提示"这个 ROM 上起不来"） */
+export function a11ySafe(): boolean {
+  return !a11yTripped;
+}
+
+/** 重置保险丝（设置页"再试一次"） */
+export function resetA11y(): boolean {
+  a11yTripped = false;
+  a11yCleared = false;
+  clearBind();
+  return true;
 }
 
 /** 护卫当前是否已连上（系统绑定成功，正在收窗口事件） */

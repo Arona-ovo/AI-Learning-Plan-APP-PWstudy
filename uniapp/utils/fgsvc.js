@@ -164,6 +164,36 @@ export function a11yStats() {
   return { on: on, events: events, pkg: pkg };
 }
 
+/**
+ * 无障碍护卫的保险丝有没有跳过闸。
+ *
+ * 服务是**系统**绑的：绑定过程中抛异常 → 系统杀进程 → 重 bind → 再崩，
+ * 循环起来的表现就是"APP 和整机一起卡死"。插件内部数着窗口期内的 bind 次数，
+ * 超了就把自己变成空壳（不再碰任何状态、不再收事件）。
+ * 返回 false = 已经躺平，界面必须如实说"这个 ROM 上起不来"，
+ * 别再引导用户去开一个开了也没用（而且可能又卡）的开关。
+ */
+export function a11ySafe() {
+  if (!available()) return true;      // 插件不在 → 谈不上跳闸
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.a11ySafe === 'function') return fgs.a11ySafe() !== false;
+  } catch (e) {}
+  // #endif
+  return true;
+}
+
+/** 重置保险丝（设置页"再试一次"）：清掉计数，下次被系统 bind 时重新正常初始化 */
+export function resetA11y() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.resetA11y === 'function') return !!fgs.resetA11y();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
 /** 跳系统「无障碍」设置页；失败（插件不在）返回 false，调用方退到应用详情页 */
 export function openA11ySettings() {
   if (!available()) return false;

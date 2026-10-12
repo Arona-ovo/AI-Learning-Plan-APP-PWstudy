@@ -836,6 +836,28 @@ export function a11ySupported() {
 }
 
 /**
+ * 无障碍护卫的保险丝是否还在（false = 起不来，界面别再引导用户去开）。
+ * 服务由系统绑定，绑定过程中一崩就是"杀进程 → 重 bind → 再崩"的循环，
+ * 卡的是整台机器，所以插件会自己躺平，这里如实把状态交给界面。
+ */
+export function a11ySafe() {
+  try {
+    return fgsvc.a11ySafe() !== false;
+  } catch (e) {
+    return true;
+  }
+}
+
+/** 重置保险丝（设置页"再试一次"） */
+export function resetA11y() {
+  try {
+    return !!fgsvc.resetA11y();
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * 跳系统的「无障碍」设置页。
  *
  * ⚠️ 安卓 13+ 有个"受限设置"闸门：**侧载安装**（不是从应用商店装的）的应用，

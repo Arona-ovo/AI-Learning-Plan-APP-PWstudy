@@ -8,16 +8,19 @@
       一是 Home 键本来就拦不住（系统自己处理，任何三方应用都拿不到），吞了别的键也拦不住它；
       二是全局吞键会挡住来电、权限弹窗这类系统界面，把人困住。
     · flags 里没有 flagIncludeNotImportantViews / 没有 gesture 相关 —— 不模拟点击、不做手势。
-    · canRetrieveWindowContent 是为数不多"看起来越权"的一项：这里只用它来拿
-      窗口类型（getWindows()），用来区分"应用窗口"和"输入法 / 通知栏 / 系统浮层"。
-      不解析控件文本、不截图、不上传任何内容。
+    · canRetrieveWindowContent = false（2026-10-12 从 true 改掉，配合代码里去掉 getWindows()）。
+      原来用它拿窗口类型来区分"应用窗口 / 输入法 / 通知栏"，代价是系统要为**每个**应用的
+      每次窗口变化构建一整棵可交互窗口树再跨进程传过来 —— 在真机上这既贵（整机掉帧、
+      开关一开就明显卡）又敏感（等于申请了"读取屏幕内容"）。
+      现在只靠 event.getPackageName() 判定，够用且零成本：输入法/通知栏的包名本来就在
+      白名单里（JS 侧 NEUTRAL + 原生侧 imePackages），不需要靠窗口类型去分辨。
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/pw_a11y_desc"
     android:summary="@string/pw_a11y_label"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
-    android:canRetrieveWindowContent="true"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
     android:notificationTimeout="100"
     android:isAccessibilityTool="false" />
