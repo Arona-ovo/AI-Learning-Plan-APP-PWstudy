@@ -50,8 +50,12 @@ Android 判定「能覆盖安装」只看三件事，**任意一条不满足就�
 
 #### 本项目的证书（2026-10-12 已生成）
 
-`C:/Users/33156/PWstudy.keystore`，别名 `pwstudy`。
+`C:/Users/33156/PWstudy.keystore`，别名 **`plana`**。
 **密码不写进仓库** —— 记在同目录的 `C:/Users/33156/PWstudy.keystore.info.txt`（仓库外）。
+
+⚠️ **别名会被 keytool 转成小写**：就算传 `Plana`，存进去也是 `plana`（openssl 读 PKCS12
+的 `friendlyName` 确认过）。JDK 系工具查找时不区分大小写，所以填 `Plana` 也能签上；
+但 DCloud 若按字符串精确比对就认不出来 —— **打包时统一填小写 `plana`**。
 
 生成用的是 `C:/Users/33156/gen-keystore.sh`，给别的 App 出证书时复用同一个脚本就行，
 保证格式一致（PKCS12）、且**不会覆盖已有证书**（脚本检测到同名文件会直接停下 ——
@@ -60,17 +64,18 @@ Android 判定「能覆盖安装」只看三件事，**任意一条不满足就�
 ```bash
 cd /c/Users/33156
 ./gen-keystore.sh <名字> <别名> '<密码>' [有效天数]
-# 例：./gen-keystore.sh PWstudy pwstudy '换成你的密码' 10950
+# 例：./gen-keystore.sh PWstudy plana '换成你的密码' 10950
 
-# 只换密码（不动密钥，已装用户照样能覆盖升级）：
+# 只换密码 / 只改别名（都不动密钥，签名不变，已装用户照样能覆盖升级）：
 ./gen-keystore.sh --passwd <名字> <别名> '<旧密码>' '<新密码>'
+./gen-keystore.sh --alias  <名字> <旧别名> <新别名> '<当前密码>'
 ```
 
 它等价于这条 keytool：
 
 ```bash
 keytool -genkeypair -v -keystore PWstudy.keystore -storetype PKCS12 \
-        -alias pwstudy -keyalg RSA -keysize 2048 -sigalg SHA256withRSA \
+        -alias plana -keyalg RSA -keysize 2048 -sigalg SHA256withRSA \
         -validity 10950 -storepass '<密码>' -keypass '<密码>' \
         -dname "CN=PWstudy, OU=Arona, O=Arona, C=CN"
 ```
@@ -329,7 +334,7 @@ update: {
 
 ## 九、落地步骤（建议顺序）
 
-1. **先固定证书与包名**：证书已生成（`C:/Users/33156/PWstudy.keystore`，别名 `pwstudy`），
+1. **先固定证书与包名**：证书已生成（`C:/Users/33156/PWstudy.keystore`，别名 `plana`），
    剩下两件事：**离线备份**它 → 云打包改成自有证书 → 固定 AppID；
 2. **补齐安装权限声明**（`REQUEST_INSTALL_PACKAGES`）；
 3. **搭版本清单**：选一个托管（推荐腾讯云 COS），写好 `update.json`；
