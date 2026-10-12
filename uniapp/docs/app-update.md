@@ -61,6 +61,9 @@ Android 判定「能覆盖安装」只看三件事，**任意一条不满足就�
 cd /c/Users/33156
 ./gen-keystore.sh <名字> <别名> '<密码>' [有效天数]
 # 例：./gen-keystore.sh PWstudy pwstudy '换成你的密码' 10950
+
+# 只换密码（不动密钥，已装用户照样能覆盖升级）：
+./gen-keystore.sh --passwd <名字> <别名> '<旧密码>' '<新密码>'
 ```
 
 它等价于这条 keytool：
@@ -75,6 +78,8 @@ keytool -genkeypair -v -keystore PWstudy.keystore -storetype PKCS12 \
 - `validity` 取 10950（30 年），远超 Google Play「2033 年后仍有效」的要求；
   千万别用默认的 90 天 —— 证书一过期商店直接拒收；
 - `-storetype PKCS12` 与同目录那份 `Arona.keystore` 对齐（JDK 9+ 的默认值，头部是 `30 82`）；
+  PKCS12 里**私钥密码就是库密码**，没有第二个 —— keytool 对 PKCS12 会直接拒绝
+  `-keypasswd`，所以云打包的两个密码框填同一个值；
 - 把 `.keystore` 文件与密码**离线备份**（U 盘/密码管理器），丢了就等于 App 锁死；
 - HBuilderX：「发行 → 原生App云打包 → 使用自有证书」，填别名与两个密码。
 
