@@ -45,16 +45,36 @@ Android 判定「能覆盖安装」只看三件事，**任意一条不满足就�
 - 任意第三方用同一把证书 + 同包名打的包，**可以覆盖掉你的 App**（安全性为零）；
 - 一旦你后续换成自有证书，签名就变了，**老用户全部无法覆盖安装，只能卸载重装（本地学习数据会丢）**。
 
-**建议：在发布第一个对外版本之前，先生成自有正式证书并在云打包里固定使用它，之后再也不换。**
+**证书已经在 2026-10-12 生成好了（见下）。剩下的动作是：在发布第一个对外版本之前，
+把云打包切成自有证书，之后再也不换。**
 
-生成（JDK 自带 keytool，一次生成、长期保存，丢失即无法再更新）：
+#### 本项目的证书（2026-10-12 已生成）
+
+`C:/Users/33156/PWstudy.keystore`，别名 `pwstudy`。
+**密码不写进仓库** —— 记在同目录的 `C:/Users/33156/PWstudy.keystore.info.txt`（仓库外）。
+
+生成用的是 `C:/Users/33156/gen-keystore.sh`，给别的 App 出证书时复用同一个脚本就行，
+保证格式一致（PKCS12）、且**不会覆盖已有证书**（脚本检测到同名文件会直接停下 ——
+把在用证书覆盖掉等于让老用户再也升不了级）：
 
 ```bash
-keytool -genkey -alias beiwanci -keyalg RSA -keysize 2048 \
-        -validity 36500 -keystore beiwanci.keystore
+cd /c/Users/33156
+./gen-keystore.sh <名字> <别名> '<密码>' [有效天数]
+# 例：./gen-keystore.sh PWstudy pwstudy '换成你的密码' 10950
 ```
 
-- `validity` 建议 25 年以上（Google Play 要求 2033 年后仍有效）；
+它等价于这条 keytool：
+
+```bash
+keytool -genkeypair -v -keystore PWstudy.keystore -storetype PKCS12 \
+        -alias pwstudy -keyalg RSA -keysize 2048 -sigalg SHA256withRSA \
+        -validity 10950 -storepass '<密码>' -keypass '<密码>' \
+        -dname "CN=PWstudy, OU=Arona, O=Arona, C=CN"
+```
+
+- `validity` 取 10950（30 年），远超 Google Play「2033 年后仍有效」的要求；
+  千万别用默认的 90 天 —— 证书一过期商店直接拒收；
+- `-storetype PKCS12` 与同目录那份 `Arona.keystore` 对齐（JDK 9+ 的默认值，头部是 `30 82`）；
 - 把 `.keystore` 文件与密码**离线备份**（U 盘/密码管理器），丢了就等于 App 锁死；
 - HBuilderX：「发行 → 原生App云打包 → 使用自有证书」，填别名与两个密码。
 
@@ -304,7 +324,8 @@ update: {
 
 ## 九、落地步骤（建议顺序）
 
-1. **先固定证书与包名**：生成自有 keystore 并备份 → 云打包改用自有证书 → 固定 AppID；
+1. **先固定证书与包名**：证书已生成（`C:/Users/33156/PWstudy.keystore`，别名 `pwstudy`），
+   剩下两件事：**离线备份**它 → 云打包改成自有证书 → 固定 AppID；
 2. **补齐安装权限声明**（`REQUEST_INSTALL_PACKAGES`）；
 3. **搭版本清单**：选一个托管（推荐腾讯云 COS），写好 `update.json`；
 4. **写 `utils/updater.js`**：默认关闭，通过 `settings.update.checkUrl` 启用；
