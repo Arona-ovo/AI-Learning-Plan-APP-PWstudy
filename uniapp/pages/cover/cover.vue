@@ -119,10 +119,17 @@ export default {
   background: radial-gradient(circle, rgba(var(--surface-rgb, 255, 255, 255), 0.75), rgba(var(--surface-rgb, 255, 255, 255), 0));
 }
 
+/* ⚠️ 这里的 opacity:0 + stageIn 是跟**原生启动图**配对的一份契约：
+   原生启动图只画渐变背景、不画任何图案 —— 图案（圆圈 / 脸）全部由本页画并**淡入**。
+   所以这个圆框不能"啪"地出现：那样 splash → cover 还是一次硬切，前面那张图的
+   平滑渐变就白做了。反过来，如果哪天把圆框动画删了，启动图会"闪一下再跳出一张脸"。
+   两边一起受 _tools/check-native-assets.js 第 5 组管。 */
 .stage {
   position: relative;
   width: 340rpx; height: 340rpx;
   display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  animation: stageIn 0.6s ease 0.15s forwards;
 }
 
 .ring {
@@ -232,6 +239,12 @@ export default {
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(36rpx); }
   to { opacity: 1; transform: translateY(0); }
+}
+/* 圆框（圈 + 脸）从原生启动图的渐变背景上"浮"出来，接住 splash，
+   见 .stage 上方的注释；时长与延迟沿用同一套节奏（0.6s ease 0.15s）。 */
+@keyframes stageIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
 }
 @keyframes float {
   0%, 100% { transform: translateY(0); }

@@ -17,8 +17,8 @@
             "ignoreVersion" : true
         },
         "splashscreen" : {
-            "alwaysShowBeforeRender" : false,
-            "waiting" : true,
+            "alwaysShowBeforeRender" : true,
+            "waiting" : false,
             "autoclose" : true,
             "delay" : 0
         },
@@ -36,8 +36,14 @@
                     "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
                     "<uses-permission android:name=\"android.permission.VIBRATE\"/>"
                 ],
-                "packagename" : "com.PWstudy",
-                "icons" : {
+                "packagename" : "com.PWstudy"
+            },
+            "ios" : {
+                "dSYMs" : false
+            },
+            "sdkConfigs" : {},
+            "icons" : {
+                "android" : {
                     "mdpi" : "static/icons/icon-48.png",
                     "hdpi" : "static/icons/icon-72.png",
                     "xhdpi" : "static/icons/icon-96.png",
@@ -45,10 +51,14 @@
                     "xxxhdpi" : "static/icons/icon-192.png"
                 }
             },
-            "ios" : {
-                "dSYMs" : false
-            },
-            "sdkConfigs" : {}
+            "splashscreen" : {
+                "androidStyle" : "default",
+                "android" : {
+                    "hdpi" : "static/splash/splash-hdpi.9.png",
+                    "xhdpi" : "static/splash/splash-xhdpi.9.png",
+                    "xxhdpi" : "static/splash/splash-xxhdpi.9.png"
+                }
+            }
         }
     },
     "mp-weixin" : {

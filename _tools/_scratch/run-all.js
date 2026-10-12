@@ -36,17 +36,36 @@ for (const f of ['check-vue.js', 'check-pwstudy.js']) files.push(path.join(ROOT,
 
 const green = [];
 const red = [];
+const skipped = [];
 for (const f of files) {
   const r = run(f);
   const rel = path.relative(ROOT, f).replace(/\\/g, '/');
-  if (r.crash) { red.push(rel + '  CRASH: ' + r.crash.message); continue; }
+  if (r.crash) {
+    // ⚠️ 有几个护栏（check-api-usage / check-circuit-breaker / check-intent-route /
+    //    check-stream）依赖 ESM + top-level await，同进程 require 会直接抛
+    //    "require() cannot be used on an ESM graph with top-level await"。
+    //    那是**运行器**的限制，不是它们的红 —— 计成 SKIP（单独 `node _tools/x.js`
+    //    跑是绿的），否则每次全量回归都挂 4 个假红，看久了就没人当真了。
+    if (/ESM graph with top-level await/.test(r.crash.message)) {
+      skipped.push(rel + '（ESM / top-level await，需单独跑）');
+      continue;
+    }
+    red.push(rel + '  CRASH: ' + r.crash.message);
+    continue;
+  }
   if (r.code === 0) green.push(rel);
   else {
     const msg = r.buf.filter(l => l.indexOf('✗') >= 0).slice(0, 3).join(' | ');
     red.push(rel + (msg ? '  ' + msg : ''));
   }
 }
-console.log('绿 ' + green.length + ' / 共 ' + files.length);
+console.log('绿 ' + green.length + ' / 共 ' + files.length
+  + (skipped.length ? '（另 ' + skipped.length + ' 个需单独跑）' : ''));
+if (skipped.length) {
+  console.log('');
+  console.log('跳过 ' + skipped.length + ':');
+  skipped.forEach(s => console.log('  ⤼ ' + s));
+}
 console.log('');
 if (red.length) {
   console.log('红 ' + red.length + ':');
