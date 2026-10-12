@@ -281,6 +281,22 @@ function main() {
   });
   steps.push(() => { settings.set({ update: { auto: true } }); return Promise.resolve(); });
 
+  /* ---------- 5.5 清单接口：只认固定 tag ---------- */
+  steps.push(() => {
+    // 哪天仓库里多出一个 Release（latest 会漂到它身上），客户端不能把它的资产
+    // 当成我们的更新包
+    net.release = release(['PWstudy-9.9.9-n101.wgt']);
+    net.release.tag_name = 'v2-别的-release';
+    log.modal.length = 0;
+    return updater.manualCheck().then(
+      () => bad('拿到别的 tag 的清单，却当成我们的更新包用了'),
+      (e) => ok('tag 对不上 → 不认（' + e.message + '）')
+    ).then(() => {
+      eq(log.modal.length, 0, '也没弹出更新确认');
+      net.release = null;
+    });
+  });
+
   /* ---------- 6. 手动检查的结果展示 ---------- */
   steps.push(() => {
     console.log('== 6. 手动检查要给明确结果 ==');
@@ -380,7 +396,7 @@ assert(/--dry/.test(pub), '支持空跑');
 assert(/RELEASE_URL/.test(pub), '打完打印上传指引');
 
 /* ---------- 10. 源码：认不出就不许指路 ---------- */
-console.log('== 10. 占位包不许当成"有新版"（源码） ==');
+console.log('== 10. 占位包 / 清单接口（源码） ==');
 // 先剥行注释（自己的正则会命中注释里的示例代码），再按函数/分支切块匹配
 const upRaw = R('utils/updater.js');
 const up = upRaw.replace(/\/\/[^\n]*/g, '');
@@ -402,6 +418,11 @@ assert(/toast\(/.test(noneBlk), 'none 分支只 toast 一句');
 assert(!/openRelease|showModal/.test(noneBlk), 'none 分支不给下载入口、不弹窗（那包来路不明）');
 assert(/parseApkName/.test(up) && /parseNamed\(name, 'apk'\)/.test(up), '整包走自己的解析（挑名字）');
 assert(/Release 里可能挂着别的 APK/.test(upRaw), '为什么必须挑名字写在注释里');
+// 清单接口：latest 的语义是"最新发布的非草稿非预发布"，多一个 Release 就漂走。
+// 直接断言运行时常量（扫源码会被注释里那句"不用 latest"骗到 —— 块注释没剥掉）
+assert(updater.RELEASE_TAG === 'PWstudy', '有固定 tag 常量');
+assert(updater.REPO_API.indexOf('/releases/tags/' + updater.RELEASE_TAG) > 0,
+  '清单接口按 tag 精确取（不是 /releases/latest）');
 
 main().then(() => {
   console.log(fail === 0 ? '\n热更新校验全部通过' : '\n失败 ' + fail + ' 项 ✗');

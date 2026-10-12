@@ -25,8 +25,15 @@ import { BUILD_INFO } from '../data/build-info.js';
 /** 完整包的下载页（也是"更新失败"的兜底出口） */
 export const RELEASE_URL = 'https://github.com/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/tag/PWstudy';
 
-/** 版本清单：固定 tag 的 Release（GitHub 的 latest 就是它） */
-export const REPO_API = 'https://api.github.com/repos/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/latest';
+/** 版本清单永远挂在这个 tag 上 */
+export const RELEASE_TAG = 'PWstudy';
+
+/**
+ * 版本清单。**按 tag 精确取，不用 `/releases/latest`** —— latest 的语义是
+ * "最新发布的那个非草稿、非预发布"，哪天仓库里多出一个 Release（哪怕只是顺手
+ * 建了个 tag），它就漂走了，客户端会读到一份跟约定无关的清单。
+ */
+export const REPO_API = 'https://api.github.com/repos/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/tags/' + RELEASE_TAG;
 
 const CHECK_TIMEOUT = 8000;    // 检查要快：慢了就拖住启动
 const DOWN_TIMEOUT = 120000;   // 下载可以慢（整包才大，wgt 一般几秒）
@@ -124,6 +131,12 @@ function fetchRelease() {
         if (code && code >= 400) { reject(new Error('版本服务返回 ' + code)); return; }
         const d = res && res.data;
         if (!d || typeof d !== 'object') { reject(new Error('版本信息读不出来')); return; }
+        // tag 对不上就是拿错清单了（比如以后接口改回 latest 漂到别的 Release 上），
+        // 宁可当"没查到"，也不能拿别人的资产当我们的更新包
+        if (d.tag_name && d.tag_name !== RELEASE_TAG) {
+          reject(new Error('版本清单对不上（' + d.tag_name + '）'));
+          return;
+        }
         resolve(d);
       },
       fail: (e) => reject(new Error((e && e.errMsg) || '连不上版本服务'))

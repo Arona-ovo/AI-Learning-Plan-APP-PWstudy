@@ -394,6 +394,26 @@ node _tools/publish-wgt.js --upload     # 装了 gh 且登录过的话可以直�
   指过去只会让人装一个来路不明的旧包）；
 - 要真的提供整包，请把 APK **改名成 `PWstudy-<版本>.apk`** 再传。
 
+### 上传前自查（Release 侧的要求）
+
+GitHub 对资产本身**没有格式校验**（传什么二进制都行，2 GB 以内即可，wgt 一般 1~5 MB）。
+但客户端能不能认出来取决于下面几条，传完照这个清单过一遍：
+
+1. **tag 必须是 `PWstudy`，而且不能是草稿（draft）**。客户端按
+   `/releases/tags/PWstudy` 精确取；草稿对未登录请求返回 404，等于"没查到"
+   （启动自检会静默跳过，只有手动点「检查更新」才报错）。
+   ⚠️ 也别再建第二个 Release —— 早先用的 `/releases/latest` 语义是
+   "最新发布的非草稿非预发布"，多一个就会漂走；现在已改成按 tag 取并校验 `tag_name`。
+2. **资产名别改**：`PWstudy-<版本>-n<基线>.wgt`，发布脚本已经打对了，直接拖进去。
+   改名 = 客户端认不出 = 白传。
+3. **Release 说明（body）就是更新日志**，会原样出现在 App 的「有新版本」弹窗里
+   （取前 6 行、最多 300 字）—— 写清楚这次改了什么。
+4. 同一个 Release 里可以同时挂多个 wgt，客户端取**版本号最大**的那个，旧的不必删。
+
+传完想立刻自检，浏览器打开
+<https://api.github.com/repos/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/tags/PWstudy>，
+看 `tag_name` 是不是 `PWstudy`、`assets` 里有没有那个 wgt。
+
 ### 什么时候**必须**发 APK
 
 wgt 改不了原生。只要碰了下面任何一样，就发整包，别发 wgt：

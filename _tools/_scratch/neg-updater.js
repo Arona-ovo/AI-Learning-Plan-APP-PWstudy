@@ -102,7 +102,12 @@ const cases = [
       "uni.showModal({ title: '没有热更新包', confirmText: '去下载', success: (res) => { if (res && res.confirm) openRelease(); } });")],
   ['整包比本机新也不提示（只认 wgt）', 'utils/updater.js',
     s => s.replace('if (apk && local.code < apk.code) return { state: \'apk\', local, remote: apk, notes };',
-      'if (false) return { state: \'apk\', local, remote: apk, notes };')]
+      'if (false) return { state: \'apk\', local, remote: apk, notes };')],
+  // 清单接口：latest 会漂
+  ['清单接口改用 /releases/latest（会漂到别的 Release）', 'utils/updater.js',
+    s => s.replace("releases/tags/' + RELEASE_TAG", 'releases/latest\'')],
+  ['不校验 tag（拿到别人的清单照用）', 'utils/updater.js',
+    s => s.replace('if (d.tag_name && d.tag_name !== RELEASE_TAG) {', 'if (false) {')]
 ];
 
 (async () => {
