@@ -131,7 +131,6 @@
             <view class="card-head">
               <text class="card-title">今日任务</text>
               <view class="head-acts">
-                <text class="card-more" @tap="goDaily()">{{ checked ? '改填报' : '今日收工' }}</text>
                 <text class="card-more" @tap="switchGoals()">全部目标 ›</text>
               </view>
             </view>
@@ -145,9 +144,10 @@
               <text class="lb-txt">{{ lateInfo.n }} 项没按时完成</text>
               <text class="lb-go">让 AI 顺延 ›</text>
             </view>
+            <!-- 「＋ AI 规划目标」入口已移除：目标规划完就不需要它了，
+                 建目标的入口统一放在「目标」tab。空态只留一句说明，不再塞按钮。 -->
             <view v-if="!queue.length" class="empty">
-              <text class="empty-txt">没有待办任务。定一个远期目标，AI 帮你拆成每天的日程。</text>
-              <button class="btn-primary empty-btn" @tap="goWizard()">＋ AI 规划目标</button>
+              <text class="empty-txt">没有待办任务。到「目标」里定一个远期目标，AI 会帮你拆成每天的日程。</text>
             </view>
             <view v-else class="task-list">
               <view
@@ -203,6 +203,28 @@
             </view>
           </view>
 
+          <!-- 日程表：与日历页共用 components/schedule-list（同一套字段与样式）。
+               首页默认看今天，可左右翻天、就地前移/后移；要看整月就进完整日历。 -->
+          <view v-else-if="id === 'schedule'" class="card">
+            <view class="card-head">
+              <view class="sc-nav">
+                <text class="sc-arrow" @tap="shiftSched(-1)">‹</text>
+                <text class="card-title">{{ schedLabel }}</text>
+                <text class="sc-arrow" @tap="shiftSched(1)">›</text>
+                <text v-if="schedDate !== schedToday" class="sc-today" @tap="goTodaySched">今天</text>
+              </view>
+              <text class="card-more" @tap="goCalendar()">完整日历 ›</text>
+            </view>
+            <schedule-list
+              :rows="schedRows"
+              :limit="4"
+              :ops="true"
+              more-text="查看全部"
+              @changed="refreshSchedule"
+              @more="goCalendar"
+            />
+          </view>
+
           <!-- AppDock -->
           <view v-else-if="id === 'dock'" class="card">
             <view class="card-head">
@@ -229,6 +251,15 @@
             <view v-if="dock.length" class="dock-hint">今日 {{ appTodayMin }} 分钟 · 点图标直达</view>
           </view>
         </view>
+      </view>
+
+      <!-- 首页的核心操作：收工。
+           原来它缩在「今日任务」卡右上角当一个小链接，而"今天做了什么"其实是
+           整个"动态安排"的输入口 —— 现在按主按钮的尺寸放在首页底部，
+           填过就变成「改一下」，不重复催促。编辑首页时让位给编辑按钮。 -->
+      <view v-if="!editing" class="home-cta">
+        <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
+        <text class="cta-tip">{{ checked ? '今天已经记过了，想改随时点开' : '花十几秒说说今天，明天的安排才排得准' }}</text>
       </view>
 
       <!-- 底部操作行：非编辑态只留一个入口，保持简洁 -->
@@ -304,16 +335,18 @@ import * as coach from '../../utils/coach.js'
 import * as urgency from '../../utils/urgency.js'
 import * as partner from '../../utils/partner.js'
 import * as layout from '../../utils/home-layout.ts'
+import * as schedule from '../../utils/schedule.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
 import CoachBox from '../../components/coach-box/coach-box.vue'
 import UrgencyMeter from '../../components/urgency-meter/urgency-meter.vue'
+import ScheduleList from '../../components/schedule-list/schedule-list.vue'
 import AppDialog from '../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, AppDialog },
+  components: { FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList, AppDialog },
   mixins: [tabSlideMixin('home')],
   data() {
     return {
@@ -330,6 +363,10 @@ export default {
       checkText: '',
       // 今日紧迫度（utils/urgency.js 算好，整张卡靠图形说话，不含文字）
       u: {},
+      // ---------- 日程表卡 ----------
+      // 数据构造与"哪天"的判断都在 utils/schedule.js，跟日历页同一份口径
+      schedDate: pw.today(),
+      schedRows: [],
       // 当前首页放了哪些模块（见 utils/home-layout.ts）
       // 这里直接读一次而不是留空：留空会让首帧所有卡都闪一下才出现。
       layoutIds: layout.layout(),
@@ -406,6 +443,13 @@ export default {
       const late = this.queue.filter(i => i.overdue)
       if (!late.length) return null
       return { n: late.length, goalId: late[0].goal.id }
+    },
+    schedToday() {
+      return pw.today()
+    },
+    /** 日程卡头部那句"这是哪天"（含节假日 / 周末，与日历页同一口径） */
+    schedLabel() {
+      return schedule.dateLabel(this.schedDate)
     }
   },
   watch: {
@@ -475,6 +519,7 @@ export default {
       this.refreshCheck()
       this.syncLayout()
       this.refreshUrgency()
+      this.refreshSchedule()
       this.strictOn = !!strict.enabled()
       this.forcedOn = !!forced.enabled()
       this.usageOk = apptime.hasUsagePermission()
@@ -496,7 +541,25 @@ export default {
       if (id === 'urgency') return !!(this.u && !this.u.empty)
       // 没有进行中的目标 → 整张卡是空的
       if (id === 'goal') return !!(this.goals && this.goals.length)
+      // 日程表由目标派生：没有目标就没有日程可言
+      if (id === 'schedule') return !!(this.goals && this.goals.length)
       return true
+    },
+    // ---------- 日程表卡 ----------
+    refreshSchedule() {
+      try {
+        this.schedRows = schedule.rowsOf(this.schedDate)
+      } catch (e) {
+        this.schedRows = []
+      }
+    },
+    shiftSched(n) {
+      this.schedDate = pw.addDays(this.schedDate || pw.today(), n)
+      this.refreshSchedule()
+    },
+    goTodaySched() {
+      this.schedDate = pw.today()
+      this.refreshSchedule()
     },
     /** 编辑态把手上显示的模块名（来自 home-layout 的注册表） */
     moduleName(id) {
@@ -648,6 +711,7 @@ export default {
         : '今天按计划完成了'
     },
     goDaily() { uni.navigateTo({ url: '/pkgPlan/pages/daily/daily' }) },
+    goCalendar() { safeNav('/pkgPlan/pages/calendar/calendar') },
     // AI 可能补记了收工事实、也可能把某个任务记成已完成 → 提示条和今日队列都要跟着变
     onCoachChanged() { this.refresh() },
     // ---------- 权限与后台保活 ----------
@@ -858,13 +922,13 @@ export default {
      * 不能因为手指落在卡片空白处就莫名其妙开始一轮。
      */
     goFocus() {
-      uni.navigateTo({ url: this.focusUrl(true) })
+      uni.navigateTo({ url: this.focusUrl(false) })
     },
     /** 卡片上的「开始」按钮：唯一一个直接起表的入口 */
     quickStart() {
       // 已经有番茄在跑：进页面接着看，不能又起一个
       if (this.cur) { this.goFocus(); return }
-      uni.navigateTo({ url: this.focusUrl(false) })
+      uni.navigateTo({ url: this.focusUrl(true) })
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
     taskMenu(item) {
@@ -1288,6 +1352,26 @@ export default {
 .rc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .rc-sub { font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; }
 .rc-go { font-size: 25rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
+
+/* ===== 首页核心操作：今日收工 ===== */
+.home-cta { margin: 8rpx 0 4rpx; }
+.cta-btn { width: 100%; }
+.cta-tip {
+  display: block; margin-top: 16rpx; text-align: center;
+  font-size: 22rpx; line-height: 1.6;
+  color: #98a19b; color: var(--ink-3, #98a19b);
+}
+
+/* ===== 日程表卡（与日历页共用 components/schedule-list） ===== */
+.sc-nav { display: flex; align-items: center; flex: 1; min-width: 0; }
+.sc-arrow { font-size: 34rpx; color: #5a6560; color: var(--ink-2, #5a6560); padding: 0 14rpx; }
+.sc-arrow:active { opacity: 0.6; }
+.sc-nav .card-title { margin-right: 4rpx; }
+.sc-today {
+  margin-left: 14rpx; padding: 4rpx 16rpx; border-radius: 999rpx;
+  font-size: 21rpx; color: #bb1332; color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1); background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+}
 
 /* ===== 今日收工 ===== */
 .head-acts { display: flex; align-items: center; }

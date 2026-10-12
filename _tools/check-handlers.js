@@ -18,7 +18,10 @@ const assert = (c, m) => (c ? ok(m) : bad(m));
 // 全局 mixin / 页面 mixin 注入的方法，不算未定义
 const INJECTED = [
   'appTheme', 'appBgStyle', 'slideCls', 'slideStyle', 'noop',
-  'onSlideStart', 'onSlideMove', 'onSlideEnd', 'refreshAppTheme'
+  'onSlideStart', 'onSlideMove', 'onSlideEnd', 'refreshAppTheme',
+  // $emit 是组件内置，不是要定义的方法 —— 模板里写 @tap="$emit('x')" 不该被判成
+  // "方法没定义"（踩过一次）。不过还是建议包一层具名方法，可读性好也更好查。
+  '$emit'
 ];
 
 const files = [];

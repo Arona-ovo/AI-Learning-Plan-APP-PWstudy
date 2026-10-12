@@ -30,6 +30,9 @@ export const MODULES: HomeModule[] = [
   { id: 'urgency', name: '今日紧迫度', desc: '图形化显示今天还剩多少时间、活有多重、有多赶（无文字）', def: true },
   { id: 'task', name: '今日任务', desc: '今天要做的任务队列，点行直接开始专注', def: true },
   { id: 'goal', name: '进行中的目标', desc: '里程碑进度与剩余天数', def: true },
+  // 日程表：与日历页共用 components/schedule-list（同一套字段与样式），
+  // 只是首页默认只显示今天的前几条，点「查看全部」再进完整日历。
+  { id: 'schedule', name: '日程表', desc: '某一天的日程安排，可就地前移 / 后移一天', def: true },
   { id: 'dock', name: '学习 App', desc: '登记的学习类 App，点图标直达并统计用时', def: false },
   { id: 'coach', name: 'AI 今日对话', desc: '一句话汇报今天，AI 判断要不要重排后面', def: false }
 ];
@@ -58,11 +61,25 @@ export function normalize(list: any): string[] {
   return out.length ? out : defaultLayout();
 }
 
+/**
+ * 布局版本：注册表新增模块时用它把新模块**补一次**进老用户的布局。
+ * 不做这件事的话，老用户升级后永远看不到新模块（他的 layout 是旧的四项），
+ * 只能自己发现"添加组件"里有 —— 那跟没做一样。
+ */
+const LAYOUT_VER = 2;   // 2 = 2026-10-12 新增「日程表」
+
 /** 当前布局（已归一） */
 export function layout(): string[] {
   const st: any = settings.get() || {};
   const home = st.home || {};
-  return normalize(home.layout);
+  const cur = normalize(home.layout);
+  if ((home.layoutVer || 0) >= LAYOUT_VER) return cur;
+  // 只补"出厂该在、但还没在"的；用户后来自己收纳掉的不会被再加回来
+  // （这次迁移只跑一次，跑完就置版本号）
+  const add = MODULES.filter(m => m.def && cur.indexOf(m.id) < 0).map(m => m.id);
+  const next = add.length ? cur.concat(add) : cur;
+  settings.set({ home: { layoutVer: LAYOUT_VER, layout: next } });
+  return next;
 }
 
 /** 保存布局，返回归一后的结果 */

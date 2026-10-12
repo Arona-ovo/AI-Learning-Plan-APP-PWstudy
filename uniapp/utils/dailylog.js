@@ -42,6 +42,24 @@ export function doneToday() {
 /** 收工表里"后面几天、但还没到日子"的任务（用户很可能提前做了） */
 const AHEAD_DAYS = 7;
 
+/** 一天最多贴几张成果图（多了既占空间也没人翻） */
+export const MAX_PHOTOS = 9;
+
+/**
+ * 规范化图片路径列表：去空、去重、按上限截断。
+ * 存的是**本地持久路径**（页面里选完要先 saveFile 转一次），
+ * 临时路径会在 App 重启后失效 —— 那时缩略图就全白了。
+ */
+function normPhotos(v) {
+  const arr = Array.isArray(v) ? v : [];
+  const out = [];
+  arr.forEach(x => {
+    const s = String(x || '').trim();
+    if (s && out.indexOf(s) < 0) out.push(s);
+  });
+  return out.slice(0, MAX_PHOTOS);
+}
+
 /**
  * 生成收工草稿：今天该做的（items）+ 后面几天可能被提前做的（ahead）。
  * actual 默认取任务已记的番茄数，用户可以再改。
@@ -100,7 +118,8 @@ export function buildDraft() {
     extras: old ? (old.extras || '') : '',
     facts: old ? (old.facts || []) : [],
     mood: old ? (old.mood || '') : '',
-    note: old ? (old.note || '') : ''
+    note: old ? (old.note || '') : '',
+    photos: old ? (old.photos || []) : []
   };
 }
 
@@ -155,7 +174,8 @@ export function save(draft) {
       ? draft.facts
       : ((old && old.facts) || [])),
     mood: String(draft.mood || ''),
-    note: String(draft.note || '').trim()
+    note: String(draft.note || '').trim(),
+    photos: normPhotos(draft.photos)
   };
   log.drift = driftOf(log);
   d.log = log;
@@ -251,7 +271,7 @@ export function appendFacts(date, facts) {
   const d = dayRec(date || pw.today());
   if (!d.log) {
     // 还没填过收工表：建一条只带事实的壳子（items 为空 = 今天没有逐项填报）
-    d.log = { at: Date.now(), items: [], ahead: [], extras: '', facts: list, mood: '', note: '' };
+    d.log = { at: Date.now(), items: [], ahead: [], extras: '', facts: list, mood: '', note: '', photos: [] };
   } else {
     d.log.facts = normFacts((d.log.facts || []).concat(list));
   }
@@ -327,5 +347,7 @@ export function summaryFor(log) {
   if ((log.facts || []).length) lines.push('- 本人今天补充说：' + factsText(log) + '（已核对任务进度，不必因此调整）');
   if (log.mood) lines.push('- 今天状态：' + moodLabel(log.mood));
   if (log.note) lines.push('- 本人备注：' + log.note);
+  // 图只给本人回看（模型看不懂二进制），但条数是个信号：愿意贴图说明今天真做了事
+  if ((log.photos || []).length) lines.push('- 本人还贴了 ' + log.photos.length + ' 张今天的成果图');
   return lines.join('\n');
 }

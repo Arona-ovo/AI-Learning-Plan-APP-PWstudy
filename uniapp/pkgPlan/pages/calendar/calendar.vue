@@ -41,33 +41,18 @@
       </view>
     </view>
 
-    <!-- 选中那天的事 -->
+    <!-- 选中那天的事：与首页「日程表」卡共用同一个组件（一套样式、一套口径） -->
     <view class="card">
       <view class="card-head">
         <text class="card-title">{{ pickedText }}</text>
         <text class="card-more">{{ list.length ? list.length + ' 项' : '空' }}</text>
       </view>
-      <view v-if="!list.length" class="empty">
-        <text class="empty-txt">这一天没有安排任务。</text>
-      </view>
-      <view v-else>
-        <view v-for="t in list" :key="t.key" class="ct-row">
-          <view class="ct-main">
-            <view class="ct-title" :class="{ 'ct-title-done': t.status !== 'todo' }">{{ t.title }}</view>
-            <view class="ct-sub">
-              {{ t.goalTitle }} · {{ t.donePomos }}/{{ t.pomos }} 番茄
-              <text v-if="t.status === 'done'" class="ct-done">已完成</text>
-              <text v-else-if="t.status === 'dropped'" class="ct-drop">已砍掉</text>
-              <text v-else-if="t.overdue" class="ct-late">已超期</text>
-            </view>
-          </view>
-          <view v-if="t.status === 'todo'" class="ct-ops">
-            <text class="ct-op" @tap="moveTask(t, -1)">前移</text>
-            <text class="ct-op" @tap="moveTask(t, 1)">后移</text>
-          </view>
-        </view>
-        <view class="ct-tip">前移/后移一天：直接改任务日期，不走 AI（小改动自己动手更快）。</view>
-      </view>
+      <schedule-list
+        :rows="list"
+        :ops="true"
+        :tip="true"
+        @changed="onListChanged"
+      />
     </view>
   </view>
 </template>
@@ -75,12 +60,14 @@
 <script>
 import * as pw from '../../../utils/pwstore.js'
 import * as holiday from '../../../utils/holiday.js'
+import * as schedule from '../../../utils/schedule.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import ScheduleList from '../../../components/schedule-list/schedule-list.vue'
 
 const WEEK = ['一', '二', '三', '四', '五', '六', '日']
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, ScheduleList },
   data() {
     return {
       weekNames: WEEK,
@@ -92,12 +79,9 @@ export default {
     }
   },
   computed: {
+    // 日期文案（含节假日 / 周末 / 调休）与首页卡同一口径
     pickedText() {
-      if (!this.picked) return ''
-      const t = holiday.dayType(this.picked)
-      const tag = t === 'holiday' ? '（' + holiday.holidayName(this.picked) + '）'
-        : (t === 'weekend' ? '（周末）' : (t === 'makeup' ? '（调休补班）' : ''))
-      return this.picked.slice(5).replace('-', ' 月 ') + ' 日' + tag
+      return schedule.dateLabel(this.picked)
     }
   },
   onLoad() {
@@ -121,23 +105,8 @@ export default {
       const daysInMonth = new Date(this.year, this.month, 0).getDate()
       const lead = (first.getDay() + 6) % 7     // 周一开头
       const cells = []
-      const st = pw.get()
-      const goals = pw.activeGoals()
-      // 反查"每个日期有哪些任务"：task.day 是相对目标开始日的第几天
-      const byDate = {}
-      goals.forEach(g => {
-        const start = (g.createdAt ? pw.dateStr(new Date(g.createdAt)) : pw.today())
-        ;(g.tasks || []).forEach(t => {
-          if (t.status === 'dropped') return
-          const date = holiday.addDays(start, (t.day || 1) - 1)
-          byDate[date] = byDate[date] || []
-          byDate[date].push({
-            key: g.id + '#' + t.id, goalId: g.id, id: t.id, title: t.title,
-            goalTitle: g.title, pomos: t.pomos, donePomos: t.donePomos || 0,
-            status: t.status || 'todo', startDay: t.day
-          })
-        })
-      })
+      // 反查"每个日期有哪些任务"交给 utils/schedule.js —— 首页「日程表」卡用的是同一份
+      const byDate = schedule.byDate()
       this.__byDate = byDate
       for (let i = 0; i < lead; i++) {
         const d = new Date(this.year, this.month - 1, 1 - (lead - i))
@@ -161,14 +130,12 @@ export default {
       this.cells = cells
     },
     refreshList() {
-      const rows = (this.__byDate && this.__byDate[this.picked]) || []
-      const today = pw.today()
-      this.list = rows.map(t => {
-        const g = pw.goalOf(t.goalId)
-        const start = g && g.createdAt ? pw.dateStr(new Date(g.createdAt)) : today
-        const elapsed = pw.dayDiff(start, today) + 1
-        return Object.assign({}, t, { overdue: (t.startDay || 1) < elapsed && t.status === 'todo' })
-      })
+      this.list = schedule.rowsOf(this.picked, this.__byDate)
+    },
+    // 组件里前移/后移改了任务日期 → 重算月历（格子里的任务数跟着变）与当日列表
+    onListChanged() {
+      this.build()
+      this.refreshList()
     },
     pick(date) {
       this.picked = date
@@ -191,19 +158,14 @@ export default {
       this.build()
       this.refreshList()
     },
+    // 保留：月历格子 / 其它入口仍可能走这里，实际移动逻辑在 utils/schedule.js
     moveTask(t, delta) {
-      const g = pw.goalOf(t.goalId)
-      if (!g) return
-      const start = g.createdAt ? pw.dateStr(new Date(g.createdAt)) : pw.today()
-      const oldDate = holiday.addDays(start, (t.startDay || 1) - 1)
-      const newDate = holiday.addDays(oldDate, delta)
-      const newDay = pw.dayDiff(start, newDate) + 1
-      if (newDay < 1) {
-        uni.showToast({ title: '不能再往前了', icon: 'none' })
+      const r = schedule.move(t, delta)
+      if (!r.ok) {
+        uni.showToast({ title: r.msg, icon: 'none' })
         return
       }
-      pw.moveTaskDay(t.goalId, t.id, newDay)
-      uni.showToast({ title: '已改到 ' + newDate.slice(5), icon: 'none' })
+      uni.showToast({ title: r.msg, icon: 'none' })
       this.build()
       this.refreshList()
     },
@@ -254,23 +216,6 @@ export default {
   background: rgba(247, 144, 9, 0.28);
 }
 
-.ct-row { display: flex; align-items: center; padding: 18rpx 0; border-bottom: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.06); }
-.ct-row:last-of-type { border-bottom: none; }
-.ct-main { flex: 1; min-width: 0; }
-.ct-title { font-size: 27rpx; color: var(--ink-1, #17201a); }
-.ct-title-done { color: var(--ink-3, #98a19b); text-decoration: line-through; }
-.ct-sub { margin-top: 6rpx; font-size: 21rpx; color: var(--ink-3, #98a19b); }
-.ct-done { margin-left: 10rpx; color: #3b6d11; }
-.ct-drop { margin-left: 10rpx; }
-.ct-late { margin-left: 10rpx; color: #e5484d; }
-.ct-ops { flex-shrink: 0; display: flex; }
-.ct-op {
-  margin-left: 14rpx; padding: 8rpx 18rpx; border-radius: 999rpx;
-  font-size: 22rpx; color: var(--brand-strong, #bb1332);
-  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
-}
-.ct-tip { margin-top: 18rpx; font-size: 21rpx; line-height: 1.7; color: var(--ink-3, #98a19b); }
-
-.empty { padding: 10rpx 0; }
-.empty-txt { font-size: 25rpx; line-height: 1.7; color: var(--ink-2, #5a6560); }
+/* 日程表的 .ct-* 样式已搬到 components/schedule-list —— 页面里不再留一份，
+   否则改样式时很容易只改一边（首页和日历页看着就不一样了） */
 </style>

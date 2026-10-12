@@ -871,8 +871,11 @@ export default {
   '今日紧迫度': "Today's urgency",
   '今日任务': "Today's tasks",
   '进行中的目标': 'Active goal',
+  '日程表': 'Schedule',
   '学习 App': 'Study apps',
   'AI 今日对话': 'AI check-in',
+  '某一天的日程安排，可就地前移 / 后移一天':
+    "One day's schedule — shift a task forward or back by a day in place",
   '当前番茄的倒计时，点一下进入全屏专注页':
     'The running pomodoro countdown — tap to open the full-screen focus page',
   '图形化显示今天还剩多少时间、活有多重、有多赶（无文字）':
