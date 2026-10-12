@@ -698,6 +698,11 @@ function cancelPullNotify(ctx: Context | null) {
  * 所以原则只有一条：**这里不信任任何东西能成功**。
  */
 class PFGuardService extends AccessibilityService {
+  // 同 A11yQueryThread：extends 生成的是 `: AccessibilityService`（不带括号），
+  // 靠显式构造里的 super() 把父类初始化掉，缺了就编不过。
+  constructor() {
+    super();
+  }
 
   override onServiceConnected(): void {
     // super 也要包：生成的 Kotlin 里它同样可能触到未初始化的运行时
@@ -775,6 +780,27 @@ function buildGuardInfo(): AccessibilityServiceInfo {
   info.notificationTimeout = A11Y_NOTIFY_MS;
   info.flags = AccessibilityServiceInfo.FLAG_DEFAULT;
   return info;
+}
+
+/**
+ * ⚠️ 别删这个函数，它唯一的作用是把 PFGuardService 钉在编译产物里。
+ *
+ * UTS 编译器会剪掉"代码里没人引用"的声明。PFGuardService 是**系统**按清单创建的，
+ * 源码里从来没有 new 过它 —— 于是整个类（连同只被它用到的 bumpBind / buildGuardInfo）
+ * 被整块剪掉。实测：10-12 那次成功打出的 APK 里，dex 中只有 PWFocusService / WatchLoop /
+ * PullOverlay / OverlaySyncTask / PullNowTask，**没有 PFGuardService**，
+ * 而清单里却声明了它 —— 用户在系统设置里打开开关只会拿到 ClassNotFoundException。
+ *
+ * 剪枝的判据是"有没有被可达代码引用"，所以这里 new 一次把它钉住。
+ * 实例不会被 bind、不产生任何副作用，只为一个编译期引用。
+ */
+export function keepGuardClass(): boolean {
+  try {
+    let probe = new PFGuardService();
+    return probe != null;
+  } catch (e) {
+    return false;
+  }
 }
 
 /* ==================== 探测：现在前台是谁 / 有没有权限 ==================== */
@@ -1111,6 +1137,17 @@ function scheduleA11yQuery(): void {
 }
 
 class A11yQueryThread extends Thread {
+  // ⚠️ 这个空构造函数必须写，别删。
+  // UTS 把 `extends X` 生成 Kotlin 的 `class A11yQueryThread : Thread`（**不带括号**），
+  // Kotlin 要求父类在声明处被初始化 —— 靠显式构造函数里的 super() 来补。
+  // 一旦这个类没有显式构造函数，就没人调 super()，云端直接编不过：
+  //   e: index.kt:841:30 This type has a constructor, so it must be initialized here.
+  // 同文件另外三个 extends 类（PWFocusService / WatchLoop / PullOverlay）都写了显式构造，
+  // 所以只有这一处踩到。
+  constructor() {
+    super();
+  }
+
   override run(): void {
     try {
       a11yListed = queryA11yListed();

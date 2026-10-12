@@ -17,10 +17,15 @@ function run(file) {
   console.log = (...a) => buf.push(a.join(' '));
   console.error = (...a) => buf.push(a.join(' '));
   console.warn = (...a) => buf.push(a.join(' '));
+  // ⚠️ 有一部分护栏结尾只写 process.exitCode、不调 process.exit()（check-uts.js 就是）。
+  // 只接管 exit 的话这类脚本永远读到 0 —— 全量回归会把它算成绿。两个都要收。
+  process.exitCode = 0;
   let crash = null;
   try { require(abs); } catch (e) { if (!e || !e.__exit) crash = e; }
   finally { console.log = realLog; console.error = realErr; console.warn = realWarn; process.exit = realExit; }
-  return { code: crash ? 99 : code, buf, crash };
+  const exitCode = process.exitCode || 0;
+  process.exitCode = 0;
+  return { code: crash ? 99 : (code || exitCode), buf, crash };
 }
 
 const files = [];

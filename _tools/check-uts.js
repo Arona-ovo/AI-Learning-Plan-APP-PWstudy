@@ -350,5 +350,56 @@ else bad('canRetrieveWindowContent 还是 true —— 既贵又敏感，而代�
 if (!/flagRetrieveInteractiveWindows/.test(a11yXml)) ok('配置里去掉了 flagRetrieveInteractiveWindows');
 else bad('还留着 flagRetrieveInteractiveWindows —— 与 canRetrieveWindowContent=false 矛盾');
 
+/* ---------- 9. UTS → Kotlin 的两个编译期陷阱（2026-10-12 云打包炸出来的） ---------- */
+console.log('== 9. UTS 生成的 Kotlin 能不能编过 ==');
+// 先剥注释：本节要扫 class 声明，而注释里正好在讲这些声明（不剥就会自我命中，本项目第 6 次踩）。
+const utsSrc = uts
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n')
+  .map((l) => l.replace(/(^|[^:'"`\\])\/\/.*$/, '$1'))
+  .filter((l) => !/^\s*(\*|\/\/)/.test(l))
+  .join('\n');
+
+// 9.1 `extends 一个 Java/Android 类` 必须带显式 constructor 且调 super()。
+//     UTS 把它生成 `open class X : Thread`（**不带括号**），Kotlin 要求父类在声明处被初始化；
+//     没有显式构造函数时没人调 super()，云端直接报
+//     "This type has a constructor, so it must be initialized here"。
+//     implements 一个接口（Runnable）没有这个问题 —— 接口没有构造函数。
+const extendsRe = /class\s+(\w+)\s+extends\s+(\w+)/g;
+let m;
+let extCount = 0;
+while ((m = extendsRe.exec(utsSrc)) !== null) {
+  extCount++;
+  const cls = m[1];
+  const sup = m[2];
+  // 取类体：从声明处到下一个顶格的 }
+  const start = utsSrc.indexOf(m[0]);
+  const end = utsSrc.indexOf('\n}', start);
+  const body = end < 0 ? utsSrc.slice(start) : utsSrc.slice(start, end);
+  if (/constructor\s*\(/.test(body) && /super\s*\(/.test(body)) {
+    ok(cls + ' extends ' + sup + '：有显式 constructor 且调了 super()');
+  } else {
+    bad(cls + ' extends ' + sup + '：缺显式 constructor + super() —— 生成的 ' +
+      ': ' + sup + ' 不带括号，kotlin 报 "must be initialized here"，云打包必挂');
+  }
+}
+if (extCount === 0) bad('没找到任何 extends 声明 —— 正则或源码结构变了，本节等于没守');
+
+// 9.2 清单里声明的类必须在源码里被引用，否则会被整块剪掉。
+//     UTS 编译器会剪掉"代码里没人引用"的声明。PFGuardService 是系统按清单创建的，
+//     源码里从来没有 new 过它 → 整个类（连同只被它用到的 bumpBind / buildGuardInfo）被剪掉，
+//     打出的 dex 里没有这个类，而清单里却声明了它 = 用户打开开关只有 ClassNotFoundException。
+//     判据：类名在源码里至少出现两次（声明本身 + 至少一处引用）。
+const declared = [];
+const declRe = /android:name="uts\.sdk\.modules\.pwstudyFocus\.(\w+)"/g;
+while ((m = declRe.exec(mf)) !== null) declared.push(m[1]);
+if (!declared.length) bad('清单里没解析到任何 uts.sdk.modules.pwstudyFocus.* 类');
+declared.forEach((cls) => {
+  const n = (utsSrc.match(new RegExp('\\b' + cls + '\\b', 'g')) || []).length;
+  if (n >= 2) ok('清单声明的 ' + cls + ' 在源码里有 ' + n + ' 处引用（不会被剪枝）');
+  else bad('清单声明了 ' + cls + '，但源码里只有 ' + n + ' 处（= 只有声明、没人引用）' +
+    ' —— UTS 会把它整块剪掉，dex 里没有这个类');
+});
+
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;

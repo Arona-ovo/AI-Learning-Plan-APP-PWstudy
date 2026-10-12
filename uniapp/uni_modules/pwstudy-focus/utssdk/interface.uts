@@ -96,3 +96,14 @@ export function a11ySafe(): boolean
 
 /** 重置保险丝（设置页"再试一次"）：清掉 bind 计数，下一次被系统 bind 时重新正常初始化 */
 export function resetA11y(): boolean
+
+/**
+ * ⚠️ 不要当成"没用的函数"删掉 —— 它唯一的作用是把 PFGuardService 钉在编译产物里。
+ *
+ * UTS 编译器会剪掉"代码里没人引用"的声明，而 PFGuardService 是**系统**按清单创建的，
+ * 源码里从来没有 new 过它，于是整个类被剪掉（打出的 dex 里没有这个类，
+ * 用户在系统设置里打开开关只会拿到 ClassNotFoundException）。
+ * 实现里 new 一次为的就是这个编译期引用，不产生任何运行时副作用。
+ * JS 侧不需要调用它。
+ */
+export function keepGuardClass(): boolean
