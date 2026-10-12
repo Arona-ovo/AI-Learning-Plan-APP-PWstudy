@@ -95,12 +95,20 @@ console.log('== 3. App 身份是否会跟老 App 撞车 ==');
   const mf = JSON.parse(fs.readFileSync(P('manifest.json'), 'utf8'));
   const droid = (mf['app-plus'] && mf['app-plus'].distribute && mf['app-plus'].distribute.android) || {};
   const rows = [];
-  if (!droid.packageName) rows.push('manifest 里没有 android.packageName —— 云打包会走默认值，两个 App 用同一个 uni 工程的话默认包名可能一致，装不上或互相覆盖');
+  // ⚠️ 字段名是全小写的 packagename，不是 packageName（驼峰）。
+  //    这里以前写成驼峰，而 manifest 里当时也写的是驼峰 —— 两边都错，于是"假绿"：
+  //    护栏看着存在就放行，uni-app 却根本不认，打包一直走默认包名 com.PWstudy。
+  //    2026-10-12 用 aapt2 dump badging 才对照出来。两边都改对了。
+  if (/packageName/.test(JSON.stringify(droid))) {
+    rows.push('manifest 里出现了驼峰的 packageName —— uni-app 只认全小写的 packagename，驼峰那行不生效，打出来会变成默认包名 com.<App名>');
+  }
+  if (!droid.packagename) rows.push('manifest 里没有 android.packagename（全小写）—— 云打包会走默认值 com.<App名>，App 改名就跟着漂');
+  else if (droid.packagename !== 'com.PWstudy') rows.push('包名写成 ' + droid.packagename + '（当前实测是 com.PWstudy；改包名会让已装的 App 变成另一个应用，且 AWword 侧检测会静默失效，两边文档必须同一天改）');
   if (mf.name !== 'PWstudy') rows.push('manifest.name = ' + mf.name + '（应为 PWstudy）');
   const schemes = (mf['app-plus'] && mf['app-plus'].schemes) || [];
   if (schemes.indexOf('pwstudy') < 0) rows.push('未声明 pwstudy:// scheme');
   report('App 身份与 scheme 已独立', rows,
-    '要和 AWword 共存，必须显式配 packageName（建议 com.pwstudy.app）；两个 App 的 storage key 也别复用同一个前缀');
+    '包名要显式写（当前 com.PWstudy，字段全小写 packagename）；storage key 也别和 AWword 复用同一个前缀');
 }
 
 console.log('== 4. 存储 key 命名空间 ==');

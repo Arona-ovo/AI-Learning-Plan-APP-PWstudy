@@ -83,7 +83,7 @@ Android 11（API 30）起有包可见性限制：`targetSdk >= 30` 的应用默�
 
 ```xml
 <queries>
-  <package android:name="com.pwstudy.app" />
+  <package android:name="com.PWstudy" />
 </queries>
 ```
 
@@ -106,7 +106,7 @@ Android 11（API 30）起有包可见性限制：`targetSdk >= 30` 的应用默�
 **检测**
 
 ```js
-plus.runtime.isApplicationExist({ pname: 'com.pwstudy.app' })
+plus.runtime.isApplicationExist({ pname: 'com.PWstudy' })
 ```
 
 **五个条件缺一不可**（照抄 PWstudy `utils/partner.js` 的 `shouldAsk()`）
@@ -269,8 +269,15 @@ pwstudy://vocab-done?min=<真实停留分钟>&words=<correctCount>&task=<taskId>
 
 - PWstudy scheme：`pwstudy`
 - AWword scheme：`awword`
-- PWstudy 包名：`com.pwstudy.app`
+- PWstudy 包名：**`com.PWstudy`**（2026-10-12 用 `aapt2 dump badging` 从实际 APK 读出）
 - AWword 包名：`com.AWword`（**已确认**，2026-10-12）
+
+⚠️ **以 APK 实测为准，不要照抄 manifest.json 里的字面值。**
+PWstudy 的 `manifest.json` 里曾写成 `"packageName": "com.pwstudy.app"`（驼峰 N），
+但 uni-app 的规范字段是全小写的 `"packagename"` —— 驼峰那行**不生效**，
+打出来的其实是 DCloud 默认包名 `com.PWstudy`(= `com.` + App 名)。
+已按"保持现状"处理：manifest 改成全小写字段、值固定为 `com.PWstudy`，与实测一致。
+**如果哪天要改包名，两边文档和 `<queries>` 必须同一天改**，否则检测静默失效。
 
 ---
 
@@ -375,5 +382,5 @@ PWstudy 侧这些文件可直接对照：
 - `uniapp/pkgManage/pages/settings/settings.vue` 的「伙伴 App」胶囊 —— 四态四动作
 - `_tools/check-partner.js` —— 40 条契约断言，可直接改名复用
 
-AWword 侧只需把 `PARTNERS.awword` 换成 `PARTNERS.pwstudy`（`pkg: 'com.pwstudy.app'`、`scheme: 'pwstudy'`），
+AWword 侧只需把 `PARTNERS.awword` 换成 `PARTNERS.pwstudy`（`pkg: 'com.PWstudy'`、`scheme: 'pwstudy'`），
 其余逻辑对称。

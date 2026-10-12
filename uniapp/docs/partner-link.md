@@ -352,7 +352,7 @@ Android 11+ 起包可见性受限：`targetSdk >= 30` 的应用默认**看不到
 
 ```xml
 <queries>
-  <package android:name="com.pwstudy.app" />
+  <package android:name="com.PWstudy" />
 </queries>
 ```
 
@@ -379,7 +379,7 @@ Android 11+ 起包可见性受限：`targetSdk >= 30` 的应用默认**看不到
 
 需求写的是"安装并打开**其中任一 App**"时都要问，所以 AWword 侧也要有同一套：
 
-- 启动时（首页 `onShow`）用 `plus.runtime.isApplicationExist({ pname: 'com.pwstudy.app' })`
+- 启动时（首页 `onShow`）用 `plus.runtime.isApplicationExist({ pname: 'com.PWstudy' })`
   检测 PWstudy 是否已安装
 - 条件与本设计 5.1 完全一致：装了 + 未决定 + 没问够 3 次 + 距上次 ≥ 2 天 + **不在练习中**
 - 三选一弹窗：打通（推荐）/ 以后再说 / 不用了，落点与 6.1 一致
