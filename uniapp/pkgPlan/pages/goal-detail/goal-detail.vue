@@ -33,6 +33,7 @@
           >{{ t }}</text>
         </view>
         <view class="gd-tip">到点发一条通知，提醒你今天该做的那件事。</view>
+        <view v-if="slotOn" class="gd-tip">任务排了时段的，{{ slotStarts }} 还会各催一次。</view>
       </view>
 
       <!-- 阶段与任务 -->
@@ -49,6 +50,7 @@
             <view class="tk-title" :class="{ 'tk-title-done': t.status !== 'todo' }">{{ t.title }}</view>
             <view class="tk-sub">
               第 {{ t.day }} 天开始 · {{ t.donePomos }}/{{ t.pomos }} 番茄
+              <text v-if="slotOf(t)" class="tk-slot">{{ slotOf(t) }}</text>
               <text v-if="t.status === 'dropped'" class="tk-drop">已砍掉</text>
               <text v-else-if="t.status === 'done'" class="tk-done">已完成</text>
             </view>
@@ -103,6 +105,7 @@ import * as taskGuide from '../../../utils/task-guide.js'
 import * as link from '../../../utils/link.js'
 import * as pacing from '../../../utils/pacing.js'
 import * as reminder from '../../../utils/reminder.js'
+import * as timeslot from '../../../utils/timeslot.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
 export default {
@@ -111,6 +114,7 @@ export default {
     return {
       id: '', g: null,
       remindTimes: reminder.TIMES,
+      slotOn: timeslot.enabled(),
       guideOpen: false, guideLoading: false, guideError: '',
       guideTask: null, guide: null, guideFromCache: false
     }
@@ -121,6 +125,10 @@ export default {
     },
     remainDays() {
       return this.g ? pw.dayDiff(pw.today(), this.g.deadline) : 0
+    },
+    /** 时段提醒的起点时间，一句说清（'早上 08:00、中午 13:00、晚上 19:30'） */
+    slotStarts() {
+      return timeslot.SLOTS.map(s => s.name + ' ' + s.start).join('、')
     },
     progress() {
       return this.g ? pw.goalProgress(this.g) : { done: 0, total: 0, pct: 0 }
@@ -140,11 +148,17 @@ export default {
     }
   },
   onShow() {
+    this.slotOn = timeslot.enabled()
     this.refresh()
   },
   methods: {
     refresh() {
       this.g = pw.goalOf(this.id)
+    },
+    /** 任务行上的时段徽标（'晚上'）。开关关着就一律不显示 —— 纯任务模式 */
+    slotOf(t) {
+      if (!this.slotOn || !t) return ''
+      return timeslot.labelOf(t.slot)
     },
     toggle(t) {
       if (t.status === 'dropped') return
@@ -296,6 +310,15 @@ export default {
 .tk-title { font-size: 27rpx; line-height: 1.5; color: #17201a; color: var(--ink-1, #17201a); }
 .tk-title-done { color: #98a19b; color: var(--ink-3, #98a19b); text-decoration: line-through; }
 .tk-sub { margin-top: 6rpx; font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
+/* 时段徽标：这条任务排在早 / 中 / 晚哪一段 */
+.tk-slot {
+  margin-left: 10rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+}
 .tk-drop { color: #e5484d; margin-left: 8rpx; }
 .tk-done { color: #3b6d11; margin-left: 8rpx; }
 /* AI 附的学习资料建议：小字灰底胶囊，一行放不下自动换行 */

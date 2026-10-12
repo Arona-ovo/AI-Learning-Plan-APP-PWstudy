@@ -16,6 +16,7 @@
 import * as pw from './pwstore.js';
 import * as notify from './notify.js';
 import * as pacing from './pacing.js';
+import * as timeslot from './timeslot.js';
 
 /** 可选的时间点（够用就好；真要选任意分钟再说） */
 export const TIMES = ['07:00', '08:00', '09:00', '12:30', '14:00', '18:00', '19:30', '20:00', '21:30', '22:00'];
@@ -42,15 +43,26 @@ export function valid(hhmm) {
   return minutesOf(hhmm) != null;
 }
 
-/** 这个目标接下来该做的那件事（今天的、还没做的、最早的一天） */
-export function nextTask(g) {
-  if (!g) return null;
+/** 今天该做、还没做的（按 day 排） */
+function todoList(g) {
+  if (!g) return [];
   const start = g.createdAt ? pw.dateStr(new Date(g.createdAt)) : pw.today();
   const elapsed = pw.dayDiff(start, pw.today()) + 1;
-  const todos = (g.tasks || [])
+  return (g.tasks || [])
     .filter(t => t.status === 'todo' && (t.day || 1) <= elapsed)
     .sort((a, b) => (a.day || 1) - (b.day || 1));
-  return todos[0] || null;
+}
+
+/** 这个目标接下来该做的那件事（今天的、还没做的、最早的一天） */
+export function nextTask(g) {
+  return todoList(g)[0] || null;
+}
+
+/** 今天某个时段里该做的事（空 = 这个时段不用打扰） */
+export function tasksInSlot(g, key) {
+  const k = timeslot.normalize(key);
+  if (!k) return [];
+  return todoList(g).filter(t => timeslot.normalize(t.slot) === k);
 }
 
 /** 给这个目标写提醒时间（空串 = 不提醒） */
@@ -106,4 +118,49 @@ export function check(opt) {
 /** 有多少个目标设了提醒（设置页 / 详情页用） */
 export function countOn() {
   return pw.activeGoals().filter(g => valid(g.remindAt)).length;
+}
+
+/**
+ * 时段到点提醒：任务被排进早 / 中 / 晚哪一段，那段开始就催一句。
+ *
+ * 与上面 check() 的区别：那边是"用户自己定的一个点，今天该做什么"，
+ * 这里是"计划自己排出来的时段，这个时段该做什么" —— 一天最多三次（8:00 / 13:00 / 19:30）。
+ *
+ * ⚠️ 同样是**前台到点 + 进 App 补发**：没开 App 时系统不会替我们弹。
+ * 补发只补"最近一个已经到点"的段（早上没催到、中午才打开，催中午那条才有用）。
+ * 催过记在 goal.slotNotified = { date, keys }，一个时段一天只催一次。
+ *
+ * @param {{now?:Date}} opt
+ * @returns {number} 这次提醒了几个目标
+ */
+export function checkSlot(opt) {
+  const o = opt || {};
+  if (!timeslot.notifyOn()) return 0;
+  const now = o.now || new Date();
+  const key = timeslot.keyNow(now);
+  if (!key) return 0;
+  const today = pw.today();
+  const si = timeslot.indexOf(key);
+  let n = 0;
+  pw.activeGoals().forEach((g, i) => {
+    const log = g.slotNotified || {};
+    const done = log.date === today ? (log.keys || []) : [];
+    if (done.indexOf(key) >= 0) return;             // 这个时段今天催过了
+    const list = tasksInSlot(g, key);
+    // 这个时段没安排事就不打扰 —— 提醒"你今早没事"没有意义
+    if (!list.length) return;
+    const t = list[0];
+    const pomos = Math.max(1, t.pomos || 1);
+    const tail = list.length > 1 ? ('等 ' + list.length + ' 件') : (pomos + ' 个番茄');
+    const ok = notify.slotNotify(
+      timeslot.labelOf(key) + '该开始了：' + g.title,
+      '「' + t.title + '」' + tail + '，约 ' + (pomos * pacing.focusLen()) + ' 分钟',
+      i * 3 + si
+    );
+    if (!ok) return;
+    g.slotNotified = { date: today, keys: done.concat([key]) };
+    pw.touch();
+    n++;
+  });
+  return n;
 }

@@ -117,6 +117,26 @@
         <view class="tip">{{ remindTip }}</view>
       </view>
 
+      <!-- 执行时段：任务排到早 / 中 / 晚哪一段。
+           大概选（勾一下）就行，想细说就等会儿在对话里跟 AI 讲（"工作日晚上 8-10 点"）。
+           关掉 = 原来的纯任务规划，只是不再分时段，已有的时段数据不会丢。 -->
+      <view class="card">
+        <view class="card-head">
+          <text class="card-title">执行时段</text>
+          <text class="card-more" @tap="toggleSlot">{{ slotOn ? '关掉时段安排' : '已关闭' }}</text>
+        </view>
+        <view v-if="slotOn" class="chips">
+          <text
+            v-for="s in slotList"
+            :key="s.key"
+            class="chip"
+            :class="{ 'chip-on': slotPicked(s.key) }"
+            @tap="pickSlot(s.key)"
+          >{{ s.name }}</text>
+        </view>
+        <view class="tip">{{ slotTip }}</view>
+      </view>
+
       <view v-if="error" class="error-card">{{ error }}</view>
       <button class="btn-primary go-btn" :disabled="!canGo" @tap="startSession">下一步：和 AI 聊聊细节</button>
       <view v-if="!aiReady" class="ai-off">还没配置 AI 服务：到「我的 → 设置 → AI 服务」填好密钥后再来。</view>
@@ -221,6 +241,7 @@
         <view v-if="plan.risks && plan.risks.length" class="p-risks">
           <text v-for="(r, i) in plan.risks" :key="i" class="p-risk">⚠ {{ r }}</text>
         </view>
+        <view v-if="slotBrief" class="p-slots">{{ slotBrief }}</view>
       </view>
 
       <view class="card" v-for="(group, gi) in grouped" :key="gi">
@@ -228,18 +249,24 @@
           <text class="card-title">{{ group.title }}</text>
           <text class="card-more">阶段 {{ gi + 1 }}</text>
         </view>
-        <view
-          v-for="t in group.tasks"
-          :key="t.idx"
-          class="pv-task"
-          @tap="togglePick(t.idx)"
-        >
-          <view class="pv-check" :class="{ 'pv-check-on': picked[t.idx] }">{{ picked[t.idx] ? '✓' : '' }}</view>
-          <view class="pv-main">
-            <view class="pv-txt" :class="{ 'pv-txt-off': !picked[t.idx] }">{{ t.title }}</view>
-            <view class="pv-sub">
-              第 {{ t.day }} 天开始 · {{ t.pomos }} 个番茄
-              <text v-if="t.light" class="pv-light">{{ t.light }}·已减量</text>
+        <view v-for="(sg, si) in group.groups" :key="si" class="pv-slot">
+          <view v-if="sg.name" class="pv-slot-head">
+            <text class="pv-slot-name">{{ sg.name }}</text>
+            <text class="pv-slot-hint">{{ sg.hint }}</text>
+          </view>
+          <view
+            v-for="t in sg.tasks"
+            :key="t.idx"
+            class="pv-task"
+            @tap="togglePick(t.idx)"
+          >
+            <view class="pv-check" :class="{ 'pv-check-on': picked[t.idx] }">{{ picked[t.idx] ? '✓' : '' }}</view>
+            <view class="pv-main">
+              <view class="pv-txt" :class="{ 'pv-txt-off': !picked[t.idx] }">{{ t.title }}</view>
+              <view class="pv-sub">
+                第 {{ t.day }} 天开始 · {{ t.pomos }} 个番茄
+                <text v-if="t.light" class="pv-light">{{ t.light }}·已减量</text>
+              </view>
             </view>
           </view>
         </view>
@@ -262,6 +289,7 @@ import * as pacing from '../../../utils/pacing.js'
 import { TEMPLATES, seedOf } from '../../../data/goal-templates.js'
 import * as holiday from '../../../utils/holiday.js'
 import * as reminder from '../../../utils/reminder.js'
+import * as timeslot from '../../../utils/timeslot.js'
 import { aiGateReason } from '../../../services/config.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
@@ -272,9 +300,16 @@ export default {
       stage: 'form',                 // form | chat | result
       tplOpen: false,
       templates: TEMPLATES,
-      draft: { title: '', deadline: '', dailyMin: 60, level: '', tplKey: '', remindAt: reminder.DEFAULT },
+      draft: {
+        title: '', deadline: '', dailyMin: 60, level: '', tplKey: '',
+        remindAt: reminder.DEFAULT,
+        slots: timeslot.KEYS.slice()      // 能学的时段（早/中/晚），默认都开着
+      },
       minOptions: [30, 60, 90, 120, 180, 240],
       remindTimes: reminder.TIMES,
+      slotList: timeslot.SLOTS,
+      // 时段安排的总开关（settings.plan.slot）。放在 data 里：开关一变界面要立刻跟着变
+      slotOn: timeslot.enabled(),
       weekNames: ['一', '二', '三', '四', '五', '六', '日'],
       calYear: 2026, calMonth: 10, calCells: [],
       quickDates: [],
@@ -312,15 +347,34 @@ export default {
         ? '到点发一条通知，告诉你今天该做的那件事。落地后在目标详情里还能改。'
         : '不提醒的话，只有打开 App 时才看得到今天的任务。'
     },
+    slotTip() {
+      return this.slotOn
+        ? '勾掉你真的坐不下来的时段。大概选就行 —— 等会儿 AI 还会再问一句，那时候可以细说（比如「工作日晚上 8-10 点，周末上午」）。'
+        : '已关掉：排出来的只有「第几天做」，不带时段。以前排过的时段都还在，开回来就又能看见了。'
+    },
+    /** 概览那一行时段摘要（'早上 3 个 · 晚上 4 个'）；关掉时段 / 没排时段时不显示 */
+    slotBrief() {
+      if (!this.slotOn || !this.plan) return ''
+      return timeslot.brief(this.plan.tasks || [])
+    },
+    /**
+     * 结果页的排布：先按阶段，阶段内再按早 / 中 / 晚分类。
+     * 关掉时段安排时 groups 只有一组且不显示小标题 —— 跟原来的列表长得一样。
+     */
     grouped() {
       if (!this.plan) return []
       const out = []
       this.plan.tasks.forEach((t, idx) => {
         const mi = t.ms - 1
-        while (out.length <= mi) out.push({ title: this.plan.milestones[out.length] ? this.plan.milestones[out.length].title : '阶段', tasks: [] })
-        out[mi].tasks.push(Object.assign({ idx }, t))
+        while (out.length <= mi) out.push({ title: this.plan.milestones[out.length] ? this.plan.milestones[out.length].title : '阶段', raw: [] })
+        out[mi].raw.push(Object.assign({ idx }, t))
       })
-      return out
+      return out.map(g => ({
+        title: g.title,
+        groups: this.slotOn
+          ? timeslot.groupOf(g.raw)
+          : [{ key: '', name: '', hint: '', tasks: g.raw }]
+      }))
     },
     pickedCount() {
       return Object.keys(this.picked).filter(k => this.picked[k]).length
@@ -373,6 +427,8 @@ export default {
     try { uni.onKeyboardHeightChange(this.__onKb) } catch (e) {}
   },
   onShow() {
+    // 开关可能在设置页被改过（那边和这里写的是同一个 settings.plan.slot）
+    this.slotOn = timeslot.enabled()
     this.syncFromTask()
   },
   onUnload() {
@@ -480,6 +536,30 @@ export default {
     pickMin(m) { this.draft.dailyMin = m },
     pickRemind(t) { this.draft.remindAt = t || '' },
 
+    // ---------- 执行时段（早 / 中 / 晚） ----------
+    slotPicked(k) {
+      return (this.draft.slots || []).indexOf(k) >= 0
+    },
+    pickSlot(k) {
+      const cur = this.draft.slots || []
+      const next = cur.indexOf(k) >= 0 ? cur.filter(x => x !== k) : cur.concat([k])
+      // 一个时段都不留，任务就没处放了 —— 宁可不许取消最后一个
+      if (!next.length) {
+        uni.showToast({ title: '至少留一个时段', icon: 'none' })
+        return
+      }
+      this.draft.slots = next
+    },
+    /** 时段安排的总开关：写在 settings 上，所以设置页那边改了这边也跟着 */
+    toggleSlot() {
+      const on = timeslot.setEnabled(!this.slotOn)
+      this.slotOn = on
+      uni.showToast({
+        title: on ? '已开启时段安排' : '已关掉时段安排，回到纯任务规划',
+        icon: 'none'
+      })
+    },
+
     // ---------- 模板 ----------
     useTemplate(t) {
       const seed = seedOf(t, pw.today())
@@ -490,8 +570,9 @@ export default {
         level: seed.level,
         tplKey: t.key,
         raw: seed.raw,          // 会话开始时一起喂给 AI
-        // 选模板不该把刚选好的提醒时间清掉（整对象替换会丢字段）
-        remindAt: this.draft.remindAt || reminder.DEFAULT
+        // 选模板不该把刚选好的提醒时间 / 时段清掉（整对象替换会丢字段）
+        remindAt: this.draft.remindAt || reminder.DEFAULT,
+        slots: (this.draft.slots && this.draft.slots.length) ? this.draft.slots.slice() : timeslot.KEYS.slice()
       }
       this.tplOpen = false
       this.syncCal()
@@ -532,7 +613,9 @@ export default {
         raw: String(this.draft.raw || this.draft.title || '').trim(),
         deadline: this.draft.deadline,
         dailyMin: this.draft.dailyMin,
-        level: String(this.draft.level || '').trim()
+        level: String(this.draft.level || '').trim(),
+        // 用户勾选的可用时段（早/中/晚）：AI 追问与最终排期都以此为准
+        slots: (this.draft.slots || []).slice()
       }
       planTask.startSession(seed)
       this.syncFromTask()
@@ -901,6 +984,31 @@ export default {
 }
 .p-risks { margin-top: 16rpx; display: flex; flex-direction: column; }
 .p-risk { font-size: 23rpx; line-height: 1.7; color: #8a5800; }
+
+/* 时段摘要（'早上 3 个 · 晚上 4 个'） */
+.p-slots {
+  margin-top: 14rpx;
+  font-size: 23rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+/* 阶段内按早 / 中 / 晚分组的小标题 */
+.pv-slot { padding-top: 4rpx; }
+.pv-slot-head {
+  display: flex; align-items: baseline;
+  margin: 14rpx 0 2rpx;
+}
+.pv-slot-name {
+  font-size: 23rpx; font-weight: 600;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+}
+.pv-slot-hint {
+  margin-left: 12rpx;
+  font-size: 20rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
 
 .pv-task { display: flex; align-items: flex-start; padding: 16rpx 0; }
 .pv-check {

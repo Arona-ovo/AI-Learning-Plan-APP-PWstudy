@@ -8,6 +8,7 @@
 // 取消沿用项目纪律：显式 shouldStop()，不靠抛异常。
 import * as agent from '../services/plan-agent.js';
 import * as settings from './settings.js';
+import * as timeslot from './timeslot.js';
 
 const KEY = 'fj_pw_plan_v1';
 export const CHANGE_EVENT = 'plan:task-change';
@@ -155,7 +156,10 @@ export async function send(text, images) {
   set({ running: true, runningWhat: '追问', error: '', paused: false });
   busy++;
   try {
-    const r = await agent.askRound(st.seed, st.messages.filter(m => m.role !== 'system'));
+    // 追问阶段要不要问"你一般什么时段能学"，看的是**当下**的开关 ——
+    // 用户在对话中途回设置关掉，这一轮起就不再追着问了
+    const seed = Object.assign({}, st.seed, { slotOn: timeslot.enabled() });
+    const r = await agent.askRound(seed, st.messages.filter(m => m.role !== 'system'));
     if (stopFlag) { set({ running: false, paused: true }); return st; }
     pushMsg('assistant', r.reply);
     // 停在 ask 阶段等用户点「开始规划」，不自动进 plan（强制预览纪律）
@@ -187,6 +191,9 @@ export async function generate() {
     try {
       input.resOn = !!(settings.get().plan && settings.get().plan.res);
     } catch (e) {}
+    // 时段安排（早/中/晚）：默认开。关掉后 input.slots 不再下发，规划就是原来的纯任务模式
+    input.slotOn = timeslot.enabled();
+    input.slots = (st.seed && st.seed.slots) || [];
     const plan = await agent.planGoal(input);
     if (stopFlag) { set({ running: false, paused: true }); return st; }
     set({ stage: 'done', running: false, plan });

@@ -900,7 +900,7 @@ export default {
       this.checkRemind()
     },
     /**
-     * 每日提醒（目标规划里定的时间）：到点发一条，告诉你今天该做的事。
+     * 到点催一句：每日提醒（目标上定的时间）+ 时段提醒（任务排在早/中/晚，到段就催）。
      *
      * 每分钟查一次，不是每秒 —— 提醒是分钟级的事，没必要跟着秒针转。
      * ⚠️ 边界说清楚：这是"App 前台时准点 + 没开着时下次进 App 补一句（当天一次）"。
@@ -912,6 +912,7 @@ export default {
       if (m === this.__remindMin) return
       this.__remindMin = m
       try { reminder.check() } catch (e) {}
+      try { reminder.checkSlot() } catch (e) {}
     },
     startFor(item) {
       if (this.cur) {

@@ -139,6 +139,7 @@ export function addGoal(input, plan) {
     donePomos: 0,
     tags: t.tags || [],
     res: (t.res && t.res.length) ? t.res : [],   // AI 附的学习资料建议（可选增强，可为空）
+    slot: t.slot || '',                          // 执行时段 am|noon|pm（关掉时段安排时为空串）
     status: 'todo',
     createdAt: Date.now()
   }));

@@ -583,6 +583,12 @@ export default {
   '规划时推荐学习资料': 'Suggest study materials in plans',
   '让 AI 在任务上附资料/工具建议（书名、App 等，不给链接）；只影响新生成的目标':
     'Let AI attach material/tool suggestions to tasks (books, apps — no links). Applies to newly generated goals only',
+  '规划时安排执行时段': 'Sort tasks into time slots in plans',
+  '让 AI 把任务排进早/中/晚，看得出来每个任务大概几点做；关掉就回到原来的纯任务规划，已经排好的时段不会丢':
+    'Let AI place each task in the morning / afternoon / evening. Turn it off and planning goes back to plain tasks — slots already saved are kept',
+  '时段到了提醒我': 'Remind me when a slot starts',
+  '早上 08:00、中午 13:00、晚上 19:30 各催一次那个时段的事；关掉时段安排后这一项不起作用':
+    'Nudges at 08:00 / 13:00 / 19:30 for that slot’s tasks. Has no effect once time slots are turned off',
   '模型': 'Model',
   '如 https://api.openai.com/v1': 'e.g. https://api.openai.com/v1',
   '仅保存在本机，不会上传': 'Stored locally only, never uploaded',

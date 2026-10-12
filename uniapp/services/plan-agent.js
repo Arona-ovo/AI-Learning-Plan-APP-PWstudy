@@ -10,6 +10,7 @@ import { isAIEnabled } from './config.js';
 import * as holiday from '../utils/holiday.js';
 import * as dailylog from '../utils/dailylog.js';
 import * as pacing from '../utils/pacing.js';
+import * as timeslot from '../utils/timeslot.js';
 
 const PLAN_TIMEOUT = 60000;
 const MAX_ROUNDS = 3;
@@ -139,7 +140,7 @@ export function normalizePlan(raw, input) {
     const res = Array.isArray(t && t.res)
       ? t.res.map(x => clampStr(x, 40)).filter(Boolean).slice(0, 3)
       : [];
-    tasks.push({
+    const row = {
       title,
       // 提示词里写的是 milestone（模型照着写 milestone），早期版本读的是 ms ——
       // 两个 key 都认，否则模型按提示词输出时 ms 全兜底成 1，任务全被塞进"阶段 1"
@@ -148,10 +149,17 @@ export function normalizePlan(raw, input) {
       pomos: clampInt(t && t.pomos, 1, 8, 2),
       tags: Array.isArray(t && t.tags) ? t.tags.map(x => clampStr(x, 10)).filter(Boolean).slice(0, 3) : [],
       res: res.length ? res : undefined
-    });
+    };
+    // 时段（早/中/晚）：关掉开关时这个字段根本不出现 —— 回退成纯任务规划，
+    // 落库与重排看到的还是原来那套字段，不需要任何分支判断
+    if (input.slotOn) row.slot = timeslot.normalize(t && t.slot);
+    tasks.push(row);
   });
   if (!tasks.length) throw new Error('规划结果里没有可用任务');
   tasks.sort((a, b) => a.day - b.day);
+  // 模型漏给 slot 是常态（任务一多就漏），这里按可用时段轮转补齐：
+  // 结果页要按早/中/晚三组排布，缺一组就成了两组的怪样子
+  if (input.slotOn) timeslot.spread(tasks, input.slots);
 
   // 假期减量（确定性，不靠模型自觉）：模型就算被提示了也常把假期排满，
   // 所以落地前统一按 dayType 打折 —— 假期半量、周末八折，最少留 1 个番茄。
@@ -178,11 +186,28 @@ export function normalizePlan(raw, input) {
 function planSystemPrompt(input) {
   const totalDays = Math.max(3, Math.ceil((new Date(input.deadline) - new Date()) / 86400000) || 90);
   const dailyMin = input.dailyMin || 60;
+  // 可选增强（时段 / 资料）按需续号：两条都开时不能都叫"第 9 条"
+  const extras = [];
+  if (input.slotOn) {
+    extras.push(
+      '**时段安排**：每个任务给一个 slot —— "am" = 早上（6-12 点）、"noon" = 中午（12-18 点）、' +
+      '"pm" = 晚上（18-24 点）。用户能学的时段是：**' + timeslot.namesOf(input.slots) + '**。' +
+      '只在这个范围内排，用上的每个时段都要分到任务，不要把活儿全堆在晚上；' +
+      '要整块时间的（刷卷子、写作文）尽量放用户说得出的那个长时段，碎片任务（背单词、复习）放短时段。'
+    );
+  }
+  if (input.resOn) {
+    extras.push(
+      'res：给这个任务配 1-3 条具体的学习资料 / 工具建议（如《考研真相阅读分册》、Anki、"扇贝考研真题小程序"）。' +
+      '只写你确定真实存在的，**不要给任何网址**（你编不准 URL）；确实没有合适的就给空数组或不带该字段。'
+    );
+  }
   return [
     '你是学习规划专家。用户会给出一个远期学习目标，请把它拆解为可执行的日程计划。',
     '只输出一个 JSON 对象，不要任何解释、不要 markdown 围栏。格式：',
-    '{"strategy":"总体策略，80字内","risks":["风险提示，最多3条"],"milestones":[{"title":"阶段名","days":该阶段跨越天数}],"tasks":[{"title":"任务名（动词开头，可执行）","milestone":阶段序号从1开始,"day":建议第几天开始,"pomos":预估番茄数1-8,"tags":["标签"]' +
-      (input.resOn ? ',"res":["资料/工具建议"]' : '') + ']}',
+    '{"strategy":"总体策略，80字内","risks":["风险提示，最多3条"],"milestones":[{"title":"阶段名","days":该阶段跨越天数}],"tasks":[{"title":"任务名（动词开头，可执行）","milestone":阶段序号从1开始,"day":建议第几天开始,"pomos":预估番茄数1-8' +
+      (input.slotOn ? ',"slot":"am|noon|pm"' : '') +
+      ',"tags":["标签"]' + (input.resOn ? ',"res":["资料/工具建议"]' : '') + ']}',
     '约束：',
     '1. 里程碑 2-6 个，任务总数 6-30 个，day 在 1-' + totalDays + ' 之间且按时间排序；',
     '2. 每个番茄 25 分钟。',
@@ -197,11 +222,8 @@ function planSystemPrompt(input) {
     '7. 用户当前水平：' + (input.level || '未提供，按零基础规划') + '；截止日期：' + input.deadline + '。',
     '8. 节假日（已核对国务院安排，务必照做）：' + holiday.summaryFor(holiday.today(), input.deadline) + '。'
   ]
-    // res（资料建议）是可选增强，用户在设置里开了才下发这段
-    .concat(input.resOn ? [
-      '9. res：给这个任务配 1-3 条具体的学习资料 / 工具建议（如《考研真相阅读分册》、Anki、"扇贝考研真题小程序"）。' +
-      '只写你确定真实存在的，**不要给任何网址**（你编不准 URL）；确实没有合适的就给空数组或不带该字段。'
-    ] : [])
+    // 时段安排 / 资料建议都是可选增强，用户在设置里开了才下发这段
+    .concat(extras.map((t, i) => (9 + i) + '. ' + t))
     .join('\n');
 }
 
@@ -253,16 +275,21 @@ export function localPlan(input) {
     const per = Math.max(1, Math.round((span * perDay) / TPL.length));
     TPL.forEach((t, ti) => {
       if (tasks.length >= 30) return;
-      tasks.push({
+      const row = {
         title: (mi === 0 ? '' : '【' + m.title + '】') + t[0],
         ms: mi + 1,
         day: Math.min(totalDays, day),
         pomos: Math.max(1, Math.min(8, t[1] * per)),
         tags: [m.title]
-      });
+      };
+      // 没接 AI 也要准时段：模板排出来的是"第几天"，用户还得自己想"几点做"
+      if (input && input.slotOn) row.slot = '';
+      tasks.push(row);
       day = Math.min(totalDays, day + Math.max(1, Math.round(span / TPL.length)));
     });
   });
+  // 模板没有时段信息，按用户勾选的可用时段轮转摊开（与 normalizePlan 同一套规则）
+  if (input && input.slotOn) timeslot.spread(tasks, input.slots);
 
   return {
     strategy: '未接入 AI，按' + totalDays + '天、每天' + dailyMin + '分钟排了一份通用计划：先摸底打基础，再系统推进，最后冲刺复盘。配好 AI 后会按你的具体情况重排。',
@@ -393,15 +420,30 @@ async function historyToWire(history) {
  */
 export async function askRound(seed, history) {
   const round = (history || []).filter(m => m.role === 'assistant').length;
-  const sys = [
-    '你是学习规划顾问，正在和用户确认一个远期学习目标的细节。',
-    '已掌握的信息：目标="' + seed.title + '"；截止=' + seed.deadline + '；每天可投入=' + (seed.dailyMin || 60) + '分钟；当前水平="' + (seed.level || '未提供') + '"。',
-    '规则：',
+  const rules = [
     '1. 每轮只问 1-2 个最关键的缺口，用口语问，不要列编号清单；',
     '2. 关键缺口通常包括：当前起点水平、每天/每周的真实可用时段与节奏、目标是否可量化（分数/证书/产出）、约束（在职还是在校）、偏好（刷题优先还是系统学）；',
-    '3. 已经聊了 ' + round + ' 轮；信息够规划了就把 enough 置 true，并写一段需求摘要；**问满 4 轮无论如何结束追问**；',
-    '4. 只输出 JSON：{"reply":"给用户看的话","enough":true|false,"summary":"需求摘要","missing":["还缺什么"]}'
-  ].join('\n');
+    '3. 已经聊了 ' + round + ' 轮；信息够规划了就把 enough 置 true，并写一段需求摘要；**问满 4 轮无论如何结束追问**；'
+  ];
+  // 时段安排开着的时候，"希望什么时候做"升级成必问项：
+  // 大概说（"晚上"）和详细说（"工作日晚上 8-10 点，周末上午"）都要接得住 ——
+  // 追问是给人台阶，不是逼人填表，所以提示词里必须把"两种都行"说出口。
+  if (seed.slotOn) {
+    rules.push(
+      '4. **执行时段是必问项**：只要还没问出"一般什么时段能学"，这一轮就问它；' +
+      '问的时候要带一句"大概说就行（比如『晚上』），想细说也行（比如『工作日晚上 8-10 点，周末上午』），两种我都听得懂"；' +
+      '用户答了就别再追着时段问，把他说的原话写进 summary（不要自己改写成时段代号）'
+    );
+  }
+  rules.push(
+    (rules.length + 1) + '. 只输出 JSON：{"reply":"给用户看的话","enough":true|false,"summary":"需求摘要","missing":["还缺什么"]}'
+  );
+  const sys = [
+    '你是学习规划顾问，正在和用户确认一个远期学习目标的细节。',
+    '已掌握的信息：目标="' + seed.title + '"；截止=' + seed.deadline + '；每天可投入=' + (seed.dailyMin || 60) + '分钟；当前水平="' + (seed.level || '未提供') + '"' +
+      (seed.slotOn ? '；用户勾选的可用时段="' + timeslot.namesOf(seed.slots) + '"' : '') + '。',
+    '规则：'
+  ].concat(rules).join('\n');
   const messages = [{ role: 'system', content: sys }]
     .concat(await historyToWire(history))
     .concat([{ role: 'user', content: '（该你说了）' }]);

@@ -317,6 +317,24 @@
             <switch :checked="planRes" :color="brandMain" @change="e => setPlanRes(e.detail.value)" />
           </view>
 
+          <!-- 时段安排：默认开。关掉 = 原来的纯任务规划（不再产出时段，已有的不删） -->
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('规划时安排执行时段') }}</text>
+              <text class="row-desc">{{ $t('让 AI 把任务排进早/中/晚，看得出来每个任务大概几点做；关掉就回到原来的纯任务规划，已经排好的时段不会丢') }}</text>
+            </view>
+            <switch :checked="planSlot" :color="brandMain" @change="e => setPlanSlot(e.detail.value)" />
+          </view>
+
+          <!-- 时段到点提醒：依附于上面的时段安排 -->
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('时段到了提醒我') }}</text>
+              <text class="row-desc">{{ $t('早上 08:00、中午 13:00、晚上 19:30 各催一次那个时段的事；关掉时段安排后这一项不起作用') }}</text>
+            </view>
+            <switch :checked="planSlotNotify" :color="brandMain" @change="e => setPlanSlotNotify(e.detail.value)" />
+          </view>
+
           <template v-if="aiAdvanced">
             <view class="field">
               <text class="field-label">{{ $t('API 地址') }}</text>
@@ -821,6 +839,7 @@
 import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
+import * as timeslot from '../../../utils/timeslot.js'
 import * as partner from '../../../utils/partner.js'
 // 只借它的"呼起伙伴 App"那一个函数；utils/link.js 同时被 App.vue 引着，不会重复打包
 import { openPartner as openPartnerLink } from '../../../utils/link.js'
@@ -975,6 +994,9 @@ export default {
       aiTick: 0,
       // AI 规划偏好（任务附资料建议，默认关）
       planRes: false,
+      // AI 规划偏好：时段安排（默认开）+ 时段到点提醒（默认开）
+      planSlot: true,
+      planSlotNotify: true,
       // 彩蛋
       eggShow: false,
       eggPieces: EGG_PIECES,
@@ -1438,6 +1460,9 @@ export default {
       const s = settings.get()
       this.ai = Object.assign({}, s.ai)
       this.planRes = !!(s.plan && s.plan.res)
+      // 时段两项的默认值在 utils/timeslot.js 里（老数据没字段 = 开），这里只负责显示
+      this.planSlot = timeslot.enabled()
+      this.planSlotNotify = timeslot.notifyOn()
       this.voice = Object.assign({}, s.voice)
       this.notifications = Object.assign({}, s.notifications)
       this.privacy = Object.assign({}, s.privacy)
@@ -1487,6 +1512,16 @@ export default {
     // AI 规划偏好：任务要不要附资料/工具建议（settings.plan.res，默认关）
     setPlanRes(on) {
       settings.set({ plan: { res: !!on } })
+      this.refresh()
+    },
+    // 时段安排：关掉后规划回到纯任务模式（已排好的时段留着，开回来还能看见）
+    setPlanSlot(on) {
+      timeslot.setEnabled(on)
+      this.refresh()
+    },
+    // 时段到点提醒：依附于时段安排，单独可关
+    setPlanSlotNotify(on) {
+      timeslot.setNotifyOn(on)
       this.refresh()
     },
     // 一键选择预设：自动填入该服务商的地址/模型（自定义除外，留给用户手填）
