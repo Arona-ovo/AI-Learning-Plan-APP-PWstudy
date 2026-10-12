@@ -889,7 +889,7 @@ export default {
   data() {
     return {
       // App 交流群（QQ 群号）：点一下复制，不跳外链
-      qqGroup: '177437072',
+      qqGroup: '1127534463',
       // 危险确认（confirm 模式）与语言选择（sheet 模式）共用一张弹窗
       confirm: {
         show: false, mode: 'confirm', title: '', content: '',
