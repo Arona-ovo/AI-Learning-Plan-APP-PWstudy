@@ -8,6 +8,7 @@
     "transformPx" : false,
     "app-plus" : {
         "schemes" : [ "pwstudy" ],
+        "screenOrientation" : [ "portrait-primary" ],
         "darkmode" : true,
         "usingComponents" : true,
         "nvueStyleCompiler" : "uni-app",
@@ -16,7 +17,7 @@
             "ignoreVersion" : true
         },
         "splashscreen" : {
-            "alwaysShowBeforeRender" : true,
+            "alwaysShowBeforeRender" : false,
             "waiting" : true,
             "autoclose" : true,
             "delay" : 0

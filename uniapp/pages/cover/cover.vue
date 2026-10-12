@@ -1,5 +1,5 @@
 <template>
-  <view class="cover" :class="appTheme" :style="appBgStyle" @tap="enter">
+  <view class="cover" :class="[appTheme, { compact: compact }]" :style="appBgStyle" @tap="enter">
     <view class="deco deco-1"></view>
     <view class="deco deco-2"></view>
     <view class="deco deco-3"></view>
@@ -30,7 +30,10 @@ import * as mascot from '../../utils/mascot.js'
 export default {
   data() {
     return {
-      faceSrc: mascot.srcOf('plana')
+      faceSrc: mascot.srcOf('plana'),
+      // 矮屏紧凑档：折叠屏展开 / 平板这类"接近方屏"的设备，垂直方向放不下
+      // 头像 + 大间距的固定结构（详见样式里的 .cover.compact 注释）
+      compact: false
     }
   },
   onLoad() {
@@ -41,6 +44,7 @@ export default {
     } catch (e) {
       this.faceSrc = mascot.srcOf('plana')
     }
+    this.pickLayout()
     // 2.4 秒后自动进入首页，与底部进度条动画同步
     this.timer = setTimeout(() => this.enter(), 2400)
   },
@@ -48,6 +52,26 @@ export default {
     clearTimeout(this.timer)
   },
   methods: {
+    /**
+     * 按屏幕高宽比挑一档布局。
+     *
+     * 横向尺寸一律用 rpx（按屏宽等比），所以**任何屏宽下形状都不会变**——
+     * 圆永远是圆，头像框永远是正方形。真正会随屏幕变的是**垂直方向够不够放**：
+     * 100vh 换算成 rpx 是 750 × (高/宽)，屏越方它越小，而封面内容是固定 rpx 的一摞。
+     * 主流手机高宽比 ≥ 1.7，富余一大截；折叠屏展开 / 平板能掉到 1.0~1.2，就会挤爆。
+     *
+     * 所以这里只看比例，不看分辨率 —— 720p 和 4K 只要比例一样，布局问题完全一样。
+     */
+    pickLayout() {
+      try {
+        const s = uni.getSystemInfoSync() || {}
+        const w = Number(s.windowWidth || s.screenWidth || 0)
+        const h = Number(s.windowHeight || s.screenHeight || 0)
+        if (w > 0 && h > 0) this.compact = h / w < 1.35
+      } catch (e) {
+        this.compact = false
+      }
+    },
     enter() {
       if (this.entered) return
       this.entered = true
@@ -156,10 +180,28 @@ export default {
   margin-top: 36rpx;
 }
 
+/* ⚠️ 这里以前是 position:absolute + bottom:100rpx —— 在矮屏上内容会往下溢出，
+   绝对定位的进度条却钉在 100vh 底部不动，于是它和品牌文字叠在一起（且被 overflow 裁掉）。
+   改成 margin-top:auto 让它留在 flex 流里：屏够高就贴底，屏不够就跟着内容往下走，
+   两种情况下都不会和上面的东西重叠。 */
 .footer {
-  position: absolute; left: 0; right: 0; bottom: 100rpx;
+  margin-top: auto;
+  align-self: stretch;
   display: flex; flex-direction: column; align-items: center;
 }
+
+/* 矮屏紧凑档（高宽比 < 1.35，见 pickLayout）：垂直方向整体收一档。
+   只收纵向尺寸和间距 —— 横向的 rpx 本来就跟着屏宽等比缩放，改它反而会变形。
+   收完之后总高约 586rpx，即使高宽比掉到 0.8（比方还扁）也放得下。 */
+.cover.compact { padding-top: 96rpx; padding-bottom: 72rpx; }
+.cover.compact .stage,
+.cover.compact .ring { width: 260rpx; height: 260rpx; }
+.cover.compact .mascot-wrap { width: 244rpx; height: 244rpx; }
+.cover.compact .brand { margin-top: 40rpx; }
+.cover.compact .app-name { font-size: 40rpx; letter-spacing: 8rpx; text-indent: 8rpx; }
+.cover.compact .divider { margin-top: 24rpx; }
+.cover.compact .app-en { margin-top: 20rpx; }
+.cover.compact .hint { margin-top: 16rpx; }
 
 .load-track {
   width: 240rpx; height: 4rpx;
