@@ -83,6 +83,30 @@ export function dateLabel(date) {
 }
 
 /**
+ * 勾选 / 取消完成（首页日程卡与日历页共用）。
+ *
+ * 记番茄数那一步在 pw.setTaskStatus 里：勾完成会**把差的那几个番茄补上**
+ * （走 creditPomo，不是直接改字段）—— 否则状态是"已完成"而进度还是 0%，
+ * 和番茄钟路径两套口径。取消完成不回滚已记的番茄（做过就是做过）。
+ *
+ * @returns {{ok:boolean, done:boolean, msg:string}}
+ */
+export function toggleDone(row) {
+  if (!row) return { ok: false, done: false, msg: '没有可勾选的任务' };
+  const was = row.status === 'done';
+  const g = pw.goalOf(row.goalId);
+  if (!g) return { ok: false, done: was, msg: '这个任务所属的目标已经不在了' };
+  const t = (g.tasks || []).filter(x => x.id === row.id)[0];
+  if (!t) return { ok: false, done: was, msg: '这个任务已经不在了' };
+  pw.setTaskStatus(row.goalId, row.id, was ? 'todo' : 'done');
+  return {
+    ok: true,
+    done: !was,
+    msg: was ? '已取消完成' : '做完了 ✓（差的那几个番茄已补记）'
+  };
+}
+
+/**
  * 前移 / 后移一天（直接改任务日期，不走 AI —— 小改动自己动手更快）。
  * @param {Object} row rowsOf() 里的某一行
  * @param {number} delta -1 / 1

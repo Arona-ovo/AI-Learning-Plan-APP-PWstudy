@@ -157,9 +157,18 @@
                 hover-class="task-press"
                 @tap="startFor(item)"
               >
+                <!-- 勾选圈：做完就地勾掉，不用非得进 ⋯ 菜单找「标记完成」。
+                     点行仍然是"开始专注"（快路径），两者互不干扰 -->
+                <view
+                  class="tk-check"
+                  :class="{ 'tk-check-on': item.task.status === 'done' }"
+                  @tap.stop="toggleTaskDone(item)"
+                >
+                  <text v-if="item.task.status === 'done'" class="tk-tick">✓</text>
+                </view>
                 <view class="tk-dot" :class="{ 'tk-dot-late': item.overdue }"></view>
                 <view class="tk-main">
-                  <view class="tk-title">{{ item.task.title }}</view>
+                  <view class="tk-title" :class="{ 'tk-title-done': item.task.status === 'done' }">{{ item.task.title }}</view>
                   <view class="tk-sub">
                     {{ item.goal.title }} · 第 {{ item.task.day }} 天 · {{ item.task.donePomos }}/{{ item.task.pomos }} 番茄 · 剩 ≈ {{ item.estMin }} 分
                     <text v-if="item.overdue" class="tk-late">已超期</text>
@@ -940,6 +949,21 @@ export default {
         item: item
       })
     },
+    /** 就地勾选 / 取消完成：与日程表卡、日历页同一个 schedule.toggleDone 口径 */
+    toggleTaskDone(item) {
+      const r = schedule.toggleDone({
+        goalId: item.goal.id,
+        id: item.task.id,
+        status: item.task.status || 'todo'
+      })
+      if (!r.ok) {
+        try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
+        return
+      }
+      try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
+      // 勾完就不在"今日待办"里了 → 队列、紧迫度、目标进度都要重算
+      this.refresh()
+    },
     markDone(item) {
       pw.setTaskStatus(item.goal.id, item.task.id, 'done')
       pw.flush()
@@ -1490,6 +1514,21 @@ export default {
 }
 .task:last-child { border-bottom: none; }
 .task-press { opacity: 0.7; }
+/* 勾选圈（与日程表卡同一套语义：空心=待办，实心=已完成） */
+.tk-check {
+  width: 40rpx; height: 40rpx; border-radius: 50%;
+  margin-right: 16rpx; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 2rpx solid rgba(23, 32, 26, 0.22);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.22));
+}
+.tk-check-on {
+  background: #e4173d; background: var(--brand, #e4173d);
+  border-color: transparent;
+}
+.tk-check:active { opacity: 0.6; }
+.tk-tick { font-size: 24rpx; line-height: 1; color: #ffffff; font-weight: 600; }
+
 .tk-dot {
   width: 18rpx; height: 18rpx; border-radius: 50%;
   background: #e4173d;
@@ -1504,6 +1543,7 @@ export default {
   color: var(--ink-1, #17201a);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.tk-title-done { color: #98a19b; color: var(--ink-3, #98a19b); text-decoration: line-through; }
 .tk-sub {
   margin-top: 6rpx; font-size: 22rpx;
   color: #98a19b;

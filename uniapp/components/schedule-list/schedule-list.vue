@@ -9,6 +9,15 @@
 
     <block v-else>
       <view v-for="t in shown" :key="t.key" class="ct-row">
+        <!-- 勾选：当天的事就地勾掉，不用再进详情页找"标记完成" -->
+        <view
+          v-if="checkable && t.status !== 'dropped'"
+          class="ct-check"
+          :class="{ 'ct-check-on': t.status === 'done' }"
+          @tap.stop="toggle(t)"
+        >
+          <text v-if="t.status === 'done'" class="ct-tick">✓</text>
+        </view>
         <view class="ct-main">
           <view class="ct-title" :class="{ 'ct-title-done': t.status !== 'todo' }">{{ t.title }}</view>
           <view class="ct-sub">
@@ -46,6 +55,8 @@ export default {
     limit: { type: Number, default: 0 },
     /** 是否显示「前移 / 后移」 */
     ops: { type: Boolean, default: true },
+    /** 是否显示勾选圈（点一下 = 标记完成 / 取消完成） */
+    checkable: { type: Boolean, default: true },
     /** 是否显示底部那条说明 */
     tip: { type: Boolean, default: false },
     emptyText: { type: String, default: '' },
@@ -64,6 +75,16 @@ export default {
     }
   },
   methods: {
+    toggle(row) {
+      const r = schedule.toggleDone(row)
+      if (!r.ok) {
+        try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
+        return
+      }
+      try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
+      // 勾完可能就不在这一天的列表里了（已完成的不进"待办"队列）→ 让父级重算
+      this.$emit('changed')
+    },
     shift(row, delta) {
       const r = schedule.move(row, delta)
       if (!r.ok) {
@@ -86,6 +107,21 @@ export default {
 <style>
 /* 类名沿用日历页原来的 .ct-*：搬过来时样式一行没改，
    两边共用同一套，避免"首页一版、日历页一版" */
+/* 勾选圈：空心 = 待办，实心 = 已完成 */
+.ct-check {
+  width: 40rpx; height: 40rpx; border-radius: 50%;
+  margin-right: 18rpx; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 2rpx solid rgba(23, 32, 26, 0.22);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.22));
+}
+.ct-check-on {
+  background: #e4173d; background: var(--brand, #e4173d);
+  border-color: transparent;
+}
+.ct-tick { font-size: 24rpx; line-height: 1; color: #ffffff; font-weight: 600; }
+.ct-check:active { opacity: 0.6; }
+
 .ct-row { display: flex; align-items: center; padding: 18rpx 0; border-bottom: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.06); }
 .ct-row:last-of-type { border-bottom: none; }
 .ct-main { flex: 1; min-width: 0; }

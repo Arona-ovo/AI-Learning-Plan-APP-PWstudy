@@ -227,6 +227,36 @@ eq(pos, 4, '补在末尾（不打乱用户自己排的顺序）');
 settings.set({ home: { layout: ['focus', 'urgency', 'task', 'goal'] } });
 assert(layout.layout().indexOf('schedule') < 0, '收纳掉之后不会被反复加回来');
 
+/* ---------- 7. 就地勾选完成 ---------- */
+console.log('== 7. 当天的事项可以就地勾掉 ==');
+const gc = pw.addGoal({ title: '勾选目标', dailyMin: 60 }, {
+  tasks: [{ title: '勾我', day: 1, pomos: 3 }]
+});
+const mineRow = schedule.rowsOf(pw.today()).filter(r => r.goalId === gc.id)[0];
+assert(!!mineRow && mineRow.status === 'todo', '今天的事项默认待办');
+const r1 = schedule.toggleDone(mineRow);
+assert(r1.ok === true && r1.done === true, '勾一下 → 已完成（' + r1.msg + '）');
+const tc = () => pw.goalOf(gc.id).tasks.filter(x => x.id === mineRow.id)[0];
+assert(tc().status === 'done', '状态真的落库了');
+eq(tc().donePomos, 3, '勾完成把差的那 3 个番茄补齐（进度条/热力图认这笔账）');
+const r2 = schedule.toggleDone({ goalId: gc.id, id: mineRow.id, status: 'done' });
+assert(r2.done === false, '再点一下 → 取消完成');
+assert(tc().status === 'todo', '状态回到待办');
+eq(tc().donePomos, 3, '取消完成不回滚已记的番茄（做过就是做过）');
+assert(schedule.toggleDone(null).ok === false, '空行不炸');
+
+// UI：两张卡都要有勾选圈，且点击不会顺带触发"整行"的跳转
+assert(/class="ct-check"/.test(com) && /\n\s{4}toggle\s*\(/.test(com), '日程表组件有勾选圈与 toggle');
+assert(/@tap\.stop="toggle\(t\)"/.test(com), '勾选 stop 掉冒泡（不会顺带触发行上的其它动作）');
+assert(/checkable/.test(com), '勾选可关（有些场合只要看不要勾）');
+const homeTpl7 = home.slice(0, home.indexOf('\n<script')).replace(/<!--[\s\S]*?-->/g, '');
+assert(/class="tk-check"/.test(homeTpl7), '首页「今日任务」卡也有勾选圈');
+assert(/@tap\.stop="toggleTaskDone\(item\)"/.test(homeTpl7), '首页勾选 stop 掉冒泡（点勾 ≠ 开始专注）');
+const homeSc7 = home.slice(home.indexOf('\n<script'), home.indexOf('\n<style'));
+assert(/toggleTaskDone\s*\(item\)\s*\{[\s\S]{0,140}schedule\.toggleDone/.test(homeSc7),
+  '首页勾选与日程表同一个 toggleDone 口径');
+assert(cal.indexOf('<schedule-list') >= 0 && !/:checkable="false"/.test(cal), '日历页也开着勾选');
+
 console.log(fail === 0 ? '\n日程表与收工校验全部通过' : '\n失败 ' + fail + ' 项 ✗');
 process.exit(fail ? 1 : 0);
 })();
