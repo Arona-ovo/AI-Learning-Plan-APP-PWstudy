@@ -52,12 +52,28 @@ export function parseVersion(s) {
  * `PWstudy-1.0.1-n101.wgt` → { version:'1.0.1', code:10001, minNative:101 }
  * `n` 段省略 = 不挑基座（0）。
  */
-export function parseAssetName(name) {
-  const m = /^PWstudy-([0-9][\w. ]*?)(?:-n(\d+))?\.wgt$/i.exec(String(name || '').trim());
+function parseNamed(name, ext) {
+  const m = new RegExp('^PWstudy-([0-9][\\w. ]*?)(?:-n(\\d+))?\\.' + ext + '$', 'i')
+    .exec(String(name || '').trim());
   if (!m) return null;
   const v = parseVersion(m[1]);
   if (!v.code) return null;
   return { version: v.name, code: v.code, minNative: m[2] ? Number(m[2]) : 0 };
+}
+
+export function parseAssetName(name) {
+  return parseNamed(name, 'wgt');
+}
+
+/**
+ * 整包：只有按 `PWstudy-<版本>.apk` 命名的才认。
+ *
+ * 为什么必须挑名字：Release 里可能挂着别的 APK —— 比如 HBuilder 云打包直接产出的
+ * `__UNI__53285BF__20261011204240.apk`（文件名里只有时间戳、**没有版本号**），
+ * 这种常被拿来占位。认了它就等于拿猜的去告诉用户"你该重装了"，纯属吓人。
+ */
+export function parseApkName(name) {
+  return parseNamed(name, 'apk');
 }
 
 function todayStr() {
@@ -115,23 +131,31 @@ function fetchRelease() {
   });
 }
 
-/** 从 Release 里挑最新的那个 wgt（有多个时取版本号最大的） */
-export function pickWgt(rel) {
+/** 从 Release 里挑一个包（wgt / apk），有多个时取版本号最大的 */
+function pickAsset(rel, ext, parse) {
   let best = null;
   ((rel && rel.assets) || []).forEach((a) => {
-    const p = parseAssetName(a && a.name);
+    const p = parse(a && a.name);
     if (!p) return;
+    const url = (a && a.browser_download_url) || '';
+    if (!url) return;
     const item = {
-      version: p.version,
-      code: p.code,
-      minNative: p.minNative,
-      url: (a && a.browser_download_url) || '',
+      version: p.version, code: p.code, minNative: p.minNative, url,
       size: (a && a.size) || 0
     };
-    if (!item.url) return;
     if (!best || item.code > best.code) best = item;
   });
   return best;
+}
+
+/** 最新的 wgt（热更新用） */
+export function pickWgt(rel) {
+  return pickAsset(rel, 'wgt', parseAssetName);
+}
+
+/** 最新的整包（按约定命名的才算；占位用的默认名不算） */
+export function pickApk(rel) {
+  return pickAsset(rel, 'apk', parseApkName);
 }
 
 /** Release 说明里挑几行当更新日志（GitHub 的 body 是 markdown，原样展示就够了） */
@@ -155,7 +179,8 @@ function sizeText(n) {
  * @param {{manual?:boolean}} opt manual=true 时忽略"跳过过这个版本"
  * @returns {Promise<{state:string, local:object, remote?:object, notes?:string}>}
  *   state: 'latest' 已是最新 | 'update' 有 wgt 可更 | 'native' 基座太老只能整包
- *          | 'none' 远端没有 wgt（发的是整包） | 'skip' 用户跳过过这个版本
+ *          | 'apk'   远端只有整包、且它比本机新 | 'none' 没有可用的包
+ *          | 'skip'  用户跳过过这个版本
  */
 export async function check(opt) {
   const o = opt || {};
@@ -163,19 +188,27 @@ export async function check(opt) {
   const rel = await fetchRelease();
   const remote = pickWgt(rel);
   const notes = notesOf(rel);
+
+  if (remote && local.code < remote.code) {
+    // 基座太老：wgt 里改不了原生，装上去只会白屏 —— 必须整包
+    if (remote.minNative && local.nativeCode && local.nativeCode < remote.minNative) {
+      return { state: 'native', local, remote, notes };
+    }
+    if (!o.manual) {
+      try {
+        const u = settings.get().update || {};
+        if (u.skip === remote.version) return { state: 'skip', local, remote, notes };
+      } catch (e) {}
+    }
+    return { state: 'update', local, remote, notes };
+  }
+
+  // 没有可热更的：看看有没有**更新的整包**（只认按约定命名的，占位包不算）
+  const apk = pickApk(rel);
+  if (apk && local.code < apk.code) return { state: 'apk', local, remote: apk, notes };
+  // 连个 wgt 都没有 = 这一版压根没放热更新包；本机又已经不比它旧 → 别打扰
   if (!remote) return { state: 'none', local, notes };
-  if (local.code >= remote.code) return { state: 'latest', local, remote, notes };
-  // 基座太老：wgt 里改不了原生，装上去只会白屏 —— 必须整包
-  if (remote.minNative && local.nativeCode && local.nativeCode < remote.minNative) {
-    return { state: 'native', local, remote, notes };
-  }
-  if (!o.manual) {
-    try {
-      const u = settings.get().update || {};
-      if (u.skip === remote.version) return { state: 'skip', local, remote, notes };
-    } catch (e) {}
-  }
-  return { state: 'update', local, remote, notes };
+  return { state: 'latest', local, remote, notes };
 }
 
 function markChecked() {
@@ -387,14 +420,12 @@ export function showResult(r) {
   if (r.state === 'latest') { toast('已经是最新版 ' + r.local.name); return r; }
   if (r.state === 'update') { askUpdate(r); return r; }
   if (r.state === 'native') { askFull(r); return r; }
+  if (r.state === 'apk') { askFull(r); return r; }
   if (r.state === 'none') {
-    uni.showModal({
-      title: '这一版要装完整包',
-      content: '这次改动动了原生部分（权限 / 图标 / 原生插件），热更新装不了，得下载完整安装包。',
-      confirmText: '去下载',
-      cancelText: '稍后',
-      success: (res) => { if (res && res.confirm) openRelease(); }
-    });
+    // 一个包都没认出来（Release 里常挂着一个**占位**用的 APK —— 云打包直接产出的
+    // `__UNI__53285BF__时间戳.apk`，名字里没有版本号，我们判断不出它新不新）。
+    // 这种情况**不给下载入口**：拿猜的去让人装一个来路不明的包，比不说更糟。
+    toast('版本页里没有可用的更新包');
     return r;
   }
   toast('已经是最新版 ' + r.local.name);

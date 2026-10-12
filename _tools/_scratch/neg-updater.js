@@ -76,8 +76,9 @@ const cases = [
     const i = s.indexOf("title: '没查到版本信息'");
     return i < 0 ? s : s.slice(0, i) + s.slice(i).replace('if (res && res.confirm) openRelease();', '');
   }],
+  // 改名脱节：脚本仍按 PWstudy-<版本> 打，客户端却认不出（这条最常悄悄断）
   ['客户端认不出发布脚本的包名（改名脱节）', 'utils/updater.js',
-    s => s.replace("/^PWstudy-([0-9][\\w. ]*?)(?:-n(\\d+))?\\.wgt$/i", "/^pws-([0-9][\\w. ]*?)(?:-n(\\d+))?\\.wgt$/i")],
+    s => s.replace("'^PWstudy-", "'^pws-")],
   ['发布脚本改了命名（客户端不认）', PUB,
     s => s.replace("'PWstudy-' + ver + '-n' + nativeCode + '.wgt'", "'pws-' + ver + '.wgt'")],
   ['下载失败被吞掉（静默）', 'utils/updater.js',
@@ -89,7 +90,19 @@ const cases = [
   ['设置页没有手动检查入口', 'pkgManage/pages/settings/settings.vue',
     s => s.replace('updater.manualCheck()', 'Promise.resolve(null)')],
   ['设置页没有整包入口', 'pkgManage/pages/settings/settings.vue',
-    s => s.replace('updater.openRelease()\n    }', 'null\n    }')]
+    s => s.replace('updater.openRelease()\n    }', 'null\n    }')],
+  // 占位 APK 那条语义：认了它就等于拿猜的吓用户
+  ['整包不挑名字（占位 APK 被当成新版）', 'utils/updater.js',
+    s => s.replace("return parseNamed(name, 'apk');",
+      "return parseNamed(name, 'apk') || { version: '9.9.9', code: 90909, minNative: 0 };")],
+  ['pickApk 用错了解析规则（整包永远认不出）', 'utils/updater.js',
+    s => s.replace("return pickAsset(rel, 'apk', parseApkName);", "return pickAsset(rel, 'apk', parseAssetName);")],
+  ['没有可用包时又把人指去下载页', 'utils/updater.js',
+    s => s.replace("toast('版本页里没有可用的更新包');",
+      "uni.showModal({ title: '没有热更新包', confirmText: '去下载', success: (res) => { if (res && res.confirm) openRelease(); } });")],
+  ['整包比本机新也不提示（只认 wgt）', 'utils/updater.js',
+    s => s.replace('if (apk && local.code < apk.code) return { state: \'apk\', local, remote: apk, notes };',
+      'if (false) return { state: \'apk\', local, remote: apk, notes };')]
 ];
 
 (async () => {

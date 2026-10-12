@@ -107,6 +107,12 @@ eq(updater.parseAssetName('PWstudy-2.0.0-n102.wgt').code, 20000, '版本号照�
 eq(updater.parseAssetName('__UNI__53285BF.wgt'), null, 'HBuilder 默认名不是我们的包 → 认不出来');
 eq(updater.parseAssetName('PWstudy.apk'), null, 'APK 不走热更新');
 eq(updater.parseAssetName('别的-1.0.1.wgt'), null, '前缀不对不认');
+// 整包也要挑名字：Release 里常挂着云打包直接产出的默认名（只有时间戳）当占位
+eq(updater.parseApkName('__UNI__53285BF__20261011204240.apk'), null,
+  '云打包默认名的 APK（占位用）不认 —— 名字里没有版本号，判断不出新旧');
+eq(updater.parseApkName('PWstudy-1.2.0.apk').code, 10200, "parseApkName('PWstudy-1.2.0.apk')");
+eq(updater.parseApkName('PWstudy-1.0.1-n101.wgt'), null, 'wgt 不算整包');
+eq(updater.parseApkName('app-release.apk'), null, '随便一个 APK 也不认');
 // 两头对齐：脚本生成用的模板串，必须能被客户端这条正则解析出来
 const pub = T('publish-wgt.js');
 assert(/'PWstudy-' \+ ver \+ '-n' \+ nativeCode \+ '\.wgt'/.test(pub),
@@ -148,9 +154,20 @@ function main() {
     });
   });
 
+  // 整包：只有按 `PWstudy-<版本>.apk` 命名的才算，占位的默认名一律不认
+  steps.push(() => {
+    net.release = release(['__UNI__53285BF__20261011204240.apk']);
+    return updater.check({ manual: true }).then(r => {
+      eq(r.state, 'none', '只有占位 APK → 没有可用的包');
+      assert(!r.remote, '认不出来的包不许当"新版本"塞给用户');
+    });
+  });
   steps.push(() => {
     net.release = release(['PWstudy-1.0.2.apk']);
-    return updater.check().then(r => eq(r.state, 'none', '远端只有整包 → 引导去下载'));
+    return updater.check({ manual: true }).then(r => {
+      eq(r.state, 'apk', '远端有更新的整包 → 引导整包');
+      eq(r.remote.version, '1.0.2', '整包版本号');
+    });
   });
 
   // 跳过过的版本
@@ -287,6 +304,37 @@ function main() {
       assert(!!m && /完整包/.test(m.title), '弹窗说明要装完整包（' + (m && m.title) + '）');
     });
   });
+  steps.push(() => {
+    // 远端只有更新的整包（没有 wgt）
+    net.release = release(['PWstudy-1.0.3.apk']);
+    log.modal.length = 0;
+    log.opened.length = 0;
+    modalAnswer = { confirm: true };
+    return updater.manualCheck().then(r => {
+      eq(r.state, 'apk', '手动检查能识别"只有更新的整包"');
+      updater.showResult(r);
+      const m = log.modal[log.modal.length - 1];
+      assert(!!m && /完整包/.test(m.title), '整包也弹"要装完整包"（' + (m && m.title) + '）');
+      assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '点「去下载」真的打开整包页');
+    });
+  });
+  steps.push(() => {
+    // 占位 APK：我们并不知道那个包是什么，不许把人指过去
+    net.release = release(['__UNI__53285BF__20261011204240.apk']);
+    log.modal.length = 0;
+    log.toast.length = 0;
+    log.opened.length = 0;
+    modalAnswer = { confirm: true };
+    return updater.manualCheck().then(r => {
+      eq(r.state, 'none', '手动检查：只有占位包 → none');
+      updater.showResult(r);
+      eq(log.modal.length, 0, '没有可用的包时不弹下载弹窗');
+      eq(log.opened.length, 0, '也没有把人指去下载页（那个包来路不明）');
+      eq(log.toast.length, 1, '只 toast 一句');
+      assert(/没有可用的更新包/.test(log.toast[0] && log.toast[0].title || ''),
+        '文案：' + (log.toast[0] && log.toast[0].title));
+    });
+  });
 
   /* ---------- 7. 设置默认值 ---------- */
   console.log('== 7. 默认值与开关 ==');
@@ -330,6 +378,30 @@ assert(/--bump/.test(pub), '支持自动抬版本');
 assert(/data\/build-info\.js/.test(pub) && /_vocab/.test(pub), '抬版本同步三处（manifest / build-info / _vocab）');
 assert(/--dry/.test(pub), '支持空跑');
 assert(/RELEASE_URL/.test(pub), '打完打印上传指引');
+
+/* ---------- 10. 源码：认不出就不许指路 ---------- */
+console.log('== 10. 占位包不许当成"有新版"（源码） ==');
+// 先剥行注释（自己的正则会命中注释里的示例代码），再按函数/分支切块匹配
+const upRaw = R('utils/updater.js');
+const up = upRaw.replace(/\/\/[^\n]*/g, '');
+function block(src, head) {
+  const i = src.indexOf(head);
+  if (i < 0) return '';
+  const j = src.indexOf('{', i);
+  if (j < 0) return '';
+  let d = 0, k = j;
+  for (; k < src.length; k++) {
+    if (src[k] === '{') d++;
+    else if (src[k] === '}') { d--; if (!d) break; }
+  }
+  return src.slice(j, k + 1);
+}
+const noneBlk = block(up, "r.state === 'none'");
+assert(!!noneBlk, 'showResult 里有 none 分支');
+assert(/toast\(/.test(noneBlk), 'none 分支只 toast 一句');
+assert(!/openRelease|showModal/.test(noneBlk), 'none 分支不给下载入口、不弹窗（那包来路不明）');
+assert(/parseApkName/.test(up) && /parseNamed\(name, 'apk'\)/.test(up), '整包走自己的解析（挑名字）');
+assert(/Release 里可能挂着别的 APK/.test(upRaw), '为什么必须挑名字写在注释里');
 
 main().then(() => {
   console.log(fail === 0 ? '\n热更新校验全部通过' : '\n失败 ' + fail + ' 项 ✗');
