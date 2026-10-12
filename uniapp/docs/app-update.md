@@ -332,7 +332,67 @@ update: {
 
 ---
 
-## 九、落地步骤（建议顺序）
+## 九、已经落地了什么（2026-10-13）
+
+上面第五、六节的设计已经实现，实际落点是这四个文件：
+
+| 文件 | 作用 |
+|---|---|
+| `uniapp/utils/updater.js` | 启动自检 → 比对 → 下载 → 安装 → 重启；失败兜底与整包出口都在这里 |
+| `uniapp/App.vue` | `onLaunch` 延迟 3 秒自检（一天一次，失败静默） |
+| `uniapp/pkgManage/pages/settings/settings.vue` | 「检查更新」「下载完整安装包」两个入口 + 自检开关 |
+| `_tools/publish-wgt.js` | 打 wgt（见下）；校验 `_tools/check-updater.js` |
+
+与上面设计的**两处不同**（都是实战改的）：
+
+1. **服务端就是 GitHub Release 的固定 tag `PWstudy`**，没有自建 JSON。
+   少一个要维护的东西，代价是国内访问 GitHub API 不稳 —— 所以自检失败必须静默
+   （网络不通不该在启动时弹东西吓人），只有用户手动点「检查更新」才报错。
+2. **版本与"原生基线"都编码在资产名里**：`PWstudy-<版本>-n<原生基线>.wgt`
+   （例 `PWstudy-1.0.1-n101.wgt`）。发布时只要传一个文件，客户端就能同时知道
+   "这是哪个版本"和"它要求多新的基座"，不需要额外维护 `update.json`。
+
+### 发版：打 wgt（只改了前端时）
+
+```bash
+cd C:/Users/33156/WorkBuddy/PWstudy
+
+# 先在 HBuilderX 里跑一次「运行/发行 → 原生 App」，产出 unpackage/dist/build/app-plus
+#   （那个目录就是 wgt 的源，根目录必须有 manifest.json）
+
+node _tools/publish-wgt.js --bump     # 自动抬一个 patch 版本并同步三处，然后打包
+node _tools/publish-wgt.js --ver 1.0.2  # 或者显式指定版本
+node _tools/publish-wgt.js --dry        # 只打印计划，不落文件
+node _tools/publish-wgt.js --upload     # 装了 gh 且登录过的话可以直接传
+```
+
+脚本会做四件事：抬版本（同步 `manifest.json` / `data/build-info.js` /
+`_vocab/build.js` 三处）、把 `app-plus` 打成 zip 改名 `.wgt`、**自己验一遍包没坏**、
+打印上传指引。产物在 `uniapp/unpackage/release/wgt/`（该目录已 gitignore）。
+
+然后把 wgt 拖进 <https://github.com/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/tag/PWstudy>
+的 assets，在说明里写这次改了什么（这段会出现在 App 的「有新版本」弹窗里）。
+
+传完之后：装了旧版本的 App 下次启动会收到热更新（点确认 → 下载 → 自动重启）。
+
+### 什么时候**必须**发 APK
+
+wgt 改不了原生。只要碰了下面任何一样，就发整包，别发 wgt：
+
+- `manifest.json` 的权限、模块配置、图标、启动图、AppID
+- UTS 插件 / 原生插件（本项目 `utils/fgsvc.js` 那套）
+- 证书或包名
+
+判断不了就发整包 —— wgt 装到不兼容的基座上是白屏，整包顶多是慢一点。
+
+### 版本号的规矩
+
+必须是 `x.y.z`（客户端靠 `x*10000 + y*100 + z` 比大小）。`1.0 Beta` 这种带字母的
+能解析但**没法往下抬** —— 第一次打包请用 `--ver` 显式指定或 `--bump`。
+
+---
+
+## 十、落地步骤（建议顺序）
 
 1. **先固定证书与包名**：证书已生成（`C:/Users/33156/PWstudy.keystore`，别名 `plana`），
    剩下两件事：**离线备份**它 → 云打包改成自有证书 → 固定 AppID；

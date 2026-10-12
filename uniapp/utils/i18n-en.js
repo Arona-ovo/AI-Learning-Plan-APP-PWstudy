@@ -587,6 +587,16 @@ export default {
   '让 AI 把任务排进早/中/晚，看得出来每个任务大概几点做；关掉就回到原来的纯任务规划，已经排好的时段不会丢':
     'Let AI place each task in the morning / afternoon / evening. Turn it off and planning goes back to plain tasks — slots already saved are kept',
   '时段到了提醒我': 'Remind me when a slot starts',
+  '检查更新': 'Check for updates',
+  '小改动走热更新（几百 KB，装完自动重启）；失败会给出去下载完整包的入口':
+    'Small changes arrive as a hot update (a few hundred KB, restarts automatically). If it fails you still get a link to the full package',
+  '检查中…': 'Checking…',
+  '启动时自动检查': 'Check on launch',
+  '一天最多一次，检查失败不弹任何东西；有更新才问你要不要装':
+    'At most once a day. A failed check is silent — it only asks when there really is an update',
+  '下载完整安装包': 'Download the full package',
+  '热更新装不了（动了原生部分）或你想重装时，去这里拿最新的 APK':
+    'For changes a hot update can’t cover (native parts), or a clean reinstall — grab the latest APK here',
   '早上 08:00、中午 13:00、晚上 19:30 各催一次那个时段的事；关掉时段安排后这一项不起作用':
     'Nudges at 08:00 / 13:00 / 19:30 for that slot’s tasks. Has no effect once time slots are turned off',
   '模型': 'Model',

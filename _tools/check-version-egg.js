@@ -31,7 +31,10 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
   const bi = await import(U('data/build-info.js'));
   const info = bi.BUILD_INFO;
   assert(!!info && typeof info.version === 'string', 'data/build-info.js 导出了 BUILD_INFO.version');
-  eq(info.version, '1.0 Beta', '快照里的版本号');
+  // 别写死具体版本号 —— 发一次版就要改一次脚本（1.0 Beta → 1.0.1 时就踩了）。
+  // 格式才是要盯的：utils/updater.js 靠 x.y.z 算 code 来比新旧，写成别的新旧就判不出来。
+  assert(/^\d+\.\d+(\.\d+)?$/.test(String(info.version || '')),
+    '版本号是 x.y.z（' + info.version + '）—— updater 靠它算大小比新旧');
 
   // manifest 是严格 JSON（HBuilderX 会重写它），别加注释
   const mf = JSON.parse(R('manifest.json'));

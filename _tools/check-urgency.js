@@ -220,7 +220,10 @@ function at(hh, mm) {
   /* ---------- 9. 首页接线 ---------- */
   console.log('== 9. 首页接线 ==');
   const home = R('pages/home/home.vue');
-  assert(/v-if="show\('urgency'\) && !u\.empty"/.test(home), '首页：排了任务才显示紧迫度卡');
+  // 首页改成自定义布局（注册表 + cardVisible）之后，"显不显示"不再写在模板的 v-if 上，
+  // 而是 cardVisible 里那句判据 —— 断言跟着实现走，别再盯那个早就不存在的 show('urgency')。
+  assert(/if \(id === 'urgency'\) return !!\(this\.u && !this\.u\.empty\)/.test(home),
+    '首页：排了任务才显示紧迫度卡（cardVisible 判据）');
   assert(/<urgency-meter :u="u" @help="explainUrgency" \/>/.test(home), '首页：绑定数据与 ? 事件');
   assert(/this\.u = urgency\.compute\(\)/.test(home), 'refresh 里重算（剩余时间是走动的）');
   const hl = R('utils/home-layout.ts');

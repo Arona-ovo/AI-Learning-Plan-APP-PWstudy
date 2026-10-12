@@ -91,8 +91,12 @@ console.log('== 3. 主包 data 白名单与体积 ==');
 // 词书释义上限 MAX_MEAN 被从 20 一路压到 15，等于拿产品质量去喂一个不成立的约束。
 // 现在降格为「防无限膨胀的粗护栏」：真正的 App 侧约束（装载耗时、常驻堆内存）
 // 由 check-builtin-books.js 第 7 组守着，那才是 APK 上真正会被感知的指标。
+// data/build-info.js：几百字节的版本快照（设置页 › 关于 › 版本 读它）。
+// 2026-10-13 起 App.vue 的启动自检（utils/updater.js）也读它来比版本，所以进了主包 ——
+// 它就几百字节，进主包没有代价。
 const ALLOW = ['data/words.js', 'data/sentences.js', 'data/wordbooks.js', 'data/common-words.js',
-  'data/lexicon.js', 'data/lexicon-data.js', 'data/bookdata.js', 'data/holidays.js'];
+  'data/lexicon.js', 'data/lexicon-data.js', 'data/bookdata.js', 'data/holidays.js',
+  'data/build-info.js'];
 const BOOKLOAD = ['data/lexicon-data.js', 'data/bookdata.js'];
 const inMain = [...mainSet].map(rel).filter((r) => r.startsWith('data/')).sort();
 inMain.forEach((d) => assert(ALLOW.indexOf(d) >= 0, '主包 data 在白名单内：' + d));

@@ -4,28 +4,46 @@ const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 
-function run(file) {
+async function run(file) {
   const abs = path.resolve(file);
   delete require.cache[require.resolve(abs)];
-  const realExit = process.exit;
   const realLog = console.log;
   const realErr = console.error;
   const realWarn = console.warn;
-  let code = 0;
-  const buf = [];
-  process.exit = (c) => { code = (c == null ? 0 : c); const e = new Error('__exit'); e.__exit = true; throw e; };
+  const prevExit = process.exit;
+  const mine = { code: 0, buf: [] };
+  const buf = mine.buf;
+  // inRequire：只有在同步 require 的栈里，throw 才有人接得住。
+  // 异步回调里（有些护栏在 setImmediate / 定时器里才收尾）再 throw 就是 uncaught，
+  // 会直接把整个回归进程崩掉 —— 那时只记退出码就够了。
+  let inRequire = true;
+  process.exit = (c) => {
+    mine.code = (c == null ? 0 : c);
+    if (!inRequire) return;
+    const e = new Error('__exit');
+    e.__exit = true;
+    throw e;
+  };
   console.log = (...a) => buf.push(a.join(' '));
   console.error = (...a) => buf.push(a.join(' '));
   console.warn = (...a) => buf.push(a.join(' '));
   // ⚠️ 有一部分护栏结尾只写 process.exitCode、不调 process.exit()（check-uts.js 就是）。
-  // 只接管 exit 的话这类脚本永远读到 0 —— 全量回归会把它算成绿。两个都要收。
+  // 只接管 exit 的话这类脚本永远读到 0 —— 两个都要收。
   process.exitCode = 0;
   let crash = null;
   try { require(abs); } catch (e) { if (!e || !e.__exit) crash = e; }
-  finally { console.log = realLog; console.error = realErr; console.warn = realWarn; process.exit = realExit; }
+  inRequire = false;
+  // 让两拍：异步护栏（check-updater / check-version-egg 这类结尾在 promise 里的）
+  // 同步 require 返回时断言还没跑，不等就恒为 0 —— 全量回归会把它算成绿（假绿）。
+  await new Promise((res) => setImmediate(res));
+  await new Promise((res) => setTimeout(res, 0));
+  console.log = realLog;
+  console.error = realErr;
+  console.warn = realWarn;
+  process.exit = prevExit;
   const exitCode = process.exitCode || 0;
   process.exitCode = 0;
-  return { code: crash ? 99 : (code || exitCode), buf, crash };
+  return { code: crash ? 99 : (mine.code || exitCode), buf, crash };
 }
 
 const files = [];
@@ -37,8 +55,10 @@ for (const f of ['check-vue.js', 'check-pwstudy.js']) files.push(path.join(ROOT,
 const green = [];
 const red = [];
 const skipped = [];
+
+(async () => {
 for (const f of files) {
-  const r = run(f);
+  const r = await run(f);
   const rel = path.relative(ROOT, f).replace(/\\/g, '/');
   if (r.crash) {
     // ⚠️ 有几个护栏（check-api-usage / check-circuit-breaker / check-intent-route /
@@ -71,3 +91,4 @@ if (red.length) {
   console.log('红 ' + red.length + ':');
   red.forEach(r => console.log('  ✗ ' + r));
 }
+})();

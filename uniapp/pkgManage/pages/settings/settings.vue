@@ -763,6 +763,29 @@
           </view>
           <text class="row-value">{{ $t('番茄钟 · AI 学习规划 · 用时统计，全部离线') }}</text>
         </view>
+
+        <!-- 更新：wgt 热更新为主，装不上（或动了原生）就走完整包 -->
+        <view class="row" @tap="doCheckUpdate">
+          <view class="row-main">
+            <text class="row-title">{{ $t('检查更新') }}</text>
+            <text class="row-desc">{{ $t('小改动走热更新（几百 KB，装完自动重启）；失败会给出去下载完整包的入口') }}</text>
+          </view>
+          <text class="row-value">{{ checking ? $t('检查中…') : '' }}</text>
+        </view>
+        <view class="row">
+          <view class="row-main">
+            <text class="row-title">{{ $t('启动时自动检查') }}</text>
+            <text class="row-desc">{{ $t('一天最多一次，检查失败不弹任何东西；有更新才问你要不要装') }}</text>
+          </view>
+          <switch :checked="updateAuto" :color="brandMain" @change="e => setUpdateAuto(e.detail.value)" />
+        </view>
+        <view class="row" @tap="goRelease">
+          <view class="row-main">
+            <text class="row-title">{{ $t('下载完整安装包') }}</text>
+            <text class="row-desc">{{ $t('热更新装不了（动了原生部分）或你想重装时，去这里拿最新的 APK') }}</text>
+          </view>
+          <text class="row-value">›</text>
+        </view>
         <!-- 原「新手引导 · 重看」入口 2026-10-10 撤掉：
              引导的步骤内容全是背单词的（查词 / 开始背单词 / AI 指令），
              遮罩组件 components/onboarding-mask.vue 已在 pivot 时随老页面挪走，
@@ -840,6 +863,7 @@ import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
 import * as timeslot from '../../../utils/timeslot.js'
+import * as updater from '../../../utils/updater.js'
 import * as partner from '../../../utils/partner.js'
 // 只借它的"呼起伙伴 App"那一个函数；utils/link.js 同时被 App.vue 引着，不会重复打包
 import { openPartner as openPartnerLink } from '../../../utils/link.js'
@@ -997,6 +1021,9 @@ export default {
       // AI 规划偏好：时段安排（默认开）+ 时段到点提醒（默认开）
       planSlot: true,
       planSlotNotify: true,
+      // 更新：启动时自动检查（默认开）
+      updateAuto: true,
+      checking: false,
       // 彩蛋
       eggShow: false,
       eggPieces: EGG_PIECES,
@@ -1463,6 +1490,7 @@ export default {
       // 时段两项的默认值在 utils/timeslot.js 里（老数据没字段 = 开），这里只负责显示
       this.planSlot = timeslot.enabled()
       this.planSlotNotify = timeslot.notifyOn()
+      this.updateAuto = updater.autoEnabled()
       this.voice = Object.assign({}, s.voice)
       this.notifications = Object.assign({}, s.notifications)
       this.privacy = Object.assign({}, s.privacy)
@@ -1523,6 +1551,32 @@ export default {
     setPlanSlotNotify(on) {
       timeslot.setNotifyOn(on)
       this.refresh()
+    },
+    // ---------- 更新 ----------
+    setUpdateAuto(on) {
+      updater.setAuto(on)
+      this.refresh()
+    },
+    /** 手动检查：这次要给人一个明确结果（启动自检是静默的，这里不是） */
+    doCheckUpdate() {
+      if (this.checking) return
+      this.checking = true
+      try { uni.showLoading({ title: '检查中…', mask: true }) } catch (e) {}
+      updater.manualCheck().then((r) => {
+        this.checking = false
+        try { uni.hideLoading() } catch (e) {}
+        updater.showResult(r)
+      }).catch((e) => {
+        this.checking = false
+        try { uni.hideLoading() } catch (e) {}
+        // 手动点的必须说清楚为什么没查到，并给出去整包的出口。
+        // 弹窗在 updater 里 —— 设置页不直接调系统弹窗（统一走 app-dialog，check-dialog 守着）
+        try { updater.checkFailDialog((e && e.message) || '') } catch (err) {}
+      })
+    },
+    /** 完整包：打开 GitHub 上的 Release 页（开不了浏览器会复制链接） */
+    goRelease() {
+      updater.openRelease()
     },
     // 一键选择预设：自动填入该服务商的地址/模型（自定义除外，留给用户手填）
     selectProvider(value) {

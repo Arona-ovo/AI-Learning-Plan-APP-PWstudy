@@ -135,6 +135,15 @@ function defaults() {
       slot: true,
       slotNotify: true
     },
+    // 更新（wgt 热更新 + 完整包兜底，见 utils/updater.js）
+    //   auto        启动后自检一次（默认开；一天最多一次，失败静默）
+    //   lastCheckAt 上次自检的日期（节流用）
+    //   skip        用户点过「稍后」的版本号（当天不再拿同一个版本烦他）
+    update: {
+      auto: true,
+      lastCheckAt: '',
+      skip: ''
+    },
     // AI 服务配置（统一服务层读取）
     ai: {
       enabled: false,

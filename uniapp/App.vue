@@ -13,6 +13,7 @@ import * as sfx from './utils/sfx.js'
 import { flush as pwFlush } from './utils/pwstore.js'
 import * as apptime from './utils/apptime.js'
 import * as link from './utils/link.js'
+import * as updater from './utils/updater.js'
 
 export default {
   onLaunch() {
@@ -45,6 +46,12 @@ export default {
     // 延迟到封面之后 —— 探测要占用主线程约 60ms，别和首屏渲染抢。
     try {
       setTimeout(() => { autoDowngrade(false) }, 1500)
+    } catch (e) {}
+    // 版本自检（wgt 热更新）：再往后压一点，让首屏彻底渲染完再说。
+    // 一天最多一次、失败完全静默 —— 网络不通不该在启动时弹东西吓人。
+    // 只有真有热更新才会弹一次确认框（用户点确认才下载，合规要求）。
+    try {
+      setTimeout(() => { updater.autoCheck() }, 3000)
     } catch (e) {}
   },
   onShow() {
