@@ -345,6 +345,7 @@ import * as urgency from '../../utils/urgency.js'
 import * as partner from '../../utils/partner.js'
 import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
+import * as reminder from '../../utils/reminder.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
@@ -473,6 +474,9 @@ export default {
     syncTabbar(this)
     this.refresh()
     this.startTick()
+    // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
+    this.__remindMin = -1
+    this.checkRemind()
     // 从对话页/重排页退回来：让对话框拿到最新结果（判定过的"有出入"还在）
     if (this.$refs.coach && this.$refs.coach.refresh) this.$refs.coach.refresh()
     // 从设置页回来要重新实测一次（系统页是全屏的，回来才知道开没开）
@@ -893,6 +897,21 @@ export default {
         this.refresh()
         uni.showToast({ title: '番茄完成！休息一下', icon: 'success' })
       }
+      this.checkRemind()
+    },
+    /**
+     * 每日提醒（目标规划里定的时间）：到点发一条，告诉你今天该做的事。
+     *
+     * 每分钟查一次，不是每秒 —— 提醒是分钟级的事，没必要跟着秒针转。
+     * ⚠️ 边界说清楚：这是"App 前台时准点 + 没开着时下次进 App 补一句（当天一次）"。
+     *    要做到"没打开 App 也准点响"得用系统闹钟（原生 AlarmManager），那要进 UTS 插件。
+     */
+    checkRemind() {
+      if (this.locked) return   // 正在专注就不打扰了：提醒的是"还没开始"
+      const m = new Date().getMinutes()
+      if (m === this.__remindMin) return
+      this.__remindMin = m
+      try { reminder.check() } catch (e) {}
     },
     startFor(item) {
       if (this.cur) {

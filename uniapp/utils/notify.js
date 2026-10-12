@@ -17,8 +17,10 @@ import * as sfx from './sfx.js';
 
 const ID_ONGOING = 8801;
 const ID_ALERT = 8802;
+const ID_REMIND = 8810;                  // 每日提醒：一目标一条，id 从这里往后排
 const CH_ONGOING = 'pw_focus_ongoing';   // 常驻：低打扰，不出声
 const CH_ALERT = 'pw_focus_alert';       // 结束提醒：高打扰，出声
+const CH_REMIND = 'pw_daily_remind';     // 每日提醒：中打扰，到点催一句
 
 // PendingIntent 标志位（plus.android 读不到静态常量，用数值）
 const FLAG_UPDATE_CURRENT = 134217728;   // 0x08000000
@@ -228,6 +230,30 @@ export function alert(title, text) {
     const n = buildNotification(title, text, { channelId: CH_ALERT, ongoing: false });
     if (!n) return false;
     nm.notify(ID_ALERT, n);
+    return true;
+  } catch (e) {
+    return false;
+  }
+  // #endif
+  return false;
+}
+
+/**
+ * 每日提醒（目标规划里定的时间到了）。
+ * @param {string} title
+ * @param {string} text
+ * @param {number} slot 第几个目标（0 起）：一目标一条，别互相顶掉
+ */
+export function remind(title, text, slot) {
+  if (!supported()) return false;
+  // #ifdef APP-PLUS
+  try {
+    ensureChannel(CH_REMIND, '每日提醒', 3, '到点提醒今天该做的事');
+    const nm = manager();
+    if (!nm) return false;
+    const n = buildNotification(title, text, { channelId: CH_REMIND, ongoing: false });
+    if (!n) return false;
+    nm.notify(ID_REMIND + (Number(slot) || 0), n);
     return true;
   } catch (e) {
     return false;

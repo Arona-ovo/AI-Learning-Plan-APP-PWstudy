@@ -98,6 +98,25 @@
         <view class="tip">先定个大方向，后面 AI 会按你的实际情况追问细节（基础、可用时段、偏好等），问够了才开始拆计划。</view>
       </view>
 
+      <!-- 每日提醒：计划排得再好，"今天忘了"就没了。
+           时间按目标存 —— 不同目标可以定不同时间（早上背单词、晚上刷阅读）。 -->
+      <view class="card">
+        <view class="card-head">
+          <text class="card-title">每日提醒</text>
+          <text class="card-more" @tap="pickRemind('')">{{ remindOn ? '关掉提醒' : '已关闭' }}</text>
+        </view>
+        <view class="chips">
+          <text
+            v-for="t in remindTimes"
+            :key="t"
+            class="chip"
+            :class="{ 'chip-on': draft.remindAt === t }"
+            @tap="pickRemind(t)"
+          >{{ t }}</text>
+        </view>
+        <view class="tip">{{ remindTip }}</view>
+      </view>
+
       <view v-if="error" class="error-card">{{ error }}</view>
       <button class="btn-primary go-btn" :disabled="!canGo" @tap="startSession">下一步：和 AI 聊聊细节</button>
       <view v-if="!aiReady" class="ai-off">还没配置 AI 服务：到「我的 → 设置 → AI 服务」填好密钥后再来。</view>
@@ -242,6 +261,7 @@ import * as planTask from '../../../utils/plan-task.js'
 import * as pacing from '../../../utils/pacing.js'
 import { TEMPLATES, seedOf } from '../../../data/goal-templates.js'
 import * as holiday from '../../../utils/holiday.js'
+import * as reminder from '../../../utils/reminder.js'
 import { aiGateReason } from '../../../services/config.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
@@ -252,8 +272,9 @@ export default {
       stage: 'form',                 // form | chat | result
       tplOpen: false,
       templates: TEMPLATES,
-      draft: { title: '', deadline: '', dailyMin: 60, level: '', tplKey: '' },
+      draft: { title: '', deadline: '', dailyMin: 60, level: '', tplKey: '', remindAt: reminder.DEFAULT },
       minOptions: [30, 60, 90, 120, 180, 240],
+      remindTimes: reminder.TIMES,
       weekNames: ['一', '二', '三', '四', '五', '六', '日'],
       calYear: 2026, calMonth: 10, calCells: [],
       quickDates: [],
@@ -282,6 +303,14 @@ export default {
     },
     canGo() {
       return String(this.draft.title).trim().length >= 4 && !!this.draft.deadline
+    },
+    remindOn() {
+      return reminder.valid(this.draft.remindAt)
+    },
+    remindTip() {
+      return this.remindOn
+        ? '到点发一条通知，告诉你今天该做的那件事。落地后在目标详情里还能改。'
+        : '不提醒的话，只有打开 App 时才看得到今天的任务。'
     },
     grouped() {
       if (!this.plan) return []
@@ -449,6 +478,7 @@ export default {
       this.syncCal()
     },
     pickMin(m) { this.draft.dailyMin = m },
+    pickRemind(t) { this.draft.remindAt = t || '' },
 
     // ---------- 模板 ----------
     useTemplate(t) {
@@ -459,7 +489,9 @@ export default {
         dailyMin: seed.dailyMin,
         level: seed.level,
         tplKey: t.key,
-        raw: seed.raw          // 会话开始时一起喂给 AI
+        raw: seed.raw,          // 会话开始时一起喂给 AI
+        // 选模板不该把刚选好的提醒时间清掉（整对象替换会丢字段）
+        remindAt: this.draft.remindAt || reminder.DEFAULT
       }
       this.tplOpen = false
       this.syncCal()
@@ -602,6 +634,8 @@ export default {
         dailyMin: this.draft.dailyMin,
         level: String(this.draft.level || '').trim()
       }, Object.assign({}, this.plan, { tasks }))
+      // 提醒时间按目标存（加在 addGoal 之后：goal 这时才有 id）
+      reminder.setRemind(g.id, this.draft.remindAt)
       planTask.reset()
       uni.showToast({ title: '目标已落地', icon: 'success' })
       setTimeout(() => {

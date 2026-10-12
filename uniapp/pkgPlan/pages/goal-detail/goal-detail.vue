@@ -17,6 +17,24 @@
         </view>
       </view>
 
+      <!-- 每日提醒：规划时定的时间，这里随时能改 / 关 -->
+      <view class="card">
+        <view class="card-head">
+          <text class="card-title">每日提醒</text>
+          <text class="card-more" @tap="pickRemind('')">{{ remindOn ? '关掉提醒' : '已关闭' }}</text>
+        </view>
+        <view class="chips">
+          <text
+            v-for="t in remindTimes"
+            :key="t"
+            class="chip"
+            :class="{ 'chip-on': g.remindAt === t }"
+            @tap="pickRemind(t)"
+          >{{ t }}</text>
+        </view>
+        <view class="gd-tip">到点发一条通知，提醒你今天该做的那件事。</view>
+      </view>
+
       <!-- 阶段与任务 -->
       <view class="card" v-for="(group, gi) in grouped" :key="gi">
         <view class="card-head">
@@ -84,6 +102,7 @@ import * as pw from '../../../utils/pwstore.js'
 import * as taskGuide from '../../../utils/task-guide.js'
 import * as link from '../../../utils/link.js'
 import * as pacing from '../../../utils/pacing.js'
+import * as reminder from '../../../utils/reminder.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
 export default {
@@ -91,11 +110,15 @@ export default {
   data() {
     return {
       id: '', g: null,
+      remindTimes: reminder.TIMES,
       guideOpen: false, guideLoading: false, guideError: '',
       guideTask: null, guide: null, guideFromCache: false
     }
   },
   computed: {
+    remindOn() {
+      return !!(this.g && reminder.valid(this.g.remindAt))
+    },
     remainDays() {
       return this.g ? pw.dayDiff(pw.today(), this.g.deadline) : 0
     },
@@ -127,6 +150,17 @@ export default {
       if (t.status === 'dropped') return
       pw.setTaskStatus(this.id, t.id, t.status === 'done' ? 'todo' : 'done')
       this.refresh()
+    },
+    /** 改提醒时间（传空 = 关掉）。改完立刻重读，界面跟着变 */
+    pickRemind(t) {
+      reminder.setRemind(this.id, t || '')
+      this.refresh()
+      try {
+        uni.showToast({
+          title: t ? '已设为每天 ' + t + ' 提醒' : '已关掉每日提醒',
+          icon: 'none'
+        })
+      } catch (e) {}
     },
     // ---------- 学习要点 ----------
     openGuide(t) {
@@ -218,6 +252,25 @@ export default {
 }
 .gd-risks { margin-top: 14rpx; display: flex; flex-direction: column; }
 .gd-risk { font-size: 23rpx; line-height: 1.7; color: #8a5800; }
+
+/* 每日提醒：时间点 chips（与向导页同一套视觉） */
+.chips { display: flex; flex-wrap: wrap; }
+.chip {
+  font-size: 23rpx; padding: 10rpx 22rpx; border-radius: 999rpx;
+  margin: 0 12rpx 12rpx 0;
+  color: #5a6560; color: var(--ink-2, #5a6560);
+  background: rgba(255, 255, 255, 0.66);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.66);
+  border: 2rpx solid rgba(23, 32, 26, 0.08);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.08));
+}
+.chip:active { opacity: 0.6; }
+.chip-on {
+  color: #ffffff;
+  background: #e4173d; background: var(--brand, #e4173d);
+  border-color: transparent;
+}
+.gd-tip { display: block; margin-top: 6rpx; font-size: 22rpx; line-height: 1.6; color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
