@@ -139,6 +139,17 @@ function eq(a, b, label) {
   // 编辑态必须反过来：哪怕 u.empty 也要显形，否则收纳后永远捞不回来
   assert(/cardOrder\(\)\s*\{[\s\S]*?if\s*\(this\.editing\)\s*return ids/.test(sc0),
     '编辑态 cardOrder 返回全部（条件卡也显形）');
+  // 番茄卡：点卡片 ≠ 开始计时（2026-10-12 真机反馈"一点今日专注的卡就直接开始了"）。
+  // 起表是有成本的动作（首页立刻被硬控、严格模式开始记账），
+  // 手指落在卡片空白处就开一轮，等于把"看一眼"变成了"必须做完 25 分钟"。
+  // 所以：卡片 = 进专注页，**「开始」按钮才是唯一直接起表的入口**。
+  const focusCard = /<view[^>]*class="card focus-card"[^>]*>/.exec(tpl);
+  assert(focusCard && /@tap="goFocus\(\)"/.test(focusCard[0]),
+    '点番茄卡只进专注页（卡片本身不带 auto=1）');
+  assert(/class="fc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(tpl),
+    '「开始」按钮是独立入口，且 stop 掉冒泡（不会顺带触发卡片跳转）');
+  assert(/点「开始」直接专注/.test(tpl), '副标题点明"要开始就点「开始」"');
+
   assert(/<urgency-meter/.test(tpl), '紧迫度卡渲染 urgency-meter 组件');
   assert(/@help="explainUrgency"/.test(tpl), '紧迫度卡：? 按钮接出说明弹窗');
   // 条件卡（权限提醒 / AI 规划中）不进注册表：它们是"有事才出现"的横幅，
@@ -179,6 +190,21 @@ function eq(a, b, label) {
   // 计时驱动与生命周期：onShow 起、onHide 停（切页不空转）
   ['refresh', 'goFocus', 'togglePause', 'confirmGiveUp', 'startTick', 'stopTick', 'syncLayout']
     .forEach(m => assert(new RegExp('\\b' + m + '\\s*\\(').test(sc), 'method ' + m));
+  // 起表入口收窄：auto=1 只能由 quickStart 下发。
+  // 先切出函数体再匹配（无界的 /key[\s\S]*?x/ 会跨到后面别的方法里命中同名代码 → 假绿）
+  const body = (sig) => {
+    const i = sc.indexOf(sig);
+    return i < 0 ? '' : sc.slice(i, sc.indexOf('\n    }', i));
+  };
+  const bUrl = body('focusUrl(auto) {');
+  const bGo = body('goFocus() {');
+  const bQuick = body('quickStart() {');
+  assert(bUrl && /if \(auto\) q\.push\('auto=1'\)/.test(bUrl), 'auto=1 只在 focusUrl(true) 时拼上');
+  assert(/focusUrl\(false\)/.test(bGo), 'goFocus 不带 auto（点卡片不开始）');
+  assert(/focusUrl\(true\)/.test(bQuick), 'quickStart 才带 auto（点「开始」直接起表）');
+  assert(/if \(this\.cur\)[\s\S]{0,60}goFocus\(\)/.test(bQuick),
+    '已有番茄在跑时，「开始」不重复起表（只进页面）');
+
   assert(/onShow\s*\(\)\s*\{[\s\S]*?this\.refresh\(\)/.test(sc), 'onShow 刷新');
   assert(/onHide\s*\(\)\s*\{[\s\S]*?stopTick\(\)/.test(sc), 'onHide 停掉每秒轮询');
 
