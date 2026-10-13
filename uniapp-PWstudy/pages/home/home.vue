@@ -127,7 +127,8 @@
           </view>
 
           <!-- 今日任务 -->
-          <view v-else-if="id === 'task'" class="card">
+          <!-- task-card：新手引导要按它定位（utils/onboarding.js 的 task 步骤） -->
+          <view v-else-if="id === 'task'" class="card task-card">
             <view class="card-head">
               <text class="card-title">今日任务</text>
               <view class="head-acts">
@@ -327,6 +328,18 @@
     />
 
     <float-tabbar ref="tabbar" current="home" />
+
+    <!-- 新手引导遮罩（fixed 层，必须放在 .page-slide 之外 —— 记忆约束 3）。
+         步骤与状态在 utils/onboarding.js，测量与推进在本页。 -->
+    <onboarding-mask
+      :step="gdStep"
+      :index="gdIndex"
+      :total="gdTotal"
+      :box="gdBox"
+      :dark="gdDark"
+      @next="guideNext"
+      @skip="guideSkip"
+    />
   </view>
 </template>
 
@@ -347,6 +360,8 @@ import * as updater from '../../utils/updater.js'
 import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
 import * as reminder from '../../utils/reminder.js'
+import * as onboarding from '../../utils/onboarding.js'
+import * as theme from '../../utils/theme.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
@@ -355,9 +370,10 @@ import CoachBox from '../../components/coach-box/coach-box.vue'
 import UrgencyMeter from '../../components/urgency-meter/urgency-meter.vue'
 import ScheduleList from '../../components/schedule-list/schedule-list.vue'
 import AppDialog from '../../components/app-dialog/app-dialog.vue'
+import OnboardingMask from '../../components/onboarding-mask/onboarding-mask.vue'
 
 export default {
-  components: { FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList, AppDialog },
+  components: { FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList, AppDialog, OnboardingMask },
   mixins: [tabSlideMixin('home')],
   data() {
     return {
@@ -397,7 +413,14 @@ export default {
       sheetShow: false,   // 「添加组件」抽屉
       sheetList: [],      // 收纳区里的模块
       iconMap: {},
-      _iconPending: {}
+      _iconPending: {},
+      // ---------- 新手引导（utils/onboarding.js）----------
+      // gdOn  = 引导进行中（含"正在量位置、遮罩还没出来"那几百毫秒）
+      // gdStep = 当前步（null = 还没量出来 / 没在引导）；gdBox = 目标矩形（null = 欢迎步，气泡居中）
+      gdOn: false,
+      gdStep: null,
+      gdIndex: 0,
+      gdBox: null
     }
   },
   computed: {
@@ -461,6 +484,13 @@ export default {
     /** 日程卡头部那句"这是哪天"（含节假日 / 周末，与日历页同一口径） */
     schedLabel() {
       return schedule.dateLabel(this.schedDate)
+    },
+    gdTotal() {
+      return onboarding.count()
+    },
+    /** 遮罩层用固定配色，深浅由这里显式传下去（不跟 CSS 变量，见组件内注释） */
+    gdDark() {
+      try { return !!theme.isDark() } catch (e) { return false }
     }
   },
   watch: {
@@ -468,6 +498,9 @@ export default {
     // 编辑态必须跟着收掉，否则会留下一个点不动的把手浮在倒计时上面。
     locked(v) {
       if (v) this.finishEdit()
+      // 番茄一跑起来卡片区整个不显示了，引导的高亮目标也就没了 ——
+      // 收掉但**不记完成**：这次没看成，下次进首页再放一遍
+      if (v && this.gdOn) this.stopGuide()
     }
   },
   onShow() {
@@ -486,6 +519,9 @@ export default {
       this.refreshSetup()
       return
     }
+    // 新手引导：第一次进来放一遍（只看一次，设置页「关于」里可重看）。
+    // 它铺满全屏，放出来就不该再叠权限 / 关联 / 更新那几个弹窗 —— 挤在一起谁都看不清。
+    if (this.maybeGuide()) return
     this.maybeSetupPrompt()
     this.maybePartnerAsk()
     this.maybeUpdatePrompt()
@@ -507,6 +543,7 @@ export default {
   onBackPress() {
     // 抽屉 / 编辑态都是"页面里的临时状态"，按返回应该先收起它们，
     // 顺序按覆盖层级从内到外。硬控的返回拦截排在后面（那才是真的不让走）。
+    if (this.gdOn) { this.endGuide(); return true }
     if (this.sheetShow) { this.sheetShow = false; return true }
     if (this.editing) { this.finishEdit(); return true }
     if (!this.forcedOn) return false
@@ -749,6 +786,83 @@ export default {
         try { updater.promptOnce({ busy: !!this.dlg.show }) } catch (e) {}
       }, 1800)
     },
+    // ---------- 新手引导（步骤与状态在 utils/onboarding.js）----------
+
+    /**
+     * 该不该放引导：第一次进入（或设置页点了「重看」）才放。
+     * 返回 true 表示"引导在场"，调用方据此让路，别把别的弹窗叠上来。
+     */
+    maybeGuide() {
+      if (this.gdOn) {
+        // 上一次量位置还没落地（遮罩空白）人就切走了 —— 补一次，别把引导卡成一个隐形层
+        if (!this.gdStep) this.measureStep()
+        return true
+      }
+      if (this.locked) return false   // 正在专注，首页被倒计时硬控，卡片都没了
+      let show = false
+      try { show = onboarding.shouldShow() } catch (e) { show = false }
+      if (!show) return false
+      this.gdOn = true
+      this.gdIndex = 0
+      this.gdBox = null
+      // 等卡片渲染完再量：首帧 layout 还没落地，量到的矩形是空的
+      this.$nextTick(() => { setTimeout(() => { this.measureStep() }, 320) })
+      return true
+    },
+
+    /**
+     * 量当前步的目标矩形。量不到（模块被收纳 / 结构改了 / 正在硬控）
+     * 就**自动跳过这一步** —— 绝不把用户卡死在引导里。
+     */
+    measureStep() {
+      const step = onboarding.stepAt(this.gdIndex)
+      if (!step) { this.endGuide(); return }
+      const t = step.target
+      if (!t) { this.gdBox = null; this.gdStep = step; return }  // 欢迎步：整屏居中
+      const got = (rect) => {
+        if (!rect || !rect.width || !rect.height) { this.guideAdvance(); return }
+        this.gdBox = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+        this.gdStep = step
+      }
+      if (t.ref) {
+        const c = this.$refs[t.ref]
+        if (c && typeof c.rect === 'function') { c.rect(t.sel, got); return }
+        this.guideAdvance()
+        return
+      }
+      try {
+        uni.createSelectorQuery().in(this).select(t.sel).boundingClientRect(got).exec()
+      } catch (e) { this.guideAdvance() }
+    },
+
+    /** 推进一步；走完就收尾并落盘（下次不再放） */
+    guideAdvance() {
+      const r = onboarding.advance(this.gdIndex, onboarding.count())
+      this.gdIndex = r.index
+      this.gdBox = null
+      this.gdStep = null
+      if (r.done) { this.endGuide(); return }
+      this.$nextTick(() => this.measureStep())
+    },
+    guideNext() {
+      this.guideAdvance()
+    },
+    guideSkip() {
+      this.endGuide()
+    },
+    /** 正常收尾：记完成，下次不再放 */
+    endGuide() {
+      this.stopGuide()
+      try { onboarding.finish() } catch (e) {}
+    },
+    /** 只收起不记完成（比如番茄起表把卡片顶掉了）—— 下次进首页再放一遍 */
+    stopGuide() {
+      this.gdOn = false
+      this.gdStep = null
+      this.gdBox = null
+      this.gdIndex = 0
+    },
+
     maybeSetupPrompt() {
       let need = false
       try { need = setup.shouldPrompt() } catch (e) { need = false }

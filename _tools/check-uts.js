@@ -14,6 +14,25 @@ function ok(m) { console.log('  ✓ ' + m); }
 function bad(m) { fail++; console.error('  ✗ ' + m); }
 function read(p) { return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; }
 
+/**
+ * 切出某个方法的函数体（配大括号）。
+ * ⚠️ 护栏正则别写 "onBackPress\\(\\)[\\s\\S]{0,240}forcedOn" 这种有界窗口：
+ *    函数里只要多插两行（比如返回键先收新手引导）就会把判据挤出窗口，
+ *    明明判据还在、却被判成"不一致"（假红，已踩过）。先切函数体再匹配就没有这个口子。
+ */
+function fnBody(src, name) {
+  const m = new RegExp('^\\s{2,4}' + name + '\\s*\\(', 'm').exec(src);
+  if (!m) return '';
+  const j = src.indexOf('{', m.index + m[0].length);
+  if (j < 0) return '';
+  let d = 0;
+  for (let k = j; k < src.length; k++) {
+    if (src[k] === '{') d++;
+    else if (src[k] === '}') { d--; if (d === 0) return src.slice(j, k + 1); }
+  }
+  return src.slice(j);
+}
+
 console.log('== 1. 插件文件齐全 ==');
 const uts = read(UTS);
 const mfRaw = read(MANIFEST);
@@ -176,7 +195,8 @@ else bad('onDestroy 没收看门狗');
 const homeVue = read(path.join(ROOT, 'pages', 'home', 'home.vue'));
 if (/onBackPress\s*\(\)/.test(homeVue)) ok('首页也拦返回键（硬控屏按返回不能直接退出 App）');
 else bad('首页没有 onBackPress —— 强制模式在首页可被"一次返回"绕过');
-if (/onBackPress\(\)\s*\{[\s\S]{0,240}forcedOn[\s\S]{0,240}phase !== 'focus'/.test(homeVue)) ok('首页返回拦截与专注页同判据（forcedOn + 专注中且未暂停）');
+const homeBack = fnBody(homeVue, 'onBackPress');
+if (/forcedOn/.test(homeBack) && /phase !== 'focus'/.test(homeBack)) ok('首页返回拦截与专注页同判据（forcedOn + 专注中且未暂停）');
 else bad('首页 onBackPress 判据与专注页不一致 —— 会出现"换个页面就能出去"');
 // 6.4c 落账后立刻落盘：pwstore 平时是 800ms 节流合并写，番茄结算是最不能等的那一刻
 if (/pw\.recordPomo\(session\)[\s\S]{0,700}pw\.flush\(\)/.test(fjs)) ok('番茄落账后立刻 flush（不等节流，进程被杀也不丢这一笔）');

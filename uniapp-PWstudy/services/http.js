@@ -1,5 +1,5 @@
 // services/http.js - 统一请求封装：超时、错误归一化、可降级标记、熔断
-// 屏蔽 uni.request / fetch 差异，供 llm / voice / image-gen / ai-content 复用。
+// 屏蔽 uni.request / fetch 差异，供 llm / voice / ai-content 复用。
 
 // 归一化错误：携带 degradable / notConfigured 标记，调用方可据此决定回退本地方案或提示配置
 export class ServiceError extends Error {

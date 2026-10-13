@@ -299,42 +299,6 @@
             </view>
             <text class="adv-toggle">{{ aiAdvanced ? $t('收起') : $t('展开') }}</text>
           </view>
-
-          <!-- 用量：只统计本机实际发出去的调用，token 是估算值（看量级用，不对账） -->
-          <view class="row">
-            <view class="row-main">
-              <text class="row-title">{{ $t('本月用量') }}</text>
-              <text class="row-desc">{{ apiUsageText }}</text>
-            </view>
-          </view>
-
-          <!-- 规划偏好：默认关。开了之后新目标的任务会附 AI 的资料/工具建议 -->
-          <view class="row">
-            <view class="row-main">
-              <text class="row-title">{{ $t('规划时推荐学习资料') }}</text>
-              <text class="row-desc">{{ $t('让 AI 在任务上附资料/工具建议（书名、App 等，不给链接）；只影响新生成的目标') }}</text>
-            </view>
-            <switch :checked="planRes" :color="brandMain" @change="e => setPlanRes(e.detail.value)" />
-          </view>
-
-          <!-- 时段安排：默认开。关掉 = 原来的纯任务规划（不再产出时段，已有的不删） -->
-          <view class="row">
-            <view class="row-main">
-              <text class="row-title">{{ $t('规划时安排执行时段') }}</text>
-              <text class="row-desc">{{ $t('让 AI 把任务排进早/中/晚，看得出来每个任务大概几点做；关掉就回到原来的纯任务规划，已经排好的时段不会丢') }}</text>
-            </view>
-            <switch :checked="planSlot" :color="brandMain" @change="e => setPlanSlot(e.detail.value)" />
-          </view>
-
-          <!-- 时段到点提醒：依附于上面的时段安排 -->
-          <view class="row">
-            <view class="row-main">
-              <text class="row-title">{{ $t('时段到了提醒我') }}</text>
-              <text class="row-desc">{{ $t('早上 08:00、中午 13:00、晚上 19:30 各催一次那个时段的事；关掉时段安排后这一项不起作用') }}</text>
-            </view>
-            <switch :checked="planSlotNotify" :color="brandMain" @change="e => setPlanSlotNotify(e.detail.value)" />
-          </view>
-
           <template v-if="aiAdvanced">
             <view class="field">
               <text class="field-label">{{ $t('API 地址') }}</text>
@@ -372,25 +336,6 @@
               </view>
               <switch :checked="ai.customTTS" :color="brandMain" @change="e => setAI('customTTS', e.detail.value)" />
             </view>
-            <view class="field" v-if="ai.provider === 'custom'">
-              <view class="row-main">
-                <text class="row-title">{{ $t('地址支持出图') }}</text>
-                <text class="row-desc">{{ $t('若中转提供 /images/generations，首页指令就能真的生成背景图；不开则用本地渐变') }}</text>
-              </view>
-              <switch :checked="ai.customImage" :color="brandMain" @change="e => setAI('customImage', e.detail.value)" />
-            </view>
-            <view class="field" v-if="imageSupported">
-              <text class="field-label">{{ $t('出图模型') }}</text>
-              <view class="chips">
-                <view
-                  v-for="m in imageModels"
-                  :key="m"
-                  class="chip"
-                  :class="{ active: (ai.imageModel || imageModels[0]) === m }"
-                  @tap="setAI('imageModel', m)"
-                >{{ m }}</view>
-              </view>
-            </view>
             <block v-if="ttsSupported">
               <view class="field">
                 <text class="field-label">{{ $t('语音模型') }}</text>
@@ -416,17 +361,49 @@
             </block>
           </template>
 
+          <!-- 用量：只统计本机实际发出去的调用，token 是估算值（看量级用，不对账） -->
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('本月用量') }}</text>
+              <text class="row-desc">{{ apiUsageText }}</text>
+            </view>
+          </view>
+
+          <!-- 规划偏好：默认关。开了之后新目标的任务会附 AI 的资料/工具建议 -->
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('规划时推荐学习资料') }}</text>
+              <text class="row-desc">{{ $t('让 AI 在任务上附资料/工具建议（书名、App 等，不给链接）；只影响新生成的目标') }}</text>
+            </view>
+            <switch :checked="planRes" :color="brandMain" @change="e => setPlanRes(e.detail.value)" />
+          </view>
+
+          <!-- 时段安排：默认开。关掉 = 原来的纯任务规划（不再产出时段，已有的不删） -->
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('规划时安排执行时段') }}</text>
+              <text class="row-desc">{{ $t('让 AI 把任务排进早/中/晚，看得出来每个任务大概几点做；关掉就回到原来的纯任务规划，已经排好的时段不会丢') }}</text>
+            </view>
+            <switch :checked="planSlot" :color="brandMain" @change="e => setPlanSlot(e.detail.value)" />
+          </view>
+
+          <!-- 时段到点提醒：依附于上面的时段安排 -->
+          <view class="row">
+            <view class="row-main">
+              <text class="row-title">{{ $t('时段到了提醒我') }}</text>
+              <text class="row-desc">{{ $t('早上 08:00、中午 13:00、晚上 19:30 各催一次那个时段的事；关掉时段安排后这一项不起作用') }}</text>
+            </view>
+            <switch :checked="planSlotNotify" :color="brandMain" @change="e => setPlanSlotNotify(e.detail.value)" />
+          </view>
+
           <view class="field-note" v-if="!ttsSupported">
             {{ $t('该服务商为文本大模型，不提供云端语音；朗读仍使用本地发音。') }}
           </view>
-          <view class="field-note" v-if="!imageSupported">
-            {{ $t('该服务商不支持出图；首页「生成背景图」类指令会自动改成 AI 配色 + 本地渐变。') }}
-          </view>
-
           <!-- ===== AI 功能分项开关（二级胶囊，默认收起） ===== -->
-          <!-- 一个 App 里用到 AI 的地方有八处，消耗天差地别：生成词书一次几千 token，
-               例句是每次出题都可能触发，查词补释义却很便宜。以前只有总开关，
-               想省钱只能整个关掉。这里逐项开放，用到哪开哪。 -->
+          <!-- App 里会调模型的地方差异极大：生成一份学习计划一次几千 token，
+               AI 猜某个 App 是不是用来学习的一次才几十。以前只有总开关，
+               想省钱只能整个关掉。这里逐项开放，用到哪开哪 ——
+               列表由 services/ai-gate.js 的 AI_FEATURES 决定，按花钱从多到少排。 -->
           <view class="field-col">
             <view class="sub-head" @tap="toggleAiFn">
               <text class="sub-name">{{ $t('AI 功能') }}</text>
@@ -436,7 +413,7 @@
             </view>
             <view class="sub-body" v-if="aiFnOpen">
               <view class="field-note">
-                {{ $t('关掉的功能不再调用模型、不消耗额度。查词命中本机缓存时依然可用（缓存不花钱）。') }}
+                {{ $t('关掉的功能不再调用模型、不消耗额度；该有的本地兜底照旧（比如关了 AI 生成学习计划，改用本地模板排）。') }}
               </view>
               <view class="fn-ops">
                 <text class="fn-op" :class="{ disabled: aiFnOff === 0 }" @tap="setAllFeatures(true)">{{ $t('全部开启') }}</text>
@@ -786,11 +763,17 @@
           </view>
           <text class="row-value">›</text>
         </view>
-        <!-- 原「新手引导 · 重看」入口 2026-10-10 撤掉：
-             引导的步骤内容全是背单词的（查词 / 开始背单词 / AI 指令），
-             遮罩组件 components/onboarding-mask.vue 已在 pivot 时随老页面挪走，
-             首页也不再放引导 —— 留着就是个点了没反应的按钮。等 PWstudy 自己的
-             引导步骤写好了再一起回来（utils/onboarding.js 在 _removed_vocab/ 里留着）。 -->
+        <!-- 新手引导 · 重看：2026-10-14 回来。
+             原来那版步骤全是背单词的（查词 / 开始背单词 / AI 指令），所以 10-10 撤掉了；
+             现在 utils/onboarding.js 重写成 PWstudy 自己的闭环（定目标 → 日程 → 计时 → 收工 → 重排），
+             点这里回首页立刻重放一遍。 -->
+        <view class="row" @tap="replayGuide">
+          <view class="row-main">
+            <text class="row-title">{{ $t('新手引导') }}</text>
+            <text class="row-desc">{{ $t('回首页重新走一遍功能介绍') }}</text>
+          </view>
+          <text class="row-value">{{ $t('重看 ›') }}</text>
+        </view>
       </view>
     </view>
 
@@ -862,6 +845,7 @@
 import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
+import * as onboarding from '../../../utils/onboarding.js'
 import * as timeslot from '../../../utils/timeslot.js'
 import * as updater from '../../../utils/updater.js'
 import * as partner from '../../../utils/partner.js'
@@ -871,7 +855,6 @@ import * as pwreset from '../../../utils/pwreset.js'
 import { stop as voiceStop, status as voiceStatus, resetVoice } from '../../../services/voice.js'
 import { validateKeyFormat, testAIConnection } from '../../../services/ai-content.js'
 import { PROVIDER_PRESETS, providerSupportsTTS, TTS_MODELS } from '../../../services/config.js'
-import { IMAGE_MODELS, supportsImage } from '../../../services/image-gen.js'
 import { AI_FEATURES, featureMap, setFeature, setAll as setAllAiFeatures, offCount } from '../../../services/ai-gate.js'
 import { resetBreaker } from '../../../services/http.js'
 import * as aiCache from '../../../utils/ai-cache.js'
@@ -958,7 +941,6 @@ export default {
       // AI
       ai: {},
       ttsModels: TTS_MODELS,
-      imageModels: IMAGE_MODELS,
       showKey: false,
       aiAdvanced: false,
       providers: PROVIDER_PRESETS,
@@ -1054,12 +1036,6 @@ export default {
     },
     ttsSupported() {
       return providerSupportsTTS(this.ai.provider);
-    },
-    // 出图：只有明确支持的服务商才显示模型选择（其余走本地渐变兜底）
-    // 先读 this.ai，保证切服务商 / 改开关后这个 computed 会重新求值
-    imageSupported() {
-      const p = this.ai && this.ai.provider;
-      return !!p && supportsImage();
     },
     // AI 是否已具备基本可用条件（总开关 + 地址 + 密钥）
     aiReady() {
@@ -1577,6 +1553,14 @@ export default {
     /** 完整包：打开 GitHub 上的 Release 页（开不了浏览器会复制链接） */
     goRelease() {
       updater.openRelease()
+    },
+    /**
+     * 重看新手引导：只清掉"看过了"这个标记，然后直接跳回首页 ——
+     * 引导是在首页 onShow 里放的，光清标记而不回去，用户会觉得"点了没反应"。
+     */
+    replayGuide() {
+      try { onboarding.restart() } catch (e) {}
+      try { uni.switchTab({ url: '/pages/home/home' }) } catch (e) {}
     },
     // 一键选择预设：自动填入该服务商的地址/模型（自定义除外，留给用户手填）
     selectProvider(value) {

@@ -6,6 +6,8 @@
 //   · 失败把上一轮报错回喂模型重试（最多 3 轮）；全部失败把人话错误抛给页面
 //   · 规划是重资产：结果一律先给用户预览，确认后才由页面调 pwstore 落库
 import { chatCompletion, LLMError } from './llm.js';
+// 分项开关：关掉的那一项不再调模型（省 token）。默认全开，未登记的 key 也视为开启。
+import { ensureFeature, featureOn } from './ai-gate.js';
 import { isAIEnabled } from './config.js';
 import * as holiday from '../utils/holiday.js';
 import * as dailylog from '../utils/dailylog.js';
@@ -306,7 +308,8 @@ export function localPlan(input) {
  * AI 没配置时直接走本地兜底（localPlan），不再抛"请先配置 AI"。
  */
 export async function planGoal(input) {
-  if (!aiEnabled()) return localPlan(input);
+  // AI 没配好、或「AI 生成学习计划」这项被关掉 → 都走本地模板：不拦人，也不报错
+  if (!aiEnabled() || !featureOn('plan')) return localPlan(input);
   const sys = planSystemPrompt(input);
   const user = [
     '目标：' + input.title,
@@ -419,6 +422,7 @@ async function historyToWire(history) {
  * 返回 { reply, enough, summary, missing }
  */
 export async function askRound(seed, history) {
+  ensureFeature('plan');
   const round = (history || []).filter(m => m.role === 'assistant').length;
   const rules = [
     '1. 每轮只问 1-2 个最关键的缺口，用口语问，不要列编号清单；',
@@ -519,6 +523,7 @@ export function normalizeChat(raw, goalIds, taskIds) {
  * history: 今天已经聊过的 [{role, content}]
  */
 export async function chatToday(text, ctx, history) {
+  ensureFeature('coach');
   const c = ctx || {};
   const goalIds = Array.isArray(c.goalIds) ? c.goalIds : [];
   const taskIds = Array.isArray(c.taskIds) ? c.taskIds : [];
@@ -647,6 +652,7 @@ export function normalizeReplan(raw, tasks, opt) {
  * 返回 { summary, good, bad, next:[], focus }
  */
 export async function reviewWeek(payload) {
+  ensureFeature('review');
   const p = payload || {};
   const sys = [
     '你是学习教练。下面是学习者这一周的真实数据，请给出一份简短、说人话的复盘。',
@@ -705,6 +711,7 @@ export async function reviewWeek(payload) {
  * 返回 { summary, steps:[], check, minutes }
  */
 export async function explainTask(task, goal) {
+  ensureFeature('guide');
   const t = task || {};
   const sys = [
     '你是学科教练。用户给你一个具体的学习任务，请告诉他这个任务到底怎么完成。',
@@ -776,6 +783,7 @@ export function replanFromToday(goal, log, reality, opt) {
 }
 
 async function runReplan(goal, reality, todayBlock, opt) {
+  ensureFeature('replan');
   // reality 可以是对象（推荐）或老的字符串："近期每天分钟数"
   const rd = (typeof reality === 'string')
     ? { days: reality, overdue: 0 }

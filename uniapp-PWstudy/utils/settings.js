@@ -30,9 +30,9 @@ function defaults() {
     // 用来区分「新模块还没加进来」和「用户自己收纳掉了」—— 后者不能再塞回去。
     // 默认 null（不是 []）：表示"从没记过"= 老数据，新增模块才需要补进来。
     home: { layout: [], seenBuiltins: null },
-    // 新手引导：字段先留着（历史上可能有用户存过），步骤与遮罩已随背单词
-    // 一起挪到 _removed_vocab/，当前没有渲染方 —— 等 PWstudy 自己的引导回来再启用。
-    // v 记步骤版本，以后改版可以据此让老用户再看一次；设置页可「重看」。
+    // 新手引导（utils/onboarding.js；遮罩 components/onboarding-mask）：
+    // 没看完时首页 onShow 放一遍，看完 / 跳过置 done，设置页「关于 › 新手引导」可重看。
+    // v 记步骤版本，以后改版可以据此让老用户再看一次。
     onboarding: { done: false, v: 0, at: 0 },
     // 通知
     notifications: { daily: false, time: '20:00' },

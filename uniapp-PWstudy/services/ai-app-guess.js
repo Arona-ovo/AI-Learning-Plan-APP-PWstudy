@@ -8,6 +8,7 @@
 
 import { complete } from './llm.js';
 import { isAIEnabled } from './config.js';
+import { featureOn } from './ai-gate.js';
 
 // 从模型返回中抽取第一个 JSON 对象（容忍 ```json 代码块与前后废话）
 function extractJSON(raw) {
@@ -29,6 +30,13 @@ function extractJSON(raw) {
 export async function guessAppTask(name, pkg) {
   if (!isAIEnabled()) {
     const err = new Error('AI 服务未启用');
+    err.degradable = true;
+    err.notConfigured = true;
+    throw err;
+  }
+  // 跟"没启用"同一个可降级出口：调用方本来就打算兜底，这里换个说法而已
+  if (!featureOn('appguess')) {
+    const err = new Error('「AI 猜 App 用途」已在设置里关闭');
     err.degradable = true;
     err.notConfigured = true;
     throw err;

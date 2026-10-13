@@ -26,6 +26,8 @@ function walk(file) {
     const spec = m[1] || m[2] || m[3];
     if (!spec) continue;
     if (spec.startsWith('http') || spec.startsWith('//')) continue;
+    // 模块路径不可能含空格 —— 命中说明是英文文案里的 "… from "xxx""，不是 import
+    if (/\s/.test(spec)) continue;
     // '@/xxx' 是 uni-app 的根别名；'@/uni_modules/<id>' 是 UTS 插件 ——
     // 入口是 utssdk/ 下的 .uts（由 HBuilderX 构建期接管，Node 侧跑不了），
     // 这里只确认插件目录真实存在，不深入

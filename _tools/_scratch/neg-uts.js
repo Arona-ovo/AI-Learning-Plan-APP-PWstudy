@@ -76,6 +76,31 @@ for (const [name, mut] of cases) {
 }
 
 fs.writeFileSync(FILE, orig);
+
+// ---- 6.4b 首页返回键：这条判据是"换个页面就能出去"的唯一防线 ----
+// 2026-10-14：护栏原来是 onBackPress(){...} 的 240 字符窗口匹配，插两行就假红；
+// 改成先切函数体再匹配。这里补上反向用例，确认改成切函数体之后**仍然抓得住**。
+const HOME = path.join(ROOT, 'uniapp-PWstudy', 'pages', 'home', 'home.vue');
+const homeOrig = fs.readFileSync(HOME, 'utf8');
+const homeCases = [
+  ['首页 onBackPress 不看 forcedOn（硬控屏按返回就能退出 App）',
+    (s) => s.replace('if (!this.forcedOn) return false', 'if (false) return false')],
+  ['首页 onBackPress 不看 phase（休息 / 暂停也被拦死）',
+    (s) => s.replace("if (!this.cur || this.cur.paused || this.cur.phase !== 'focus') return false", "if (!this.cur) return false")],
+  ['首页整个 onBackPress 被删掉',
+    (s) => s.replace('onBackPress() {', 'onBackPressX() {')]
+];
+for (const [name, mut] of homeCases) {
+  const next = mut(homeOrig);
+  if (next === homeOrig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
+  fs.writeFileSync(HOME, next);
+  const r = runCheck();
+  const hit = r.code !== 0 && r.fails.length > 0;
+  console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0].trim() : ''));
+  if (!hit) bad++;
+}
+fs.writeFileSync(HOME, homeOrig);
+
 const back = runCheck();
 console.log(back.code === 0 ? '还原后仍是绿 ✓' : '还原后不绿 ✗ ' + back.fails.join(' | '));
 if (back.code !== 0) bad++;

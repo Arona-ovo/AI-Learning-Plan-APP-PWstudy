@@ -1,9 +1,14 @@
 // services/ai-gate.js - AI 功能的分项开关
 //
 // 为什么要有这一层：AI 是按 token 计费的，而 App 里这些能力的调用频次天差地别 ——
-// "AI 生成词书"一次几千 token，"AI 聊天"是持续对话，"AI 例句"每次出题都可能触发。
-// 以前只有「总开关」，用户想省钱就只能整个关掉，连查词补释义这种低价高频的能力也一起没了。
+// "AI 生成学习计划"一次几千 token，"AI 教练对话"是持续消耗，"AI 猜 App 用途"一次也就几十。
+// 以前只有「总开关」，用户想省钱就只能整个关掉，连最便宜的那几项也一起没了。
 // 这里把每个**独立的 AI 消耗点**登记成一项，用户在设置里逐项开关，用到哪开哪。
+//
+// ⚠️ 表里只登记 PWstudy **真的会调模型**的地方。原来那张表是从背单词 App 一起过来的
+// （查词 / AI 例句 / 翻译点评 / 薄弱点专练 / AI 生成词书 / 对话陪练 / 首页 AI 指令 /
+// 生成配图），这些功能在 PWstudy 里要么整簇随背单词挪走了、要么压根没做过 ——
+// 留着它们，用户关了一个永远不会被调用的开关，还以为自己在省钱。
 //
 // 设计约束：
 //   1. 默认全开，且**未登记的 key 视为开启**（`!== false`）。这样以后新增功能时，
@@ -16,54 +21,43 @@ import { ServiceError } from './http.js'
 
 // key 是稳定标识（写进存储，改名会导致用户设置失效）
 // level 是相对开销，帮用户判断"关哪个最省"
+// 顺序 = 设置页里的显示顺序：按"花钱从多到少"排，想省钱的人从上往下关就行。
 export const AI_FEATURES = [
   {
-    key: 'lookup',
-    name: '查词与整句翻译',
-    desc: '搜索框里用 AI 补充本地没收录的释义，或把整句翻成英文',
-    level: 'low', levelLabel: '低'
-  },
-  {
-    key: 'sentence',
-    name: 'AI 例句',
-    desc: '出题时生成贴合你进度的例句。关掉后完全走本地句库',
-    level: 'high', levelLabel: '高'
-  },
-  {
-    key: 'critique',
-    name: '翻译点评',
-    desc: '作答后给出批改意见与更地道的译法',
-    level: 'high', levelLabel: '高'
-  },
-  {
-    key: 'drill',
-    name: '薄弱点专练',
-    desc: '针对你常错的词生成专项练习句',
-    level: 'mid', levelLabel: '中'
-  },
-  {
-    key: 'wordbook',
-    name: 'AI 生成词书',
-    desc: '按主题批量造词与释义，单次消耗最大的一项',
+    key: 'plan',
+    name: 'AI 生成学习计划',
+    desc: '把目标拆成每天的任务。关掉后改用本地模板排 —— 结构照旧，少些个性化',
     level: 'max', levelLabel: '极高'
   },
   {
-    key: 'chat',
-    name: 'AI 聊天伙伴',
-    desc: '自由对话练习，会持续消耗',
-    level: 'high', levelLabel: '高'
-  },
-  {
-    key: 'command',
-    name: '首页 AI 指令',
-    desc: '用一句话改首页布局与卡片',
+    key: 'replan',
+    name: 'AI 重排',
+    desc: '收工跟计划有出入时，让 AI 重排后面的任务。关掉后重排页不再给建议，只能自己手动挪',
     level: 'mid', levelLabel: '中'
   },
   {
-    key: 'image',
-    name: 'AI 生成配图',
-    desc: '给卡片和背景出图。关掉后改用纯色渐变',
-    level: 'high', levelLabel: '高'
+    key: 'coach',
+    name: 'AI 教练对话',
+    desc: '首页教练框的一问一答：帮你记番茄、把说出口的改动落到计划上。关掉后教练框不再回复',
+    level: 'mid', levelLabel: '中'
+  },
+  {
+    key: 'review',
+    name: 'AI 周回顾',
+    desc: '统计页里那一周的 AI 小结。关掉后这一块不再生成',
+    level: 'low', levelLabel: '低'
+  },
+  {
+    key: 'guide',
+    name: 'AI 讲任务',
+    desc: '说清某个任务为什么这么排、具体怎么做。关掉后不再生成新的，之前看过的还在',
+    level: 'low', levelLabel: '低'
+  },
+  {
+    key: 'appguess',
+    name: 'AI 猜 App 用途',
+    desc: '判断某个 App 是不是用来学习的，好把它的时长算进统计。关掉后新 App 一律按非学习处理',
+    level: 'low', levelLabel: '低'
   }
 ]
 
