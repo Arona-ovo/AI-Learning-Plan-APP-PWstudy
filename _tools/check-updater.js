@@ -528,6 +528,10 @@ assert(/RELEASE_URL/.test(pub), '打完打印上传指引');
 // 断言**调用点**（只断言函数存在的话，把调用删了照样绿）
 assert(/alignInnerVersion\(entries, ver, nativeCode\)/.test(pub), '打 wgt 时对齐包内版本');
 assert(/readZipEntry\(outPath, 'manifest\.json'\)/.test(pub), '打完把包内 manifest.json 读回来自验');
+// --no-sync：整包与热更包不在同一条编号线上时（整包叫 1.1beta、热更走 1.1.1），
+// 脚本不许顺手把源码版本抬走 —— 抬了 manifest 就跟云打包界面填的对不上
+assert(/--no-sync/.test(pub), '支持 --no-sync（整包与 wgt 不同号时用）');
+assert(/!has\('--no-sync'\)/.test(pub), '同步源码版本那段真的被 --no-sync 挡住');
 
 /* ---------- 10. 源码：认不出就不许指路 ---------- */
 console.log('== 10. 占位包 / 清单接口（源码） ==');

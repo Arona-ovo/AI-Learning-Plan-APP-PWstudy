@@ -14,6 +14,9 @@
 //                                              #   / _vocab/build.js 三处
 //   node _tools/publish-wgt.js --dry           # 只打印计划，不落文件
 //   node _tools/publish-wgt.js --upload        # 打完用 gh 上传（需要装了 gh 且登录过）
+//   node _tools/publish-wgt.js --ver 1.1.1 --no-sync
+//                                              # 打 1.1.1 的包，但**不**把源码三处
+//                                              # 版本抬成 1.1.1（见下）
 //
 // 产物：uniapp/unpackage/release/wgt/PWstudy-<版本>-n<原生基线>.wgt
 //   例：PWstudy-1.0.1-n101.wgt —— n101 = 这个包要求原生基座 versionCode ≥ 101。
@@ -22,6 +25,13 @@
 // ⚠️ 为什么版本号必须是 x.y.z：客户端靠它算大小（x*10000+y*100+z）来比新旧。
 //    '1.0 Beta' 这种带字母的也能解析（取前两段），但**没法往下抬**，
 //    所以第一次打包请显式 --ver 或 --bump。
+//
+// ⚠️ --no-sync 用在哪：APK 与 wgt **不在同一条编号线上**时。
+//    首发的整包叫 beta（1.1beta，云打包界面也填它），热更包却走正式编号 1.1.1
+//    —— 装了 beta 包的人开机就会被提示热更，正好把"红点 + 首页弹窗"这条链路
+//    在真机上跑一遍；不然整包和热更包同号，客户端判定已是最新，永远测不到。
+//    这种时候脚本要是顺手把 manifest 抬成 1.1.1，就跟打包界面填的 1.1beta
+//    对不上了（源码版本 ≠ 实际发行的版本）。所以给它 --no-sync。
 
 const fs = require('fs');
 const path = require('path');
@@ -247,7 +257,7 @@ if (has('--dry')) {
 
 // 版本写回三处（manifest / build-info / _vocab 的生成常量），
 // 少改一处下次生成语料就会把版本退回去（check-version-egg.js 会红）
-if (has('--bump') || val('--ver')) {
+if (!has('--no-sync') && (has('--bump') || val('--ver'))) {
   const cur = String(manifest.versionName || '');
   if (cur !== ver) {
     fs.writeFileSync(MANIFEST, fs.readFileSync(MANIFEST, 'utf8').replace(
