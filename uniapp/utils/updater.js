@@ -196,6 +196,16 @@ function sizeText(n) {
  *          | 'skip'  用户跳过过这个版本
  */
 export async function check(opt) {
+  const r = await checkRaw(opt);
+  // 顺手把"有没有新版本"落到 storage：红点和首页弹窗都读它。
+  // ⚠️ skip 那条不动 —— 用户说过"这个版本别烦我"，但"有新版本"这个事实还在，
+  //    只是不亮红点、不弹窗。下次发新版本，版本号变了自然又会亮。
+  if (r.state === 'update' || r.state === 'native' || r.state === 'apk') savePending(r);
+  else if (r.state === 'latest' || r.state === 'none') clearPending();
+  return r;
+}
+
+async function checkRaw(opt) {
   const o = opt || {};
   const local = await localVersion();
   const rel = await fetchRelease();
@@ -231,6 +241,85 @@ function markSkip(v) {
   try { settings.set({ update: { skip: String(v || ''), lastCheckAt: todayStr() } }); } catch (e) {}
 }
 
+/* ---------------- 待更新状态（红点 / 首页弹窗） ---------------- */
+
+const EMPTY_PENDING = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '' };
+
+/** 记一笔"有个新版本等着装" */
+function savePending(r) {
+  try {
+    const v = r.remote || {};
+    settings.set({
+      update: {
+        pending: {
+          version: v.version || '', code: v.code || 0, minNative: v.minNative || 0,
+          url: v.url || '', size: v.size || 0, notes: r.notes || '', state: r.state || ''
+        }
+      }
+    });
+  } catch (e) {}
+}
+
+export function clearPending() {
+  try { settings.set({ update: { pending: EMPTY_PENDING } }); } catch (e) {}
+}
+
+/**
+ * 当前等着装的更新（没有则 null）。
+ *
+ * 判据是**拿记下的版本号跟本机比** —— 装完新版之后它自然就不再比本机新，
+ * 顺手清掉。这就是红点"自动消失"的全部机制，不需要额外记"看过了"。
+ */
+export function pending() {
+  return localVersion().then((local) => {
+    let p = null;
+    try { p = (settings.get().update || {}).pending; } catch (e) {}
+    if (!p || !p.version || !p.code) return null;
+    if (local && local.code >= p.code) { clearPending(); return null; }
+    return Object.assign({}, p, { local: local });
+  }).catch(() => null);
+}
+
+/** 红点要不要亮：有新版本 **且** 用户没对这个版本说过"不再提示" */
+export function hasUpdate() {
+  return pending().then((p) => {
+    if (!p) return false;
+    try { return (settings.get().update || {}).skip !== p.version; } catch (e) { return true; }
+  });
+}
+
+let prompted = false;   // 本次进程已经弹过了 —— 切个 tab 回来又弹一遍是骚扰
+
+/**
+ * 首页 onShow 调用：有可用更新就弹一次。
+ *
+ * 三个不弹：① 本次进程弹过了；② 用户对这版说过"不再提示"；
+ * ③ 页面上有别的事在办（权限引导 / 关联询问）—— 那些比更新重要，让它先。
+ * 第 ③ 条只有页面知道，所以从外面传进来。
+ *
+ * @param {{busy?:boolean}} opt busy=true 表示此刻有别的弹窗/询问在场，让路
+ */
+export function promptOnce(opt) {
+  const o = opt || {};
+  if (o.busy) return Promise.resolve(false);
+  if (prompted) return Promise.resolve(false);
+  return pending().then((p) => {
+    if (!p) return false;
+    try { if ((settings.get().update || {}).skip === p.version) return false; } catch (e) {}
+    // 先记账再弹：不管用户点哪个，这一轮都算"问过了"
+    prompted = true;
+    if (p.state === 'update') {
+      askUpdate({ state: 'update', remote: p, notes: p.notes, local: p.local });
+      return true;
+    }
+    if (p.state === 'native' || p.state === 'apk') {
+      askFull({ state: p.state, remote: p, notes: p.notes, local: p.local });
+      return true;
+    }
+    return false;
+  }).catch(() => false);
+}
+
 /**
  * 启动自检：一天一次，失败静默，有更新才打扰。
  * 只在 App 端有意义（其它端装不了 wgt）—— 非 App 端直接返回 null。
@@ -243,7 +332,9 @@ export async function autoCheck() {
     if (u.lastCheckAt === todayStr()) return null;    // 今天查过了
     const r = await check();
     markChecked();
-    if (r.state === 'update') return askUpdate(r);
+    // **这里不弹窗**：启动瞬间糊一张卡片容易打断首屏，而且此刻判断不了
+    // "页面上有没有别的事在办"。弹窗统一交给首页 onShow 的
+    // updater.promptOnce() —— 那儿才看得见当前在忙什么，也才好排队。
     return r;
   } catch (e) {
     return null;   // 静默：网络不通不该弹"检查失败"
@@ -396,7 +487,7 @@ export function askUpdate(r) {
     title: '有新版本',
     content: lines.join('\n').slice(0, 480),
     confirmText: '立即更新',
-    cancelText: '稍后',
+    cancelText: '不再提示',
     success: (res) => {
       if (!res || !res.confirm) { markSkip(v.version); return; }
       runUpdate(r);
@@ -445,15 +536,19 @@ export function showResult(r) {
   return r;
 }
 
-/** 基座太老：只能整包 */
+/** 基座太老（或远端只有整包）：只能整包 */
 function askFull(r) {
   uni.showModal({
     title: '需要更新到完整包',
     content: '新版本 ' + (r.remote && r.remote.version ? r.remote.version : '') +
       ' 要更新的原生基座，热更新装不了。下载完整安装包覆盖安装即可，数据都在。',
     confirmText: '去下载',
-    cancelText: '稍后',
-    success: (res) => { if (res && res.confirm) openRelease(); }
+    cancelText: '不再提示',
+    success: (res) => {
+      if (!res) return;
+      if (res.confirm) openRelease();
+      else markSkip(r.remote && r.remote.version);
+    }
   });
 }
 

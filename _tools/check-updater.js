@@ -43,6 +43,7 @@ global.uni = {
   setClipboardData: (o) => log.clip.push(o),
   showModal: (o) => { log.modal.push(o); if (o && o.success) o.success(modalAnswer); },
   request: (o) => {
+    net.reqCount = (net.reqCount || 0) + 1;
     if (net.reqFail) { o.fail({ errMsg: 'request:fail' }); return; }
     o.success({ statusCode: 200, data: net.release });
   },
@@ -275,22 +276,22 @@ function main() {
 
   /* ---------- 5. 启动自检：节流 + 静默 ---------- */
   steps.push(() => {
-    console.log('== 5. 启动自检（一天一次 + 失败静默） ==');
+    console.log('== 5. 启动自检（一天一次 + 失败静默 + 只记录不弹窗） ==');
     settings.set({ update: { auto: true, lastCheckAt: '', skip: '' } });
     net.reqFail = false;
     net.release = release(['PWstudy-1.0.2-n101.wgt']);
-    modalAnswer = { confirm: false };          // 用户点「稍后」
+    modalAnswer = { confirm: false };
     log.modal.length = 0;
+    net.reqCount = 0;
     return updater.autoCheck().then(() => {
-      eq(log.modal.length, 1, '有更新 → 弹一次确认（不静默装）');
-      const u = settings.get().update || {};
-      eq(u.skip, '1.0.2', '点「稍后」记下了这个版本');
-      // 只清掉"跳过"、留着节流标记 —— 否则第二次走的是 skip 分支，
-      // 验的就不是"一天一次"了（反向测试里被抓出来过）
-      settings.set({ update: { skip: '' } });
+      eq(log.modal.length, 0, '自检**不弹窗**（弹窗交给首页 onShow 统一排队）');
+      return updater.pending();
+    }).then((p) => {
+      assert(!!p && p.version === '1.0.2', '有更新记进了 pending（红点和弹窗都读它）');
       return updater.autoCheck();
     }).then(() => {
-      eq(log.modal.length, 1, '同一天第二次启动 → 不再弹（一天一次）');
+      // 直接数请求次数：比看弹窗更能说明"真的没再查第二次"
+      eq(net.reqCount, 1, '同一天第二次启动 → 不再发请求（一天一次）');
     });
   });
 
@@ -386,6 +387,72 @@ function main() {
     });
   });
 
+  /* ---------- 6.5 红点与首页弹窗 ---------- */
+  steps.push(() => {
+    console.log('== 6.5 红点 / 首页弹窗 ==');
+    // 红点怎么消失：装完新版 → 记下的版本号不再比本机新 → pending 自己清空
+    net.release = release(['PWstudy-1.0.2-n101.wgt']);
+    plus.runtime.version = '1.0.1';
+    settings.set({ update: { skip: '' } });
+    return updater.manualCheck()
+      .then(() => updater.pending())
+      .then((p) => {
+        assert(!!p && p.version === '1.0.2', '先记下 1.0.2（红点亮着）');
+        return updater.hasUpdate();
+      })
+      .then((v) => {
+        eq(v, true, '红点亮着');
+        plus.runtime.version = '1.0.2';          // 假装装完了
+        return updater.pending();
+      })
+      .then((p) => {
+        eq(p, null, '装完新版 pending 自动清空 —— 红点就是这么消失的');
+        return updater.hasUpdate();
+      })
+      .then((v) => eq(v, false, '红点灭了（全程没记过「看过了」这笔账）'));
+  });
+
+  steps.push(() => {
+    // 有别的事在场 → 不抢（必须在"已经弹过"之前测：promptOnce 一次进程只弹一回）
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.0.2-n101.wgt']);
+    settings.set({ update: { skip: '' } });
+    log.modal.length = 0;
+    return updater.manualCheck()
+      .then(() => updater.promptOnce({ busy: true }))
+      .then((v) => {
+        eq(v, false, '有别的事在场 → 让路（这次不弹，下次进首页再说）');
+        eq(log.modal.length, 0, '没弹出东西来');
+      });
+  });
+
+  steps.push(() => {
+    log.modal.length = 0;
+    modalAnswer = { confirm: false };
+    return updater.promptOnce({}).then((a) => {
+      assert(a === true, 'promptOnce 弹了一次');
+      eq(log.modal.length, 1, '弹窗出现了');
+      return updater.promptOnce({});
+    }).then((b) => {
+      eq(b, false, '第二次 promptOnce 不再弹（本次进程只弹一次）');
+      eq(log.modal.length, 1, '确实没有多弹一遍');
+    });
+  });
+
+  steps.push(() => {
+    // 「不再提示」= 记下这个版本；红点也跟着不亮（一个动作、两个效果）
+    net.release = release(['PWstudy-1.0.3-n101.wgt']);
+    settings.set({ update: { skip: '' } });
+    log.modal.length = 0;
+    modalAnswer = { confirm: false };
+    return updater.manualCheck().then((r) => {
+      updater.showResult(r);
+      const u = settings.get().update || {};
+      eq(u.skip, '1.0.3', '点「不再提示」记下了这个版本');
+      return updater.hasUpdate();
+    }).then((v) => eq(v, false, '说过不再提示 → 红点也不亮'));
+  });
+
   /* ---------- 7. 设置默认值 ---------- */
   console.log('== 7. 默认值与开关 ==');
   eq(settings.defaults().update.auto, true, '启动自检默认开');
@@ -417,6 +484,34 @@ assert(/updater\.setAuto\(on\)/.test(setSc), '开关写回设置');
 assert(/updater\.showResult\(r\)/.test(setSc), '结果统一交给 showResult（页面不各写一套弹窗）');
 assert(updater.RELEASE_URL === 'https://github.com/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/tag/PWstudy',
   '整包页面指向固定 tag 的 Release');
+
+/* ---------- 8.2 红点与首页弹窗的接线 ---------- */
+console.log('== 8.2 红点与首页弹窗的接线 ==');
+// 先剥整行注释：注释里提到的名字会被自己的正则命中（硬约束）
+const upSrc = R('utils/updater.js').replace(/^\s*\/\/.*$/gm, '');
+const home = R('pages/home/home.vue').replace(/^\s*\/\/.*$/gm, '');
+const prof = R('pages/profile/profile.vue').replace(/^\s*\/\/.*$/gm, '');
+
+const autoBlk = block(upSrc, 'export async function autoCheck()');
+assert(!!autoBlk && !/askUpdate/.test(autoBlk), '自检只记录 pending、**不弹窗**（弹窗交给首页排队）');
+assert(/savePending\(r\)/.test(upSrc) && /clearPending\(\)/.test(upSrc), '检查结果会记进 / 清掉 pending');
+assert('pending' in settings.defaults().update, 'update.pending 落在 storage（不是内存变量）');
+assert(/function pending\(\)[\s\S]{0,300}local\.code >= p\.code/.test(upSrc),
+  'pending 每次读都跟本机版本比 —— 红点就是靠这个自动消失的');
+assert(/if \(prompted\) return Promise\.resolve\(false\)/.test(upSrc), 'promptOnce 本次进程只弹一次');
+assert(/if \(o\.busy\) return Promise\.resolve\(false\)/.test(upSrc), 'promptOnce 看到 busy 就让路');
+assert(/skip === p\.version/.test(upSrc), '说过「不再提示」的版本既不弹窗也不亮红点');
+
+assert(/import \* as updater from '\.\.\/\.\.\/utils\/updater\.js'/.test(home), '首页引了 updater');
+// 带 this. ：方法定义本身也叫 maybeUpdatePrompt，只写方法名的话删掉调用照样绿
+assert(/this\.maybeUpdatePrompt\(\)/.test(home), '首页 onShow 会问一次更新');
+assert(/updater\.promptOnce\(\{ busy:/.test(home), '「忙不忙」由页面传给 updater（只有页面知道）');
+
+assert(/import \* as updater from '\.\.\/\.\.\/utils\/updater\.js'/.test(prof), '「我的」页引了 updater');
+assert(/class="dot-update"/.test(prof) && /v-if="updateDot"/.test(prof), '设置行右侧有红点');
+assert(/updater\.hasUpdate\(\)/.test(prof), '红点判据走 updater.hasUpdate');
+assert(/refreshUpdateDot\(\)/.test(prof), '每次进「我的」重读一次红点');
+assert(/\.dot-update[\s\S]{0,140}width: 8px/.test(prof), '红点 8px');
 
 /* ---------- 9. 发布脚本 ---------- */
 console.log('== 9. 发布脚本 _tools/publish-wgt.js ==');
@@ -451,7 +546,9 @@ function block(src, head) {
   }
   return src.slice(j, k + 1);
 }
-const noneBlk = block(up, "r.state === 'none'");
+// ⚠️ head 要写全到 `if (...)`：check() 里也有一个 `r.state === 'none'`
+// （clearPending 那条分支），只写半句会切到那个更早的位置上去
+const noneBlk = block(up, "if (r.state === 'none') {");
 assert(!!noneBlk, 'showResult 里有 none 分支');
 assert(/toast\(/.test(noneBlk), 'none 分支只 toast 一句');
 assert(!/openRelease|showModal/.test(noneBlk), 'none 分支不给下载入口、不弹窗（那包来路不明）');

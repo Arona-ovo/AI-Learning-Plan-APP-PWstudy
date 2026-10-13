@@ -49,7 +49,9 @@ export default {
     } catch (e) {}
     // 版本自检（wgt 热更新）：再往后压一点，让首屏彻底渲染完再说。
     // 一天最多一次、失败完全静默 —— 网络不通不该在启动时弹东西吓人。
-    // 只有真有热更新才会弹一次确认框（用户点确认才下载，合规要求）。
+    // 只检查、**这里不弹**：有更新会记进 settings.update.pending，由首页
+    // onShow 的 updater.promptOnce() 统一弹 —— 那儿才看得见有没有别的询问在场。
+    // 用户点确认才下载（合规要求，wgt 虽小也一样）。
     try {
       setTimeout(() => { updater.autoCheck() }, 3000)
     } catch (e) {}

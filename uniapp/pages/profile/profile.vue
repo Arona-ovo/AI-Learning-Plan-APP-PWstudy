@@ -92,6 +92,7 @@
       </view>
       <view class="menu-item" @tap="go('/pkgManage/pages/settings/settings')">
         <text class="menu-title">{{ $t('设置') }}</text>
+        <view class="dot-update" v-if="updateDot"></view>
         <text class="menu-arrow">›</text>
       </view>
       <view class="menu-item" @tap="go('/pkgManage/pages/setup/setup')">
@@ -122,6 +123,7 @@ import * as pw from '../../utils/pwstore.js'
 import * as auth from '../../services/auth'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import { aiGateReason } from '../../services/config.js'
+import * as updater from '../../utils/updater.js'
 import * as setup from '../../utils/setup.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
@@ -142,7 +144,11 @@ export default {
       aiEnabled: false,
       aiReason: '',
       account: { logged: false, username: '' },
-      setupPending: 0
+      setupPending: 0,
+      // 「设置」右侧那个小红点：有新版本才亮。
+      // 它不记"看过了" —— 每次进页面重读一次，装完新版版本号不再比本机新，
+      // 红点自己就没了。
+      updateDot: false
     }
   },
   computed: {
@@ -155,6 +161,9 @@ export default {
     syncTabbar(this)
     this.refresh()
     try { this.setupPending = setup.pending().length } catch (e) {}
+    // 每次进「我的」都重读一次红点：装完新版之后 pending 里的版本号就不再比
+    // 本机新，红点自动消失 —— 不用记"看过了"，也就不会有清不掉的标记。
+    this.refreshUpdateDot()
     // 订阅登录态：登录页登录成功后这里能立刻更新（不依赖页面重新加载）
     if (!this.__authOff) {
       this.__authOff = auth.onChange(() => {
@@ -182,6 +191,15 @@ export default {
       } catch (e) {
         uni.showToast({ title: t('退出失败'), icon: 'none' })
       }
+    },
+    /**
+     * 读一次红点。异步（要拿本机版本比），失败一律当"没更新" ——
+     * 一个读不出来的状态不该亮红点。
+     */
+    refreshUpdateDot() {
+      try {
+        updater.hasUpdate().then((v) => { this.updateDot = !!v }, () => { this.updateDot = false })
+      } catch (e) { this.updateDot = false }
     },
     refresh() {
       this.account = this.readAccount()
@@ -379,6 +397,16 @@ export default {
 .menu-title { font-size: 30rpx; color: var(--ink-1, #17201a); }
 
 .menu-arrow { font-size: 32rpx; color: #c8cdc9; }
+/* 有更新时的小红点。8px 的小圆点 —— 实心红只用在这么小的面积上，
+   大块实心红一律换成 tint 按钮（见设计规范）。 */
+.dot-update {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-strong);
+  margin-right: 8rpx;
+  flex: none;
+}
 
 .menu-main { flex: 1; min-width: 0; }
 

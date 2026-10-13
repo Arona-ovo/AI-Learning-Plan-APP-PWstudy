@@ -17,6 +17,7 @@ const FILES = [
   'utils/settings.js',
   'App.vue',
   'pkgManage/pages/settings/settings.vue',
+  'pages/home/home.vue',
   'data/build-info.js'
 ];
 const orig = {};
@@ -114,7 +115,29 @@ const cases = [
     s => s.replace('if (d.tag_name && d.tag_name !== RELEASE_TAG) {', 'if (false) {')],
   // 同一个 Release 里 wgt 与 APK 共存：APK 不该抢在热更前面
   ['有可用 wgt 却因为 Release 里挂着 APK 走了整包', 'utils/updater.js',
-    s => s.replace('if (remote && local.code < remote.code) {', 'if (false) {')]
+    s => s.replace('if (remote && local.code < remote.code) {', 'if (false) {')],
+  // 红点 / 首页弹窗
+  // ⚠️ 按函数定位后再替换：`markChecked();` 在 autoCheck / manualCheck 里各有一处，
+  //    而且注释跨了两行 —— 拿半句注释当锚点会把后半句留在代码里（直接语法错，
+  //    "被抓到"的是崩溃不是断言，假绿）
+  ['自检又弹窗了（启动瞬间糊一张卡片）', 'utils/updater.js', s => {
+    const i = s.indexOf('export async function autoCheck()');
+    if (i < 0) return s;
+    return s.slice(0, i) + s.slice(i).replace('    markChecked();\n',
+      "    markChecked();\n    if (r.state === 'update') return askUpdate(r);\n");
+  }],
+  ['pending 不跟本机版本比（红点永远摘不掉）', 'utils/updater.js',
+    s => s.replace('if (local && local.code >= p.code) { clearPending(); return null; }', '')],
+  ['首页弹窗每次进都弹（切个 tab 回来又一遍）', 'utils/updater.js',
+    s => s.replace('if (prompted) return Promise.resolve(false);', '')],
+  ['有别的事在场也照弹（抢在引导/关联询问前面）', 'utils/updater.js',
+    s => s.replace('if (o.busy) return Promise.resolve(false);', '')],
+  ['红点状态不放 storage（重启后闪一下就没了）', 'utils/settings.js',
+    s => s.replace("pending: { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '' }", '')],
+  ['说过「不再提示」红点还亮着', 'utils/updater.js',
+    s => s.replace('return (settings.get().update || {}).skip !== p.version;', 'return true;')],
+  ['首页不再问更新', 'pages/home/home.vue',
+    s => s.replace('    this.maybeUpdatePrompt()', '')]
 ];
 
 (async () => {

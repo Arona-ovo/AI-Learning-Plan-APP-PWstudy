@@ -343,6 +343,7 @@ import * as pacing from '../../utils/pacing.js'
 import * as coach from '../../utils/coach.js'
 import * as urgency from '../../utils/urgency.js'
 import * as partner from '../../utils/partner.js'
+import * as updater from '../../utils/updater.js'
 import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
 import * as reminder from '../../utils/reminder.js'
@@ -487,6 +488,7 @@ export default {
     }
     this.maybeSetupPrompt()
     this.maybePartnerAsk()
+    this.maybeUpdatePrompt()
   },
   onHide() {
     // 离开首页一律退出编辑态，保证回来时界面是简洁的
@@ -734,6 +736,19 @@ export default {
       this.setupPending = list
     },
     // 首次进入（或有新缺项）主动问一次：不然用户根本不知道要开这些
+    /**
+     * 有新版本时问一次。
+     *
+     * 排在关联询问**之后**再晚一点：它延迟 1.2s，等它先问完。
+     * 已经有别的弹窗/询问在场就**不抢**，这次进首页不弹了 —— 下次进来再说。
+     * 更新提醒再重要，也比不上"用户正在办的事"。
+     */
+    maybeUpdatePrompt() {
+      setTimeout(() => {
+        // 页面上的弹窗状态只有这里看得到，所以"忙不忙"由页面传给 updater
+        try { updater.promptOnce({ busy: !!this.dlg.show }) } catch (e) {}
+      }, 1800)
+    },
     maybeSetupPrompt() {
       let need = false
       try { need = setup.shouldPrompt() } catch (e) { need = false }
