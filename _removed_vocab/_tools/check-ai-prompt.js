@@ -111,7 +111,7 @@ const build = importer.buildWordListPrompt;
   const fs = require('fs');
   const path = require('path');
   const src = fs.readFileSync(
-    path.join(__dirname, '..', 'uniapp', 'pkgManage', 'pages', 'library-detail', 'library-detail.vue'), 'utf8');
+    path.join(__dirname, '..', 'uniapp-PWstudy', 'pkgManage', 'pages', 'library-detail', 'library-detail.vue'), 'utf8');
   assert(/buildWordListPrompt/.test(src), '页面调用 buildWordListPrompt');
   assert(/@tap="buildPrompt"/.test(src), '有「一键生成提示词」按钮');
   assert(/@tap="copyPrompt"/.test(src), '有「复制提示词」按钮');

@@ -12,7 +12,7 @@
 //  8) argon2 适配器可插拔（注册后走 argon2，未注册时不误判）
 
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 // 动态 import 在 Windows 上必须是 file:// URL
 const P = (rel) => 'file:///' + path.join(ROOT, rel).replace(/\\/g, '/');
 

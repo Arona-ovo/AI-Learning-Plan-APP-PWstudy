@@ -35,7 +35,7 @@ app-plus
 | 来源 | 路径 | 尺寸 | 字节 | 是什么 |
 | --- | --- | --- | --- | --- |
 | PWstudy 的 APK | `res/drawable-xxhdpi/icon.png` | 144×144 | **890** | DCloud 的绿 H |
-| 我们的真图 | `uniapp/static/icons/icon-144.png` | 144×144 | **32,599** | 阿罗娜 |
+| 我们的真图 | `uniapp-PWstudy/static/icons/icon-144.png` | 144×144 | **32,599** | 阿罗娜 |
 | 对照组 AWword（层级正确） | `res/drawable-xxhdpi/icon.png` | 144×144 | 33,662 | 它自己的图 |
 
 一次配置错误**同时毁掉两样东西**：桌面图标，以及「通用启动界面」（= 应用图标 + 应用名）。
@@ -46,7 +46,7 @@ app-plus
 # 1) 直接从 APK 里把真正打进去的图标抠出来（zip 就是容器，改后缀即可）
 python - <<'PY'
 import zipfile, hashlib
-z = zipfile.ZipFile(r'uniapp/unpackage/release/apk/<某个成功包>.apk')
+z = zipfile.ZipFile(r'uniapp-PWstudy/unpackage/release/apk/<某个成功包>.apk')
 b = z.read('res/drawable-xxhdpi/icon.png')
 open('_tools/_scratch/_img/shipped-icon.png', 'wb').write(b)
 print(len(b), hashlib.md5(b).hexdigest()[:12])
@@ -101,7 +101,7 @@ pages/cover/cover.vue  .cover 的 165deg 渐变：绯红 6% → 13% → 22%  ←
 ```bash
 # 需要 Pillow（只有系统 Python 装了）
 C:/Users/33156/AppData/Local/Programs/Python/Python312/python.exe _tools/gen-splash.py
-# 产物 uniapp/static/splash/splash-{hdpi,xhdpi,xxhdpi}.9.png
+# 产物 uniapp-PWstudy/static/splash/splash-{hdpi,xhdpi,xxhdpi}.9.png
 #      + _tools/_scratch/splash-preview-*.png（按真机尺寸铺开的预览，肉眼核对）
 ```
 

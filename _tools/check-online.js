@@ -13,7 +13,7 @@
 // ⚠️ TS 模块没法用 load.js 跑（它只转 ESM，不剥类型），所以这里全是静态契约检查。
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const { load } = require('./lib/load.js');
 
@@ -114,7 +114,7 @@ assert(/backend\.get\(/.test(pullBlk), '拉取走 backend.get');
 /* ---------- 4. 文档 ---------- */
 console.log('== 4. 文档与接线 ==');
 const doc = path.join(ROOT, 'docs', 'online-mode.md');
-assert(fs.existsSync(doc), '有 uniapp/docs/online-mode.md（服务端照它实现）');
+assert(fs.existsSync(doc), '有 uniapp-PWstudy/docs/online-mode.md（服务端照它实现）');
 if (fs.existsSync(doc)) {
   const t = fs.readFileSync(doc, 'utf8');
   assert(/\/sync\/push/.test(t) && /\/sync\/pull/.test(t), '文档写明了两个同步接口');

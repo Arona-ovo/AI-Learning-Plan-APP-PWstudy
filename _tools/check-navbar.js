@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', 'uniapp', 'components', 'float-navbar', 'float-navbar.vue');
+const FILE = path.join(__dirname, '..', 'uniapp-PWstudy', 'components', 'float-navbar', 'float-navbar.vue');
 const src = fs.readFileSync(FILE, 'utf8');
 const script = src.slice(src.indexOf('<script>') + 8, src.lastIndexOf('</script>'))
   .replace(/^\s*import\s+[^;]+;\s*$/gm, '');

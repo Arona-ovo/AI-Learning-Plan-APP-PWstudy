@@ -7,7 +7,7 @@
 const { load } = require('./lib/load');
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 
 const mem = {};
 let writes = 0;

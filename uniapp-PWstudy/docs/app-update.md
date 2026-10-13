@@ -269,9 +269,9 @@ task.onProgressUpdate((r) => { /* r.progress → 进度条 */ });
 ### 5.6 建议的文件结构（落地时）
 
 ```
-uniapp/utils/updater.js       // 版本检查 + wgt/apk 安装（默认关闭）
-uniapp/components/update-dialog/update-dialog.vue   // 更新弹窗（进度条）
-uniapp/pages/settings/settings.vue                   // 加「检查更新」入口
+uniapp-PWstudy/utils/updater.js       // 版本检查 + wgt/apk 安装（默认关闭）
+uniapp-PWstudy/components/update-dialog/update-dialog.vue   // 更新弹窗（进度条）
+uniapp-PWstudy/pages/settings/settings.vue                   // 加「检查更新」入口
 ```
 
 配置项建议复用现有 `utils/settings.js`，例如：
@@ -338,9 +338,9 @@ update: {
 
 | 文件 | 作用 |
 |---|---|
-| `uniapp/utils/updater.js` | 启动自检 → 比对 → 下载 → 安装 → 重启；失败兜底与整包出口都在这里 |
-| `uniapp/App.vue` | `onLaunch` 延迟 3 秒自检（一天一次，失败静默） |
-| `uniapp/pkgManage/pages/settings/settings.vue` | 「检查更新」「下载完整安装包」两个入口 + 自检开关 |
+| `uniapp-PWstudy/utils/updater.js` | 启动自检 → 比对 → 下载 → 安装 → 重启；失败兜底与整包出口都在这里 |
+| `uniapp-PWstudy/App.vue` | `onLaunch` 延迟 3 秒自检（一天一次，失败静默） |
+| `uniapp-PWstudy/pkgManage/pages/settings/settings.vue` | 「检查更新」「下载完整安装包」两个入口 + 自检开关 |
 | `_tools/publish-wgt.js` | 打 wgt（见下）；校验 `_tools/check-updater.js` |
 
 与上面设计的**两处不同**（都是实战改的）：
@@ -368,7 +368,7 @@ node _tools/publish-wgt.js --upload     # 装了 gh 且登录过的话可以直�
 
 脚本会做四件事：抬版本（同步 `manifest.json` / `data/build-info.js` /
 `_vocab/build.js` 三处）、把 `app-plus` 打成 zip 改名 `.wgt`、**自己验一遍包没坏**、
-打印上传指引。产物在 `uniapp/unpackage/release/wgt/`（该目录已 gitignore）。
+打印上传指引。产物在 `uniapp-PWstudy/unpackage/release/wgt/`（该目录已 gitignore）。
 
 然后把 wgt 拖进 <https://github.com/Arona-ovo/AI-Learning-Plan-APP-PWstudy/releases/tag/PWstudy>
 的 assets，在说明里写这次改了什么（这段会出现在 App 的「有新版本」弹窗里）。

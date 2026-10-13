@@ -13,7 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const TARGETS = ['App.vue', 'pages', 'pkgStudy/pages', 'pkgManage/pages', 'components'];
 
 const WHITE = /rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*([0-9.]+)\s*\)/gi;

@@ -5,7 +5,7 @@
 // 输出：_tools/_scratch/i18n-keys.json  （{ 文案: 出现次数 }）
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 
 const HAN = /[\u4e00-\u9fa5]/;
 function walk(dir, ext) {

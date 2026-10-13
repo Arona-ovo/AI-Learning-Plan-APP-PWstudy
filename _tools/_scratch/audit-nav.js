@@ -1,7 +1,7 @@
 // 一次性审计：跳转目标是否注册、tabBar 页是否误用 navigateTo
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', '..', 'uniapp-PWstudy');
 
 const raw = fs.readFileSync(path.join(ROOT, 'pages.json'), 'utf8');
 const pj = JSON.parse(raw.replace(/\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1'));

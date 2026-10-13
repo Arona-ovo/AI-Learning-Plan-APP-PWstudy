@@ -23,7 +23,7 @@ function eq(a, b, label) {
 // 不会再出现"改成 goals/stats 之后脚本还在找 library/review"这种假失败。
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const pj = JSON.parse(fs.readFileSync(path.join(ROOT, 'pages.json'), 'utf8')
   .replace(/^\s*\/\/.*$/gm, '').replace(/([^:])\/\/.*$/gm, '$1'));
 const KEYS = ((pj.tabBar && pj.tabBar.list) || [])

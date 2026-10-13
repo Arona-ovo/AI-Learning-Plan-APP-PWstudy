@@ -1,4 +1,4 @@
-# _tools/gen-sfx.py - 合成答题音效（正确 / 半对 / 错误）到 uniapp/static/sfx/
+# _tools/gen-sfx.py - 合成答题音效（正确 / 半对 / 错误）到 uniapp-PWstudy/static/sfx/
 #
 # 为什么自己合成而不是找素材：
 #   1) 没有版权与署名问题，可以随包分发；
@@ -16,7 +16,7 @@ import struct
 import wave
 
 RATE = 22050          # 采样率：足够还原这几个音，又不至于把包撑大
-OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp', 'static', 'sfx')
+OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp-PWstudy', 'static', 'sfx')
 
 
 def env(t, dur, attack=0.006):

@@ -897,14 +897,14 @@ tags / image / divider / button。渲染器是 `components/app-card-blocks.vue`�
 ### 相关文件
 
 ```
-uniapp/utils/home-layout.ts                  ← 模块注册表 + 布局持久化 + dropIndex
-uniapp/components/home-widgets/widget-progress.vue
-uniapp/components/home-widgets/widget-favorites.vue
-uniapp/components/home-widgets/widget-streak.vue
-uniapp/pages/history/history.vue             ← 练习历史
-uniapp/pages/review-list/review-list.vue     ← 待复习列表
-uniapp/pages/streak/streak.vue               ← 连续打卡详情
-uniapp/pages/home/home.vue                   ← 布局驱动 + 编辑态 + 拖拽
+uniapp-PWstudy/utils/home-layout.ts                  ← 模块注册表 + 布局持久化 + dropIndex
+uniapp-PWstudy/components/home-widgets/widget-progress.vue
+uniapp-PWstudy/components/home-widgets/widget-favorites.vue
+uniapp-PWstudy/components/home-widgets/widget-streak.vue
+uniapp-PWstudy/pages/history/history.vue             ← 练习历史
+uniapp-PWstudy/pages/review-list/review-list.vue     ← 待复习列表
+uniapp-PWstudy/pages/streak/streak.vue               ← 连续打卡详情
+uniapp-PWstudy/pages/home/home.vue                   ← 布局驱动 + 编辑态 + 拖拽
 ```
 
 校验：

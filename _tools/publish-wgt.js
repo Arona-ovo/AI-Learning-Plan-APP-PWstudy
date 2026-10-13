@@ -18,7 +18,7 @@
 //                                              # 打 1.1.1 的包，但**不**把源码三处
 //                                              # 版本抬成 1.1.1（见下）
 //
-// 产物：uniapp/unpackage/release/wgt/PWstudy-<版本>-n<原生基线>.wgt
+// 产物：uniapp-PWstudy/unpackage/release/wgt/PWstudy-<版本>-n<原生基线>.wgt
 //   例：PWstudy-1.0.1-n101.wgt —— n101 = 这个包要求原生基座 versionCode ≥ 101。
 //   客户端（utils/updater.js）读不到这么新的基座就直接引导去下完整包。
 //
@@ -38,7 +38,7 @@ const path = require('path');
 const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
-const U = (rel) => path.join(ROOT, 'uniapp', rel);
+const U = (rel) => path.join(ROOT, 'uniapp-PWstudy', rel);
 const MANIFEST = U('manifest.json');
 const BUILD_INFO = U('data/build-info.js');
 const VOCAB_BUILD = path.join(ROOT, '_vocab', 'build.js');

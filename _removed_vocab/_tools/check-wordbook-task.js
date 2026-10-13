@@ -266,7 +266,7 @@ const task = load('utils/wordbook-task.js', {
   console.log('== 6. 页面契约（退出页面不杀任务） ==');
   const fs = require('fs');
   const path = require('path');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'uniapp', 'pkgManage', 'pages', 'library-detail', 'library-detail.vue'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'uniapp-PWstudy', 'pkgManage', 'pages', 'library-detail', 'library-detail.vue'), 'utf8');
   assert(/utils\/wordbook-task/.test(src), '页面引入 wordbook-task');
   assert(/@tap="togglePause"/.test(src), '有「暂停/继续」按钮');
   assert(/@tap="stopGen"/.test(src), '有「停止生成」按钮');

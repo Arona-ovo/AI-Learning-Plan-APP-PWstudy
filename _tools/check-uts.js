@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const PLUGIN = path.join(ROOT, 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android');
 const UTS = path.join(PLUGIN, 'index.uts');
 const MANIFEST = path.join(PLUGIN, 'AndroidManifest.xml');

@@ -1,15 +1,15 @@
-// _tools/lib/load.js - 把 uniapp 里的极简 ESM 模块转成 CJS 在 vm 中执行（只读，不改源码）
+// _tools/lib/load.js - 把 uniapp-PWstudy 里的极简 ESM 模块转成 CJS 在 vm 中执行（只读，不改源码）
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const ROOT = path.resolve(__dirname, '../../uniapp');
+const ROOT = path.resolve(__dirname, '../../uniapp-PWstudy');
 
 const IMPORT_RE = /^[ \t]*import\s+([^;]*?)\s+from\s+['"](\.[^'"]+)['"];?[ \t]*$/gm;
 
-// 解析一条 import：先在 uniapp/ 里找，找不到再去工作区根 _removed_vocab/ 的镜像位置找
+// 解析一条 import：先在 uniapp-PWstudy/ 里找，找不到再去工作区根 _removed_vocab/ 的镜像位置找
 // （老 App 的模块整簇挪走后，剩下的老代码仍然 import 它们）。
-// 注意返回的 rel 必须是 **uniapp/ 相对路径**：collectImports 用它判断"是不是 data/ 模块"，
+// 注意返回的 rel 必须是 **uniapp-PWstudy/ 相对路径**：collectImports 用它判断"是不是 data/ 模块"，
 // sourceOf 用它去 _removed_vocab/ 取源码 —— 写成 ../_removed_vocab/... 就两头都不认了。
 function resolveSpec(fromRel, spec) {
   const p = path.resolve(ROOT, path.dirname(fromRel), spec);
@@ -126,8 +126,8 @@ function loadInner(src, rel, deps, cache) {
   return module.exports;
 }
 
-// 老 App（背单词）的模块从 uniapp/ 挪到工作区根的 _removed_vocab/ 之后，
-// 那些还在测引擎链路的脚本会找不到它们（store.js 等）。按"先 uniapp/、再 _removed_vocab/"
+// 老 App（背单词）的模块从 uniapp-PWstudy/ 挪到工作区根的 _removed_vocab/ 之后，
+// 那些还在测引擎链路的脚本会找不到它们（store.js 等）。按"先 uniapp-PWstudy/、再 _removed_vocab/"
 // 的顺序找，脚本里的路径就不用逐个改 —— 挪走是事实，不用让 20 个脚本跟着重写一遍路径。
 function sourceOf(rel) {
   const p = path.join(ROOT, rel);

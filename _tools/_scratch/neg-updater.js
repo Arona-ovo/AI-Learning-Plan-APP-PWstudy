@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const U = (rel) => path.join(ROOT, 'uniapp', rel);
+const U = (rel) => path.join(ROOT, 'uniapp-PWstudy', rel);
 const CHECK = path.join(ROOT, '_tools', 'check-updater.js');
 
 const FILES = [

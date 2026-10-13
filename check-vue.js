@@ -13,7 +13,7 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 
 const NODE = process.execPath;
-const ROOT = path.resolve(__dirname, 'uniapp');
+const ROOT = path.resolve(__dirname, 'uniapp-PWstudy');
 const list = [];
 
 (function collect(dir) {

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const FILE = path.join(ROOT, 'uniapp', 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android', 'index.uts');
+const FILE = path.join(ROOT, 'uniapp-PWstudy', 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android', 'index.uts');
 const CHECK = path.join(ROOT, '_tools', 'check-uts.js');
 const orig = fs.readFileSync(FILE, 'utf8');
 

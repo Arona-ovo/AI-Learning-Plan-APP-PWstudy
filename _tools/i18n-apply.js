@@ -12,7 +12,7 @@
 //   脚本 · 已带 {{}} 插值 / 模板字符串 ${} / 注释行 / console / 对象键 → 跳过（这些要手工改）
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 
 const HAN = /[\u4e00-\u9fa5]/;
 // 这些属性不该被动化（样式/资源/私有约定）

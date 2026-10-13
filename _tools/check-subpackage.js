@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 
 let pass = 0, fail = 0;
 const ok = (cond, name) => {

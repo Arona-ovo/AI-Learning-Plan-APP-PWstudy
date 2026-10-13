@@ -7,7 +7,7 @@
 //   - 练习页 / App.vue / 设置页三处接线都在
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const { load } = require('./lib/load');
 
 let fail = 0;

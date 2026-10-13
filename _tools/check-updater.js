@@ -12,7 +12,7 @@
 // plus / uni 全是假替身：这里是 node，装不了真包。
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const T = (rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8');
 const { load } = require('./lib/load.js');

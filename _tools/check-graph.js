@@ -1,12 +1,12 @@
 // _tools/check-graph.js - 模块导入一致性检查（只读）
-// 扫描 uniapp 下所有 .js 与 .vue <script> 的 import，校验：
+// 扫描 uniapp-PWstudy 下所有 .js 与 .vue <script> 的 import，校验：
 //  1) 相对路径目标文件存在（补 .js 后缀重试）
 //  2) 具名导入在目标模块中确有对应导出（namespace import 跳过）
 //  3) 检测 utils/services/data 之间的循环依赖
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '../uniapp');
+const ROOT = path.resolve(__dirname, '../uniapp-PWstudy');
 // 新增的领域层（TypeScript）：db / repositories / 部分 utils、services
 const SCAN_DIRS = ['services', 'utils', 'data', 'db', 'repositories', 'pages', 'pkgStudy', 'pkgManage', 'components', 'App.vue', 'main.js'];
 
@@ -92,7 +92,7 @@ for (const f of files) {
       if (idx) target = idx;
     }
     if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) {
-      // 老 App（背单词）的模块被挪到工作区根的 _removed_vocab/ 之后，仍留在 uniapp/ 里的
+      // 老 App（背单词）的模块被挪到工作区根的 _removed_vocab/ 之后，仍留在 uniapp-PWstudy/ 里的
       // 死代码（utils/{dict,engine,importer,wordbook}.js 等）会指向一个"搬走了"的目标。
       // 那边找得到 = 有意为之，不算导入坏掉；否则才是真的漏文件。
       // 死代码本身等 D1 那一轮统一清（见调研文档），别在功能改动里顺手删。

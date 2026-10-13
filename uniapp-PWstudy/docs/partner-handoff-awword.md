@@ -1,7 +1,7 @@
 # 交接给 AWword（背单词 App）侧：PWstudy ↔ AWword 联动对接说明
 
 > 本文自包含，可直接整篇转给负责 AWword 的 AI。
-> 设计全文（含取舍理由）见 PWstudy 仓库 `uniapp/docs/partner-link.md`。
+> 设计全文（含取舍理由）见 PWstudy 仓库 `uniapp-PWstudy/docs/partner-link.md`。
 > 协议为**双端分别发布**，请按"加字段只能加可选"的规矩改。
 
 ---
@@ -376,10 +376,10 @@ PWstudy 的 `manifest.json` 里曾写成 `"packageName": "com.PWstudy"`（驼峰
 
 PWstudy 侧这些文件可直接对照：
 
-- `uniapp/utils/partner.js` —— 状态机 + 防骚扰（约 150 行，可整体平移）
-- `uniapp/utils/link.js` —— 协议收发
-- `uniapp/pages/home/home.vue` 的 `maybePartnerAsk()` —— 首次询问的触发与分支
-- `uniapp/pkgManage/pages/settings/settings.vue` 的「伙伴 App」胶囊 —— 四态四动作
+- `uniapp-PWstudy/utils/partner.js` —— 状态机 + 防骚扰（约 150 行，可整体平移）
+- `uniapp-PWstudy/utils/link.js` —— 协议收发
+- `uniapp-PWstudy/pages/home/home.vue` 的 `maybePartnerAsk()` —— 首次询问的触发与分支
+- `uniapp-PWstudy/pkgManage/pages/settings/settings.vue` 的「伙伴 App」胶囊 —— 四态四动作
 - `_tools/check-partner.js` —— 40 条契约断言，可直接改名复用
 
 AWword 侧只需把 `PARTNERS.awword` 换成 `PARTNERS.pwstudy`（`pkg: 'com.PWstudy'`、`scheme: 'pwstudy'`），

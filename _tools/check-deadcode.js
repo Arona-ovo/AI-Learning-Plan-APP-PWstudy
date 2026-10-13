@@ -1,6 +1,6 @@
 // _tools/check-deadcode.js - 死代码体检（只读，不改源码）
 //
-// 背景：PWstudy 是从背单词 App 原地转过来的，uniapp/ 里还堆着一大批
+// 背景：PWstudy 是从背单词 App 原地转过来的，uniapp-PWstudy/ 里还堆着一大批
 // 「没有被任何页面引用」的老模块（辞典 / 出题 / 判题 / 词书 / 卡片规范…）。
 // 它们不会被打进包（uni-app 只打包可达模块），但会一直干扰判断：
 // 改一个文件前总要先猜"这个还有人用吗"。
@@ -15,7 +15,7 @@
 // 出口：有死代码就非 0（和 check-isolation 一样是"待办清单"，清理到 0 之前一直红）
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const P = (...a) => path.join(ROOT, ...a);
 const rel = (f) => path.relative(ROOT, f).replace(/\\/g, '/');
 

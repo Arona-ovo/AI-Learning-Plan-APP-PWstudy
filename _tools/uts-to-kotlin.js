@@ -18,7 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const SRC = path.join(ROOT, 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android', 'index.uts');
 
 // ---- 找 HBuilderX 自带的 UTS 编译器（装过多个版本就挑版本号最大的那个）----

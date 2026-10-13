@@ -14,7 +14,7 @@ const { load } = require('./lib/load');
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 
 const mem = {};
 global.uni = {

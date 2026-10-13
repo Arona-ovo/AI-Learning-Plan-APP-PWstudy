@@ -136,7 +136,7 @@ else ok('堆内存在预算内');
 
 // 产物体积
 const kb = ['data/lexicon-data.js', 'data/bookdata.js']
-  .reduce((s, f) => s + fs.statSync(path.join(__dirname, '..', 'uniapp', f)).size, 0) / 1024;
+  .reduce((s, f) => s + fs.statSync(path.join(__dirname, '..', 'uniapp-PWstudy', f)).size, 0) / 1024;
 console.log('     词书语料体积：' + kb.toFixed(0) + ' KB');
 if (kb > 300) bad('词书语料超预算 300KB：' + kb.toFixed(0) + 'KB');
 else ok('词书语料体积在预算内');

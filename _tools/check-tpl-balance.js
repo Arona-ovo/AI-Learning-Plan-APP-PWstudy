@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILE = process.argv[2] || path.join(__dirname, '..', 'uniapp', 'pkgManage', 'pages', 'settings', 'settings.vue');
+const FILE = process.argv[2] || path.join(__dirname, '..', 'uniapp-PWstudy', 'pkgManage', 'pages', 'settings', 'settings.vue');
 const src = fs.readFileSync(FILE, 'utf8');
 // 页面里可能还有 <template v-if> 片段，所以外层结束标签要取最后一个 </template>
 const tpl = src.slice(src.indexOf('<template>') + 10, src.lastIndexOf('</template>'));

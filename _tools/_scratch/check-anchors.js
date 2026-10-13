@@ -1,7 +1,7 @@
 // 一次性：按 GitHub 的 slug 规则算真实锚点，核对 README 目录里的链接
 const fs = require('fs');
 const path = require('path');
-const file = path.join(__dirname, '..', '..', 'uniapp', 'README.md');
+const file = path.join(__dirname, '..', '..', 'uniapp-PWstudy', 'README.md');
 const src = fs.readFileSync(file, 'utf8');
 
 // github-slugger：小写 → 去掉标点（保留字母/数字/空格/连字符/下划线）→ 空格转连字符

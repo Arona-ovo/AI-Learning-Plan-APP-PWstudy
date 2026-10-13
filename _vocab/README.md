@@ -1,14 +1,14 @@
 # _vocab — 内置词书语料的生成工程
 
-这个目录**不属于 App 运行时**（不在 `uniapp/` 里，不会被打包进小程序/App），
+这个目录**不属于 App 运行时**（不在 `uniapp-PWstudy/` 里，不会被打包进小程序/App），
 它的作用是从开源词表加工出 App 内置词书的数据文件，产物写到：
 
 ```
-uniapp/data/lexicon-data.js   共享词条表（word|pos|释义），一行一条
-uniapp/data/bookdata.js       每本词书的词条索引（定长 base36）
+uniapp-PWstudy/data/lexicon-data.js   共享词条表（word|pos|释义），一行一条
+uniapp-PWstudy/data/bookdata.js       每本词书的词条索引（定长 base36）
 ```
 
-读取/解码/缓存写在 `uniapp/data/lexicon.js`（手写），分批与词书注册在 `uniapp/data/wordbooks.js`（手写）。
+读取/解码/缓存写在 `uniapp-PWstudy/data/lexicon.js`（手写），分批与词书注册在 `uniapp-PWstudy/data/wordbooks.js`（手写）。
 **重新生成只会覆盖上面两个 `*_data / bookdata` 文件，不会动任何手写代码。**
 
 ## 重新生成
@@ -28,13 +28,13 @@ node build.js
 所以每次重生成，比对一下新旧 `lexicon-data.js`（`LEX_RAW` 里每行形如 `word|pos|释义`）：
 
 ```bash
-cp uniapp/data/lexicon-data.js /tmp/old.js
+cp uniapp-PWstudy/data/lexicon-data.js /tmp/old.js
 node build.js
 node -e "
 const fs=require('fs');
 const p=f=>{const m=fs.readFileSync(f,'utf8').match(/const LEX_RAW\s*=\s*\`([\s\S]*?)\`/);
   return m[1].split('\n').filter(l=>l.trim()).map(l=>l.split('|'))};
-const a=p('/tmp/old.js'), b=p('uniapp/data/lexicon-data.js');
+const a=p('/tmp/old.js'), b=p('uniapp-PWstudy/data/lexicon-data.js');
 console.log('行数', a.length, '→', b.length);
 let w=0,pos=0; for(let i=0;i<Math.min(a.length,b.length);i++){
   if(a[i][0]!==b[i][0])w++; if(a[i][1]!==b[i][1])pos++; }

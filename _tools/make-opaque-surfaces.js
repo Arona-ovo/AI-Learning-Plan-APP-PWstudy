@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const TARGETS = ['App.vue', 'pages', 'components'];
 
 // 这些选择器算"窗体"，用不透明表面；其余算内嵌控件，用浅灰

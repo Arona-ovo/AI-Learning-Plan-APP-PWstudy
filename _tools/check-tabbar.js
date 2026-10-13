@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', 'uniapp', 'components', 'float-tabbar', 'float-tabbar.vue');
+const FILE = path.join(__dirname, '..', 'uniapp-PWstudy', 'components', 'float-tabbar', 'float-tabbar.vue');
 const src = fs.readFileSync(FILE, 'utf8');
 // 去掉 import（new Function 不支持），依赖改为注入
 const script = src.slice(src.indexOf('<script>') + 8, src.lastIndexOf('</script>'))
@@ -65,7 +65,7 @@ function mount(curIndex, keep) {
 
 // tab 次序的真身在 pages.json 的 tabBar（TABS 只是它的镜像）：期望值从那里算，
 // 以后换 tab 测试自动跟上（以前这里硬写 library/review，改成 goals/stats 后假失败一片）
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const pj = JSON.parse(fs.readFileSync(path.join(ROOT, 'pages.json'), 'utf8')
   .replace(/^\s*\/\/.*$/gm, '').replace(/([^:])\/\/.*$/gm, '$1'));
 const K = ((pj.tabBar && pj.tabBar.list) || [])
@@ -188,7 +188,7 @@ const mz = wrapCss.match(/z-index:\s*(\d+)/);
 if (mz && Number(mz[1]) >= 500) ok('z-index ' + mz[1] + '（压过页面内容，不低于浮比较高的层）');
 else bad('z-index 过低或缺失 —— 会被其它浮层盖住');
 // App 端「hide 之后重排」的兜底，抽在 utils/nav.js
-const navSrc = fs.readFileSync(path.join(__dirname, '..', 'uniapp', 'utils', 'nav.js'), 'utf8');
+const navSrc = fs.readFileSync(path.join(__dirname, '..', 'uniapp-PWstudy', 'utils', 'nav.js'), 'utf8');
 if (/plus\.webview\.currentWebview\(\)/.test(navSrc) && /setStyle\(\{\s*bottom/.test(navSrc)) {
   ok('App 端 hide 之后强制 webview 重排（plus.webview.setStyle bottom）');
 } else bad('缺少 webview 重排兜底 —— 原生 tabBar 隐藏后底栏会沉底');

@@ -280,8 +280,8 @@ const session = load('utils/session.js', {
   console.log('== 19. 更换词书页契约：统一弹窗替代系统 showModal ==');
   const fs2 = require('fs');
   const path2 = require('path');
-  const bsSrc = fs2.readFileSync(path2.join(__dirname, '..', 'uniapp', 'pkgManage', 'pages', 'book-switch', 'book-switch.vue'), 'utf8');
-  const dlgSrc = fs2.readFileSync(path2.join(__dirname, '..', 'uniapp', 'components', 'app-dialog', 'app-dialog.vue'), 'utf8');
+  const bsSrc = fs2.readFileSync(path2.join(__dirname, '..', 'uniapp-PWstudy', 'pkgManage', 'pages', 'book-switch', 'book-switch.vue'), 'utf8');
+  const dlgSrc = fs2.readFileSync(path2.join(__dirname, '..', 'uniapp-PWstudy', 'components', 'app-dialog', 'app-dialog.vue'), 'utf8');
   // 页面不自己画弹窗了，统一引用 <app-dialog>
   eq(/components:\s*\{[^}]*AppDialog/.test(bsSrc), true, '页面注册 AppDialog 组件');
   eq(/<app-dialog/.test(bsSrc), true, '页面使用 <app-dialog>');

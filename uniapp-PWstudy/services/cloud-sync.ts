@@ -12,7 +12,7 @@
 //  3. **拉下来的不能直接盖本地**：按 updated_at 比，谁新用谁（last-write-wins）。
 //     本地更旧才覆盖；本地更新就保留本地，等下一次 push 把它带上去。
 //
-// 服务端要实现的两个接口（完整字段见 uniapp/docs/online-mode.md）：
+// 服务端要实现的两个接口（完整字段见 uniapp-PWstudy/docs/online-mode.md）：
 //   POST /sync/push   { deviceId, tables: { studyRecords:[Row], wordFavorites:[Row] } }
 //                     → { applied: { studyRecords:[uuid], wordFavorites:[uuid] }, serverTime }
 //   GET  /sync/pull?since=<毫秒时间戳>

@@ -10,7 +10,7 @@
 // 出口：有违反项就非 0（这是"待办清单"，不是回归类型 —— 清理到 0 之前它会一直红）
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const P = (...a) => path.join(ROOT, ...a);
 
 let bad = 0;
@@ -74,7 +74,7 @@ console.log('== 1. 编译产物里的老 App 模块 ==');
   const old = [...all].filter(f => OLD_MOD.test(rel(f)));
   report('没有老 App 模块被编译进去',
     old.map(f => rel(f) + ' (' + (fs.statSync(f).size / 1024).toFixed(0) + ' KB)').sort(),
-    '死代码就直接删；还打算以后和老 App 联动的，挪到工作区根的 _removed_vocab/ 里，别留在 uniapp/ 编译范围');
+    '死代码就直接删；还打算以后和老 App 联动的，挪到工作区根的 _removed_vocab/ 里，别留在 uniapp-PWstudy/ 编译范围');
 }
 
 console.log('== 2. 谁把语料拖进了自己的闭包 ==');

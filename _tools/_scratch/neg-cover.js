@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', '..', 'uniapp-PWstudy');
 const P = path.join(ROOT, 'pages', 'cover', 'cover.vue');
 const CHECK = path.join(__dirname, '..', 'check-cover.js');
 const orig = fs.readFileSync(P, 'utf8');

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="uniapp/static/mascot.jpg" alt="PWstudy" width="120" style="border-radius:24px" />
+<img src="uniapp-PWstudy/static/mascot.jpg" alt="PWstudy" width="120" style="border-radius:24px" />
 
 # 🍅 PWstudy · AI 学习规划 & 番茄专注
 
@@ -136,7 +136,7 @@
 ## 🚀 快速开始
 
 ```bash
-# 1. 用 HBuilderX 打开 uniapp/ 目录（官方免费）
+# 1. 用 HBuilderX 打开 uniapp-PWstudy/ 目录（官方免费）
 # 2. 选一种方式跑起来：
 ```
 
@@ -154,7 +154,7 @@
 ## 🧩 仓库结构
 
 ```
-├── uniapp/                     ⭐ 主工程（uni-app + Vue 3）
+├── uniapp-PWstudy/                     ⭐ 主工程（uni-app + Vue 3）
 │   ├── pages/                  tabBar 四页：专注 / 目标 / 统计 / 我的
 │   ├── pkgPlan/pages/          分包：目标向导 / 番茄钟全屏 / 重排预览 /
 │   │                           App 管理 / 日历 / 今日收工 / 教练对话 …
@@ -168,7 +168,7 @@
 └── check-*.js                  工作区级快速校验（vue 语法 / 数据层 / import）
 ```
 
-📄 工程向详尽文档（模块取舍与踩坑记录）见 👉 [uniapp/README.md](./uniapp/README.md)
+📄 工程向详尽文档（模块取舍与踩坑记录）见 👉 [uniapp-PWstudy/README.md](./uniapp-PWstudy/README.md)
 
 ---
 

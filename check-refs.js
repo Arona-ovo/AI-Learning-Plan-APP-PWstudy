@@ -2,7 +2,7 @@
 // 用法：node check-refs.js
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.resolve(__dirname, 'uniapp');
+const ROOT = path.resolve(__dirname, 'uniapp-PWstudy');
 
 const missing = [];
 const movedOut = [];   // 指向已挪出编译范围（_removed_vocab/）的导入：报告但不算缺失
@@ -43,7 +43,7 @@ function walk(file) {
     }
     const hit = exists(target);
     if (!hit) {
-      // 老 App（背单词）的模块挪到工作区根 _removed_vocab/ 之后，uniapp/ 里剩下的死代码
+      // 老 App（背单词）的模块挪到工作区根 _removed_vocab/ 之后，uniapp-PWstudy/ 里剩下的死代码
       // （utils/{dict,engine,importer,wordbook}.js）会指向一个"搬走了"的目标。
       // 那边找得到 = 有意为之，不计入缺失（与 _tools/check-graph.js 同一条口径）；
       // 死代码本身等 D1 那一轮统一清。

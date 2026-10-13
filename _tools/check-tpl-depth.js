@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { scanTemplate } = require('./lib/tpl-depth');
 
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 
 function walk(dir, out) {
   fs.readdirSync(dir).forEach(name => {

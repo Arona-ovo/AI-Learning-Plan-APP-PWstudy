@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { load } = require('./lib/load');
 
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
 const mem = {};

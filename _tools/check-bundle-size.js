@@ -10,7 +10,7 @@
 //   - tabBar 四页必须在主包；分包页必须都在 subPackages 里注册
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const P = (...a) => path.join(ROOT, ...a);
 
 let fail = 0;

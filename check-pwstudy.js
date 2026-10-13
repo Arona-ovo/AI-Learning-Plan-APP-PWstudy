@@ -1,7 +1,7 @@
 // check-pwstudy.js - PWstudy 新数据层冒烟测试（node 直接跑，不需要 uni 运行时）
 // 用法：node check-pwstudy.js
 const path = require('path');
-const ROOT = path.resolve(__dirname, 'uniapp');
+const ROOT = path.resolve(__dirname, 'uniapp-PWstudy');
 
 // ---------- UTS 插件打桩 ----------
 // utils/fgsvc.js 静态 import 了 UTS 插件 '@/uni_modules/pwstudy-focus'（条件编译
@@ -656,7 +656,7 @@ function ok(cond, msg) {
   // 表情图都真实存在
   const fs = require('fs');
   Object.keys(mascot.FACES).forEach(k => {
-    const p = 'uniapp' + mascot.FACES[k];
+    const p = 'uniapp-PWstudy' + mascot.FACES[k];
     ok(fs.existsSync(p), '表情图存在 ' + mascot.FACES[k]);
   });
 

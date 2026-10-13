@@ -22,7 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const { load, loadCode } = require('./lib/load');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
 // 递归收集源码（跳过产物与依赖目录）

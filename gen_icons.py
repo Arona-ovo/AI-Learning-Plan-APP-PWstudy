@@ -1,11 +1,11 @@
 # gen_icons.py - 一次性生成 PWstudy 的应用图标与底部导航图标
-# 源图：icon-src.jpg（用户提供）；输出到 uniapp/static/
+# 源图：icon-src.jpg（用户提供）；输出到 uniapp-PWstudy/static/
 # 运行：python gen_icons.py（工作区根目录）
 import os
 from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP = os.path.join(ROOT, 'uniapp')
+APP = os.path.join(ROOT, 'uniapp-PWstudy')
 STATIC = os.path.join(APP, 'static')
 
 SRC = os.path.join(ROOT, 'icon-src.jpg')

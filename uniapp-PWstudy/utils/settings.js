@@ -45,7 +45,7 @@ function defaults() {
     egg: { found: 0 },
     // 隐私
     privacy: { storeLocal: true },
-    // 伙伴 App（背单词 App）关联 —— 完整设计见 uniapp/docs/partner-link.md
+    // 伙伴 App（背单词 App）关联 —— 完整设计见 uniapp-PWstudy/docs/partner-link.md
     //   state      undecided 未决定 / linked 已关联 / declined 已关闭（用户主动不选）
     //   askedCount 已自动询问过几次（上限见 utils/partner.js 的 ASK_MAX，防骚扰）
     //   lastAskAt  上次自动询问时间戳（间隔不够就不问）
@@ -56,7 +56,7 @@ function defaults() {
     // 在线模式（以后接服务器用）。**现在没有服务器 → 默认关**，App 完全跑本地，
     // 功能一条不少（跟伙伴 App 联动同一个原则：可选增强，关了不缺功能）。
     // 服务端就绪后只要两步：填 baseUrl + 打开 enabled。这部分全是 JS/TS，
-    // 走 wgt 就能更新 —— 服务端契约见 uniapp/docs/online-mode.md。
+    // 走 wgt 就能更新 —— 服务端契约见 uniapp-PWstudy/docs/online-mode.md。
     //   deviceId   本机标识（多设备同步时区分来源），首次用到时生成
     //   userId     服务端侧的用户 id（登录后回写，不是本地 uuid）
     //   lastSyncAt 上次成功同步的时间戳（增量拉取的 since）

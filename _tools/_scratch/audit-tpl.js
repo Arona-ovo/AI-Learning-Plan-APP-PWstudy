@@ -1,7 +1,7 @@
 // 一次性审计：模板里引用的事件方法与插值变量，是否在 <script> 里真的存在
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', '..', 'uniapp-PWstudy');
 
 const files = [];
 (function walk(d) {

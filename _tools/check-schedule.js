@@ -12,7 +12,7 @@
 //  4) 收工对话：脚本化提问的状态机齐全、能选图；dailylog 落 photos（去重 / 截断）
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const P = (rel) => 'file:///' + path.join(ROOT, rel).replace(/\\/g, '/');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 

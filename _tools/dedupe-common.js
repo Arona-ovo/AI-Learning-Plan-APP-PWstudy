@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const file = path.resolve(__dirname, '../uniapp/data/common-words.js');
+const file = path.resolve(__dirname, '../uniapp-PWstudy/data/common-words.js');
 const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
 const seen = new Set();
 const removed = [];

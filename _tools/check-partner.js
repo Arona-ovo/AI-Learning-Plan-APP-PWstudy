@@ -7,12 +7,12 @@
 //   · shouldAsk 漏了 focusing    → 番茄跑到一半弹出一张关联卡，直接毁掉一次专注
 //   · 设置页不读 lastSyncAt      → 通道断了用户看不出来，只会以为"今天没背"
 //   · 三选一的分支写错下标       → 点「不用了」结果关联上了
-// 所以这里钉的全是"错了也没人报警"的那几处。设计文档：uniapp/docs/partner-link.md
+// 所以这里钉的全是"错了也没人报警"的那几处。设计文档：uniapp-PWstudy/docs/partner-link.md
 
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 let fail = 0;
 function ok(m) { console.log('  ✓ ' + m); }
 function bad(m) { fail++; console.error('  ✗ ' + m); }

@@ -10,7 +10,7 @@
 //  8) 设置页「重看引导」入口
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const { load } = require('./lib/load');
 
 let fail = 0;

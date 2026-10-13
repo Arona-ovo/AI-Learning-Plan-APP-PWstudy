@@ -9,7 +9,7 @@
 // notify 用假的替身：这里是 node，没有真通知；替身只把"发了什么"记下来给我们断言。
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const { load } = require('./lib/load.js');
 

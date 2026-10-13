@@ -14,10 +14,10 @@ const ROOT = path.join(__dirname, '..', '..');
 const CHECK = path.join(ROOT, '_tools', 'check-native-assets.js');
 const IMG = path.join(ROOT, '_tools', '_scratch', '_img');
 
-const MANIFEST = path.join(ROOT, 'uniapp', 'manifest.json');
-const COVER = path.join(ROOT, 'uniapp', 'pages', 'cover', 'cover.vue');
-const THEME = path.join(ROOT, 'uniapp', 'utils', 'theme.js');
-const SPLASH_HD = path.join(ROOT, 'uniapp', 'static', 'splash', 'splash-hdpi.9.png');
+const MANIFEST = path.join(ROOT, 'uniapp-PWstudy', 'manifest.json');
+const COVER = path.join(ROOT, 'uniapp-PWstudy', 'pages', 'cover', 'cover.vue');
+const THEME = path.join(ROOT, 'uniapp-PWstudy', 'utils', 'theme.js');
+const SPLASH_HD = path.join(ROOT, 'uniapp-PWstudy', 'static', 'splash', 'splash-hdpi.9.png');
 
 const FILES = [MANIFEST, COVER, THEME, SPLASH_HD];
 const backup = {};
@@ -26,7 +26,7 @@ FILES.forEach(f => { backup[f] = fs.readFileSync(f); });
 function restore() {
   FILES.forEach(f => fs.writeFileSync(f, backup[f]));
   // 改后缀那个用例会留下一个普通 png，一并清掉
-  const twin = path.join(ROOT, 'uniapp', 'static', 'splash', 'splash-hdpi.png');
+  const twin = path.join(ROOT, 'uniapp-PWstudy', 'static', 'splash', 'splash-hdpi.png');
   if (fs.existsSync(twin)) fs.unlinkSync(twin);
 }
 
@@ -88,7 +88,7 @@ const cases = [
     write(SPLASH_HD, fs.readFileSync(path.join(IMG, 'neg-9-opaque-edge.9.png')));
   }],
   ['启动图不是 .9.png（普通 png 会被铺满拉伸）', () => {
-    fs.renameSync(SPLASH_HD, path.join(ROOT, 'uniapp', 'static', 'splash', 'splash-hdpi.png'));
+    fs.renameSync(SPLASH_HD, path.join(ROOT, 'uniapp-PWstudy', 'static', 'splash', 'splash-hdpi.png'));
     write(MANIFEST, M().replace('"hdpi" : "static/splash/splash-hdpi.9.png"', '"hdpi" : "static/splash/splash-hdpi.png"'));
   }],
   ['封面透明档改成 30%（改了配色没重新生成启动图）', () => {

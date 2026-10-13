@@ -11,7 +11,7 @@
 // 发出去的通知用假替身接住：这里是 node，没有真通知。
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const { load } = require('./lib/load.js');
 

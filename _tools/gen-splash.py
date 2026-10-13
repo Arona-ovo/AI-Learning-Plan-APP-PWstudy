@@ -2,7 +2,7 @@
 #
 # 运行（需要 Pillow，只有系统 Python 装了）：
 #   C:/Users/33156/AppData/Local/Programs/Python/Python312/python.exe _tools/gen-splash.py
-# 输出：uniapp/static/splash/splash-{hdpi,xhdpi,xxhdpi}.9.png
+# 输出：uniapp-PWstudy/static/splash/splash-{hdpi,xhdpi,xxhdpi}.9.png
 # ⚠️ 改完必须重新云打包才生效；启动图是**打进 APK 的原生资源**，热更新换不掉。
 #
 # ── 一、为什么只有背景、没有圆圈/脸/文字（2026-10-12，借自 AWword 的实测结论）──
@@ -32,10 +32,10 @@
 # ── 三、颜色从哪来（单一真相，别手抄）──
 #   启动图的颜色**不是**在这里随便定的，而是把 cover 页首帧的画面算出来：
 #
-#     uniapp/utils/settings.js   出厂 accent = rose（绯红）、background = sand（暖砂）
-#     uniapp/utils/theme.js      ACCENTS[rose].rgb   = 228, 23, 61
+#     uniapp-PWstudy/utils/settings.js   出厂 accent = rose（绯红）、background = sand（暖砂）
+#     uniapp-PWstudy/utils/theme.js      ACCENTS[rose].rgb   = 228, 23, 61
 #                                BACKGROUNDS[sand].solid = #f0e4d2  ← 页面底色（inline backgroundColor）
-#     uniapp/pages/cover/cover.vue  .cover 的 165deg 渐变 = 绯红 6% → 13% → 22%
+#     uniapp-PWstudy/pages/cover/cover.vue  .cover 的 165deg 渐变 = 绯红 6% → 13% → 22%
 #
 #   cover 页根节点同时挂 `:style="appBgStyle"`：它下发的是 background-color（实色），
 #   而 .cover 的类规则给的是 background-image（半透明渐变）—— 两者叠加才是首帧底色。
@@ -49,7 +49,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-UNI = os.path.join(HERE, '..', 'uniapp')
+UNI = os.path.join(HERE, '..', 'uniapp-PWstudy')
 OUT = os.path.join(UNI, 'static', 'splash')
 SCRATCH = os.path.join(HERE, '_scratch')
 

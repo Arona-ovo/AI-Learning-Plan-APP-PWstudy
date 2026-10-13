@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const FILE = path.join(ROOT, 'uniapp', 'pages', 'home', 'home.vue');
+const FILE = path.join(ROOT, 'uniapp-PWstudy', 'pages', 'home', 'home.vue');
 const CHECK = path.join(ROOT, '_tools', 'check-home-edit.js');
 const orig = fs.readFileSync(FILE, 'utf8');
 

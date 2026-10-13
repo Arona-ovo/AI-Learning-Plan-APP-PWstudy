@@ -1,6 +1,6 @@
 // utils/partner.js - 与「伙伴 App」（背单词 App）的关联状态
 //
-// 完整设计见 uniapp/docs/partner-link.md（里面还有给背单词 App 侧的改造清单）。
+// 完整设计见 uniapp-PWstudy/docs/partner-link.md（里面还有给背单词 App 侧的改造清单）。
 //
 // 定位一句话：**PWstudy 是学习 App 之一，不是唯一背单词入口。**
 // 这里的「关联」只是一种**本地意愿记录** —— 关联了就在两者之间跳转并交换数据；

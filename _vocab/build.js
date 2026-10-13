@@ -4,11 +4,11 @@
  *
  * 作用：把 _vocab/src 下的开源词表（含中文释义）+ 两份词频表，
  *      加工成 App 可直接 import 的两个数据文件：
- *        uniapp/data/lexicon-data.js —— 共享词条表（word|pos|释义）
- *        uniapp/data/bookdata.js     —— 每本词书的词条索引
- *        uniapp/data/build-info.js   —— 语料规模快照（设置页彩蛋用，几百字节）
+ *        uniapp-PWstudy/data/lexicon-data.js —— 共享词条表（word|pos|释义）
+ *        uniapp-PWstudy/data/bookdata.js     —— 每本词书的词条索引
+ *        uniapp-PWstudy/data/build-info.js   —— 语料规模快照（设置页彩蛋用，几百字节）
  *
- * 两个文件都只放数据不含逻辑：读取/解码/缓存统一写在 uniapp/data/lexicon.js，
+ * 两个文件都只放数据不含逻辑：读取/解码/缓存统一写在 uniapp-PWstudy/data/lexicon.js，
  * 这样重新生成时不会覆盖手写代码。
  *
  * 为什么这么切：
@@ -33,7 +33,7 @@ const fs = require('fs')
 const path = require('path')
 
 const SRC = path.join(__dirname, 'src')
-const OUT = path.join(__dirname, '..', 'uniapp', 'data')
+const OUT = path.join(__dirname, '..', 'uniapp-PWstudy', 'data')
 
 // ---------------------------------------------------------------- 常量配置
 
@@ -439,7 +439,7 @@ ${idxParts.join(',\n')}
 // 设置页（在分包 pkgManage 里）的彩蛋要显示「本地装了多少东西」，
 // 但为了几个数字去 import 174KB 的语料，会把语料再复制一份进分包 —— 得不偿失。
 // 所以这里把数字预先算好，写成几百字节的小文件，设置页只引它。
-// 改版本号改这里（APP_VERSION），同时记得同步 uniapp/manifest.json 的 versionName。
+// 改版本号改这里（APP_VERSION），同时记得同步 uniapp-PWstudy/manifest.json 的 versionName。
 const APP_VERSION = '1.1beta'
 
 const sentenceJs = fs.readFileSync(path.join(OUT, 'sentences.js'), 'utf8')

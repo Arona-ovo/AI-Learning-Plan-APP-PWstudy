@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', 'uniapp', 'pkgManage', 'pages', 'settings', 'settings.vue');
+const FILE = path.join(__dirname, '..', 'uniapp-PWstudy', 'pkgManage', 'pages', 'settings', 'settings.vue');
 const lines = fs.readFileSync(FILE, 'utf8').split('\n');
 
 let fixed = 0;

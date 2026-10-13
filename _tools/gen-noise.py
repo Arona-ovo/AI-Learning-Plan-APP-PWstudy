@@ -1,4 +1,4 @@
-# _tools/gen-noise.py - 合成专注白噪音（白噪 / 粉噪 / 棕噪 / 雨声）到 uniapp/static/noise/
+# _tools/gen-noise.py - 合成专注白噪音（白噪 / 粉噪 / 棕噪 / 雨声）到 uniapp-PWstudy/static/noise/
 #
 # 为什么自己合成而不是找素材（同 gen-sfx.py 的理由，再外加一条）：
 #   4) 网上的"CC0 环境音"许可经常混着 Pixabay / CC-BY（要署名），
@@ -24,7 +24,7 @@ RATE = 16000          # 采样率：噪声没有高频细节，16k 足够且省�
 SECONDS = 8           # 循环长度：太短听得出规律，太长费体积；8s 是甜点
 XFADE_MS = 120        # 首尾交叉淡化宽度
 PEAK = 0.7            # 峰值归一化目标（留 3dB 余量，配合 App 内 volume=0.6）
-OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp', 'static', 'noise')
+OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp-PWstudy', 'static', 'noise')
 
 
 def gen_white(n):

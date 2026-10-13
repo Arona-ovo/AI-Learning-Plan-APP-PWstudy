@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 let fail = 0;
 function ok(m) { console.log('  ✓ ' + m); }
 function bad(m) { fail++; console.error('  ✗ ' + m); }

@@ -55,7 +55,7 @@ import AccessibilityServiceInfo from 'android.accessibilityservice.Accessibility
 import InputMethodManager from 'android.view.inputmethod.InputMethodManager';
 import SharedPreferences from 'android.content.SharedPreferences';
 
-// 必须与 uniapp/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
+// 必须与 uniapp-PWstudy/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
 // 而 Android 的 startForeground(id:Int, type:Int) / PendingIntent.getActivity(..., flags:Int) /
 // NotificationManager.notify(id:Int, ...) 收的是 Int，推成 Number 会编译失败

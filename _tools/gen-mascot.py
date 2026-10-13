@@ -2,9 +2,9 @@
 #
 # 源图：9 张 1024x1024 的剪贴板 jpg（同一个角色，只有表情不同）。
 # 产物：
-#   uniapp/static/mascot/*.jpg   512x512 q85，启动页圆框 / 默认头像用（9 个表情）
-#   uniapp/static/mascot.jpg     512x512 q85，老引用的兜底路径（= 捂嘴默认脸）
-#   uniapp/static/icons/*.png    App 图标（48/72/96/144/192/1024），manifest.json 已指向这里
+#   uniapp-PWstudy/static/mascot/*.jpg   512x512 q85，启动页圆框 / 默认头像用（9 个表情）
+#   uniapp-PWstudy/static/mascot.jpg     512x512 q85，老引用的兜底路径（= 捂嘴默认脸）
+#   uniapp-PWstudy/static/icons/*.png    App 图标（48/72/96/144/192/1024），manifest.json 已指向这里
 #
 # 用法：python _tools/gen-mascot.py <源图目录>
 # 源图文件名 → 表情 key 的映射写死在 SRC 里，换图重跑即可。
@@ -14,7 +14,7 @@ import sys
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNI = os.path.join(ROOT, 'uniapp')
+UNI = os.path.join(ROOT, 'uniapp-PWstudy')
 OUT_DIR = os.path.join(UNI, 'static', 'mascot')
 ICON_DIR = os.path.join(UNI, 'static', 'icons')
 SIZE = 512

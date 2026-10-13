@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 // 主包 + 两个分包的页面目录（页面物理位置随 pages.json 的 subPackages）
 const PAGES_DIRS = ['pages', 'pkgStudy/pages', 'pkgManage/pages'].map(d => path.join(ROOT, d));
 const PAGES = PAGES_DIRS[0]; // 兼容下方少量单文件拼接（book-switch 在 pkgManage）

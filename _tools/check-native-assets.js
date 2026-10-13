@@ -12,7 +12,7 @@
 //      写的就是 distribute.android.icons。铁证是同一份成功打出来的 APK：
 //        从 __UNI__53285BF__20261012104445.apk 里取出 res/drawable-xxhdpi/icon.png
 //        = 144×144 / **890 字节** / 就是那个绿 H；
-//        而我们的真图 uniapp/static/icons/icon-144.png = 144×144 / 32,599 字节。
+//        而我们的真图 uniapp-PWstudy/static/icons/icon-144.png = 144×144 / 32,599 字节。
 //      （对照组 AWword 用的是正确层级，同一位置取出来是 33,662 字节的真图。）
 //
 // 校验项：
@@ -38,8 +38,8 @@ const fs = require('fs');
 const path = require('path');
 const png = require('./lib/png');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
-// ⚠️ uniapp/** 在工作区里是 CRLF：任何带 \n 的字面量都会静默匹配不到（已踩过）
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
+// ⚠️ uniapp-PWstudy/** 在工作区里是 CRLF：任何带 \n 的字面量都会静默匹配不到（已踩过）
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
 let fail = 0, pass = 0;

@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', 'uniapp');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const SKIP = new Set(['node_modules', 'unpackage', 'dist', '.git', '.hbuilderx']);
 
 let fail = 0;

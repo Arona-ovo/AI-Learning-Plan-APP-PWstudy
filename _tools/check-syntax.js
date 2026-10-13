@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const APP = path.join(ROOT, 'uniapp');
+const APP = path.join(ROOT, 'uniapp-PWstudy');
 const TMP = path.join(__dirname, '.tmp');
 
 function walk(dir, out) {

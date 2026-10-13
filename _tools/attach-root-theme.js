@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const ADD = ' :class="appTheme" :style="appBgStyle"';
 
 function walk(dir, out) {

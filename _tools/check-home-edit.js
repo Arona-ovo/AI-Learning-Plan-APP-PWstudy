@@ -15,7 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uniapp');
+const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
 let fail = 0;
