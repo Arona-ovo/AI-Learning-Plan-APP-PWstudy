@@ -103,6 +103,23 @@ function clampInt(v, min, max, dft) {
 }
 
 /**
+ * 覆盖全程（确定性兜底，不靠模型自觉）
+ * 模型 / 本地模板排长目标时经常提前收工 —— 137 天的目标排到第 90 天就停，
+ * 后面全是空白，用户看到的正是"你给我少规划了天数"。
+ * 做法是按当前 maxDay 等比拉伸铺到截止日：等比变换保序，同一天多条任务的结构也不会散。
+ * @return {number} 拉伸前的 maxDay；0 = 没拉伸（已经铺满或只有一条任务）
+ */
+function stretchToCover(tasks, totalDays) {
+  let maxDay = 0;
+  tasks.forEach(t => { if (t.day > maxDay) maxDay = t.day; });
+  // 留 2 天缓冲：差一两天是凑整误差，重算整份排期反而徒增困惑
+  if (maxDay <= 0 || maxDay >= totalDays - 2) return 0;
+  const k = totalDays / maxDay;
+  tasks.forEach(t => { t.day = Math.max(1, Math.min(totalDays, Math.round(t.day * k))); });
+  return maxDay;
+}
+
+/**
  * 校验规划结果。
  * input: { title, deadline('YYYY-MM-DD'), dailyMin }
  * 返回 { strategy, risks, milestones:[{title,days}], tasks:[{title,ms,day,pomos,tags}] }
@@ -159,6 +176,12 @@ export function normalizePlan(raw, input) {
   });
   if (!tasks.length) throw new Error('规划结果里没有可用任务');
   tasks.sort((a, b) => a.day - b.day);
+  // 覆盖全程（确定性，不靠模型自觉）：模型排长目标时经常提前收工 ——
+  // 137 天的目标排到第 90 天就停，后面全是空白，用户看到的就是"少规划了天数"
+  const fromDay = stretchToCover(tasks, totalDays);
+  if (fromDay) {
+    risks.push('原计划只排到第 ' + fromDay + ' 天，已等比拉伸铺满整个 ' + totalDays + ' 天（截止 ' + input.deadline + '）');
+  }
   // 模型漏给 slot 是常态（任务一多就漏），这里按可用时段轮转补齐：
   // 结果页要按早/中/晚三组排布，缺一组就成了两组的怪样子
   if (input.slotOn) timeslot.spread(tasks, input.slots);
@@ -188,6 +211,9 @@ export function normalizePlan(raw, input) {
 function planSystemPrompt(input) {
   const totalDays = Math.max(3, Math.ceil((new Date(input.deadline) - new Date()) / 86400000) || 90);
   const dailyMin = input.dailyMin || 60;
+  // 任务数按目标长度给：100 天的目标还按"6-30 个"排，day 自然铺不满，
+  // 模型排到 80 天就没东西可排了 —— 上限跟着天数走
+  const taskCap = Math.min(150, Math.max(15, Math.round(totalDays / 2)));
   // 可选增强（时段 / 资料）按需续号：两条都开时不能都叫"第 9 条"
   const extras = [];
   if (input.slotOn) {
@@ -195,7 +221,8 @@ function planSystemPrompt(input) {
       '**时段安排**：每个任务给一个 slot —— "am" = 早上（6-12 点）、"noon" = 中午（12-18 点）、' +
       '"pm" = 晚上（18-24 点）。用户能学的时段是：**' + timeslot.namesOf(input.slots) + '**。' +
       '只在这个范围内排，用上的每个时段都要分到任务，不要把活儿全堆在晚上；' +
-      '要整块时间的（刷卷子、写作文）尽量放用户说得出的那个长时段，碎片任务（背单词、复习）放短时段。'
+      '要整块时间的（刷卷子、写作文）尽量放用户说得出的那个长时段，碎片任务（背单词、复习）放短时段。' +
+      '注意 slot 只是这条任务建议放在哪个时段，它不改变 day —— 一个 day 里出现多条不同 slot 的任务很正常。'
     );
   }
   if (input.resOn) {
@@ -211,21 +238,31 @@ function planSystemPrompt(input) {
       (input.slotOn ? ',"slot":"am|noon|pm"' : '') +
       ',"tags":["标签"]' + (input.resOn ? ',"res":["资料/工具建议"]' : '') + ']}',
     '约束：',
-    '1. 里程碑 2-6 个，任务总数 6-30 个，day 在 1-' + totalDays + ' 之间且按时间排序；',
-    '2. 每个番茄 25 分钟。',
+    '1. 里程碑 2-6 个；',
+    // 规划单位必须是「天」：早/中/晚是天内的时段，不是日程单位 ——
+    // 按时段排会把长目标切碎、排不满，AI 也就"规划不了那么多"
+    '2. **任务以「天」为单位**：day = 建议第几天开始（1 = 今天）。早/中/晚只是天内的时段，' +
+      '不是独立的日程单位 —— 一天里可以排多条任务（不同时段或不同内容），不要按"每天早/中/晚各一条"去铺；',
+    // 铺满全程是硬要求：不能 100 天的目标只排 80 天（模型漏排时 normalizePlan 会等比拉伸兜底，
+    // 但拉伸只是保底，排期结构还是要模型按全程给）
+    '3. **必须铺满整个时间范围**：day 在 1-' + totalDays + ' 之间且按时间排序，' +
+      '最后一条任务要落在第 ' + Math.max(1, totalDays - 2) + '-' + totalDays + ' 天附近 —— ' +
+      '不许提前收工（' + totalDays + ' 天的目标排到一半就停 = 排期不完整）。' +
+      '任务总数按长度给：建议 ' + taskCap + ' 个左右，长目标靠间隔复习 / 阶段自测 / 分批推进把中间的天填上；',
+    '4. 每个番茄 25 分钟。',
     // 排期按"能力"而不是"意愿"：完不成的计划从第一天起就是假的，后面全部跟着错位
-    '3. **每日任务量以下面这条画像为准**：' + pacing.promptText(dailyMin),
-    '4. **认知负荷上限**：一天新学内容不超过 ' + pacing.DAILY_CAP +
+    '5. **每日任务量以下面这条画像为准**：' + pacing.promptText(dailyMin),
+    '6. **认知负荷上限**：一天新学内容不超过 ' + pacing.DAILY_CAP +
       ' 个番茄，超过就拆阶段 / 砍范围，不要靠"今天多学一会"硬扛 —— 长期日均超过 4 小时的计划没有人能维持；',
-    '5. **遗忘曲线 / 间隔重复**：背诵记忆类内容（单词、公式、概念、法条等）第一次学完后，' +
+    '7. **遗忘曲线 / 间隔重复**：背诵记忆类内容（单词、公式、概念、法条等）第一次学完后，' +
       '必须安排轻量复习任务（如"重背第 1-3 批不熟的词"，1-2 个番茄），在第 1/2/4/7/15 天反复出现，' +
       '间隔逐次拉长、单次番茄数递减 —— 没有复习排期的背诵计划等于白背；',
-    '6. 任务要具体可执行（如"做完 2019 年真题卷并整理错题"），不要"努力学习"这类空话；',
-    '7. 用户当前水平：' + (input.level || '未提供，按零基础规划') + '；截止日期：' + input.deadline + '。',
-    '8. 节假日（已核对国务院安排，务必照做）：' + holiday.summaryFor(holiday.today(), input.deadline) + '。'
+    '8. 任务要具体可执行（如"做完 2019 年真题卷并整理错题"），不要"努力学习"这类空话；',
+    '9. 用户当前水平：' + (input.level || '未提供，按零基础规划') + '；截止日期：' + input.deadline + '。',
+    '10. 节假日（已核对国务院安排，务必照做）：' + holiday.summaryFor(holiday.today(), input.deadline) + '。'
   ]
     // 时段安排 / 资料建议都是可选增强，用户在设置里开了才下发这段
-    .concat(extras.map((t, i) => (9 + i) + '. ' + t))
+    .concat(extras.map((t, i) => (11 + i) + '. ' + t))
     .join('\n');
 }
 
@@ -290,6 +327,9 @@ export function localPlan(input) {
       day = Math.min(totalDays, day + Math.max(1, Math.round(span / TPL.length)));
     });
   });
+  // 模板一天天往后推着排，四舍五入后尾巴常常差几天到不了截止日
+  // （实测 100 天差 6 天、365 天差 16 天）—— 跟 AI 结果同一个口径：铺满全程
+  stretchToCover(tasks, totalDays);
   // 模板没有时段信息，按用户勾选的可用时段轮转摊开（与 normalizePlan 同一套规则）
   if (input && input.slotOn) timeslot.spread(tasks, input.slots);
 
@@ -429,18 +469,27 @@ export async function askRound(seed, history) {
     '2. 关键缺口通常包括：当前起点水平、每天/每周的真实可用时段与节奏、目标是否可量化（分数/证书/产出）、约束（在职还是在校）、偏好（刷题优先还是系统学）；',
     '3. 已经聊了 ' + round + ' 轮；信息够规划了就把 enough 置 true，并写一段需求摘要；**问满 4 轮无论如何结束追问**；'
   ];
+  // 报班 / 补习是必问项：这类固定安排直接吃掉每天可投入的时间，
+  // 不问出来，排出来的计划第一天就撞车（用户还能发课程表截图，模型看得见图）
+  rules.push(
+    '4. **固定安排是必问项**：只要还没问出"有没有报班 / 补习 / 上课这类每周固定占用时间的安排"，这一轮就问它；' +
+    '问的时候顺带提一句"有课表的话可以点输入框旁的「图片」发截图，我能看着图排"；' +
+    '用户答了（含发了图）就别再追着问，把结论写进 summary（如"周六全天补习班，周日半天"）'
+  );
+  let n = 5;
   // 时段安排开着的时候，"希望什么时候做"升级成必问项：
   // 大概说（"晚上"）和详细说（"工作日晚上 8-10 点，周末上午"）都要接得住 ——
   // 追问是给人台阶，不是逼人填表，所以提示词里必须把"两种都行"说出口。
   if (seed.slotOn) {
     rules.push(
-      '4. **执行时段是必问项**：只要还没问出"一般什么时段能学"，这一轮就问它；' +
+      n + '. **执行时段是必问项**：只要还没问出"一般什么时段能学"，这一轮就问它；' +
       '问的时候要带一句"大概说就行（比如『晚上』），想细说也行（比如『工作日晚上 8-10 点，周末上午』），两种我都听得懂"；' +
       '用户答了就别再追着时段问，把他说的原话写进 summary（不要自己改写成时段代号）'
     );
+    n++;
   }
   rules.push(
-    (rules.length + 1) + '. 只输出 JSON：{"reply":"给用户看的话","enough":true|false,"summary":"需求摘要","missing":["还缺什么"]}'
+    n + '. 只输出 JSON：{"reply":"给用户看的话","enough":true|false,"summary":"需求摘要","missing":["还缺什么"]}'
   );
   const sys = [
     '你是学习规划顾问，正在和用户确认一个远期学习目标的细节。',

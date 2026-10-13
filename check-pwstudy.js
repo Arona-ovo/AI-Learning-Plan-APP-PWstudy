@@ -66,7 +66,11 @@ function ok(cond, msg) {
     milestones: [{ title: '打底', days: 30 }, { title: '冲刺', days: 60 }],
     tasks: [
       { title: '背完核心词', ms: 1, day: 1, pomos: 2, tags: [] },
-      { title: '每日一篇阅读', ms: 9, day: 2, pomos: 2, tags: [] },
+      // day 写 999 会被夹到末天（= 今天起第 90 天）：这一条代表"计划铺到了截止日"。
+      // 必须这样写 —— 排期没铺满全程的会被 normalizePlan 等比拉伸重新分布
+      // （见 plan-agent.js 的"覆盖全程"），那时 day 1 的任务会被推后，本小节的
+      // "今日队列"断言就失去意义了
+      { title: '每日一篇阅读', ms: 9, day: 999, pomos: 2, tags: [] },
       { title: '', ms: 1, day: 3, pomos: 1 }            // 空标题 → 应被丢弃
     ]
   };
@@ -219,7 +223,10 @@ function ok(cond, msg) {
     tasks: [
       { title: '假期里的任务', ms: 1, day: 5, pomos: 4 },   // 2026-10-02 国庆
       { title: '普通工作日任务', ms: 1, day: 16, pomos: 4 }, // 2026-10-13 周二
-      { title: '周末任务', ms: 1, day: 20, pomos: 4 }        // 2026-10-17 周六
+      { title: '周末任务', ms: 1, day: 20, pomos: 4 },        // 2026-10-17 周六
+      // 同上：day 会被夹到末天。没有这条兜底任务时 normalizePlan 会把整份排期
+      // 等比拉伸铺满全程，上面三条的日期就全挪走了，假期 / 周末判断跟着失真
+      { title: '收尾模考', ms: 1, day: 999, pomos: 4 }
     ]
   }, { title: 't', deadline: hol.addDays('2026-09-28', 40), dailyMin: 60, startDate: '2026-09-28' });
   ok(hp.tasks[0].pomos === 2 && hp.tasks[0].light === '国庆', '撞假期的任务自动减半');
@@ -344,7 +351,10 @@ function ok(cond, msg) {
     tasks: [
       { title: '今天该做的任务', ms: 1, day: 1, pomos: 2 },
       // day 5：落在"未来 7 天内"，才会进"提前做了"候选（day 9 太远，收工表不列）
-      { title: '后面才做的任务', ms: 1, day: 5, pomos: 1 }
+      { title: '后面才做的任务', ms: 1, day: 5, pomos: 1 },
+      // 压住 stretching：排期必须铺到截止日，否则 normalizePlan 会等比拉伸，
+      // 上面两条的 day 会被重算（今天该做的那条就跑到后面去了）
+      { title: '收尾复盘', ms: 1, day: 999, pomos: 1 }
     ]
   }, in2);
   const dg = pw.addGoal(in2, p2);

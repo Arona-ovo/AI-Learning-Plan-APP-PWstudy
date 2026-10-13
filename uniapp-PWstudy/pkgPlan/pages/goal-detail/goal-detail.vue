@@ -153,7 +153,11 @@ export default {
   },
   methods: {
     refresh() {
-      this.g = pw.goalOf(this.id)
+      // ⚠️ 必须浅拷贝后再赋值：pw.goalOf 返回的是库内**同一个引用**，
+      //    this.g = 同引用 Vue 不重渲染 —— 改提醒时间后要退出重进才变，就是这里。
+      //    改动发生在 store 的 raw 对象上，不经过页面这份 proxy，赋同引用连 setter 都不走。
+      const g = pw.goalOf(this.id)
+      this.g = g ? Object.assign({}, g) : null
     },
     /** 任务行上的时段徽标（'晚上'）。开关关着就一律不显示 —— 纯任务模式 */
     slotOf(t) {

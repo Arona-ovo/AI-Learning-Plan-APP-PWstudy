@@ -244,28 +244,36 @@
         <view v-if="slotBrief" class="p-slots">{{ slotBrief }}</view>
       </view>
 
+      <!-- 阶段卡可折叠：长目标一排几十条任务，一条长列要滑很久。
+           默认只展开第一个阶段，其余收起（头部能看到"几个任务 · 第几天到第几天"），
+           点头部展开 / 收起。 -->
       <view class="card" v-for="(group, gi) in grouped" :key="gi">
-        <view class="card-head">
-          <text class="card-title">{{ group.title }}</text>
-          <text class="card-more">阶段 {{ gi + 1 }}</text>
-        </view>
-        <view v-for="(sg, si) in group.groups" :key="si" class="pv-slot">
-          <view v-if="sg.name" class="pv-slot-head">
-            <text class="pv-slot-name">{{ sg.name }}</text>
-            <text class="pv-slot-hint">{{ sg.hint }}</text>
+        <view class="card-head" @tap="toggleFold(gi)">
+          <view class="ph-main">
+            <text class="card-title">{{ group.title }}</text>
+            <text class="ph-sub">阶段 {{ gi + 1 }} · {{ group.count }} 个任务 · 第 {{ group.from }}-{{ group.to }} 天</text>
           </view>
-          <view
-            v-for="t in sg.tasks"
-            :key="t.idx"
-            class="pv-task"
-            @tap="togglePick(t.idx)"
-          >
-            <view class="pv-check" :class="{ 'pv-check-on': picked[t.idx] }">{{ picked[t.idx] ? '✓' : '' }}</view>
-            <view class="pv-main">
-              <view class="pv-txt" :class="{ 'pv-txt-off': !picked[t.idx] }">{{ t.title }}</view>
-              <view class="pv-sub">
-                第 {{ t.day }} 天开始 · {{ t.pomos }} 个番茄
-                <text v-if="t.light" class="pv-light">{{ t.light }}·已减量</text>
+          <text class="card-more">{{ folded(gi) ? '展开' : '收起' }}</text>
+        </view>
+        <view v-if="!folded(gi)">
+          <view v-for="(sg, si) in group.groups" :key="si" class="pv-slot">
+            <view v-if="sg.name" class="pv-slot-head">
+              <text class="pv-slot-name">{{ sg.name }}</text>
+              <text class="pv-slot-hint">{{ sg.hint }}</text>
+            </view>
+            <view
+              v-for="t in sg.tasks"
+              :key="t.idx"
+              class="pv-task"
+              @tap="togglePick(t.idx)"
+            >
+              <view class="pv-check" :class="{ 'pv-check-on': picked[t.idx] }">{{ picked[t.idx] ? '✓' : '' }}</view>
+              <view class="pv-main">
+                <view class="pv-txt" :class="{ 'pv-txt-off': !picked[t.idx] }">{{ t.title }}</view>
+                <view class="pv-sub">
+                  第 {{ t.day }} 天开始 · {{ t.pomos }} 个番茄
+                  <text v-if="t.light" class="pv-light">{{ t.light }}·已减量</text>
+                </view>
               </view>
             </view>
           </view>
@@ -323,6 +331,7 @@ export default {
       anchorN: 0,        // 滚动锚点的自增序号：键盘弹出/发消息时换 id，强制 scroll-view 滚到底
       plan: null,
       picked: {},
+      fold: {},          // 结果页阶段卡的折叠状态（见 folded()：默认只展开第一个阶段）
       error: '',
       aiReady: true
     }
@@ -371,6 +380,10 @@ export default {
       })
       return out.map(g => ({
         title: g.title,
+        // 折叠头上的摘要：几个任务、从第几天到第几天
+        count: g.raw.length,
+        from: g.raw.reduce((a, t) => Math.min(a, t.day || 1), 9999),
+        to: g.raw.reduce((a, t) => Math.max(a, t.day || 1), 0),
         groups: this.slotOn
           ? timeslot.groupOf(g.raw)
           : [{ key: '', name: '', hint: '', tasks: g.raw }]
@@ -590,8 +603,12 @@ export default {
       // 只有"生成完成"这一态才进结果页：回对话补充（stage 已拨回 ask）时 plan 还留着，
       // 不能被它又拽回去
       if (s.plan && s.stage === 'done') {
-        // 新一轮生成的计划是另一个对象引用：勾选必须全量重置，否则沿用旧下标会勾错任务
-        if (this.plan !== s.plan) this.picked = {}
+        // 新一轮生成的计划是另一个对象引用：勾选与折叠都必须全量重置，
+        // 否则沿用旧下标会勾错任务、旧折叠状态会把新阶段藏起来
+        if (this.plan !== s.plan) {
+          this.picked = {}
+          this.fold = {}
+        }
         this.plan = s.plan
         if (!Object.keys(this.picked).length) {
           const p = {}
@@ -705,6 +722,15 @@ export default {
     // ---------- 落地 ----------
     togglePick(idx) {
       this.picked[idx] = !this.picked[idx]
+    },
+    // ---------- 阶段卡折叠 ----------
+    // 默认状态不看 fold 里存没存，而看它是什么：第一个阶段缺省展开，
+    // 其余缺省收起 —— 长方案打开时不至于一屏全糊上（fold 不预填，省得每个阶段写一遍）
+    folded(gi) {
+      return gi === 0 ? !!this.fold[gi] : this.fold[gi] !== false
+    },
+    toggleFold(gi) {
+      this.fold[gi] = !this.folded(gi)
     },
     commit() {
       if (!this.plan) return
@@ -994,6 +1020,14 @@ export default {
 }
 /* 阶段内按早 / 中 / 晚分组的小标题 */
 .pv-slot { padding-top: 4rpx; }
+/* 折叠头：阶段名 + 摘要一行，右侧展开 / 收起 */
+.ph-main { flex: 1; min-width: 0; }
+.ph-sub {
+  display: block; margin-top: 4rpx;
+  font-size: 21rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
 .pv-slot-head {
   display: flex; align-items: baseline;
   margin: 14rpx 0 2rpx;
