@@ -60,6 +60,18 @@ function parseVer(s) {
   if (!m) return null;
   return { a: Number(m[1]), b: Number(m[2]), c: Number(m[3] || 0) };
 }
+/**
+ * 宽松解析：`1.1beta` / '1.0 Beta' 也读得出来（不锚首尾、取前两段）。
+ *
+ * ⚠️ --bump 必须拿它兜底：manifest 里现在写的是 `1.1beta`，用 parseVer 会返回
+ *    null。**绝不能静默回退到 1.0.0** —— 那会打出 1.0.1 这种比当前还旧的包，
+ *    客户端判定"已是最新"，用户永远收不到更新，而且看日志还一切正常。
+ */
+function looseVer(s) {
+  const m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(s || ''));
+  if (!m) return null;
+  return { a: Number(m[1]), b: Number(m[2]), c: Number(m[3] || 0) };
+}
 const strVer = (v) => v.a + '.' + v.b + '.' + v.c;
 
 /* ---------------- zip（自己写，不引第三方、不起子进程） ---------------- */
@@ -221,9 +233,13 @@ let ver = val('--ver');
 if (ver && !parseVer(ver)) fail('版本号要写成 x.y.z，例如 1.0.1（收到：' + ver + '）');
 
 if (has('--bump')) {
-  const cur = parseVer(ver || manifest.versionName) || { a: 1, b: 0, c: 0 };
+  const from = ver || manifest.versionName;
+  const cur = parseVer(from) || looseVer(from);
+  if (!cur) {
+    fail('认不出版本号「' + from + '」，--bump 没法往下抬 —— 请显式给 --ver 1.1.1');
+  }
   ver = strVer({ a: cur.a, b: cur.b, c: cur.c + 1 });
-  console.log('抬版本：' + manifest.versionName + ' → ' + ver);
+  console.log('抬版本：' + from + ' → ' + ver);
 }
 if (!ver) {
   if (!parseVer(manifest.versionName)) {

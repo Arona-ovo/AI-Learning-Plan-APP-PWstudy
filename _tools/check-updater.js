@@ -532,6 +532,12 @@ assert(/readZipEntry\(outPath, 'manifest\.json'\)/.test(pub), '打完把包内 m
 // 脚本不许顺手把源码版本抬走 —— 抬了 manifest 就跟云打包界面填的对不上
 assert(/--no-sync/.test(pub), '支持 --no-sync（整包与 wgt 不同号时用）');
 assert(/!has\('--no-sync'\)/.test(pub), '同步源码版本那段真的被 --no-sync 挡住');
+// --bump 的坑：manifest 里写 `1.1beta` 时严格解析返回 null。**静默回退到 1.0.0**
+// 就会打出 1.0.1 这种比当前还旧的包 —— 客户端判定"已是最新"，用户永远收不到更新，
+// 而且日志上一切正常（最难查的那类 bug）。断言**调用点**，只断言函数存在会被绕过
+assert(/parseVer\(from\) \|\| looseVer\(from\)/.test(pub), '--bump 拿宽松解析兜底（1.1beta 也认）');
+assert(!/\{ a: 1, b: 0, c: 0 \}/.test(pub), '--bump 不许静默回退到 1.0.0（会打出更旧的包）');
+assert(/if \(!cur\)[\s\S]{0,120}fail\(/.test(pub), '--bump 认不出版本号就报错，不自己猜');
 
 /* ---------- 10. 源码：认不出就不许指路 ---------- */
 console.log('== 10. 占位包 / 清单接口（源码） ==');
