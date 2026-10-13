@@ -114,18 +114,25 @@ export function capability(ext) {
   try { overlay = e.overlay === undefined ? !!apptime.canDrawOverlays() : !!e.overlay; } catch (err) { overlay = false; }
   let usage = false;
   try { usage = !!apptime.hasUsagePermission(); } catch (err) { usage = false; }
+  // 看门狗长在前台服务里：服务起不来，前面三条能力全是空谈
+  let svc = false;        // 现在活着吗（诊断用：番茄跑着的时候才应该为 true）
+  try { svc = !!fgsvc.serviceAlive(); } catch (err) { svc = false; }
+  let svcAllowed = false; // 设置层让不让它起（「后台保活」/「通知提醒」任一关掉 = false）
+  try { svcAllowed = !!fgsvc.serviceAllowed(); } catch (err) { svcAllowed = false; }
 
   return {
     native: native,
     a11y: a11y,
     overlay: overlay,
     usage: usage,
+    svc: svc,
+    svcAllowed: svcAllowed,
     // 有能力把界面在我们不在前台时拉回来（无障碍是官方豁免；遮罩是自建的一层）
     canPullBack: native && (a11y || overlay),
     // 有能力判断"你现在在不在学习 App 里"
     canDetect: a11y || usage,
-    // 真正能拦住的条件：既看得见、又拉得动
-    effective: native && (a11y || overlay) && (a11y || usage)
+    // 真正能拦住的条件：载体在 + 既看得见、又拉得动
+    effective: native && svcAllowed && (a11y || overlay) && (a11y || usage)
   };
 }
 
@@ -135,7 +142,11 @@ export function capability(ext) {
  * JS 兜底轮询就被让位掉了 —— 结果两头没人管（这个是"暂停很久再恢复"最容易踩的坑）。
  */
 export function nativeActive() {
-  return !!pushedOn && Date.now() < pushedUntilMs;
+  if (!pushedOn) return false;
+  if (Date.now() >= pushedUntilMs) return false;
+  // 服务被系统回收 / 进程重启过之后 pushedOn 还记着 true，看门狗却早没了。
+  // 必须再问一次"它真的活着吗"，否则 JS 兜底会让位给一个不存在的人，两头都不盯。
+  return !!fgsvc.serviceAlive();
 }
 
 /**
@@ -208,6 +219,10 @@ function pushConfig(force) {
 
   let allow = '';
   try { allow = apptime.allowList().join(','); } catch (e) { allow = ''; }
+  // 自愈：本该在跑、前台服务却没了（被系统回收 / 进程重启过）→ 先把它拉起来再下发。
+  // 不做这一步的话，setWatch 会因为"服务不在"直接失败，而这之后 JS 兜底轮询
+  // 又因为 pushedOn 是旧值而让位 —— 人切走以后彻底没人管。
+  try { fgsvc.ensureStarted('PWstudy 专注中', '专注进行中'); } catch (e) {}
   // +5 秒余量：原生按"还剩多少秒"自己掐表，两边时钟差一点也不会提前松手
   const sec = Math.max(1, Math.round((cur.endAt - now) / 1000) + 5);
   let ok = false;

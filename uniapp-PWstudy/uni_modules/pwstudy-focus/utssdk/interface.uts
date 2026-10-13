@@ -54,6 +54,13 @@ export function bringToFront(): boolean
 /** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean
 
+/**
+ * 前台服务现在是否真的活着（看门狗的载体）。
+ * 服务被系统回收后 JS 侧仍记着"推过配置"，于是原生和 JS 兜底两头都不盯人 ——
+ * 拿这个真值做自愈判断（见 utils/forced.js 的 pushConfig）。
+ */
+export function serviceAlive(): boolean
+
 /* ==================== 无障碍护卫（强制模式的能力前提） ====================
  *
  * 为什么强制模式离不开它：

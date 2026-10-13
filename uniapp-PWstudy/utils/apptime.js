@@ -385,13 +385,55 @@ function labelOf(pm, pkg) {
   }
 }
 
-// 进程内缓存：应用列表一次枚举是两轮全量系统调用（getInstalledApplications +
-// queryIntentActivities），在低端机上上百毫秒。同一进程里它基本不会变，
-// 缓存住 —— apps 页每次 onShow 不再重复枚举（原来一进页面就干这个，是"先卡一会"的一半）。
+// 两级缓存，解决"点『添加』要等半天"：
+//
+//   ① 进程内缓存（_appsCache）：一次枚举是两轮全量系统调用，低端机上几百毫秒。
+//      同一进程里它基本不会变，缓存住 —— apps 页来回切不再重复枚举。
+//   ② 落盘缓存（storage）：**跨进程 / 跨次启动**也能秒开。
+//      只有内存缓存的话，每次冷启动第一次点"添加"都得从头枚举一遍，
+//      用户看到的就是"点下去卡住不动"（这是本次要修的主症）。
+//      存的是纯 JSON（包名 + 名字），装了新 App 也属于"下次刷新会补上"的范畴，
+//      所以拿它先渲染、后台再刷一遍是安全的。
 let _appsCache = null;
 let _appsCacheAt = 0;
 const APPS_CACHE_MS = 5 * 60 * 1000;
-export function installedAppsCacheClear() { _appsCache = null; _appsCacheAt = 0; }
+const APPS_STORE_KEY = 'pw_apps_cache';
+
+export function installedAppsCacheClear() {
+  _appsCache = null;
+  _appsCacheAt = 0;
+  try { uni.removeStorageSync(APPS_STORE_KEY); } catch (e) {}
+}
+
+/**
+ * 上次读到的应用列表（给页面"先渲染出来"用）。
+ *
+ * 只负责**快**：拿到就立刻返回，绝不触发任何系统枚举。
+ * 页面拿到它先把列表铺出来，再在后台调 installedApps() 刷新 ——
+ * 用户看到的是"点开就有"，而不是"点开转圈"。
+ *
+ * @returns {Array<{pkg:string,name:string}>} 没有缓存时返回空数组
+ */
+export function installedAppsCached() {
+  if (_appsCache && _appsCache.length) return _appsCache;   // 本次进程已经真读过
+  try {
+    const raw = uni.getStorageSync(APPS_STORE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || !arr.length) return [];
+    // ⚠️ 故意**不写** _appsCache / _appsCacheAt：
+    //   那两个是"本次已经真读过"的标志，写进去的话 installedApps() 会直接短路返回，
+    //   于是"后台再刷一遍把新装的 App 补上来"永远不执行 —— 缓存就变成死数据了。
+    return arr;
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveAppsCache(list) {
+  if (!list || !list.length) return;
+  try { uni.setStorageSync(APPS_STORE_KEY, JSON.stringify(list)); } catch (e) {}
+}
 
 export function installedApps() {
   const now = Date.now();
@@ -405,11 +447,15 @@ export function installedApps() {
   const seen = {};
   const errs = [];
 
+  // named[pkg] = 这个包已经拿到**真名字**（不是拿包名顶替）
+  const named = {};
   const push = (pkg, name) => {
     pkg = String(pkg || '');
     if (!pkg || pkg === self || seen[pkg]) return;
     seen[pkg] = 1;
-    out.push({ pkg, name: String(name || pkg) });
+    const nm = String(name || pkg);
+    if (nm !== pkg) named[pkg] = 1;
+    out.push({ pkg, name: nm });
   };
 
   try {
@@ -447,7 +493,11 @@ export function installedApps() {
         return false;
       }
     };
-    path1 = sweep('apps', 0) || sweep('apps', 128) || sweep('pkgs', 0) || sweep('pkgs', 128);
+    // ⚠️ 只跑两轮（apps / pkgs），**不要**再试 MATCH_UNINSTALLED_PACKAGES(128)。
+    // 那个 flag 是"连已卸载但保留数据的包一起列出来"，对"挑学习 App"毫无意义，
+    // 却要多做两次全量枚举。在包可见性被限制的机器上前两轮返回的都是空列表，
+    // 于是四轮全部跑满 —— 用户点一次「添加」要干等四遍系统调用（加载慢的主因之一）。
+    path1 = sweep('apps', 0) || sweep('pkgs', 0);
 
     // 路 2：枚举启动器入口（有桌面图标的才是有可能拿来学的 App）
     // ResolveInfo.activityInfo / ActivityInfo.packageName 同样是字段，走 jattr 取。
@@ -465,6 +515,12 @@ export function installedApps() {
         // 系统应用同样跳过：flags 在 ActivityInfo 上，取不到就退回 applicationInfo
         const f = Number(jattr(ai, 'flags', jattr(jattr(ai, 'applicationInfo', null), 'flags', 0))) || 0;
         if ((f & 1) !== 0) continue;
+        // ⚠️ 路 1 已经拿到**真名字**的包，别再 loadLabel 一次：
+        // 那是一次跨进程调用，上百个包重复取就是上百次 Binder ——
+        // 这是"列表读得慢"最大的一块开销。
+        //（注意判的是 named 不是 seen：路 1 取名字失败时名字还是包名，
+        //  那种情况值得在这里再试一次，把真名字补上。）
+        if (named[pkg]) continue;
         let name = pkg;
         try { name = String(ri.loadLabel(pm)); } catch (e) {}
         push(pkg, name);
@@ -496,7 +552,11 @@ export function installedApps() {
           : (errs.length ? '原因：' + errs.join('；') : '未知原因，可以试试下面的手动添加。'));
     }
     // 只缓存"真读到了"的结果：空列表多半是权限/时机的偶发，别把失败锁进缓存
-    if (out.length) { _appsCache = out; _appsCacheAt = now; }
+    if (out.length) {
+      _appsCache = out;
+      _appsCacheAt = now;
+      saveAppsCache(out);      // 落盘：下次冷启动点开就是秒出
+    }
     return out;
   } catch (e) {
     console.warn('[apptime] 读取应用列表失败', e);

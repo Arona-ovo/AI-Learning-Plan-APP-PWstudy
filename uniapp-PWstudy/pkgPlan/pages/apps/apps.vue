@@ -43,22 +43,40 @@
       <button class="btn-primary pc-btn" @tap="adding = true">＋ 添加 App</button>
     </view>
 
-    <!-- 添加面板 -->
-    <view class="card add-card" v-if="adding">
+    <!-- 添加面板（kb-open：搜索框聚焦时给底部补空白，让页面有余地滚到键盘之上） -->
+    <view class="card add-card" v-if="adding" :class="{ 'kb-open': searchFocus }">
       <view class="card-head">
         <text class="card-title">{{ isAndroid ? '从已安装应用里选' : '手动添加' }}</text>
         <text class="card-more" @tap="adding = false">收起</text>
       </view>
 
       <template v-if="isAndroid">
+        <!-- cursor-spacing：让输入框比键盘上沿再高一点。
+             光靠 adjust-position（默认开）系统只保证"刚好露出来"，输入框会贴着键盘边，
+             打字时看着很局促，某些 ROM 上还会被候选词条压住。
+             聚焦时再给卡片底部补一段空白（.kb-open），保证页面有富余能滚上去。 -->
         <input
           class="search"
           :value="kw"
           placeholder="搜索应用名"
           placeholder-style="color:#a8b0ab;font-size:26rpx"
+          :cursor-spacing="30"
+          :adjust-position="true"
           @input="onSearch"
+          @focus="searchFocus = true"
+          @blur="searchFocus = false"
         />
-        <view v-if="loadingApps" class="pc-txt">正在读取应用列表…</view>
+        <view v-if="loadingApps" class="apps-loading">
+          <view class="al-spin"></view>
+          <text class="al-txt">{{ loadingTip }}</text>
+          <view v-for="i in 4" :key="i" class="sk-row">
+            <view class="sk-icon"></view>
+            <view class="sk-lines">
+              <view class="sk-line sk-l1"></view>
+              <view class="sk-line sk-l2"></view>
+            </view>
+          </view>
+        </view>
         <template v-else>
           <view v-if="appsError" class="pc-warn">{{ appsError }}</view>
           <view v-if="!all.length" class="pc-txt">
@@ -200,6 +218,8 @@ export default {
       kw: '',
       loadingApps: false,
       appsError: '',
+      searchFocus: false,    // 搜索框是否聚焦（键盘抬起时给面板补底部空白）
+      _appsRefreshed: false, // 本次进页面是不是已经真读过一次（避免后台刷新跑两遍）
       manual: { name: '', pkg: '', purpose: 'study' },
       iconMap: {},
       _iconPending: {},
@@ -222,6 +242,10 @@ export default {
     }
   },
   computed: {
+    /** 加载文案：第一次读没有缓存，说清楚要等一下，别让用户以为卡死了 */
+    loadingTip() {
+      return this.all.length ? '正在更新应用列表…' : '正在读取应用列表…第一次会慢一点，之后就秒开'
+    },
     candidates() {
       const k = String(this.kw || '').trim().toLowerCase()
       if (!k) return this.all.slice(0, 60)
@@ -260,25 +284,59 @@ export default {
       this.permitted = this.isAndroid && apptime.hasUsagePermission()
       this.dock.forEach(a => this.ensureIcon(a.pkg))
     },
+    /**
+     * 打开添加面板：先把列表铺出来，再考虑要不要刷新。
+     *
+     * 原来只有一条路 —— 同步去枚举系统里所有应用，读完了才有东西显示，
+     * 于是低端机上"点『添加』以后干等一两秒、界面一点反应没有"，
+     * 用户只能以为是自己手机卡了。
+     *
+     * 现在分两段：
+     *   ① 有落盘缓存 → 立刻渲染（同步，零等待），后台再静默刷一次把新装的 App 补上；
+     *   ② 没有缓存（第一次用）→ 才显示加载态，并且明确写出"第一次会慢一点"。
+     */
     loadApps() {
-      // 已经有缓存就直接用（apptime 内部也有 5 分钟缓存，这里是避免重复置 loading 态闪一下）
       if (this.all.length) return
-      this.loadingApps = true
+      const cached = apptime.installedAppsCached()
+      if (cached.length) {
+        this.all = cached
+        this.appsError = ''
+        // 后台静默刷新：装了新 App 也得能挑到。installedApps 内部有 5 分钟进程内缓存，
+        // 所以这里最多真枚举一次，不会变成轮询。
+        this.readApps(true)
+        return
+      }
+      this.readApps(false)
+    },
+    /**
+     * 真去读一次系统应用列表。
+     * @param {boolean} silent true = 静默（已有内容在显示，不置加载态、不闪）
+     */
+    readApps(silent) {
+      if (this._appsRefreshed) return
+      this._appsRefreshed = true
+      if (!silent) this.loadingApps = true
       // 读应用列表在部分低端机上偏慢，延一帧再跑，先让页面完成首绘
       setTimeout(() => {
         try {
-          this.all = apptime.installedApps()
+          const list = apptime.installedApps()
+          // 静默刷新时读空了不要清掉已有的列表 —— 那多半是偶发失败，
+          // 把已经显示出来的内容抹掉比失败本身更糟
+          if (list && list.length) this.all = list
+          else if (!silent) this.all = []
           this.appsError = apptime.lastAppsError || ''
           // ⚠️ 不要在这里对 this.all 全量 ensureIcon —— 200+ 个图标一口气排进宏任务队列，
           //    每个都是"跨进程取图标 + 画 bitmap + 编码"，真机上会把主线程冻好几秒
           //    （页面冻住、路由 locked、退出不了，就是它）。候选区图标由 candidates 的
           //    watcher 按需加载（最多 60 个），再由下面的串行队列逐个消化。
         } catch (e) {
-          this.all = []
-          this.appsError = '读取应用列表失败：' + ((e && e.message) || '未知错误')
+          if (!silent) {
+            this.all = []
+            this.appsError = '读取应用列表失败：' + ((e && e.message) || '未知错误')
+          }
         }
         this.loadingApps = false
-      }, 60)
+      }, silent ? 200 : 60)
     },
     onSearch(e) { this.kw = e.detail.value },
     isAdded(c) { return this.dock.some(a => a.pkg === c.pkg) },
@@ -537,6 +595,51 @@ export default {
   border-radius: 999rpx;
   background: rgba(229, 72, 77, 0.08);
 }
+
+/* ===== 加载态 =====
+   读应用列表在真机上要几百毫秒到一秒多，这段时间界面必须有反馈：
+   没有的话用户只会得出一个结论 —— "是不是我手机卡了"。
+   转圈 + 一句说明 + 骨架行，三件套都在说同一件事：在读，马上就好。 */
+.apps-loading { padding: 4rpx 0 8rpx; }
+.al-spin {
+  width: 40rpx; height: 40rpx;
+  margin: 10rpx auto 14rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.18);
+  border-top-color: var(--brand, #e4173d);
+  animation: al-spin 0.8s linear infinite;
+}
+@keyframes al-spin { to { transform: rotate(360deg); } }
+.al-txt {
+  display: block;
+  text-align: center;
+  font-size: 23rpx; line-height: 1.6;
+  color: var(--ink-2, #5a6560);
+}
+.sk-row { display: flex; align-items: center; margin-top: 22rpx; }
+.sk-icon {
+  width: 76rpx; height: 76rpx;
+  border-radius: 20rpx;
+  flex-shrink: 0;
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.07);
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+.sk-lines { flex: 1; min-width: 0; margin-left: 20rpx; }
+.sk-line {
+  height: 20rpx; border-radius: 999rpx;
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.07);
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+.sk-l1 { width: 45%; }
+.sk-l2 { width: 72%; margin-top: 12rpx; animation-delay: 0.18s; }
+@keyframes sk-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* 搜索框聚焦：给面板底部补一段空白，让页面有富余滚到键盘之上
+   （cursor-spacing 负责"抬高多少"，这里负责"有地方可抬"） */
+.add-card.kb-open { padding-bottom: 220rpx; }
 
 .search {
   background: rgba(255, 255, 255, 0.7);

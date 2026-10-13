@@ -174,10 +174,14 @@
         <button class="btn-primary after-btn" @tap="startNextFocus">再来一个番茄</button>
       </view>
 
-      <!-- 强制模式实时状态：真拉回了几次要看得见，不然用户会怀疑它到底有没有干活 -->
-      <view v-if="forcedOn && active && !isRest" class="force-strip">
+      <!-- 强制模式实时状态：真拉回了几次要看得见，不然用户会怀疑它到底有没有干活。
+           ⚠️ 专注中**一律显示**（不管开关开没开）：原来是 `forcedOn && active`，
+           于是开关关着的时候这行压根不出现 —— 用户开着专注退出去没人拦，
+           界面上却连一句"你没开强制模式"都没有，只能得出"功能没做"的结论。 -->
+      <view v-if="active && !isRest" class="force-strip" :class="{ 'fs-off': !forcedOn, 'fs-weak': forcedOn && forceAct }" @tap="onForceStrip">
         <text class="fs-dot"></text>
         <text class="fs-txt">{{ forceLine }}</text>
+        <text v-if="forceAct" class="fs-act">{{ forceAct }} ›</text>
       </view>
 
       <!-- 学习 App 入口：专注期间的白名单就摆在这儿，点图标直接跳过去。
@@ -204,6 +208,18 @@
       </view>
 
     </view>
+
+    <app-dialog
+      :show="dlg.show"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :cancel-text="dlg.cancelText"
+      :danger="dlg.danger"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="onDlgCancel"
+    />
   </view>
 </template>
 
@@ -220,9 +236,10 @@ import * as notify from '../../../utils/notify.js'
 import * as ambient from '../../../utils/ambient.js'
 import * as audio from '../../../utils/audio.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       minutesOptions: [15, 20, 25, 30, 45, 60],
@@ -252,6 +269,11 @@ export default {
       _iconPending: {},   // 正在读图标的包名（防重复发起）
       forcedPulls: 0,     // 强制模式已经拉回几次（原生看门狗的战绩）
       forcedEscapes: 0,   // 已经离开几次（满 3 次作废）
+      // 强制模式的能力盘点（native / a11y / overlay / usage / svc…）：
+      // 状态条和首次引导都读它，不各算一套 —— 两边算法不一致就会出现
+      // "状态条说已就绪、实际上根本拉不动"这种骗人的界面。
+      forceCap: { native: false, a11y: false, overlay: false, usage: false, svc: false, svcAllowed: true, canPullBack: false, canDetect: false, effective: false },
+      dlg: { show: false, title: '', content: '', confirmText: '确定', cancelText: '取消', danger: false, seq: 0, action: '' },
       opts: { notify: true, sound: true, vibe: true, fgservice: true },
       optRows: [
         { key: 'notify', title: '通知提醒', sub: '结束后发通知，专注中在状态栏显示剩余时间' },
@@ -324,15 +346,37 @@ export default {
       const k = this.noiseKinds.filter(x => x.k === this.noiseKind)[0]
       return (k && k.t) || '音色'
     },
-    // 强制模式那行实时状态：说清楚"它现在到底在不在干、干了什么"
+    /**
+     * 强制模式那行实时状态：说清楚"它现在到底在不在干、干了什么"。
+     *
+     * ⚠️ 顺序就是"从根到叶"的排查顺序，也是用户该照着做的顺序：
+     *    开关开没开 → 包里有没有原生能力 → 前台服务起不起得来
+     *    → 看不看得见你在哪个 App → 拉不拉得动。
+     *    任何一条不满足，"离开就拉回"就是假的，界面不许说它已就绪。
+     */
     forceLine() {
-      if (!this.pullOk) return '强制模式开启中 · 当前包没有原生拉回能力，只能提醒'
-      let s = this.a11yOk
-        ? '强制模式生效中 · 无障碍已开启，离开立刻拉回'
-        : '强制模式生效中 · 未开无障碍，切走有概率拉不回来（见上方提示）'
-      if (this.forcedPulls > 0) s += ' · 已拉回 ' + this.forcedPulls + ' 次'
-      if (this.forcedEscapes > 0) s += '（离开 ' + this.forcedEscapes + '/' + forced.maxEscapes() + '）'
+      const c = this.forceCap
+      let s
+      if (!this.forcedOn) s = '离开不会被拉回'
+      else if (!c.native) s = '当前包没有原生拉回能力，只能提醒'
+      else if (!c.svcAllowed) s = '「后台保活」或「通知提醒」关着，拉回起不来'
+      else if (!c.canDetect) s = '看不出你在哪个 App —— 要开「无障碍」或「使用情况访问」'
+      else if (!c.canPullBack) s = '看得出你切走了，但拉不回来 —— 去开「无障碍」'
+      else s = '已就绪 · 离开立刻拉回'
+      if (this.forcedOn) {
+        if (this.forcedPulls > 0) s += ' · 已拉回 ' + this.forcedPulls + ' 次'
+        if (this.forcedEscapes > 0) s += '（离开 ' + this.forcedEscapes + '/' + forced.maxEscapes() + '）'
+      }
       return s
+    },
+    /** 状态条右侧的行动：没就绪时给一条最短的路，就绪了就什么都不给 */
+    forceAct() {
+      if (!this.forcedOn) return '开启'
+      const c = this.forceCap
+      if (!c.native) return ''
+      if (!c.svcAllowed) return '去开'
+      if (!c.canDetect || !c.canPullBack) return '去授权'
+      return ''
     }
   },
   onLoad(query) {
@@ -379,6 +423,7 @@ export default {
     this.overlayOk = apptime.canDrawOverlays()
     this.refreshA11y()
     this.refreshLearnApps()
+    this.refreshForceCap()
     try {
       const f = (settings.get() && settings.get().focus) || {}
       this.opts = {
@@ -469,6 +514,8 @@ export default {
       this.restDone = false
       strict.sync()
       forced.sync()
+      // 番茄刚起：这时候问"要不要离开就拉回"最自然 —— 晚了就是人已经跑掉了
+      this.maybeAskForced()
     },
     togglePause() {
       if (!this.cur) { this.beginFocus(); return }
@@ -632,6 +679,141 @@ export default {
       this.forcedPulls = forced.pullsOf()
       this.forcedEscapes = forced.escapesOf()
     },
+    /**
+     * 刷新强制模式的能力盘点。状态条、首次引导、补全路径**共读这一份** ——
+     * 各算一套必然分叉，分叉的表现就是"界面说已就绪，实际根本拉不动"。
+     */
+    refreshForceCap() {
+      let cap = { native: false, a11y: false, overlay: false, usage: false, svc: false, svcAllowed: true, canPullBack: false, canDetect: false, effective: false }
+      try { cap = forced.capability({ a11y: this.a11yOk, overlay: this.overlayOk }); } catch (e) {}
+      this.forceCap = cap
+      return cap
+    },
+
+    /* ---------- 强制模式的"第一次"：主动问，而不是等人去翻设置 ----------
+     *
+     * 为什么必须有这一段：强制模式是独立开关、默认关，而它那张设置卡只在**空闲态**
+     * 出现。用户一点"开始专注"，卡片就没了 —— 于是他压根不知道还有这么个功能，
+     * 退出 App 发现没人拦，唯一合理的结论就是"专注功能没做"。
+     * 番茄闹钟类 App 的做法是"开始专注 = 锁住"，所以我们至少要问一次。
+     */
+
+    /** 开始番茄时调：只在"没开 + 从没问过"时弹一次，别每轮都烦人 */
+    maybeAskForced() {
+      if (this.forcedOn) return
+      try {
+        const st = settings.get()
+        if (st && st.focus && st.focus.forcedAsked) return
+      } catch (e) { return }
+      this.askForced()
+    },
+
+    askForced() {
+      this.dlg = {
+        show: true,
+        title: '要不要开启「离开就拉回」？',
+        content: '开启后，在这个番茄跑完之前切到别的 App，PWstudy 会立刻把你拉回来；连续强行离开 3 次，本次番茄作废。它需要你再授权「无障碍」—— 安卓 10 起系统默认禁止应用从后台跳回前台，官方只给无障碍这类"由系统绑定的服务"开口子。',
+        confirmText: '开启并去授权',
+        cancelText: '这次不用',
+        danger: false,
+        seq: (this.dlg && this.dlg.seq || 0) + 1,
+        action: 'forced-on'
+      }
+    },
+
+    onDlgYes() {
+      const act = this.dlg.action
+      this.dlg.show = false
+      if (act === 'forced-on') {
+        this.markForcedAsked()
+        if (!this.forcedOn) this.toggleForced()
+        else this.guideNextStep()
+      } else if (act === 'goto-a11y') {
+        this.openA11y()
+      }
+    },
+
+    onDlgCancel() {
+      const act = this.dlg.action
+      this.dlg.show = false
+      // 选了"这次不用"也算问过了 —— 不记住的话下一轮番茄又会弹
+      if (act === 'forced-on') this.markForcedAsked()
+    },
+
+    /** 记下"问过了"（选什么都记） */
+    markForcedAsked() {
+      try {
+        const st = settings.get()
+        st.focus = Object.assign({}, st.focus || {}, { forcedAsked: true })
+        settings.save()
+      } catch (e) {}
+    },
+
+    /** 点专注中那条状态条：按"从根到叶"的顺序把最短的补全路径指出来 */
+    onForceStrip() {
+      const c = this.refreshForceCap()
+      if (!this.forcedOn) { this.askForced(); return }
+      if (!c.native) return
+      if (!c.svcAllowed) { this.ensureServiceSetting(); return }
+      if (!c.canDetect || !c.canPullBack) this.guideNextStep()
+    },
+
+    /**
+     * 开完强制模式之后，把最要紧的那一步推给用户。
+     * 顺序 = 可靠性从高到低：无障碍（唯一能提前拿到后台启动许可的）> 使用情况访问 > 悬浮窗。
+     */
+    guideNextStep() {
+      const c = this.refreshForceCap()
+      if (!c.native) {
+        uni.showToast({ title: '当前包没有原生拉回能力，只能提醒', icon: 'none' })
+        return
+      }
+      if (c.a11y) {
+        uni.showToast({ title: '已就绪 · 切走会立刻拉回来', icon: 'none' })
+        return
+      }
+      if (!c.svcAllowed) { this.ensureServiceSetting(); return }
+      if (!this.a11ySafe) {
+        uni.showToast({ title: '这台手机的无障碍起不来，改用使用情况访问', icon: 'none' })
+        if (!this.usageOk) setTimeout(() => this.openUsage(), 1000)
+        return
+      }
+      this.dlg = {
+        show: true,
+        title: '还差一步：开「无障碍」',
+        content: '安卓 10 起系统默认禁止应用从后台跳回前台，官方只给无障碍这类"由系统绑定的服务"开口子。开了它：你一切走就被立刻拉回来，也不必再开「使用情况访问」。下一步会跳到系统的无障碍页，在列表里找「PWstudy 专注护卫」打开。（安卓 13+ 侧载安装的应用要先在「应用信息 → 右上角 ⋮ → 允许受限设置」放行一次。）',
+        confirmText: '去开无障碍',
+        cancelText: '先不开',
+        danger: false,
+        seq: (this.dlg && this.dlg.seq || 0) + 1,
+        action: 'goto-a11y'
+      }
+    },
+
+    /**
+     * 强制模式的载体是前台服务：「后台保活」或「通知提醒」任一关掉，服务就起不来，
+     * 拉回功能等于空谈。这里直接帮用户打开并说明原因 ——
+     * 不弹"请去设置里打开"这种空提示（用户找不到），也不静默不管（那是骗人）。
+     */
+    ensureServiceSetting() {
+      try {
+        const st = settings.get()
+        const f = st.focus || {}
+        if (f.fgservice !== false && f.notify !== false) return false
+        st.focus = Object.assign({}, f, { fgservice: true, notify: true })
+        settings.save()
+        this.opts = Object.assign({}, this.opts, { notify: true, fgservice: true })
+        uni.showToast({
+          title: '已打开「后台保活」和「通知提醒」—— 拉回要靠它们',
+          icon: 'none',
+          duration: 2400
+        })
+        this.refreshForceCap()
+        return true
+      } catch (e) {
+        return false
+      }
+    },
     openOverlay() {
       apptime.openOverlaySettings()
       setTimeout(() => { this.overlayOk = apptime.canDrawOverlays() }, 1200)
@@ -702,19 +884,26 @@ export default {
         this.overlayOk = apptime.canDrawOverlays()
         this.refreshA11y()
         this.refreshLearnApps()
-        // 提示只挑最要紧的一条说：无障碍 > 使用情况访问 > 学习 App > 遮罩
+        // 载体先兜住：服务起不来的话后面说什么都没用
+        const changed = this.ensureServiceSetting()
+        // 提示只挑最要紧的一条说，并**直接给路**：无障碍 > 使用情况访问 > 学习 App > 遮罩
         //（保险丝跳了就不提无障碍了 —— 那是这台机子起不来，不是用户没开）
-        if (!this.a11ySafe) {
-          uni.showToast({ title: '这台手机的无障碍起不来，已改用使用情况访问', icon: 'none' })
-        } else if (!this.a11yOk) {
-          uni.showToast({ title: '建议开「无障碍」，否则切走拉不回来', icon: 'none' })
-        } else if (!this.learnApps.length) {
-          uni.showToast({ title: '还没登记学习 App，切哪都算离开', icon: 'none' })
-        } else if (!this.overlayOk) {
-          uni.showToast({ title: '可选：再开「显示在其他应用上层」做兜底', icon: 'none' })
+        if (!changed) {
+          if (!this.a11ySafe) {
+            uni.showToast({ title: '这台手机的无障碍起不来，已改用使用情况访问', icon: 'none' })
+          } else if (!this.a11yOk) {
+            // 原来这里只 toast 一句"建议开无障碍"，用户看完还是不知道去哪开 ——
+            // 改成弹窗把路径说清并直接跳过去，这才是闭环。
+            this.guideNextStep()
+          } else if (!this.learnApps.length) {
+            uni.showToast({ title: '还没登记学习 App，切哪都算离开', icon: 'none' })
+          } else if (!this.overlayOk) {
+            uni.showToast({ title: '可选：再开「显示在其他应用上层」做兜底', icon: 'none' })
+          }
         }
       }
       forced.sync()
+      this.refreshForceCap()
     },
     goApps() { safeNav('/pkgPlan/pages/apps/apps') },
     toggleOpt(key) {
@@ -1115,6 +1304,26 @@ export default {
 }
 .fs-txt {
   font-size: 22rpx; line-height: 1.5;
+  color: var(--brand-strong, #bb1332);
+  text-align: center;
+}
+/* 没开强制模式：灰掉。
+   不能用"看不见"来表达没开 —— 用户正是靠这一行才知道有这个功能。 */
+.force-strip.fs-off {
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.06);
+}
+.force-strip.fs-off .fs-dot { background: var(--ink-3, #98a19b); }
+.force-strip.fs-off .fs-txt { color: var(--ink-2, #5a6560); }
+/* 开了但能力不全：琥珀。说"已就绪"是骗人，说"没开"也不对 —— 这是第三态 */
+.force-strip.fs-weak {
+  background: rgba(247, 144, 9, 0.12);
+}
+.force-strip.fs-weak .fs-dot { background: #f79009; }
+.force-strip.fs-weak .fs-txt { color: #8a5800; }
+.fs-act {
+  flex-shrink: 0;
+  margin-left: 14rpx;
+  font-size: 22rpx; font-weight: 600;
   color: var(--brand-strong, #bb1332);
 }
 

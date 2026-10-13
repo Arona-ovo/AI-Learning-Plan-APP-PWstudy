@@ -82,13 +82,20 @@ const WINDOW_TYPE_PHONE: Int = 2002;
 // 所以那两处直接写字面量，见 WatchLoop.run()。
 const PULL_GAP_SEC: Int = 2;       // 两次"拉回"之间的最小间隔（秒），免得跟系统切前台打架
 const ESC_TICKS: Int = 2;          // 连续几次判定为"非白名单前台"才算一次真逃逸（抗抖动）
-const FG_WINDOW_MS: Int = 5000;    // 查"现在前台是谁"的回溯窗口（毫秒）
+const FG_WINDOW_MS: Int = 5000;    // 事件配对那条的回溯窗口（毫秒）—— 只当**辅助**用，见 queryForeground
 const WATCH_MAX_SEC: Int = 43200;  // 看门狗自动收手上限：12 小时
 const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24 次（约 50 秒）还没成功就先撤下来
-// 无障碍事件报上来的前台包名，多久算"还新鲜"（秒）。
-// 窗口事件是"变化才发"，用户长时间停在同一个 App 里不会有新事件；
-// 但不能无限期信任 —— 万一事件流断了（服务被系统回收），拿着过期包名会乱拉人。
-// 90 秒足够宽容，真过期了就退回 UsageStats 查询。
+// 连续几次"查不出前台是谁"才算真的瞎了（瞎了就撤遮罩收手，别把人锁在看不清的屏幕上）。
+// 冷态一跳 1.5 秒，20 次 ≈ 30 秒，足够趟过锁屏 / 切桌面这类短暂查不到的窗口。
+const BLIND_MAX_TICKS: Int = 20;
+// 无障碍事件"静默"多久之后，不再无条件信它报上来的包名，而是拿 UsageStats 交叉验证（秒）。
+//
+// ⚠️ 注意它**不是**"过期就丢弃"的判据。窗口事件是"变化才发"，用户切到微信然后一直
+// 停在那儿，之后根本不会再有事件 —— 早期版本拿 90 秒当过期时间，一到点就把明明正确的
+// 包名判成废弃、退回 UsageStats，而 UsageStats 那条路当时只查最近 5 秒的事件（同样查
+// 不到）→ 于是"人明明在微信里，我们却说查不到"，看门狗从此不再拉人。
+// 这是强制模式在真机上"看着像完全没生效"的头号原因。
+// 现在过期只触发"交叉验证"，不再触发"丢弃"。
 const GUARD_FRESH_SEC: Int = 90;
 // 无障碍服务的事件节流（毫秒）。⚠️ 要赋给 AccessibilityServiceInfo 的 Int 字段，
 // 所以必须显式 : Int（裸字面量会被推成 Number，Kotlin 里 Int 与 Number 不通）
@@ -216,6 +223,7 @@ class PWFocusService extends Service {
   private watchUntilSec: Int = 0;  // 0 = 不限时；否则到点自动收手（纪元秒）
   private allowCsv = '';           // 白名单包名，英文逗号分隔
   private escTicks: Int = 0;       // 连续跑偏的 tick 数
+  private blindTicks: Int = 0;     // 连续"查不出前台是谁"的 tick 数（探测失灵 ≠ 合规）
   private inEpisode = false;       // 当前处在一次"逃逸"里（防止同一次离开被重复计数）
   private pullTries: Int = 0;      // 本次逃逸已经尝试拉回几次（第 2 次起升级为遮罩）
   private lastPullSec: Int = 0;
@@ -316,6 +324,7 @@ class PWFocusService extends Service {
     }
     this.allowCsv = allow;
     this.escTicks = 0;
+    this.blindTicks = 0;
     this.inEpisode = false;
     this.pullTries = 0;
     this.lastPullSec = nowSec();
@@ -392,7 +401,21 @@ class PWFocusService extends Service {
     }
 
     let fg = queryForeground(ctx!);
-    if (fg.length == 0) return false;          // 查不到（锁屏 / 正在切换）：不误伤
+    if (fg.length == 0) {
+      // 查不到 ≠ 合规。
+      // 早期版本这里直接 `return false`（等于"这次算没事"），后果是：只要探测那一路
+      // 短暂失灵（锁屏、正在切桌面、权限刚被 ROM 收回），看门狗就把人放着不管，
+      // 而且 inEpisode 也不复位 —— 用户看到的正是"完全没拦"。
+      // 现在的处理：记一次"失明"，失明期间**维持**已有的逃逸状态（人还在别的 App 里，
+      // 只是我们暂时看不清），连续失明到上限才撤遮罩收手（别把人锁在看不清的屏幕上）。
+      this.blindTicks = this.blindTicks + 1;
+      if (this.blindTicks >= BLIND_MAX_TICKS) {
+        postOverlay(false);
+        return false;
+      }
+      return this.inEpisode;
+    }
+    this.blindTicks = 0;
     return this.seen(fg, false);
   }
 
@@ -439,15 +462,34 @@ class PWFocusService extends Service {
     this.pullTries = this.pullTries + 1;
     watchPullCount = watchPullCount + 1;
 
-    let ok = pullSelf();
-    // 第一次拉回先走"温柔"的（moveTaskToFront / startActivity / 全屏意图通知）；
-    // 一次没拽回来就升级成遮罩 —— 那层盖在别的 App 上面，用户点不动，也就绕不过去
-    if (!ok || this.pullTries >= 2) postOverlay(true);
+    let ok = pullSelf(this.pullTries);
+    // 升级成遮罩 —— 那层盖在别的 App 上面，用户点不动，也就绕不过去。
+    //
+    // ⚠️ 判据不是"pullSelf 返回了什么"（moveTaskToFront 返回 void，拿不到成败，
+    //    那条路永远只能报"没抛异常"），而是**再看一眼前台**：还是别人就说明没拉回来。
+    //    早期版本写的是 `pullTries >= 2`，等于白等一个来回（约 2 秒）才上遮罩，
+    //    用户那 2 秒里是彻底自由的 —— 这正是"切走以后什么都没发生"的观感来源之一。
+    if (!ok || this.needOverlay()) postOverlay(true);
     // 安全阀：连续拉了很多次还回不来（多半是遇到了我们没认出来的桌面/输入法，
     // 或某个 ROM 把前台事件吞了），先把遮罩撤掉，免得把人锁在屏幕外面。
     // 拉回动作本身照旧继续（下面还在跑），下一轮逃逸会重新盖上。
     if (this.pullTries >= OVERLAY_MAX_TRIES) postOverlay(false);
     return true;
+  }
+
+  /**
+   * 现在该不该盖遮罩：前台**确实还是别人**才盖。
+   *
+   * 为什么不无条件盖：拉回其实已经成功、而我们下一跳还没看到新前台的那一瞬间，
+   * 遮罩会盖在自己 App 上再被撤掉 —— 用户看到的就是自己的界面闪一下黑，很掉价。
+   * 查不到前台（失明）时不盖，宁可少盖一次也别盖错地方。
+   */
+  needOverlay(): boolean {
+    let ctx = UTSAndroid.getAppContext();
+    if (ctx == null) return false;
+    let fg = queryForeground(ctx!);
+    if (fg.length == 0) return false;
+    return !this.isAllowed(fg);
   }
 }
 
@@ -508,7 +550,7 @@ class OverlaySyncTask implements Runnable {
 
 class PullNowTask implements Runnable {
   override run(): void {
-    pullSelf();
+    pullSelf(1);
   }
 }
 
@@ -880,11 +922,29 @@ function guardUsable(): boolean {
   return guardOn;
 }
 
-/** 护卫报上来的包名还新鲜吗（窗口事件是"变化才发"，但不能无限期信任） */
+/**
+ * 护卫报上来的包名能不能直接用。
+ *
+ * 只看"护卫在线 + 报过包名"两件事，**不看时间**。原因见 GUARD_FRESH_SEC 的注释：
+ * 窗口事件是变化才发，用户长期停在同一个 App 时本来就不会有新事件，
+ * 拿时间当过期判据会把正确的包名误废掉。
+ */
 function guardFresh(): boolean {
   if (!guardOn) return false;
-  if (guardPkg.length == 0) return false;
-  return (nowSec() - guardAtSec) <= GUARD_FRESH_SEC;
+  return guardPkg.length > 0;
+}
+
+/**
+ * 护卫的事件流是不是已经静默很久了（久到该拿第二路交叉验证一下）。
+ *
+ * true 不代表 guardPkg 是错的 —— 只代表"很久没新事件了，值得再问一次系统"。
+ * 典型场景：护卫被系统悄悄回收了（guardOn 还是 true，因为 onUnbind 没走到），
+ * 这时它会一直报最后一次的包名，而用户早就换 App 了。
+ */
+function guardStale(): boolean {
+  if (!guardOn) return true;
+  if (guardPkg.length == 0) return true;
+  return (nowSec() - guardAtSec) > GUARD_FRESH_SEC;
 }
 
 /**
@@ -910,85 +970,142 @@ function imePackages(ctx: Context | null): string[] {
 }
 
 /**
- * 最近 FG_WINDOW_MS 毫秒内最后进入前台的包名；拿不到返回空串。
- * ① 先信无障碍护卫（事件驱动，最快最准，且不需要「使用情况访问」）；
- * ② 它不在 / 报的名字过期了，才退回 UsageStats 事件流配对。
- * 两条都拿不到 → 返回空串，调用方"不误伤"。
+ * 用 UsageStats 问"最近谁被用过"（不是"最近发生过哪些切换"）。
+ *
+ * ⚠️ 这是 2026-10-15 修的强制模式头号失效点，别改回 queryEvents。
+ *
+ * 原来的写法是 queryEvents(now - 5s, now) 做事件配对（type 1 进前台 / type 2 离前台）。
+ * 问题是：**事件只在切换发生的那一刻产生**。用户切到微信然后停在那儿，
+ * 5 秒之后这个窗口里一条事件都没有 → 查出来是空串 → 调用方当成"查不到"直接收手。
+ * 表现就是"拉回失败一次，之后再也不拉了"，用户眼里等于强制模式根本没开。
+ *
+ * queryUsageStats 不一样：它返回"这段时间里用过哪些 App、最后一次用是什么时候"，
+ * 跟切没切换无关 —— 用户一直停在微信，微信的 lastTimeUsed 就一直是最大的那个。
+ * 代价是精度低一档（分钟级聚合），但对"你现在在不在学习 App 里"这个判断完全够用。
  */
-function queryForeground(ctx: Context): string {
-  if (guardFresh()) return guardPkg;
+function queryForegroundByUsage(ctx: Context): string {
   try {
     let usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     let end = System.currentTimeMillis()
-    let events = usm.queryEvents(end - FG_WINDOW_MS, end)
-    let e = new UsageEvents.Event()
-    let fg = ''
-    while (events.hasNextEvent()) {
-      if (!events.getNextEvent(e)) break
-      let type = e.getEventType()
-      let p = e.getPackageName()
-      let pkg = p == null ? '' : p!
-      if (type == 1) {
-        fg = pkg                                     // ACTIVITY_RESUMED：进前台
-      } else if (type == 2 && pkg == fg) {
-        fg = ''                                      // ACTIVITY_PAUSED：离前台
+    let begin = end - 60000        // 字面量：60 秒，Long 运算（Int 常量不会自动放宽）
+    let stats = usm.queryUsageStats(4, begin, end)   // 4 = UsageStatsManager.INTERVAL_BEST
+    if (stats == null) return ''
+    let bestPkg = ''
+    // ⚠️ getLastTimeUsed() 返回 Java long。统一折成**秒的 Int** 再比较：
+    //    直接拿 Long 跟 Number 比会踩 UTS 的类型坑（Number(x) 是实例化抽象类，编不过）。
+    let bestAt: Int = 0
+    for (let s of stats!) {
+      if (s == null) continue
+      let p = s.getPackageName()
+      if (p == null) continue
+      let t: Int = ((s.getLastTimeUsed() / 1000) as Number).toInt()
+      if (t > bestAt) {
+        bestAt = t
+        bestPkg = p!
       }
     }
-    return fg
+    return bestPkg
   } catch (e) {
     return ''
   }
 }
 
 /**
- * 把 PWstudy 自己拽回前台。三条路依次试，任何一条成功就返回 true：
+ * 查"现在前台是谁"；查不到返回空串（调用方按"失明"处理，不当成合规）。
+ *
+ * 三条路，从快到慢：
+ *   ① 无障碍护卫刚报过（事件驱动，最快最准，且不需要「使用情况访问」）→ 直接采信；
+ *   ② 护卫静默太久了 → 拿 UsageStats 交叉验证，查到就以它为准（护卫可能已被系统回收）；
+ *   ③ 护卫不在 → 只能用 UsageStats。
+ * 全都拿不到才返回空串。
+ */
+function queryForeground(ctx: Context): string {
+  if (guardFresh() && !guardStale()) return guardPkg;
+
+  let byUsage = queryForegroundByUsage(ctx);
+  if (byUsage.length > 0) return byUsage;
+
+  // UsageStats 查不到（多半是没授「使用情况访问」）：护卫报过就还是信它，
+  // 总比返回空串让人彻底失明好 —— 而且事件流刚发生过的话它大概率是对的。
+  if (guardFresh()) return guardPkg;
+  return '';
+}
+
+/**
+ * 把 PWstudy 自己拽回前台。三条路，成败由调用方另判（见 seen 的注释）：
  *   ① ActivityManager.moveTaskToFront —— 自己的 task 提到最前，不重建 Activity，
  *      专注页的计时状态原样留着（需要 REORDER_TASKS，已在清单声明）。
- *   ② launch intent + NEW_TASK|REORDER_TO_FRONT|SINGLE_TOP 重新起一次。
- *   ③ 通知的 fullScreenIntent（在 tick 里另外发，这里只负责 ①②）。
- * 全被 ROM 拦掉就返回 false，由调用方升级成悬浮窗遮罩。
+ *   ② launch intent + NEW_TASK|REORDER_TO_FRONT|SINGLE_TOP —— 把已有 Activity 提到最前，
+ *      同样不重建。安卓 10 起"后台启动 Activity"被限制，但**无障碍服务被系统绑定**
+ *      属于官方豁免清单，护卫开着时这一条才真的拉得动。
+ *   ③ 通知的 fullScreenIntent（在 postPullNotify 里另外发，这里只负责 ①②）。
+ *
+ * @param round 第几次尝试（1 起）。两条路**轮换**：有的 ROM 只认其中一条，
+ *              死磕一条会永远拉不动 —— 而用户看到的就是"切走以后毫无反应"。
+ *
+ * ⚠️ 返回值只表示"这条路的调用没抛异常"，**不代表人已经被拉回来了**
+ *    （moveTaskToFront 返回 void，startActivity 也只是把意图交出去）。
+ *    真正的成败由下一次心跳看前台变没变（PWFocusService.needOverlay）。
  */
 @UTSAndroid.Suppress("DEPRECATION")
-function pullSelf(): boolean {
+function pullSelf(round: Int): boolean {
   let ctx = UTSAndroid.getAppContext()
   if (ctx == null) return false
   let pkg = ctx!.getPackageName()
 
-  // ① 找自己还在跑的 task，提到前面
+  // 轮换：奇数次先 moveTaskToFront，偶数次先 launch intent
+  let tryMoveFirst = (round % 2) == 1;
+  if (!tryMoveFirst) {
+    if (pullByLaunch(ctx!, pkg)) return true;
+    if (pullByTask(ctx!, pkg)) return true;
+    return false;
+  }
+  if (pullByTask(ctx!, pkg)) return true;
+  if (pullByLaunch(ctx!, pkg)) return true;
+  return false;
+}
+
+/** ① 找自己还在跑的 task，提到前面 */
+@UTSAndroid.Suppress("DEPRECATION")
+function pullByTask(ctx: Context, pkg: string): boolean {
   try {
-    let am = ctx!.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    let am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     let tasks = am.getRunningTasks(20)
-    if (tasks != null) {
-      // 先按 topActivity 找；有的 ROM 返回空，再按 baseActivity 找一遍
-      for (let i = 0; i < 2; i++) {
-        for (let t of tasks!) {
-          if (t == null) continue
-          // 用 == 不用 ===：i 是 Int、字面量 0 会被装箱成 Number，
-          // 引用相等（===）在装箱后不稳定 —— kotlin 会警告 implicit boxing
-          let cn = i == 0 ? t.topActivity : t.baseActivity
-          if (cn != null && cn!.getPackageName() == pkg) {
-            am.moveTaskToFront(t.id, 0)
-            return true
-          }
+    if (tasks == null) return false
+    // 先按 topActivity 找；有的 ROM 返回空，再按 baseActivity 找一遍
+    for (let i = 0; i < 2; i++) {
+      for (let t of tasks!) {
+        if (t == null) continue
+        // 用 == 不用 ===：i 是 Int、字面量 0 会被装箱成 Number，
+        // 引用相等（===）在装箱后不稳定 —— kotlin 会警告 implicit boxing
+        let cn = i == 0 ? t.topActivity : t.baseActivity
+        if (cn != null && cn!.getPackageName() == pkg) {
+          am.moveTaskToFront(t.id, 0)
+          return true
         }
       }
     }
   } catch (e) {
     // 被 ROM 拦了 / 拿不到 task 列表 → 走兜底
   }
+  return false;
+}
 
-  // ② 兜底：重新把自己起一次
+/**
+ * ② 用 launch intent 把自己提到最前。
+ * REORDER_TO_FRONT + SINGLE_TOP 保证**不重建** Activity —— 专注页正在跑的计时
+ * 状态原样留着，这也是"验证路径"里"状态不丢失"那一条的落点。
+ */
+function pullByLaunch(ctx: Context, pkg: string): boolean {
   try {
-    let launch = ctx!.getPackageManager().getLaunchIntentForPackage(pkg)
-    if (launch != null) {
-      launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-      ctx!.startActivity(launch)
-      return true
-    }
+    let launch = ctx.getPackageManager().getLaunchIntentForPackage(pkg)
+    if (launch == null) return false
+    launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    ctx.startActivity(launch)
+    return true
   } catch (e) {
     return false
   }
-  return false
 }
 
 function serviceIntent(ctx: Context): Intent {
@@ -1101,12 +1218,27 @@ export function resetWatchStats(): boolean {
  * 被系统 / ROM 拦住时返回 false —— 调用方照常发通知，不假装锁得住。
  */
 export function bringToFront(): boolean {
-  return pullSelf()
+  return pullSelf(1)
 }
 
 /** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean {
   return UTSAndroid.getAppContext() != null
+}
+
+/**
+ * 前台服务现在是否真的活着（看门狗的载体）。
+ *
+ * 判据是 svcRef —— 它在 PWFocusService.onCreate 里赋值、onDestroy 里清空。
+ * 服务被系统杀掉时进程也一起没了，新进程里这个标志自然是 null，
+ * 所以"进程内标志"在这个场景里够用，不需要去问 ActivityManager.getRunningServices
+ * （那个 API 26 起就对三方应用关闭了，问了也永远拿不到自己）。
+ *
+ * JS 侧拿它做什么：utils/forced.js 原来只记"我推过配置"（pushedOn），
+ * 服务真被杀了它还以为有人在盯，于是 JS 兜底轮询也让位 —— 两头没人管。
+ */
+export function serviceAlive(): boolean {
+  return svcRef != null;
 }
 
 /* ==================== 无障碍护卫：对外 API ==================== */

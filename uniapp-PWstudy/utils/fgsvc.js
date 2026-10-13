@@ -34,8 +34,14 @@ export function available() {
   return probed;
 }
 
-/** 设置层面允不允许用（开关开 + 通知开） */
-function allowed() {
+/**
+ * 设置层面允不允许起前台服务（后台保活开关开 + 通知开）。
+ *
+ * ⚠️ 强制模式完全依赖它：看门狗就长在前台服务里。用户把「后台保活」或「通知提醒」
+ * 关掉，服务根本起不来，强制模式形同虚设 —— 所以这个开关要暴露给界面，
+ * 好在开强制模式时如实提示"你关掉了 XX，拉回功能起不来"。
+ */
+export function serviceAllowed() {
   try {
     const f = settings.get().focus || {};
     return f.fgservice !== false && f.notify !== false;
@@ -51,7 +57,7 @@ export function isActive() {
 
 /** 番茄开始 / 恢复现场：起前台服务。失败（不可用/标准基座）返回 false，调用方走老路 */
 export function start(title, text) {
-  if (!allowed() || !available()) return false;
+  if (!serviceAllowed() || !available()) return false;
   // #ifdef APP-PLUS
   try {
     active = !!fgs.startFocusService(String(title || 'PWstudy 专注中'), String(text || ''));
@@ -100,6 +106,34 @@ export function bringToFront() {
   } catch (e) {}
   // #endif
   return false;
+}
+
+/**
+ * 前台服务现在是否真的活着（不是"我们起过"的记账）。
+ *
+ * 为什么要这个：服务被系统回收后，`active` 还是 true —— JS 侧据此认为"原生在盯"，
+ * 于是自己的兜底轮询也让位（utils/forced.js 的 nativeActive），结果两头没人管。
+ * 这是"强制模式开着却完全没反应"里最容易漏掉的一种。
+ */
+export function serviceAlive() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.serviceAlive === 'function') return !!fgs.serviceAlive();
+    return active;    // 老基座没这个探测：退回记账值
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/**
+ * 把前台服务重新拉起来（自愈用）。
+ * 只有"本该在跑却没在跑"时才调 —— 平时乱起会给用户甩一条莫名其妙的常驻通知。
+ */
+export function ensureStarted(title, text) {
+  if (!available()) return false;
+  if (serviceAlive()) { active = true; return true; }
+  return start(title, text);
 }
 
 /** 是否具备"拉回前台"的原生能力（标准基座 = false，界面上要如实提示） */
