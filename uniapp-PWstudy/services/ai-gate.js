@@ -48,6 +48,12 @@ export const AI_FEATURES = [
     level: 'low', levelLabel: '低'
   },
   {
+    key: 'harvest',
+    name: 'AI 记额外收获',
+    desc: '完成一项任务后，把你说的"额外收获"总结成一句带时间的记录存下来，供后面重排参考。关掉后改为原话直存，不调模型',
+    level: 'low', levelLabel: '低'
+  },
+  {
     key: 'guide',
     name: 'AI 讲任务',
     desc: '说清某个任务为什么这么排、具体怎么做。关掉后不再生成新的，之前看过的还在',

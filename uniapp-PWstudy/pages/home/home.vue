@@ -231,8 +231,11 @@
               :ops="true"
               more-text="查看全部"
               @changed="refreshSchedule"
+              @done="onSchedDone"
               @more="goCalendar"
             />
+            <!-- 自动重排的结果要看得见：改了什么写在这儿，用户才知道"我说的那句话有用" -->
+            <text v-if="replanTip" class="sc-tip">{{ replanTip }}</text>
           </view>
 
           <!-- AppDock -->
@@ -323,8 +326,20 @@
       :items="dlg.items"
       :danger="dlg.danger"
       :seq="dlg.seq"
+      :value="dlg.value"
+      :placeholder="dlg.placeholder"
+      :maxlength="dlg.maxlength"
       @confirm="onDlgYes"
-      @cancel="dlg.show = false"
+      @cancel="onDlgCancel"
+    />
+
+    <!-- 任务完成弹窗（fixed 层，必须放在 .page-slide 之外 —— 记忆约束 3）。
+         勾掉一项立刻弹：「取消」就这么着，「额外收获」去跟 AI 说两句。
+         记账不在这里做 —— 完成那一刻 utils/pwstore.js 已经写进当日台账了。 -->
+    <task-done-dialog
+      ref="doneDlg"
+      @open="doneDlgOn = true"
+      @close="doneDlgOn = false"
     />
 
     <float-tabbar ref="tabbar" current="home" />
@@ -361,6 +376,7 @@ import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
 import * as reminder from '../../utils/reminder.js'
 import * as onboarding from '../../utils/onboarding.js'
+import * as harvest from '../../utils/harvest.js'
 import * as theme from '../../utils/theme.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
@@ -371,9 +387,13 @@ import UrgencyMeter from '../../components/urgency-meter/urgency-meter.vue'
 import ScheduleList from '../../components/schedule-list/schedule-list.vue'
 import AppDialog from '../../components/app-dialog/app-dialog.vue'
 import OnboardingMask from '../../components/onboarding-mask/onboarding-mask.vue'
+import TaskDoneDialog from '../../components/task-done-dialog/task-done-dialog.vue'
 
 export default {
-  components: { FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList, AppDialog, OnboardingMask },
+  components: {
+    FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList,
+    AppDialog, OnboardingMask, TaskDoneDialog
+  },
   mixins: [tabSlideMixin('home')],
   data() {
     return {
@@ -420,7 +440,12 @@ export default {
       gdOn: false,
       gdStep: null,
       gdIndex: 0,
-      gdBox: null
+      gdBox: null,
+      // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
+      // doneDlgOn 弹窗是否在场（返回键要先收它；页面自己看得见，别去问组件）
+      doneDlgOn: false,
+      // 重排结果的一句话提示（"AI 已按今天的完成情况重排了后面 3 项"）
+      replanTip: ''
     }
   },
   computed: {
@@ -525,6 +550,113 @@ export default {
     this.maybeSetupPrompt()
     this.maybePartnerAsk()
     this.maybeUpdatePrompt()
+    // 动态重排（utils/harvest.js）：跨天兜底 + 当天全部完成后的自动重排。
+    // 放在所有"问用户"的弹窗之后、且异步跑 —— 它不该挡住刚进 App 时该看的东西。
+    this.runReplanFlow()
+  },
+
+  // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
+
+  /**
+   * 两条自动重排线，进首页各试一次：
+   *   ① sweep  跨天兜底 —— 过了 00:00 昨天还有没做完的，重排后面的（一天一次）
+   *   ② autoReplan 当天全部完成 —— 综合今天完成的数据与历史反馈重排（一天一次）
+   *
+   * 都**不等用户确认**：这是需求定的（"若需要则直接重排，无需用户确认"）。
+   * 但砍任务 / 顺延截止日这两种"事后难反悔"的动作不会自动落地 —— 它们进待确认队列，
+   * 由 maybePendingAsk() 单独问一次。
+   *
+   * ⚠️ 顺序固定：先兜底再全部完成。兜底会把欠账重排掉，跑完当天状态才准；
+   *    反过来先判"全部完成"很容易在有欠账时误判。
+   */
+  async runReplanFlow() {
+    const show = (txt) => {
+      if (!txt) return
+      this.replanTip = txt
+      try { uni.showToast({ title: txt, icon: 'none', duration: 3200 }) } catch (e) {}
+    }
+    try {
+      // 上次重排的结果先回显一下（不是这次跑的），让"重排过"这件事有痕迹
+      const last = pw.replanState().last
+      if (last && last.at && Date.now() - last.at < 36 * 3600 * 1000 && !this.replanTip) {
+        this.replanTip = 'AI 上次重排：' + (last.detail || last.summary || '调整了后面的任务')
+      }
+      const sw = await harvest.sweep()
+      if (sw && sw.ok && sw.applied) {
+        show('昨天有没做完的，已重排后面 ' + sw.applied + ' 项')
+        this.refresh()
+      }
+      const ar = await harvest.autoReplan()
+      if (ar && ar.ok && ar.applied) {
+        show('今天的任务都做完了，已按完成情况重排后面 ' + ar.applied + ' 项')
+        this.refresh()
+      }
+      // 信息不足：不硬排，先问本人一句最新意见，拿到再重跑一次
+      if (ar && ar.ok === false && ar.ask) { this.askReplanNote(ar.ask); return }
+      if (sw && sw.ok === false && sw.ask) { this.askReplanNote(sw.ask); return }
+      this.maybePendingAsk()
+    } catch (e) {
+      // 自动重排失败一律静默：它不该在用户刚打开 App 时弹一个错误吓人
+      console.warn('[home] 自动重排失败', e && e.message)
+    }
+  },
+  /** 勾掉一项（日程表卡）→ 弹「恭喜你完成任务」 */
+  onSchedDone(row) {
+    this.openDoneDialog(row)
+  },
+  /**
+   * 弹完成弹窗。
+   * ⚠️ 番茄起表时首页被倒计时硬控，卡片都没了 —— 那时不弹（也无处可弹）。
+   */
+  openDoneDialog(row) {
+    if (this.locked || this.gdOn) return
+    const d = this.$refs.doneDlg
+    if (!d) return
+    // 完成时刻从当日台账里取（pwstore 在置完成那一刻就记好了）
+    let atText = ''
+    try {
+      const it = harvest.listOf(pw.today()).filter(x => x.taskId === (row.id || row.taskId))[0]
+      if (it) atText = it.atText || ''
+    } catch (e) {}
+    d.open({
+      goalId: row.goalId,
+      id: row.id || row.taskId,
+      title: row.title,
+      goalTitle: row.goalTitle
+    }, atText)
+    // 勾完最后一项 → 可能正好触发"全部完成"，顺手试一次（一天只跑一次，有守卫）
+    this.runReplanFlow()
+  },
+  /**
+   * 信息不足时问一句（需求 6）。
+   * 拿到回答 → 存进 lastNote → 立刻带这句话重跑一次重排。
+   */
+  askReplanNote(ask) {
+    if (this.dlg.show || this.doneDlgOn) return
+    this.ask({
+      title: '想先问你一句',
+      content: (ask && ask.ask) || '现在的数据还不够排出更好的安排，方便说一句你的想法吗？',
+      mode: 'input',
+      confirmText: '就这样重排',
+      placeholder: '比如：每天最多 2 个番茄 / 先啃阅读',
+      value: '',
+      maxlength: 120,
+      action: 'replan-note'
+    })
+  },
+  /** 砍任务 / 顺延截止日：这两件事不自动落地，攒着在这儿问一次 */
+  maybePendingAsk() {
+    if (this.dlg.show || this.doneDlgOn) return
+    const list = harvest.pendingList()
+    if (!list.length) return
+    const it = list[0]
+    this.ask({
+      title: '有一件事想跟你确认',
+      content: harvest.pendingText(it),
+      confirmText: '就按它说的',
+      cancelText: '先不动',
+      action: 'replan-pending'
+    })
   },
   onHide() {
     // 离开首页一律退出编辑态，保证回来时界面是简洁的
@@ -543,6 +675,8 @@ export default {
   onBackPress() {
     // 抽屉 / 编辑态都是"页面里的临时状态"，按返回应该先收起它们，
     // 顺序按覆盖层级从内到外。硬控的返回拦截排在后面（那才是真的不让走）。
+    // 任务完成弹窗同理：按返回只是"不说了"，不是退出 App。
+    if (this.doneDlgOn && this.$refs.doneDlg) { this.$refs.doneDlg.close(); return true }
     if (this.gdOn) { this.endGuide(); return true }
     if (this.sheetShow) { this.sheetShow = false; return true }
     if (this.editing) { this.finishEdit(); return true }
@@ -951,6 +1085,19 @@ export default {
         { seq: (this.dlg && this.dlg.seq || 0) + 1 }
       )
     },
+    /**
+     * 取消也要收尾：待确认队列那条被"先不动"驳回后必须出队，
+     * 否则它会在每次进首页时又弹一遍 —— 用户明明已经拒绝过了。
+     */
+    onDlgCancel() {
+      const act = this.dlg.action
+      this.dlg.show = false
+      if (act === 'replan-pending') {
+        let r = { msg: '' }
+        try { r = harvest.resolvePending(0, false) } catch (e) {}
+        try { uni.showToast({ title: r.msg || '好，先不动', icon: 'none', duration: 2000 }) } catch (e) {}
+      }
+    },
     onDlgYes(payload) {
       const act = this.dlg.action
       const item = this.dlg.item
@@ -971,6 +1118,26 @@ export default {
       if (act === 'setup') {
         this.__fromSetup = true
         uni.navigateTo({ url: '/pkgManage/pages/setup/setup' })
+        return
+      }
+      // 需求 6：AI 掌握的数据不足以判断最优排版 → 先问本人一句最新意见，
+      // 拿到就存进 lastNote 并**立刻带这句话重排一次**（不是"记下来下次再说"）
+      if (act === 'replan-note') {
+        const v = String(payload || '').trim()
+        if (!v) { this.maybePendingAsk(); return }
+        try { harvest.saveNote(v) } catch (e) {}
+        try { uni.showToast({ title: '记下了，正在按你说的重排', icon: 'none', duration: 2000 }) } catch (e) {}
+        this.runReplanFlow()
+        return
+      }
+      // 砍任务 / 顺延截止日：不自动落地的那两条，逐条问一次
+      if (act === 'replan-pending') {
+        let r = { ok: false, msg: '' }
+        try { r = harvest.resolvePending(0, true) } catch (e) {}
+        try { uni.showToast({ title: r.msg || '好', icon: 'none', duration: 2400 }) } catch (e) {}
+        this.refresh()
+        // 后面可能还排着别的待确认 —— 问完这一条接着问下一条
+        this.$nextTick(() => { setTimeout(() => this.maybePendingAsk(), 600) })
         return
       }
       // 伙伴 App 首次询问的三个选项（顺序 = items 下标）
@@ -1112,12 +1279,22 @@ export default {
       try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
       // 勾完就不在"今日待办"里了 → 队列、紧迫度、目标进度都要重算
       this.refresh()
+      // 勾完成 → 弹「恭喜你完成任务」（取消完成不弹）
+      if (r.done) {
+        this.openDoneDialog({
+          goalId: item.goal.id, id: item.task.id,
+          title: item.task.title, goalTitle: item.goal.title
+        })
+      }
     },
     markDone(item) {
       pw.setTaskStatus(item.goal.id, item.task.id, 'done')
       pw.flush()
       this.refresh()
-      try { uni.showToast({ title: '已标记完成', icon: 'success' }) } catch (e) {}
+      this.openDoneDialog({
+        goalId: item.goal.id, id: item.task.id,
+        title: item.task.title, goalTitle: item.goal.title
+      })
     },
     pushTomorrow(item) {
       pw.moveTaskDay(item.goal.id, item.task.id, (item.task.day || 1) + 1)
@@ -1544,6 +1721,12 @@ export default {
   margin-left: 14rpx; padding: 4rpx 16rpx; border-radius: 999rpx;
   font-size: 21rpx; color: #bb1332; color: var(--brand-strong, #bb1332);
   background: rgba(228, 23, 61, 0.1); background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+}
+/* 自动重排的结果：改了什么写一句在这儿，用户才知道"我说的话真的有用" */
+.sc-tip {
+  display: block; margin-top: 16rpx;
+  font-size: 22rpx; line-height: 1.6;
+  color: #b26400; color: var(--ink-2, #b26400);
 }
 
 /* ===== 今日收工 ===== */

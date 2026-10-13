@@ -45,10 +45,23 @@ function blank() {
   return {
     goals: [],        // Goal
     sessions: [],     // 已完成/中断的番茄 {id,goalId,taskId,startAt,endAt,min,done}
-    daily: {},        // 'YYYY-MM-DD' -> {focusMin, pomo, byApp:{pkg:min}}
+    daily: {},        // 'YYYY-MM-DD' -> {focusMin, pomo, byApp:{pkg:min}, done:{…完成台账…}}
     dock: [],         // 学习 App {pkg, name, purpose:'study'|'rest', task, sort}
     pomoCfg: { focus: 25, rest: 5, long: 15, every: 4 },
-    runtime: null     // 番茄进行中的现场（focus.js 读写）
+    runtime: null,    // 番茄进行中的现场（focus.js 读写）
+    // 动态重排的"状态机记忆"（见 utils/harvest.js）：
+    //   lastSweepDate 上次跑过「跨天兜底重排」的日期 —— 一天只跑一次
+    //   lastAllDone   上次跑过「全部完成自动重排」的 {date, at}
+    //   last          最近一次重排的结果摘要（下次重排要读它，闭环用）
+    //   pending       不敢自动落地的"大动作"（砍任务 / 顺延期限），等人确认
+    //   lastNote      信息不足时问来的用户最新意见（下次重排接着用）
+    replan: {
+      lastSweepDate: '',
+      lastAllDone: { date: '', at: 0 },
+      last: null,
+      pending: [],
+      lastNote: ''
+    }
   };
 }
 
@@ -173,22 +186,150 @@ export function removeGoal(id) {
   touch();
 }
 
+/* ---------- 当日完成台账（daily[date].done） ----------
+ *
+ * 为什么单独一本账：任务身上只有"最后状态"（done + doneAt），看不出
+ *   · 这项是**哪天**完成的（跨天补记会把账记错天）
+ *   · 那天一共完成了几项、分别几点完成的
+ *   · 完成那一刻用户自己说了什么（额外收获）
+ * 这三件事是"当天完成情况 + 反馈 → 后续重排"这条闭环的唯一输入，
+ * 所以必须在完成发生的那一刻就地记一笔，不能靠事后反推任务状态。
+ *
+ * ⚠️ 台账只在这里（数据层）写：三条完成路径（手工勾 / 番茄做满 / 补记）
+ *    全部收敛到 markTaskDone，漏一条就会出现"任务已完成但台账没有"，
+ *    于是"今天全部完成"永远判不出来、自动重排永远不触发。
+ */
+function ledgerRec(date) {
+  const key = date || today();
+  const d = dayOf(get(), key);
+  if (!d.done || typeof d.done !== 'object') d.done = { items: [], updatedAt: 0 };
+  if (!Array.isArray(d.done.items)) d.done.items = [];
+  return d.done;
+}
+
+/** 'HH:MM'（台账里的"几点完成的"，给人看） */
+export function clockText(ts) {
+  const d = new Date(ts || Date.now());
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+/** 某天的完成台账（原对象；没有返回 null） */
+export function ledgerOf(date) {
+  const d = get().daily[date || today()];
+  return (d && d.done && Array.isArray(d.done.items)) ? d.done : null;
+}
+
+/** 某天完成的项（副本，改它不影响存储） */
+export function ledgerList(date) {
+  const l = ledgerOf(date);
+  return l ? l.items.slice() : [];
+}
+
+/**
+ * 记一笔完成。
+ * ⚠️ 同一天同一任务只留一条，且**保留首次完成时间**：勾了又取消又勾上，
+ *    台账里不该堆两份，"几点做完的"也不该被最后一次覆盖。
+ */
+function ledgerAdd(goalId, taskId, src, date) {
+  const g = goalOf(goalId);
+  if (!g) return null;
+  const t = (g.tasks || []).filter(x => x.id === taskId)[0];
+  if (!t) return null;
+  const key = date || today();
+  const l = ledgerRec(key);
+  const old = l.items.filter(x => x.taskId === taskId)[0];
+  const now = Date.now();
+  if (old) {
+    // 补记路径（src=log/chat）进来时只更新来源，不动首次完成时间
+    if (src && old.src === 'manual') old.src = src;
+    return old;
+  }
+  const rec = {
+    goalId: goalId,
+    taskId: taskId,
+    title: t.title,
+    goalTitle: g.title,
+    day: t.day || 1,
+    pomos: t.pomos || 1,
+    at: now,               // 完成时刻（毫秒）
+    atText: clockText(now),// 完成时刻（人看的 HH:MM）
+    src: src || 'manual',  // manual 手工勾 / pomo 番茄做满 / log 收工填报 / chat 对话记功
+    harvest: null          // 额外收获（见 utils/harvest.js）
+  };
+  l.items.push(rec);
+  l.updatedAt = now;
+  touch();
+  return rec;
+}
+
+/* ---------- 动态重排的状态机记忆（st.replan） ----------
+ * 只存"跑到哪一步了"和"上次的结果"，判断逻辑全在 utils/harvest.js。
+ * 放数据层是因为它跟学习进度同生共死（清数据要一起清、备份要一起走），
+ * 而 settings 那条线是"偏好"，不该掺进进度状态。
+ */
+export function replanState() {
+  const st = get();
+  if (!st.replan || typeof st.replan !== 'object') st.replan = blank().replan;
+  const r = st.replan;
+  if (!r.lastAllDone || typeof r.lastAllDone !== 'object') r.lastAllDone = { date: '', at: 0 };
+  if (!Array.isArray(r.pending)) r.pending = [];
+  return r;
+}
+
+/** 局部更新重排状态并落盘 */
+export function setReplan(patch) {
+  const r = replanState();
+  Object.keys(patch || {}).forEach(k => { r[k] = patch[k]; });
+  touch();
+  return r;
+}
+
+/** 给某一项挂上额外收获（AI 总结 + 原话）。台账里没有这项就返回 null */
+export function setHarvest(date, taskId, h) {
+  const l = ledgerOf(date);
+  if (!l) return null;
+  const it = l.items.filter(x => x.taskId === taskId)[0];
+  if (!it) return null;
+  it.harvest = Object.assign({ at: Date.now() }, it.harvest || {}, h || {});
+  it.harvest.atText = clockText(it.harvest.at);
+  l.updatedAt = Date.now();
+  touch();
+  return it.harvest;
+}
+
+/**
+ * 把任务置为完成 —— **所有完成路径的唯一出口**。
+ * 先改状态再记台账，保证"任务显示已完成"和"台账里有一条"永远同时成立。
+ */
+function markTaskDone(g, t, src, date) {
+  if (!g || !t) return;
+  const first = t.status !== 'done';
+  t.status = 'done';
+  t.doneAt = Date.now();
+  // 只有第一次置完成才记台账（creditPomo 已记过的，setTaskStatus 再来一次不会重复）
+  if (first) ledgerAdd(g.id, t.id, src || 'manual', date);
+}
+
 /** 任务状态流转 */
 export function setTaskStatus(goalId, taskId, status) {
   const g = goalOf(goalId);
   if (!g) return;
   const t = g.tasks.filter(x => x.id === taskId)[0];
   if (!t) return;
-  t.status = status;
   if (status === 'done') {
-    t.doneAt = Date.now();
     // 手工勾完成要把番茄数补齐：进度条 / 统计只认 donePomos（见 goalProgress），
     // 不补的话勾完状态是"已完成"但进度仍是 0%，和番茄钟路径两套口径。
     // 差额走 creditPomo（而不是直接改字段）—— 补的这些也要进 sessions / daily，
-    // 否则"勾一下完成"在热力图和 forecast 里等于没学过
+    // 否则"勾一下完成"在热力图和 forecast 里等于没学过。
+    // ⚠️ creditPomo 做满时自己会走 markTaskDone 记台账，下面那句是兜底
+    //   （番茄本来就够、补 0 个的情况不会触发 creditPomo 里的完成分支）。
     creditPomo(goalId, taskId, Math.max(1, t.pomos || 1) - (t.donePomos || 0), { src: 'manual' });
     t.donePomos = Math.max(t.donePomos || 0, t.pomos || 1);
+    markTaskDone(g, t, 'manual');
+    touch();
+    return;
   }
+  t.status = status;
   touch();
 }
 
@@ -213,8 +354,8 @@ export function addPomoToTask(goalId, taskId) {
   const t = g.tasks.filter(x => x.id === taskId)[0];
   if (!t) return;
   t.donePomos = (t.donePomos || 0) + 1;
-  // 番茄数做满即自动完成
-  if (t.donePomos >= t.pomos && t.status === 'todo') t.status = 'done';
+  // 番茄数做满即自动完成（走 markTaskDone：台账要记一笔，否则"今天全部完成"判不出来）
+  if (t.donePomos >= t.pomos && t.status === 'todo') markTaskDone(g, t, 'pomo');
   touch();
 }
 
@@ -289,6 +430,9 @@ function focusLen() {
  */
 export function creditPomo(goalId, taskId, n, opt) {
   const o = opt || {};
+  // 补记落到哪一天（"填的是昨天的表"时记昨天）—— 完成台账要跟它同一天，
+  // 所以这两个都得在置完成之前算好
+  const key = o.date || today();
   const g = goalOf(goalId);
   if (!g) return 0;
   const t = g.tasks.filter(x => x.id === taskId)[0];
@@ -297,10 +441,10 @@ export function creditPomo(goalId, taskId, n, opt) {
   const add = Math.min(Math.floor(Number(n) || 0), Math.max(0, cap - (t.donePomos || 0)));
   if (add <= 0) return 0;
   t.donePomos = (t.donePomos || 0) + add;
-  if (t.donePomos >= cap && t.status === 'todo') { t.status = 'done'; t.doneAt = Date.now(); }
+  // 做满即完成 —— 同样走 markTaskDone 记台账
+  if (t.donePomos >= cap && t.status === 'todo') markTaskDone(g, t, o.src || 'log', key);
 
   const st = get();
-  const key = o.date || today();
   const min = add * focusLen();
   st.sessions.push({
     id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),

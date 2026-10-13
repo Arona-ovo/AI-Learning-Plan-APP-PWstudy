@@ -52,8 +52,12 @@
         :ops="true"
         :tip="true"
         @changed="onListChanged"
+        @done="onTaskDone"
       />
     </view>
+
+    <!-- 任务完成弹窗（fixed 层，放在页面根下）：与首页同一个组件、同一套文案 -->
+    <task-done-dialog ref="doneDlg" @open="doneDlgOn = true" @close="doneDlgOn = false" />
   </view>
 </template>
 
@@ -61,13 +65,15 @@
 import * as pw from '../../../utils/pwstore.js'
 import * as holiday from '../../../utils/holiday.js'
 import * as schedule from '../../../utils/schedule.js'
+import * as harvest from '../../../utils/harvest.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import ScheduleList from '../../../components/schedule-list/schedule-list.vue'
+import TaskDoneDialog from '../../../components/task-done-dialog/task-done-dialog.vue'
 
 const WEEK = ['一', '二', '三', '四', '五', '六', '日']
 
 export default {
-  components: { FloatNavbar, ScheduleList },
+  components: { FloatNavbar, ScheduleList, TaskDoneDialog },
   data() {
     return {
       weekNames: WEEK,
@@ -75,7 +81,8 @@ export default {
       cells: [],
       picked: '',
       todayStr: pw.today(),
-      list: []
+      list: [],
+      doneDlgOn: false
     }
   },
   computed: {
@@ -98,6 +105,15 @@ export default {
     // 这里不重置 picked / 月份 —— 用户翻到别的月份再回来，不该被弹回今天。
     this.build()
     this.refreshList()
+    this.runReplanFlow()
+  },
+  /**
+   * 返回键先收完成弹窗（与首页同一个规矩：按返回只是"不说了"，不是离开页面）。
+   * 这一层不做拦截 —— 收完就放行，日历页没有"硬控"那回事。
+   */
+  onBackPress() {
+    if (this.doneDlgOn && this.$refs.doneDlg) { this.$refs.doneDlg.close(); return true }
+    return false
   },
   methods: {
     build() {
@@ -136,6 +152,37 @@ export default {
     onListChanged() {
       this.build()
       this.refreshList()
+    },
+    // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
+    /** 勾掉一项 → 弹「恭喜你完成任务」（取消完成不弹） */
+    onTaskDone(row) {
+      const d = this.$refs.doneDlg
+      if (!d) return
+      let atText = ''
+      try {
+        const it = harvest.listOf(pw.today()).filter(x => x.taskId === (row.id || row.taskId))[0]
+        if (it) atText = it.atText || ''
+      } catch (e) {}
+      d.open({ goalId: row.goalId, id: row.id || row.taskId, title: row.title, goalTitle: row.goalTitle }, atText)
+      this.runReplanFlow()
+    },
+    /**
+     * 与首页同一条线：跨天兜底 + 当天全部完成自动重排。
+     * 真落地了要重算月历（重排会改 tasks[].day，格子里的任务数跟着变）。
+     * ⚠️ 这里只跑兜底那一条 —— "全部完成"的提示与待确认询问留在首页弹，
+     *    两个页面同时问同一件事会把人烦死。
+     */
+    async runReplanFlow() {
+      try {
+        const sw = await harvest.sweep()
+        if (sw && sw.ok && sw.applied) {
+          this.build()
+          this.refreshList()
+          try { uni.showToast({ title: '昨天有没做完的，已重排后面 ' + sw.applied + ' 项', icon: 'none', duration: 3000 }) } catch (e) {}
+        }
+      } catch (e) {
+        console.warn('[calendar] 自动重排失败', e && e.message)
+      }
     },
     pick(date) {
       this.picked = date

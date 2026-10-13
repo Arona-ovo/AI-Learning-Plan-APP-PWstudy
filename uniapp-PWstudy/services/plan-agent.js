@@ -763,11 +763,77 @@ export async function explainTask(task, goal) {
 }
 
 /**
+ * 额外收获：把用户完成任务后随口说的那几句，总结成**一条带时间的记录**。
+ *
+ * 为什么不直接存原话：三个月后回看"今天那个 reading 有点赶"，谁也不知道
+ * 那是什么、说明了什么。而重排真正用得上的其实是两样东西 ——
+ *   ① 一句"发生了什么"（含日期与时刻，才知道是哪一次、和哪天的计划对照）
+ *   ② 几个可复用的标签（"晚上效率高" / "阅读偏慢"），后面排量时直接拿来对齐
+ * 所以让模型做一次压缩，原话另存 raw 备查（模型总结错了也不丢东西）。
+ *
+ * 抛出可降级错误由调用方兜底（关掉这项 / 没配 AI / 网络不通 → 原话直存）。
+ *
+ * @param {{taskTitle:string, goalTitle:string, pomos:number, date:string, atText:string, texts:string[]}} ctx
+ * @returns {Promise<{summary:string, tags:string[]}>}
+ */
+export async function summarizeHarvest(ctx) {
+  ensureFeature('harvest');
+  const c = ctx || {};
+  const texts = (c.texts || []).map(s => String(s || '').trim()).filter(Boolean);
+  if (!texts.length) throw new Error('没有可总结的内容');
+  const sys = [
+    '你是学习记录的整理者。学习者刚完成一项任务，说了一段自己的感受/收获。',
+    '把它压缩成一句可长期回看的记录。只输出一个 JSON 对象：',
+    '{"summary":"一句话记录（40 字内，必须点明这件事对**后面怎么排**有什么用）","tags":["标签","标签"]}',
+    '要求：',
+    '1. summary 用第三人称或无人称陈述，写"事实 + 含义"，不要写"用户说"；',
+    '2. summary 里不要重复日期与时刻（调用方会另外存），只写发生了什么、说明什么；',
+    '3. 只总结他**真的说了**的，没说的不要脑补；他说"没有"就如实记为没有额外收获；',
+    '4. tags 0-3 个，每个 6 字内，是可复用的信号（如"晚上效率高""阅读偏慢""需要例题"），'
+    + '不要写"收获""反馈"这种没有信息量的词；',
+    '5. 他的原话口语化、有错别字、跑题都没关系，抓主干即可；跑题到与学习无关的闲聊时 tags 给空数组。'
+  ].join('\n');
+  const user = [
+    '任务：' + (c.taskTitle || ''),
+    '所属目标：' + (c.goalTitle || ''),
+    '这项任务安排了 ' + (c.pomos || 1) + ' 个番茄，完成于 ' + (c.date || '') + ' ' + (c.atText || '') + '。',
+    '他的原话：' + texts.join(' / ')
+  ].join('\n');
+
+  let lastErr = '';
+  for (let i = 0; i < MAX_ROUNDS; i++) {
+    const msgs = [{ role: 'system', content: sys }, { role: 'user', content: user }];
+    if (lastErr) {
+      msgs.push({ role: 'assistant', content: '（上一轮输出不合格：' + lastErr + '）' });
+      msgs.push({ role: 'user', content: '请严格按格式重新输出 JSON。' });
+    }
+    try {
+      const r = await chatCompletion(msgs, { temperature: 0.4, timeout: 30000 });
+      const o = extractJSON(r.content);
+      const summary = clampStr(o.summary, 80);
+      const tags = Array.isArray(o.tags)
+        ? o.tags.map(s => clampStr(s, 12)).filter(Boolean).slice(0, 3)
+        : [];
+      if (!summary) throw new Error('总结是空的');
+      return { summary: summary, tags: tags };
+    } catch (e) {
+      if (e instanceof LLMError) { if (e.notConfigured || !e.retryable) throw humanPlanError(e); lastErr = e.message; }
+      else lastErr = (e && e.message) || '输出解析失败';
+    }
+  }
+  throw new Error('AI 连续几轮都没给出合格的收获总结（' + lastErr + '）');
+}
+
+/**
  * 动态重排：传入目标 + 近期真实投入（recentDays 的摘要），返回 diff 预览。
  * 只给建议不落库 —— 用户逐条确认后由页面应用（强制预览纪律）。
+ *
+ * @param {string} [extra] 追加给模型的上下文块（本人最新意见 / 历史反馈 / 上次重排结果）。
+ *   自动重排（utils/harvest.js）靠这一段把"反馈 → 重排 → 再反馈"串成闭环 ——
+ *   没有它，模型每次看到的都是同一份冷冰冰的进度，改完也不知道自己上次改了什么。
  */
-export function replanGoal(goal, reality, opt) {
-  return runReplan(goal, reality, '', opt);
+export function replanGoal(goal, reality, opt, extra) {
+  return runReplan(goal, reality, '', opt, extra);
 }
 
 /**
@@ -778,11 +844,11 @@ export function replanGoal(goal, reality, opt) {
  *   B：今天提前把后面第 8 天的活干了（节奏变了 → 往前提）
  * 这两种情况该给的 op 完全相反。拿到填报之后它才判断得出来。
  */
-export function replanFromToday(goal, log, reality, opt) {
-  return runReplan(goal, reality, dailylog.summaryFor(log), opt);
+export function replanFromToday(goal, log, reality, opt, extra) {
+  return runReplan(goal, reality, dailylog.summaryFor(log), opt, extra);
 }
 
-async function runReplan(goal, reality, todayBlock, opt) {
+async function runReplan(goal, reality, todayBlock, opt, extra) {
   ensureFeature('replan');
   // reality 可以是对象（推荐）或老的字符串："近期每天分钟数"
   const rd = (typeof reality === 'string')
@@ -826,6 +892,14 @@ async function runReplan(goal, reality, todayBlock, opt) {
         (maxDefer ? '，必要时才用 defer 动截止日' : '') + '；',
       '   d. 完全按计划完成 → 只在有更优解时给一条 strategy note，不要为改而改。',
       '9. 收工填报里的信息以"事实"对待，但判断权在你：一天的数据不足以推翻整个计划。'
+    ].join('\n') : '',
+    // 只有自动重排（带 extra）时下发：它带来的是"本人最新意见"和"上次你改了什么"，
+    // 这两样都比历史进度优先级高 —— 不听他的最新意见，闭环就断在这一步
+    extra ? [
+      '10. **下面若给了【本人最新意见】，它是最高优先级**：他刚亲口说过该怎么排，',
+      '    与你的判断冲突时按他说的来，并在 reason 里说明你是怎么兼顾的；',
+      '11. 【上次重排结果】是你自己上次的产出 —— 不要重复提已经做过的调整，',
+      '    也不要在没新证据的情况下把它改回去（来回横跳最伤信任）。'
     ].join('\n') : ''
   ].filter(Boolean).join('\n');
   const user = [
@@ -837,6 +911,8 @@ async function runReplan(goal, reality, todayBlock, opt) {
     // 能力画像：调量时要对齐"这个人真能吃多少"，而不是他的意愿
     '学习者画像：' + pacing.promptText(goal.dailyMin || 60),
     todayBlock || '',
+    // 本人最新意见 / 历史反馈 / 上次重排结果（自动重排时由 utils/harvest.js 拼好）
+    extra || '',
     '剩余任务（JSON）：' + JSON.stringify(pending)
   ].filter(Boolean).join('\n');
 

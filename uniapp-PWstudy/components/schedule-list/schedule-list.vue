@@ -82,6 +82,10 @@ export default {
         return
       }
       try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
+      // 刚被**勾完成**的那一项要单独抛出去：父级要弹「恭喜你完成任务」并问额外收获。
+      // 取消完成（r.done=false）不抛 —— 那是撤销，不该弹祝贺。
+      // ⚠️ 先抛再抛 changed：父级拿到 row 里的 id 才能反查完成时刻
+      if (r.done) this.$emit('done', row)
       // 勾完可能就不在这一天的列表里了（已完成的不进"待办"队列）→ 让父级重算
       this.$emit('changed')
     },

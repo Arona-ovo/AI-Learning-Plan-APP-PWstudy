@@ -57,6 +57,10 @@
         {
           "path": "pages/coach/coach",
           "style": { "navigationBarTitleText": "跟 AI 说说今天", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/harvest/harvest",
+          "style": { "navigationBarTitleText": "额外收获", "navigationStyle": "custom" }
         }
       ]
     },
