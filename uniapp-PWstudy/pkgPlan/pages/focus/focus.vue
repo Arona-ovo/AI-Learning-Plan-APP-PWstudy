@@ -567,11 +567,9 @@ export default {
           const k = this.noiseKinds[r.tapIndex]
           if (!k) return
           this.noiseKind = k.k
-          if (this.noiseOn) {
-            this.pickNoise(k.k)
-            ambient.stop()
-            ambient.start(k.k)
-          }
+          // 走 pickNoise → syncAmbient：它自己会判断"现在是不是正在专注"，
+          // 不在专注（比如休息中）就只是存偏好、不出声（白噪音只陪专注）
+          if (this.noiseOn) this.pickNoise(k.k)
         }
       })
     },
@@ -747,10 +745,33 @@ export default {
           duration: 3000
         })
       }
+      this.syncAmbient()
     },
     pickNoise(k) {
       this.noiseKind = k
-      if (this.noiseOn) this.saveNoise(k)
+      if (!this.noiseOn) return
+      this.saveNoise(k)
+      this.syncAmbient()
+    },
+    /**
+     * 让白噪音跟"现在这一刻的状态"对齐：专注进行中且开关开着 → 立刻响，否则立刻停。
+     *
+     * ⚠️ 以前只有 focus.start()（开始专注）这一条路会起声 —— 番茄跑到一半才开开关，
+     *    要等**下一轮**才响，用户只会以为这个功能坏了。所以开关、切音色都得当场生效。
+     * 休息不陪：口径与 utils/focus.js 一致（白噪音只陪专注，进休息就停）。
+     */
+    syncAmbient() {
+      const on = this.noiseOn && this.active && !this.paused && !this.isRest;
+      if (!on) { ambient.stop(); return; }
+      const kind = this.noiseKind || 'rain';
+      ambient.start(kind);
+      // 播不出来是异步才知道的（onError 或"发起了但没响"） ——
+      // 稍后回看一眼，把原因说给用户，别让他对着一个没声音的开关发呆。
+      setTimeout(() => {
+        if (ambient.current() !== kind) return;   // 期间又切走了，这条提示已过期
+        const err = ambient.lastError();
+        if (err) uni.showToast({ title: err, icon: 'none', duration: 3000 });
+      }, 2800);
     },
     saveNoise(kind) {
       try {

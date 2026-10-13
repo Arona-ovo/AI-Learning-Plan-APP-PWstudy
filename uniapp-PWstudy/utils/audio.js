@@ -29,6 +29,25 @@ export function localUrl(rel) {
 }
 
 /**
+ * 喂给播放器的候选路径（按顺序试）。
+ *
+ * 真机反馈：白噪音和结束响铃**一起**没声音 —— 两者除了出声方式不同，唯一的共同点
+ * 就是都走 localUrl() 这一层。也就是说 `convertLocalFileSystemURL` 转出来的绝对路径
+ * 在部分机型 / 部分基座上播放器认不了，而且往往连 onError 都不吐，于是彻底静默。
+ *
+ * 所以这里给两条路：先试转出来的绝对路径，播不出来就退回包内相对路径 `/static/...`
+ * （uni 自己认得相对路径）。两条都试过才算真失败 —— 之后该蜂鸣兜底的兜底、
+ * 该提示的提示。调用方（playOnce / ambient）只管用这个数组换 src 重试。
+ */
+export function srcCandidates(rel) {
+  const out = [];
+  const abs = localUrl(rel);
+  if (abs) out.push(abs);
+  if (out.indexOf(rel) < 0) out.push(rel);
+  return out;
+}
+
+/**
  * 系统媒体音量（App 端）。
  * 这是"没声音"的第一嫌疑：安卓的 InnerAudioContext 走 STREAM_MUSIC，
  * 媒体音量为 0 / 开了勿扰时，播得再对也听不见。
@@ -133,6 +152,8 @@ export function playOnce(rel, opt, done) {
     }, 200);
   }
 
+  const paths = srcCandidates(rel);
+  let pi = 0;
   try {
     ctx.volume = cfg.volume == null ? 1 : Number(cfg.volume) || 1;
     ctx.onCanplay(() => {
@@ -141,12 +162,18 @@ export function playOnce(rel, opt, done) {
     });
     ctx.onEnded(() => finish({ ok: true, via: 'iac' }));
     ctx.onError((e) => {
+      // 还有候选没试 → 换下一条路径再发起一次，先别判失败（见 srcCandidates 注释）
+      if (pi < paths.length - 1) {
+        pi++;
+        try { ctx.src = paths[pi]; ctx.play(); } catch (e2) {}
+        return;
+      }
       const code = e && (e.errCode != null ? e.errCode : e.code);
       const msg = (e && (e.errMsg || e.message)) || 'error';
       const ok = cfg.fallback === false ? false : tone(RING_MS);
       finish({ ok, err: msg, code, via: ok ? 'tone' : 'none' });
     });
-    ctx.src = localUrl(rel);
+    ctx.src = paths[pi];
     // 双保险：能播就播（onCanplay 在部分平台不触发，只靠它会一直不响）
     try { ctx.play(); } catch (e) {}
     // 试听：到点掐掉（不掐就变成"开了一路关不掉的背景音"）
@@ -158,7 +185,8 @@ export function playOnce(rel, opt, done) {
     }
     // 兜底结算：3 秒（试听则放宽到时长 + 1.5 秒）还没结束也没报错 → 认为播成了
     // （长音频/循环不适用，这里只给短音效和试听用）
-    const settleMs = cfg.ms > 0 ? (Number(cfg.ms) || 1000) + 1500 : 3000;
+    // +2000：给"换第二条路径再试一次"留出时间，别在重试途中就判成播成了
+    const settleMs = (cfg.ms > 0 ? (Number(cfg.ms) || 1000) + 1500 : 3000) + 2000;
     setTimeout(() => finish({ ok: true, via: 'iac', note: 'timeout-assumed' }), settleMs);
   } catch (e) {
     const ok = cfg.fallback === false ? false : tone(RING_MS);

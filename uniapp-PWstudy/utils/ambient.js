@@ -23,6 +23,8 @@ export const KINDS = [
 ];
 
 const VOLUME = 0.7;
+// 起播后多久还没见 onPlay 就认为"没响"（界面据此提示，而不是一直静默）
+const START_MS = 2500;
 
 let ctx = null;
 let cur = '';
@@ -34,6 +36,10 @@ export function lastError() { return lastErr; }
 function relOf(kind) {
   return '/static/noise/' + kind + '.wav';
 }
+
+// 路径候选复用 audio.srcCandidates（响铃 / 音效走同一层）：
+// 真机上"白噪音和响铃一起没声音"就是这一层给出的绝对路径播放器认不了，
+// 在这里另写一份只会两头不一致。
 
 /**
  * 开始循环播放。已在该音色上时等价于 resume。
@@ -57,10 +63,21 @@ export function start(kind) {
   }
   ctx = c;
   cur = kind;
+  const paths = audio.srcCandidates(relOf(kind));
+  let pi = 0;
+  let sounded = false;
+  const playNow = () => { try { c.play(); } catch (e) {} };
   try {
     c.loop = true;
     c.volume = VOLUME;
+    c.onPlay(() => { sounded = true; lastErr = ''; });
     c.onError((e) => {
+      // 还有候选没试：换下一条路径再发起一次（见 srcCandidates 的注释）
+      if (pi < paths.length - 1) {
+        pi++;
+        try { c.src = paths[pi]; playNow(); } catch (e2) {}
+        return;
+      }
       const code = e && (e.errCode != null ? e.errCode : e.code);
       lastErr = '白噪音播放失败' + (code ? '（' + code + '）' : '') +
         '：' + ((e && (e.errMsg || e.message)) || '未知原因');
@@ -70,9 +87,16 @@ export function start(kind) {
       lastErr = '';
       try { c.play(); } catch (e) {}
     });
-    c.src = audio.localUrl(relOf(kind));
+    c.src = paths[pi];
     // 缓冲好会再播一次；这里先发起，防的是部分平台 onCanplay 不触发就一直不响
-    try { c.play(); } catch (e) {}
+    playNow();
+    // 一直没见 onPlay、也没报错 = "发起了但没出声"。以前这种情况是完全静默的，
+    // 用户只能以为功能坏了 —— 记下来，界面好歹能说一句。
+    setTimeout(() => {
+      if (c !== ctx || sounded || lastErr) return;
+      lastErr = '已发起播放，但没听到声音（媒体音量为 0 也会这样）';
+      console.warn('[ambient] ' + lastErr);
+    }, START_MS);
     return true;
   } catch (e) {
     lastErr = '白噪音启动失败';
