@@ -117,11 +117,12 @@
             </view>
           </view>
 
-          <!-- 今日紧迫度：整张卡没有文字 ——
+          <!-- 今日紧迫程度：卡片头一行字（标题 + 档位胶囊 + ?），下面靠图形说话 ——
                环的填充 = 有多赶，核心呼吸的快慢 = 赶的程度，
                方块 = 还剩几个番茄（实心）与已做几个（空心），
                底下那条 = 今天 24 小时，竖线是"现在"，色块是"还要多久"。
-               右上角一个 ? —— 想看人话解释就点它。 -->
+               右侧三行小字是图形的读数（分数 / 还剩几个 / 还要多久）。
+               右上角一个 ? —— 想看完整解释就点它。 -->
           <view v-else-if="id === 'urgency'" class="card urg-card">
             <urgency-meter :u="u" @help="explainUrgency" />
           </view>
@@ -408,7 +409,7 @@ export default {
       setupPending: [],
       checked: false,
       checkText: '',
-      // 今日紧迫度（utils/urgency.js 算好，整张卡靠图形说话，不含文字）
+      // 今日紧迫程度（utils/urgency.js 算好：标题 + 档位 + 三行读数，其余靠图形）
       u: {},
       // ---------- 日程表卡 ----------
       // 数据构造与"哪天"的判断都在 utils/schedule.js，跟日历页同一份口径
@@ -857,8 +858,8 @@ export default {
     refreshUrgency() {
       try { this.u = urgency.compute() } catch (e) { this.u = {} }
     },
-    // 卡片上唯一的文字入口：一个 ?。点开才把四个图形翻译成人话。
-    // 平时不显示，是因为"看一眼就知道今天紧不紧张"这件事，图形比文字快。
+    // 卡面上只放"标题 + 档位 + 三行读数"这点字，完整解释收进这个 ? 弹窗 ——
+    // "看一眼就知道今天紧不紧张"这件事，图形比文字快。
     explainUrgency(u) {
       const v = u || this.u || {}
       const lv = urgency.levelName(v.level)
@@ -866,7 +867,7 @@ export default {
         ? this.$t('剩下的活已经排不进今天了（时间条顶到头并在闪）')
         : this.$t('还剩 {n} 分钟可用，够做这些', { n: v.availMin || 0 })
       this.ask({
-        title: this.$t('今日紧迫度 · {lv}', { lv: lv }),
+        title: this.$t('今日紧迫程度 · {lv}', { lv: lv }),
         content:
           this.$t('① 圆环填充 = 紧迫度 {n}/100', { n: v.score || 0 }) + '\n' +
           this.$t('② 中心呼吸 = 越急跳得越快') + '\n' +
@@ -1582,9 +1583,9 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 
-/* 紧迫度卡：整张卡就是一个图形，不需要 card-head 那种标题行，
-   所以上下留白比通用卡紧一点，让四个图形自己撑住这张卡。 */
-.urg-card { padding: 32rpx 36rpx; }
+/* 紧迫度卡：卡片头那行字是组件自己画的（标题 + 档位胶囊 + ?），
+   所以这里不用再套一层 .card-head，留白比通用卡紧一点。 */
+.urg-card { padding: 30rpx 36rpx 32rpx; }
 
 /* ===== 番茄进行中：首页被倒计时"硬控" =====
    这一屏刻意只留三样东西：还剩多久、在为谁计时、继续/停下。

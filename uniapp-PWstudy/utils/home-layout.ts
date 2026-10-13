@@ -19,7 +19,7 @@ export interface HomeModule {
 /**
  * 首页可选组件（顺序 = 首次进入的默认顺序）
  *
- * 默认留四张：番茄专注 · 今日紧迫度 · 今日任务 · 进行中的目标。
+ * 默认留四张：番茄专注 · 今日紧迫程度 · 今日任务 · 进行中的目标。
  * 紧迫度紧跟在番茄钟后面：它是"今天到底有多赶"的一眼判断，
  * 排在任务列表之前——先看紧不紧张，再看具体做什么。
  * 其余（学习 App、AI 对话）默认收进收纳区 —— 首页是"要开始专注"的地方，
@@ -27,7 +27,7 @@ export interface HomeModule {
  */
 export const MODULES: HomeModule[] = [
   { id: 'focus', name: '番茄专注', desc: '当前番茄的倒计时，点一下进入全屏专注页', def: true },
-  { id: 'urgency', name: '今日紧迫度', desc: '图形化显示今天还剩多少时间、活有多重、有多赶（无文字）', def: true },
+  { id: 'urgency', name: '今日紧迫程度', desc: '还剩多少时间、活有多重、有多赶：环 / 方块 / 时间条一眼看完', def: true },
   { id: 'task', name: '今日任务', desc: '今天要做的任务队列，点行直接开始专注', def: true },
   { id: 'goal', name: '进行中的目标', desc: '里程碑进度与剩余天数', def: true },
   // 日程表：与日历页共用 components/schedule-list（同一套字段与样式），

@@ -886,7 +886,7 @@ export default {
   // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '番茄专注': 'Pomodoro',
-  '今日紧迫度': "Today's urgency",
+  '今日紧迫程度': "Today's urgency",
   '今日任务': "Today's tasks",
   '进行中的目标': 'Active goal',
   '日程表': 'Schedule',
@@ -896,10 +896,27 @@ export default {
     "One day's schedule — shift a task forward or back by a day in place",
   '当前番茄的倒计时，点一下进入全屏专注页':
     'The running pomodoro countdown — tap to open the full-screen focus page',
-  '图形化显示今天还剩多少时间、活有多重、有多赶（无文字）':
-    'Shows graphically how much time is left today, how heavy the load is, and how pressing it is (no text)',
+  '还剩多少时间、活有多重、有多赶：环 / 方块 / 时间条一眼看完':
+    'How much time is left, how heavy the load is, how pressing it is — ring, blocks and time bar at a glance',
+  // 紧迫度卡的卡片头与三行读数（components/urgency-meter）
+  '从容': 'Relaxed',
+  '正常': 'Normal',
+  '紧张': 'Tight',
+  '告急': 'Critical',
+  '时间还很宽裕': 'Plenty of time left',
+  '按计划来就行': 'Just follow the plan',
+  '得抓紧一点了': 'Time to speed up',
+  '今天怕是排不下了': "Today's load will not fit",
+  '今天排不下了': "Today's load will not fit",
+  '时间有点不够了': 'Running short on time',
+  '还剩 {n} 个': '{n} left',
+  '{n} 分钟': '{n} min',
+  '{h} 小时': '{h}h',
+  '{h} 小时 {m} 分': '{h}h {m}m',
+  '还需 {t}': 'Needs {t}',
+  '今天剩 {t}': '{t} left today',
   // 紧迫度卡右上角的 ? 弹窗：四个图形各对应一句说明
-  '今日紧迫度 · {lv}': "Today's urgency · {lv}",
+  '今日紧迫程度 · {lv}': "Today's urgency · {lv}",
   '剩下的活已经排不进今天了（时间条顶到头并在闪）':
     "What's left no longer fits in today (the bar is full and blinking)",
   '还剩 {n} 分钟可用，够做这些': '{n} min still available — enough for what is left',

@@ -193,21 +193,73 @@ function at(hh, mm) {
   eq(U.levelName(-1), '从容', 'levelName 负值夹到首档');
   eq(U.LV_COLOR.length, 4, '四档配色');
 
-  /* ---------- 7. 组件：几乎没有文字 ---------- */
-  console.log('== 7. components/urgency-meter 无文字 ==');
+  /* ---------- 7. 组件：卡片头 + 三行读数（文字一律走 $t） ---------- */
+  // 2026-10-14：原先"卡内零中文"是刻意的设计（四个图形各说一件事），
+  // 但真机上一整条卡片没有字显得空 —— 用户要求补一行字。所以改成
+  // 「卡片头（标题 + 档位胶囊 + ?）+ 三行读数」，其余仍靠图形。
+  // 让步的边界写死在这里：文字只能出现在 ug-head / ug-line / ug-foot 里，
+  // 四个图形本身不许被文字替换。
+  console.log('== 7. components/urgency-meter 文案与图形 ==');
   const comp = R('components/urgency-meter/urgency-meter.vue');
   const cut = comp.indexOf('\n</template>');
   const tpl = comp.slice(0, cut).replace(/<!--[\s\S]*?-->/g, '');
-  const hanText = (tpl.match(/>[^<>{}]*</g) || [])
+
+  // ① 卡片头：这一行字就是用户要的"写几个字"
+  assert(/class="ug-head"/.test(tpl), '有卡片头（标题行）');
+  assert(/class="ug-title"[^>]*>\{\{ \$t\('今日紧迫程度'\)/.test(tpl),
+    '标题写的是「今日紧迫程度」且走 $t');
+  assert(/class="ug-lv"/.test(tpl) && /\{\{ levelText \}\}/.test(tpl), '标题行挂档位胶囊');
+  assert(/\?/.test(tpl) && /@tap\.stop="onHelp"/.test(tpl), '卡片头保留 ? 按钮');
+
+  // ② 三行读数：分数 / 还剩几个 / 还要多久
+  assert(/class="ug-score"[\s\S]{0,80}\{\{ score \}\}/.test(tpl), '第一行读数 = 紧迫度分数');
+  assert(/class="ug-hint"[\s\S]{0,80}\{\{ hintText \}\}/.test(tpl), '第一行还有一句人话（档位结论）');
+  assert(/\$t\('还剩 \{n\} 个'/.test(tpl), '第二行读数 = 还剩几个番茄');
+  assert(/class="ug-foot"[\s\S]{0,200}\{\{ needText \}\}[\s\S]{0,120}\{\{ availText \}\}/.test(tpl),
+    '第三行读数 = 还要多久 / 今天还剩多久');
+
+  // ③ 文字不许裸奔：模板里没有裸中文文本节点，脚本里的中文只能是 $t() 的参数
+  const bareTpl = (tpl.match(/>[^<>{}]*</g) || [])
     .map(m => m.slice(1, -1).trim())
     .filter(v => /[\u4e00-\u9fa5]/.test(v));
-  eq(hanText, [], '模板里没有中文文本节点（用户要求：尽量不用文字）');
-  assert(/\?/.test(tpl) && /@tap\.stop="onHelp"/.test(tpl), '唯一的文字是一个 ? 按钮');
+  eq(bareTpl, [], '模板里没有裸中文文本节点（一律 $t）');
+  const bareScript = [];
+  comp.slice(cut).split('\n').forEach(raw => {
+    const t = raw.trim();
+    if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return;
+    const line = raw.replace(/\s+\/\/.*$/, '');
+    (line.match(/'[^'\n]*'/g) || []).forEach(m => {
+      const v = m.slice(1, -1);
+      if (!/[\u4e00-\u9fa5]/.test(v)) return;
+      const i = line.indexOf(m);
+      if (!/t\($/.test(line.slice(Math.max(0, i - 2), i))) bareScript.push(v);
+    });
+  });
+  eq(bareScript, [], '脚本里的中文只作为 $t() 的参数出现（英文态不裸奔）');
+
+  // ④ 四个图形不许被文字顶掉
+  assert(/class="ug-ring"/.test(tpl) && /conic-gradient/.test(comp),
+    '① 环还在，仍用 conic-gradient 画（不用 canvas：原生组件脱离 CSS transform）');
+  assert(/class="ug-core"/.test(tpl) && /class="ug-halo"/.test(tpl), '② 呼吸核心与光晕还在');
+  assert(/class="ug-blk"/.test(tpl), '③ 番茄方块还在');
+  assert(/class="ug-track"/.test(tpl) && /class="ug-now"/.test(tpl), '④ 24h 时间条 + 现在竖线还在');
+  assert(/animationDuration/.test(comp), '呼吸周期是运行时下发的（跟着紧迫度变）');
   assert(/props:\s*\{[\s\S]*?u:/.test(comp), '数据靠 props.u 传入（组件自己不读库）');
   assert(!/pwstore|pacing/.test(comp), '组件不直接读数据层');
   assert(/\$emit\('help'/.test(comp), '点 ? 抛出 help 事件（由页面弹说明）');
-  assert(/animationDuration/.test(comp), '呼吸周期是运行时下发的（跟着紧迫度变）');
-  assert(/conic-gradient/.test(comp), '环用 conic-gradient 画（不用 canvas：原生组件脱离 CSS transform）');
+
+  // ⑤ 档位胶囊要"淡底 + 同色字"，所以数据层得给 alpha 版本。
+  // ⚠️ 这里刻意**不读前面 import 的 U**：动态 import 有 ESM 模块缓存，
+  //    反向测试（neg-urgency-card.js）注入改过的 urgency.js 时 U 还是旧模块，
+  //    断言会假绿（实测过：删掉一档淡底，退出码仍是 0）。所以从源码求值。
+  const usrc = R('utils/urgency.js');
+  const softBlock = /const LV_SOFT\s*=\s*\[([\s\S]*?)\]/.exec(usrc);
+  const softList = softBlock ? (softBlock[1].match(/rgba\([^)]*\)/g) || []) : [];
+  eq(softList.length, 4, '四档淡底（胶囊背景拿不到 color 的 alpha 版本）');
+  assert(softList.length > 0 && softList.every(v => /^rgba\(/.test(v)), '每档淡底都是 rgba(...)');
+  assert(/soft:\s*LV_SOFT\[level\],/.test(usrc), 'compute 把 soft 一起下发（档位胶囊要用）');
+  assert(easy.soft && /^rgba\(/.test(easy.soft), 'compute 返回 soft = rgba(...)');
+  eq(easy.soft, softList[easy.level], 'soft 与 level 对齐（运行值与源码一致）');
 
   /* ---------- 8. 纯本地，不等网络 ---------- */
   console.log('== 8. 纯本地计算 ==');

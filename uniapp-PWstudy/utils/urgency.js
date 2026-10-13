@@ -24,6 +24,13 @@ const MAX_BLOCKS = 12;
 
 /** 档位色：从容 → 正常 → 紧张 → 告急（红=危险，与项目其它警示色一致） */
 const LV_COLOR = ['#3b6d11', '#F79009', '#E5484D', '#bb1332'];
+/** 同色的淡底：档位胶囊要用"淡底 + 同色字"，模板里拿不到 color 的 alpha 版本 */
+const LV_SOFT = [
+  'rgba(59, 109, 17, 0.12)',
+  'rgba(247, 144, 9, 0.14)',
+  'rgba(229, 72, 77, 0.13)',
+  'rgba(187, 19, 50, 0.14)'
+];
 
 function clamp(n, lo, hi) {
   const v = Number(n) || 0;
@@ -114,6 +121,7 @@ export function compute(now) {
     score: score,
     level: level,
     color: LV_COLOR[level],
+    soft: LV_SOFT[level],
     // 呼吸周期：越急跳得越快（从容 3.2s → 告急 0.8s）
     beatMs: Math.round(3200 - score * 24),
     needMin: needMin,
@@ -160,4 +168,4 @@ export function levelName(level) {
   return ['从容', '正常', '紧张', '告急'][clamp(level, 0, 3)] || '正常';
 }
 
-export { MAX_BLOCKS, LV_COLOR };
+export { MAX_BLOCKS, LV_COLOR, LV_SOFT };
