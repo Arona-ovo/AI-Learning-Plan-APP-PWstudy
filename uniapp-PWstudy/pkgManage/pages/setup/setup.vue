@@ -54,6 +54,11 @@
 import * as setup from '../../../utils/setup.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
+// 「无障碍（强制模式：把你拉回来）」整句塞进 toast 太长，去掉括号里的补充说明
+function shortTitle(t) {
+  return String(t || '').split('（')[0].replace(/（|\）/g, '').trim() || '权限'
+}
+
 export default {
   components: { FloatNavbar },
   data() {
@@ -62,18 +67,38 @@ export default {
   onShow() {
     this.refresh()
   },
+  onHide() {
+    if (this.__later) { clearTimeout(this.__later); this.__later = 0 }
+  },
+  onUnload() {
+    if (this.__later) { clearTimeout(this.__later); this.__later = 0 }
+  },
   methods: {
-    refresh() {
+    refresh(fromFix) {
+      const was = {}
+      this.items.forEach(i => { was[i.key] = i.ok })
       this.items = setup.status()
+      // 开了就得让人知道开上了：只提示"刚才点的那一项"，而且必须是真的从没开变成开
+      // （勾了开关但系统还没 bind 上服务时查出来仍是 false，那就什么都不说，等下一次刷新）
+      if (!fromFix || !this.__fixing) return
+      const it = this.items.filter(x => x.key === this.__fixing)[0]
+      if (it && it.ok && was[it.key] === false) {
+        try {
+          uni.showToast({ title: shortTitle(it.title) + '已开启', icon: 'success', duration: 1800 })
+        } catch (e) {}
+      }
     },
     fix(key) {
+      this.__fixing = key
       const ok = setup.fixItem(key)
       if (!ok) {
         try { uni.showToast({ title: '没能打开设置页，请手动去系统设置', icon: 'none' }) } catch (e) {}
       }
-      // 系统页是全屏的，回来才会看到结果；先把这项标成"处理过"，
-      // 免得用户明明开了却一直显示未完成。
-      setTimeout(() => this.refresh(), 300)
+      // 系统页是全屏的，回来才会看到结果 —— 回来那次 onShow 会刷。
+      // 这里再补一次是因为**无障碍服务由系统绑定**，勾上开关到服务真的挂上要一两秒，
+      // 查早了拿到的还是旧值（专注页也是等 1.2s 再查的）。
+      if (this.__later) clearTimeout(this.__later)
+      this.__later = setTimeout(() => { this.__later = 0; this.refresh(true) }, 1200)
     },
     done() {
       setup.skip()

@@ -126,8 +126,19 @@ export function applicable() {
   try { return !!apptime.supported(); } catch (e) { return false; }
 }
 
-/** 逐项实测一次，返回 [{ key, title, why, must, ok }]（must 已求值成布尔） */
+/**
+ * 逐项实测一次，返回 [{ key, title, why, must, ok }]（must 已求值成布尔）
+ *
+ * ⚠️ 「实测」两个字靠这一行成立：无障碍那一项在原生侧是**缓存**的
+ * （每查一次都要问 AccessibilityManager，所以 fgsvc 存了上次的结果）。
+ * 用户从系统设置页勾完开关回来，缓存还是旧值 —— 界面显示"没开"、红点不消失，
+ * 用户以为自己白开了。所以每次实测前先让它失效。
+ *
+ * 放在这里而不是各个页面里：调用方有权限页、首页的待办卡、还要不要弹窗的判定，
+ * 漏一处就又是"开了却没反应"（这坑踩过 —— 只有专注页记得清缓存）。
+ */
 export function status() {
+  try { apptime.refreshA11y(); } catch (e) {}
   return ITEMS.map(it => {
     let ok = false;
     try { ok = !!it.check(); } catch (e) { ok = false; }
