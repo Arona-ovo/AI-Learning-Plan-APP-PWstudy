@@ -1,4 +1,4 @@
-// 反向测试：故意把「番茄到点转正计时」改坏，确认 check-overrun.js 真的会红（防假绿）。
+// 反向测试：故意把「专注到点转正计时」改坏，确认 check-overrun.js 真的会红（防假绿）。
 // 结束（或中途出错）一定把文件还原 —— 用内存里的备份写回，不走 git。
 //
 // ⚠️ 同进程 require 而不是起子进程：这个沙箱里 spawnSync 直接 EBUSY，
@@ -186,7 +186,7 @@ shouldCatch('首页硬控屏没有「退出」按钮', (c) => {
   swap(c, HV, '        <view v-if="cur.overrun" class="lock-ctrl">', '        <view v-if="false" class="lock-ctrl">');
 }, '硬控屏在正计时段换成「退出」按钮');
 
-shouldCatch('首页退出不走状态机（番茄白跑）', (c) => {
+shouldCatch('首页退出不走状态机（专注白跑）', (c) => {
   swap(c, HV, '      focus.stopOverrun()', '      focus.abort()');
 }, 'exitOverrun 走状态机的唯一出口');
 

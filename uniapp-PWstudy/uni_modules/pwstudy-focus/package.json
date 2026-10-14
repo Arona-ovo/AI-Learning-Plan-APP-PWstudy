@@ -1,8 +1,8 @@
 {
   "id": "pwstudy-focus",
-  "displayName": "PWstudy 番茄前台服务",
+  "displayName": "PWstudy 专注前台服务",
   "version": "1.0.0",
-  "description": "番茄钟计时期间启动 Android 前台服务并常驻通知，防止进程在息屏/后台时被系统回收。仅提供 app-android 实现，其他端由 utils/fgsvc.js 自动降级为普通通知。",
+  "description": "一段专注开始后启动 Android 前台服务并常驻通知，防止进程在息屏/后台时被系统回收。仅提供 app-android 实现，其他端由 utils/fgsvc.js 自动降级为普通通知。",
   "uni_modules": {
     "dependencies": [],
     "encrypt": [],

@@ -129,7 +129,7 @@ async function shouldCatch(label, mutations) {
   await shouldCatch('删掉呼吸核心', [
     ['comp', '          <view class="ug-core" :style="coreStyle"></view>\n', '']
   ]);
-  await shouldCatch('删掉番茄方块', [
+  await shouldCatch('删掉专注方块', [
     ['comp', '              class="ug-blk"', '              class="ug-x"']
   ]);
   await shouldCatch('删掉时间条', [

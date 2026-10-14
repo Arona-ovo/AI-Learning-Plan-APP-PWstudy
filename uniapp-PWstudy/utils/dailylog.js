@@ -1,8 +1,8 @@
 // utils/dailylog.js - 每日收工：今天实际做了什么，和计划差在哪
 //
 // 为什么要有这一步：AI 排出来的是"预测"，人每天真正做的是"事实"。
-// 只把番茄总数喂回去，AI 分不清这两种情况 ——
-//   A：今天安排 2 个番茄背单词，结果 1 个都没做 → 任务太重 / 状态不行 → 该减量
+// 只把专注总数喂回去，AI 分不清这两种情况 ——
+//   A：今天安排 2 段专注背单词，结果 1 个都没做 → 任务太重 / 状态不行 → 该减量
 //   B：今天没背单词，但把后面第 8 天的阅读提前做了 → 节奏变了 → 该把后面的往前提
 // 两者该给的建议完全相反，光看时长永远分不出来。所以让用户在收工时花十几秒勾一遍，
 // AI 拿着「计划 vs 实际」的差集去重排后面 —— 这才是真的"动态安排"。
@@ -62,7 +62,7 @@ function normPhotos(v) {
 
 /**
  * 生成收工草稿：今天该做的（items）+ 后面几天可能被提前做的（ahead）。
- * actual 默认取任务已记的番茄数，用户可以再改。
+ * actual 默认取任务已记的专注数，用户可以再改。
  */
 export function buildDraft() {
   const today = pw.today();
@@ -77,7 +77,7 @@ export function buildDraft() {
       day: q.task.day,
       planned: q.task.pomos || 1,
       actual: Math.min(q.task.pomos || 1, q.task.donePomos || 0),
-      // 真实记录的番茄数：「按实际填」按钮的复位基准，也是判断"填报有没有虚增"的尺子
+      // 真实记录的专注数：「按实际填」按钮的复位基准，也是判断"填报有没有虚增"的尺子
       done: q.task.donePomos || 0,
       // 前几天的欠账会被 todayQueue 一起带出来。标出来给收工表分组 ——
       // 混在"今天该做的"里，用户会以为今天必须把历史欠账全补完
@@ -155,7 +155,7 @@ export function save(draft) {
   const old = d.log;
   const log = {
     at: Date.now(),
-    // 补记番茄要按"填报的那天"落账，不能一律记到今天（补填昨天的表会记错天）
+    // 补记专注要按"填报的那天"落账，不能一律记到今天（补填昨天的表会记错天）
     date: draft.date || pw.today(),
     items: (draft.items || []).map(i => ({
       goalId: i.goalId, taskId: i.taskId, title: i.title, goalTitle: i.goalTitle,
@@ -179,7 +179,7 @@ export function save(draft) {
   };
   log.drift = driftOf(log);
   d.log = log;
-  // 把"实际做了几个"真正记到任务上：否则任务还是 0 番茄，
+  // 把"实际做了几个"真正记到任务上：否则任务还是 0 专注，
   // AI 拿到的剩余任务里看不出他已经做过了，会让他重做一遍。
   credit(log);
   pw.touch();
@@ -187,10 +187,10 @@ export function save(draft) {
 }
 
 /**
- * 回填番茄数。只增不减 —— 用户少填了不会把已有的进度抹掉。
+ * 回填专注数。只增不减 —— 用户少填了不会把已有的进度抹掉。
  * 做满即自动完成（与 addPomoToTask 同一口径）。
  *
- * 走 pw.creditPomo 而不是直接改 task.donePomos：填报表里做的这几个番茄
+ * 走 pw.creditPomo 而不是直接改 task.donePomos：填报表里做的这几段专注
  * 也要进 sessions / daily.pomo / daily.focusMin，否则热力图、forecast
  * 和重排用的 reality.days 全都看不见它们 —— 等于白做。
  */
@@ -241,7 +241,7 @@ export function shortStreak(goalId) {
  * 完全照计划走完才是 false —— 那时没必要惊动 AI。
  *
  * 注意：对话里 AI 听出来的事实存在 facts 里，**不算偏差**。
- * 那多半是"我把第 3 天的 X 做完了"这种按计划汇报，番茄已经由 creditPomos 真记上；
+ * 那多半是"我把第 3 天的 X 做完了"这种按计划汇报，专注已经由 creditPomos 真记上；
  * 它只是给 AI 的上下文，不该因此逼用户去重排。
  */
 export function driftOf(log) {
@@ -258,7 +258,7 @@ export function driftOf(log) {
  *
  * 为什么单独一个字段、不写 extras：extras 参与 driftOf，只要非空就会被判成
  * "和计划有出入"。而对话里提炼出的多半是"我把第 3 天的 X 做完了"这种**按计划汇报**，
- * 番茄已经由 creditPomos() 真记到任务上了；把它算成偏差，会让"今天明明照计划走完"
+ * 专注已经由 creditPomos() 真记到任务上了；把它算成偏差，会让"今天明明照计划走完"
  * 的用户每次都被推去点一遍 AI 重排。
  *
  * facts 只作为重排时的上下文（summaryFor 会给 AI 看），不触发强制重排。
@@ -282,12 +282,12 @@ export function appendFacts(date, facts) {
 }
 
 /**
- * 对话里"我把 X 做完了" → 真的把番茄记到任务上。
+ * 对话里"我把 X 做完了" → 真的把专注记到任务上。
  *
- * 为什么必须记：不记的话任务还是 0 番茄，AI 下次重排时看到的仍是"没做过"，
+ * 为什么必须记：不记的话任务还是 0 专注，AI 下次重排时看到的仍是"没做过"，
  * 会让他重做一遍 —— 这和收工填报的 credit() 是同一个坑，只是入口换成了自然语言。
  * 口径与 credit() 一致：只增不减，做满即自动完成。
- * list: [{ taskId, add }]，add = 这次新做的番茄数（不是累计）。
+ * list: [{ taskId, add }]，add = 这次新做的专注数（不是累计）。
  */
 export function creditPomos(list) {
   let n = 0;
@@ -338,10 +338,10 @@ export function summaryFor(log) {
     const p = i.planned || 1;
     const a = i.actual || 0;
     const tag = a >= p ? '完成' : (a > 0 ? '做了一部分（' + a + '/' + p + '）' : '完全没做');
-    lines.push('- 第' + i.day + '天「' + i.title + '」计划 ' + p + ' 番茄，实际 ' + a + ' → ' + tag);
+    lines.push('- 第' + i.day + '天「' + i.title + '」计划 ' + p + ' 专注，实际 ' + a + ' → ' + tag);
   });
   (log.ahead || []).forEach(i => {
-    lines.push('- 提前做了后面第' + i.day + '天的「' + i.title + '」' + (i.actual || 0) + ' 个番茄');
+    lines.push('- 提前做了后面第' + i.day + '天的「' + i.title + '」' + (i.actual || 0) + ' 段专注');
   });
   if (log.extras) lines.push('- 计划之外还做了：' + log.extras);
   if ((log.facts || []).length) lines.push('- 本人今天补充说：' + factsText(log) + '（已核对任务进度，不必因此调整）');

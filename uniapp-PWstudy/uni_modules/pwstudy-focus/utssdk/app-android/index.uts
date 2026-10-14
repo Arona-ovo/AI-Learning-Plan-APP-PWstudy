@@ -7,7 +7,7 @@
  *   · onDestroy 里 stopForeground(true) 收尾
  *
  * 两件事在这个原生层做（JS 层做不到）：
- *   ① 前台服务 —— 番茄期间进程不被回收，计时与结束提醒不中断；
+ *   ① 前台服务 —— 专注期间进程不被回收，计时与结束提醒不中断；
  *   ② 后台看门狗（强制模式）—— WebView 的 setInterval 在 App 退到后台后会被系统挂起，
  *      所以"人一走就拉回来"必须由原生线程来盯；顺带用 moveTaskToFront /
  *      startActivity / 全屏意图通知 / 悬浮窗遮罩 四条手段层层兜底。
@@ -659,7 +659,7 @@ function applyOverlay(ctx: Context | null) {
     try {
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
       let v = new PullOverlay(ctx!)
-      v.setText('强制模式 · 这个番茄还没跑完\n\n点一下回到 PWstudy')
+      v.setText('强制模式 · 这段专注还没跑完\n\n点一下回到 PWstudy')
       v.setTextSize(22.0.toFloat())
       v.setTextColor(Color.WHITE)
       v.setBackgroundColor(Color.argb(236, 23, 32, 26))
@@ -705,7 +705,7 @@ function ensureChannel(ctx: Context) {
       '专注进行中',
       NotificationManager.IMPORTANCE_LOW        // 低打扰：常驻倒计时不该出声
     )
-    channel.setDescription('番茄钟计时进行中')
+    channel.setDescription('专注计时进行中')
     manager.createNotificationChannel(channel)
   }
 }
@@ -759,7 +759,7 @@ function buildPullNotification(ctx: Context): Notification {
   ensurePullChannel(ctx)
   let builder = new NotificationCompat.Builder(ctx, CHANNEL_PULL)
   builder.setContentTitle('强制模式')
-  builder.setContentText('先把这个番茄跑完 —— 点这里回到 PWstudy')
+  builder.setContentText('先把这段专注跑完 —— 点这里回到 PWstudy')
   builder.setSmallIcon(ctx.getApplicationInfo().icon)
   builder.setWhen(System.currentTimeMillis())
   builder.setPriority(1)          // NotificationCompat.PRIORITY_HIGH
@@ -1254,7 +1254,7 @@ function startServiceWith(ctx: Context, intent: Intent): boolean {
 /* ==================== 对外 API ==================== */
 
 /**
- * 启动前台服务（番茄开始时调用）。
+ * 启动前台服务（专注开始时调用）。
  * 服务已在跑时重复调用只是再触发一次 onStartCommand —— 顺带刷新文案，天然幂等。
  */
 export function startFocusService(title: string, text: string): boolean {
@@ -1283,7 +1283,7 @@ export function updateFocusNotification(title: string, text: string): boolean {
   }
 }
 
-/** 停止前台服务并移除常驻通知（番茄结束 / 放弃时调用） */
+/** 停止前台服务并移除常驻通知（专注结束 / 放弃时调用） */
 export function stopFocusService(): boolean {
   let ctx = UTSAndroid.getAppContext()
   if (ctx == null) return false
@@ -1303,10 +1303,10 @@ export function isAvailable(): boolean {
 /**
  * 强制模式：配置后台看门狗。
  *
- * on = false 时立即收手（撤遮罩、撤拉回通知、停线程）—— 用户暂停/放弃/结束番茄、
- * 或关掉强制模式，都必须走这里，否则会出现"番茄都结束了还在拉人"的鬼故事。
+ * on = false 时立即收手（撤遮罩、撤拉回通知、停线程）—— 用户暂停/放弃/结束专注、
+ * 或关掉强制模式，都必须走这里，否则会出现"专注都结束了还在拉人"的鬼故事。
  *
- * untilSec 是兜底的自动收手时间（= 这个番茄还剩多少秒）：JS 在后台可能被冻结，
+ * untilSec 是兜底的自动收手时间（= 这段专注还剩多少秒）：JS 在后台可能被冻结，
  * 光靠它来通知停手不可靠，所以原生自己也掐着表。
  */
 export function setWatch(on: boolean, allowCsv: string, untilSec: Int): boolean {
@@ -1330,7 +1330,7 @@ export function watchEscapes(): number {
   return watchEscapeCount
 }
 
-/** 清零战绩（每轮番茄开始时调一次） */
+/** 清零战绩（每轮专注开始时调一次） */
 export function resetWatchStats(): boolean {
   watchPullCount = 0
   watchEscapeCount = 0

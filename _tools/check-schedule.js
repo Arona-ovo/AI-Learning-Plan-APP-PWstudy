@@ -129,7 +129,7 @@ assert(/class="thumb"/.test(daily) && /th-del/.test(daily), '有缩略图预览�
 const askDefs = (daily.match(/\n\s{4}ask\s*\(/g) || []).length;
 eq(askDefs, 1, 'daily.vue 里 ask 只定义一次（弹窗那个已改名 openDlg）');
 assert(/\n\s{4}openDlg\s*\(/.test(daily), '弹窗方法叫 openDlg');
-assert(!/dl-input|class="step"/.test(daily), '旧的一次性表单已移除（不再有番茄步进器）');
+assert(!/dl-input|class="step"/.test(daily), '旧的一次性表单已移除（不再有专注步进器）');
 
 // photos 落库
 const draft = dailylog.buildDraft();
@@ -238,11 +238,11 @@ const r1 = schedule.toggleDone(mineRow);
 assert(r1.ok === true && r1.done === true, '勾一下 → 已完成（' + r1.msg + '）');
 const tc = () => pw.goalOf(gc.id).tasks.filter(x => x.id === mineRow.id)[0];
 assert(tc().status === 'done', '状态真的落库了');
-eq(tc().donePomos, 3, '勾完成把差的那 3 个番茄补齐（进度条/热力图认这笔账）');
+eq(tc().donePomos, 3, '勾完成把差的那 3 段专注补齐（进度条/热力图认这笔账）');
 const r2 = schedule.toggleDone({ goalId: gc.id, id: mineRow.id, status: 'done' });
 assert(r2.done === false, '再点一下 → 取消完成');
 assert(tc().status === 'todo', '状态回到待办');
-eq(tc().donePomos, 3, '取消完成不回滚已记的番茄（做过就是做过）');
+eq(tc().donePomos, 3, '取消完成不回滚已记的专注（做过就是做过）');
 assert(schedule.toggleDone(null).ok === false, '空行不炸');
 
 // UI：两张卡都要有勾选圈，且点击不会顺带触发"整行"的跳转

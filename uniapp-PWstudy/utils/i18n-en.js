@@ -685,14 +685,14 @@ export default {
     'Progress is stored on this device only and is cleared on uninstall',
   '重置学习数据': 'Reset learning data',
   '清除学习数据': 'Clear learning data',
-  '将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「我的 → 数据备份」导出一份。确定继续？':
-    'This deletes every goal, task, pomodoro and daily stat. A running pomodoro stops immediately and is not recorded. It can’t be undone — export a backup first. Continue?',
+  '将删除全部目标、任务、专注与每日统计，进行中的专注会立即停止且不记入统计。此操作不可恢复，建议先到「我的 → 数据备份」导出一份。确定继续？':
+    'This deletes every goal, task, focus session and daily stat. A running focus session stops immediately and is not recorded. It can’t be undone — export a backup first. Continue?',
   '将重置个人资料与全部设置（AI 配置、朗读偏好等），学习数据保留。确定继续？':
     'This resets your profile and all settings (AI config, voice prefs, etc.). Learning data is kept. Continue?',
   '将清空全部掌握度、错题本和练习记录，且无法恢复。确定继续吗？':
     'This clears all mastery, wrong answers and records, and can’t be undone. Continue?',
-  '删除全部目标、任务与番茄记录，不可恢复':
-    'Deletes all goals, tasks and pomodoro records. Can’t be undone.',
+  '删除全部目标、任务与专注记录，不可恢复':
+    'Deletes all goals, tasks and focus records. Can’t be undone.',
   '重置个人资料与设置（学习数据保留）': 'Resets profile and settings (learning data kept)',
   '确定重置': 'Reset',
   '已重置': 'Reset',
@@ -701,8 +701,8 @@ export default {
   '版本': 'Version',
   '介绍': 'About',
   '背单词 · 本地离线可用的翻译练习工具': 'Vocab trainer · offline translation practice',
-  '番茄钟 · AI 学习规划 · 用时统计，全部离线':
-    'Pomodoro · AI study planning · app time tracking — fully offline',
+  '专注计时 · AI 学习规划 · 用时统计，全部离线':
+    'Focus timer · AI study planning · app time tracking — fully offline',
   '待配置': 'Not configured',
   '未开启': 'Off',
 
@@ -814,7 +814,7 @@ export default {
   // ---------- 新手引导（utils/onboarding.js） ----------
   '欢迎使用 PWstudy': 'Welcome to PWstudy',
   '它这么转起来：先定一个远期目标，AI 把它拆成每天的日程；专注的时候用它计时，收工时说一句今天的出入，明天的安排自己就重排好了。下面几步带你认一下首页，随时可以跳过。': 'Here is the loop: set a long-term goal, AI breaks it into a daily schedule, use the timer while you focus, then log how today actually went — tomorrow re-plans itself. A few steps to show you around; skip any time.',
-  '番茄钟：计时从这里开始': 'Pomodoro: the timer starts here',
+  '专注计时：一切从这里开始': 'Focus timer: it all starts here',
   '点这张卡进专注页（改时长、调设置），点右边的「开始」才直接起表 —— 只有那一个按钮会开始计时。': 'Tap the card to open the focus page (change duration, tweak settings); only the "Start" button on the right actually starts the clock.',
   '今日任务：今天要做什么': "Today's tasks: what to do today",
   '目标拆到今天的这几项。点一整行直接开始专注，点左边的小圈就地勾掉。这里空着的话，去底栏「目标」定一个远期目标。': 'These are the items your goal breaks down into for today. Tap a row to start focusing, tap the circle on the left to tick it off. If it is empty, set a long-term goal under "Goals".',
@@ -883,8 +883,8 @@ export default {
   '构建日期': 'Built on',
   // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
-  '番茄专注': 'Pomodoro',
-  '番茄已满': 'Pomos done',
+  '专注': 'Focus',
+  '专注已满': 'Pomos done',
   '今日紧迫程度': "Today's urgency",
   '今日任务': "Today's tasks",
   '进行中的目标': 'Active goal',
@@ -893,8 +893,8 @@ export default {
   'AI 今日对话': 'AI check-in',
   '某一天的日程安排，可就地前移 / 后移一天':
     "One day's schedule — shift a task forward or back by a day in place",
-  '当前番茄的倒计时，点一下进入全屏专注页':
-    'The running pomodoro countdown — tap to open the full-screen focus page',
+  '当前专注的倒计时，点一下进入全屏专注页':
+    'The running focus countdown — tap to open the full-screen focus page',
   '还剩多少时间、活有多重、有多赶：环 / 方块 / 时间条一眼看完':
     'How much time is left, how heavy the load is, how pressing it is — ring, blocks and time bar at a glance',
   // 紧迫度卡的卡片头与三行读数（components/urgency-meter）
@@ -921,8 +921,8 @@ export default {
   '还剩 {n} 分钟可用，够做这些': '{n} min still available — enough for what is left',
   '① 圆环填充 = 紧迫度 {n}/100': '① Ring fill = urgency {n}/100',
   '② 中心呼吸 = 越急跳得越快': '② Core pulse = the faster it beats, the more urgent',
-  '③ 方块 = 还剩 {a} 个番茄（实心），已做 {b} 个（空心）':
-    '③ Blocks = {a} pomodoros left (solid), {b} done (hollow)',
+  '③ 方块 = 还剩 {a} 段专注（实心），已做 {b} 个（空心）':
+    '③ Blocks = {a} sessions left (solid), {b} done (hollow)',
   '④ 时间条 = 今天 24 小时，竖线是现在，色块是还要多久 —— {s}':
     '④ Time bar = 24 h of today, the marker is now, the block is how much longer — {s}',
   '另有 {n} 项已超期': 'Plus {n} overdue item(s)',
@@ -935,7 +935,7 @@ export default {
     'Report your day in one line — the AI decides whether to reshuffle what follows',
   // 我的（profile）菜单
   '今日专注(分)': 'Focus today (min)',
-  '今日番茄': 'Pomodoros today',
+  '今日专注': 'Pomodoros today',
   '进行中目标': 'Active goals',
   '学习 App 管理': 'Manage study apps',
   '新建目标': 'New goal',
@@ -1054,9 +1054,9 @@ export default {
   '已打通 · 过去背完会自动记回今天':
     'Linked — what you finish over there is written back into today',
 
-  // ---------- 番茄正计时（2026-10-14 真机反馈：到点不赶人走） ----------
+  // ---------- 专注正计时（2026-10-14 真机反馈：到点不赶人走） ----------
   //（'退出' → 'Exit' 通用段里早就有，别重复加 —— 对象字面量里后者会静默覆盖前者）
   '预设时长已跑完，继续计时中': 'Target time reached — still counting',
-  '番茄时间到': "Pomodoro time's up",
+  '专注时间到': "Focus time's up",
   '已跑满预设时长，不再拉回': 'Target reached — no more pull-back'
 };

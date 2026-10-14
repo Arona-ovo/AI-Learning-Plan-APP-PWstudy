@@ -138,11 +138,11 @@ assert(rec.stopped && rec.destroyed, 'stop() 停掉并销毁当前实例');
 
 console.log('== 7. 接线 ==');
   // 练习页（pkgStudy/pages/practice）随背单词一起退役，这里改查当前真正的调用方：
-  // notify.js（番茄结束的响铃走 sfx）与设置页（音效开关 / 试听 / 彩蛋开奖音）
+  // notify.js（专注结束的响铃走 sfx）与设置页（音效开关 / 试听 / 彩蛋开奖音）
   const nt = fs.readFileSync(path.join(ROOT, 'utils', 'notify.js'), 'utf8');
   assert(/import \* as sfx from/.test(nt), 'notify.js 引入 sfx');
   assert(/sfx\.play\('correct'/.test(nt), '提示音走 sfx.play');
-  // ⚠️ 这条是真机事故换来的：番茄结束的「响铃」由 focus.sound 单独管，
+  // ⚠️ 这条是真机事故换来的：专注结束的「响铃」由 focus.sound 单独管，
   //    不能再过 sfx 自己的 voice.sfx（设置里另一栏）判断 —— 否则用户开了响铃却没声音。
   //    谁开谁负责，所以必须带 force。
   assert(/sfx\.play\('correct',\s*\{[^}]*force:\s*true/.test(nt), '响铃带 force（不被设置里的音效开关二次掐掉）');

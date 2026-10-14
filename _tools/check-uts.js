@@ -181,7 +181,7 @@ const apptime = read(path.join(ROOT, 'utils', 'apptime.js'));
 if (/com\.miui\.home/.test(apptime) && /com\.huawei\.android\.launcher/.test(apptime) && /com\.hihonor\.android\.launcher/.test(apptime)) ok('JS 名单里有主流国产桌面（小米/华为/荣耀）');
 else bad('NEUTRAL 名单缺国产桌面包 —— 强制模式会把桌面当跑偏');
 
-// 6.4 退出路径：暂停 / 放弃 / 结束都必须能收掉看门狗，否则"番茄都结束了还在拉人"
+// 6.4 退出路径：暂停 / 放弃 / 结束都必须能收掉看门狗，否则"专注都结束了还在拉人"
 if (/export function pauseWatch/.test(fgsvc) && /export function resumeWatch/.test(fgsvc)) ok('fgsvc 有 pauseWatch / resumeWatch');
 else bad('fgsvc 缺 pauseWatch / resumeWatch —— 暂停后看门狗还在干活');
 const fjs = read(path.join(ROOT, 'utils', 'focus.js'));
@@ -198,13 +198,13 @@ else bad('首页没有 onBackPress —— 强制模式在首页可被"一次返�
 const homeBack = fnBody(homeVue, 'onBackPress');
 if (/forcedOn/.test(homeBack) && /phase !== 'focus'/.test(homeBack)) ok('首页返回拦截与专注页同判据（forcedOn + 专注中且未暂停）');
 else bad('首页 onBackPress 判据与专注页不一致 —— 会出现"换个页面就能出去"');
-// 6.4c 落账后立刻落盘：pwstore 平时是 800ms 节流合并写，番茄结算是最不能等的那一刻
-if (/pw\.recordPomo\(session\)[\s\S]{0,700}pw\.flush\(\)/.test(fjs)) ok('番茄落账后立刻 flush（不等节流，进程被杀也不丢这一笔）');
-else bad('结算路径没有 flush —— 刚跑完的番茄可能在 800ms 窗口里整个丢掉');
+// 6.4c 落账后立刻落盘：pwstore 平时是 800ms 节流合并写，专注结算是最不能等的那一刻
+if (/pw\.recordPomo\(session\)[\s\S]{0,700}pw\.flush\(\)/.test(fjs)) ok('专注落账后立刻 flush（不等节流，进程被杀也不丢这一笔）');
+else bad('结算路径没有 flush —— 刚跑完的专注可能在 800ms 窗口里整个丢掉');
 
 // 6.5 到点自动收手：JS 在后台可能被冻结，"靠 JS 通知停手"不可靠
 if (/untilSec/.test(uts) && /watchUntilSec/.test(uts)) ok('看门狗自带 untilSec 到点收手（JS 被冻结也不会拉过头）');
-else bad('看门狗没有到点自动收手 —— 番茄结束后会一直把人拽回来');
+else bad('看门狗没有到点自动收手 —— 专注结束后会一直把人拽回来');
 
 // 6.6 JS 侧只下发策略、不重复造轮子
 const forced = read(path.join(ROOT, 'utils', 'forced.js'));

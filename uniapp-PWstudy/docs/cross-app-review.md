@@ -26,11 +26,11 @@ PWstudy 的 `components/` 只有 5 个：app-dialog、coach-box、float-navbar�
 
 | | AWword 独有 | PWstudy 独有 |
 |---|---|---|
-| 界面 | `card-spec.js`(761 行) + `card-canvas.vue` + `app-card-blocks.vue`（13 种块）<br>`intent` / `page-schema` / `page-command` / `page-doc`（AI 指令链）<br>`onboarding.js` + `onboarding-mask.vue` | 番茄钟全套 `focus` `strict` `forced` `fgsvc` `pacing`<br>用时统计 `apptime` `usage`<br>规划重排 `plan-task` `dailylog` `coach` `urgency` |
+| 界面 | `card-spec.js`(761 行) + `card-canvas.vue` + `app-card-blocks.vue`（13 种块）<br>`intent` / `page-schema` / `page-command` / `page-doc`（AI 指令链）<br>`onboarding.js` + `onboarding-mask.vue` | 专注计时全套 `focus` `strict` `forced` `fgsvc` `pacing`<br>用时统计 `apptime` `usage`<br>规划重排 `plan-task` `dailylog` `coach` `urgency` |
 | 工程 | `backup-io.js`、`chat-store.js` | `ambient` `mascot` `notify` `setup` `holiday` `insets` `task-guide` |
 | 领域 | `dict` `engine` `iplus1` `judge` `srs` `store` `wordbook` `quiz-plan` `search` …（背单词专属） | — |
 
-一句话：**AWword 强在"AI 造界面"，PWstudy 强在"番茄钟 + 用时统计 + 规划"。**
+一句话：**AWword 强在"AI 造界面"，PWstudy 强在"专注计时 + 用时统计 + 规划"。**
 `home-layout.ts` 两边几乎一样 —— 差别只在 UI 有没有接。
 
 ---

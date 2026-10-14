@@ -154,7 +154,7 @@ export default {
     }
   },
   computed: {
-    /** 正在问的那一项计划了几个番茄（决定要不要给"做了一部分"这个选项） */
+    /** 正在问的那一项计划了几段专注（决定要不要给"做了一部分"这个选项） */
     curPlanned() {
       const it = (this.draft.items || [])[this.itemIdx]
       return it ? Math.max(1, Number(it.planned) || 1) : 1
@@ -228,11 +228,11 @@ export default {
       const it = list[this.itemIdx]
       const planned = Math.max(1, Number(it.planned) || 1)
       const done = Number(it.done) || 0
-      // 把番茄钟真实记的数说出来：用户不用猜"我到底做了几个"，也不会替自己虚报
+      // 把专注计时真实记的数说出来：用户不用猜"我到底做了几个"，也不会替自己虚报
       const hint = done
-        ? '（番茄钟记到 ' + done + ' 个）'
-        : '（番茄钟里还没记到）'
-      this.ask('「' + it.title + '」今天排了 ' + planned + ' 个番茄' + hint + '，做完了吗？')
+        ? '（专注计时记到 ' + done + ' 段）'
+        : '（专注计时里还没记到）'
+      this.ask('「' + it.title + '」今天排了 ' + planned + ' 段专注' + hint + '，做完了吗？')
       this.step = 'item'
     },
     answerItem(kind) {

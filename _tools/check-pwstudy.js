@@ -83,16 +83,16 @@ function ok(cond, msg) {
   const q = pw.todayQueue(10);
   ok(q.length === 1 && q[0].task.day === 1, '今日队列只含 day<=elapsed（第 1 天）');
   const prog = pw.goalProgress(g);
-  ok(prog.total === 4 && prog.done === 0, 'goalProgress 总番茄 = 4');
+  ok(prog.total === 4 && prog.done === 0, 'goalProgress 总专注 = 4');
 
-  console.log('\n[3] 番茄状态机');
-  // 0.02 分钟不足 1 分钟 → 自然结束但不落账（设计行为：太短的番茄不算数）
+  console.log('\n[3] 专注状态机');
+  // 0.02 分钟不足 1 分钟 → 自然结束但不落账（设计行为：太短的专注不算数）
   focus.startFocus({ minutes: 0.02, taskId: g.tasks[0].id, goalId: g.id, taskTitle: '背词' });
   let cur = focus.current();
   ok(cur && cur.phase === 'focus' && cur.taskTitle === '背词', 'startFocus 进入 focus');
   await new Promise(r => setTimeout(r, 1400));
   let r = focus.tick();
-  // 2026-10-14 起：专注到点**不收摊**，转「正计时」（番茄闹钟的做法：不赶人走）
+  // 2026-10-14 起：专注到点**不收摊**，转「正计时」（专注闹钟的做法：不赶人走）
   ok(r.justOverrun === true && r.justFinished === null, '到点转「正计时」→ justOverrun=true');
   cur = focus.current();
   ok(cur && cur.overrun === true && cur.phase === 'focus', '到点后 state 还在（人还在继续）');
@@ -101,9 +101,9 @@ function ok(cond, msg) {
   const cur2 = focus.current();
   ok(cur2 && cur2.overSec >= 1, '正计时读数真的在往上走（overSec=' + (cur2 && cur2.overSec) + '）');
   ok(pw.overview().pomo === 0, '正计时期间还没落账（落账推迟到「退出」）');
-  ok(focus.stopOverrun() === null && pw.overview().pomo === 0, '不足 1 分钟的番茄退出也不落账');
+  ok(focus.stopOverrun() === null && pw.overview().pomo === 0, '不足 1 分钟的专注退出也不落账');
   ok(focus.current() === null, '按「退出」才清场');
-  // 落账与任务联动用直接调用验证（真实番茄是 25 分钟，测试不等真实时长）
+  // 落账与任务联动用直接调用验证（真实专注是 25 分钟，测试不等真实时长）
   pw.recordPomo({ id: 's1', goalId: g.id, taskId: g.tasks[0].id, startAt: 0, endAt: 0, min: 25, done: true });
   pw.addPomoToTask(g.id, g.tasks[0].id);
   ok(pw.overview().pomo === 1, 'recordPomo 落账（pomo=1）');
@@ -111,7 +111,7 @@ function ok(cond, msg) {
   ok(g2.tasks[0].donePomos === 1, '任务 donePomos +1');
   pw.addPomoToTask(g.id, g.tasks[0].id);
   g2 = pw.goalOf(g.id);
-  ok(g2.tasks[0].status === 'done', '番茄做满自动完成');
+  ok(g2.tasks[0].status === 'done', '专注做满自动完成');
 
   focus.startFocus({ minutes: 5, taskTitle: 'x' });
   focus.pause();
@@ -147,7 +147,7 @@ function ok(cond, msg) {
   // 这条只守"夹取上界"这个本意；减量本身的正确性由下面 holiday 那组日期写死的断言守着。
   ok(np.tasks[0].ms === 2 && np.tasks[0].day <= np.totalDays &&
      np.tasks[0].pomos >= 1 && np.tasks[0].pomos <= 8,
-     'normalizePlan 数值夹取（番茄上界 8；落地时还会被假期/周末再打折）');
+     'normalizePlan 数值夹取（专注上界 8；落地时还会被假期/周末再打折）');
   const tasks = [{ id: 'T1', title: 'a', day: 3, pomos: 2, status: 'todo' }, { id: 'T2', title: 'b', day: 4, pomos: 1, status: 'done' }];
   const nr = planAgent.normalizeReplan({
     summary: 'ok',
@@ -169,7 +169,7 @@ function ok(cond, msg) {
   const st = pw.get();
   ok(st.daily[pw.today()].byApp['com.a'] === 20, 'setAppMinutes 覆盖 dock 内的包');
   ok(st.daily[pw.today()].byApp['com.unknown'] === 5, 'setAppMinutes 不动未登记的包');
-  ok(pw.overview().todayMin === 25, 'overview 今日分钟来自番茄落账');
+  ok(pw.overview().todayMin === 25, 'overview 今日分钟来自专注落账');
 
   console.log('\n[6] 重排三档优先级（策略 > 内容 > 时间）');
   const lvTasks = [
@@ -246,7 +246,7 @@ function ok(cond, msg) {
   console.log('\n[10] 统计口径与出厂开关');
   const st2 = pw.get();
   const h0 = st2.daily[pw.today()].byHour || {};
-  ok(Object.keys(h0).length > 0, '番茄按小时落账（时段分布有数据）');
+  ok(Object.keys(h0).length > 0, '专注按小时落账（时段分布有数据）');
   ok(pw.hourProfile(7).length === 24, 'hourProfile 返回 24 个时段');
   const fc = pw.forecast(pw.activeGoals()[0], 7);
   ok(typeof fc.ok === 'boolean', 'forecast 返回结构化结果（ok=' + fc.ok + '）');
@@ -372,10 +372,10 @@ function ok(cond, msg) {
   const mine = draft.items.filter(i => i.goalId === dg.id);
   ok(mine.length === 1, '今天该做的任务进入收工表');
   ok(draft.ahead.some(i => i.taskId === dg.tasks[1].id), '后面几天的任务进入"提前做了"候选');
-  // "按实际番茄数填"的复位基准：必须是真实记录的 donePomos，不能是计划值。
-  // 以前的一键"全部按计划完成"直接把 actual 拉到 planned —— 番茄没跑也算完成，
+  // "按实际专注数填"的复位基准：必须是真实记录的 donePomos，不能是计划值。
+  // 以前的一键"全部按计划完成"直接把 actual 拉到 planned —— 专注没跑也算完成，
   // 后面几天的日程会从这个谎开始全错。
-  ok(draft.items.every(i => typeof i.done === 'number'), '草稿每项带真实番茄数 done');
+  ok(draft.items.every(i => typeof i.done === 'number'), '草稿每项带真实专注数 done');
   ok(draft.items.every(i => i.actual <= i.done), '预填不会超过真实记录（没跑就是 0）');
   ok(draft.items.every(i => i.actual <= Math.max(1, i.planned)), '预填不会超过计划值');
 
@@ -405,7 +405,7 @@ function ok(cond, msg) {
 
   // 填报"提前做了后面的任务"要真的把进度记上去，否则 AI 会让他重做一遍
   const aheadTask = dg.tasks.filter(t => t.day === 5)[0];
-  ok((aheadTask.donePomos || 0) === 0, '没填报时后面那项还是 0 番茄');
+  ok((aheadTask.donePomos || 0) === 0, '没填报时后面那项还是 0 专注');
   dailylog.save(Object.assign({}, dailylog.buildDraft(), {
     items: [],
     ahead: [{ goalId: dg.id, taskId: aheadTask.id, title: aheadTask.title, goalTitle: dg.title, day: 5, planned: 1, actual: 1 }],
@@ -436,7 +436,7 @@ function ok(cond, msg) {
 
   // 归一化：AI 给什么都要能落地，非法 goalId 必须置空
   const c1 = planAgent.normalizeChat(
-    { reply: '行，那明天先补背单词', facts: ['背单词 0 个番茄', '刷了 2 篇阅读'], drift: true, goalId: dg.id },
+    { reply: '行，那明天先补背单词', facts: ['背单词 0 段专注', '刷了 2 篇阅读'], drift: true, goalId: dg.id },
     cctx.goalIds
   );
   ok(c1.drift === true && c1.facts.length === 2, 'AI 判定有出入 → drift + 事实都留下');
@@ -482,7 +482,7 @@ function ok(cond, msg) {
   })();
   const wasDone = (creditTask && creditTask.donePomos) || 0;
   coach.applyCredits([{ taskId: tid, add: 2 }]);
-  ok((creditTask.donePomos || 0) >= wasDone + 1, '说做完了 → 番茄真记到任务上');
+  ok((creditTask.donePomos || 0) >= wasDone + 1, '说做完了 → 专注真记到任务上');
   coach.applyCredits([{ taskId: tid, add: 0 }]);
   ok((creditTask.donePomos || 0) >= wasDone + 1, '记功只增不减（传 0 不会把进度抹掉）');
 
@@ -501,7 +501,7 @@ function ok(cond, msg) {
   ok(forced.enabled() === false, '出厂默认关（enabled=false）');
   ok(forced.armed() === false, '没计时时不轮询（armed=false）');
 
-  // 开了强制模式但没有在跑番茄 → 依然不该动
+  // 开了强制模式但没有在跑专注 → 依然不该动
   try {
     const st = settingsMod.get();
     st.focus = Object.assign({}, st.focus || {}, { forced: true });
@@ -533,7 +533,7 @@ function ok(cond, msg) {
   // 收工：计时没了 → 监视器必须彻底停下来（不留轮询定时器）
   focus.giveUp();
   forced.sync();
-  ok(forced.armed() === false, '番茄结束后监视器收手');
+  ok(forced.armed() === false, '专注结束后监视器收手');
   ok(forced.escapesOf() === 0, '一轮结束后跑偏计数归零');
 
   // 降级：没有原生拉回能力时如实说，不假装锁得住
@@ -596,7 +596,7 @@ function ok(cond, msg) {
     if (d) { d.pomo = n; d.focusMin = n * 25; }
     pw.touch();
   };
-  // 清场：归档前面用例的目标 + 清空今日番茄，表情测试需要受控状态
+  // 清场：归档前面用例的目标 + 清空今日专注，表情测试需要受控状态
   pw.activeGoals().forEach(g => pw.archiveGoal(g.id));
   setPomo(0);
 
@@ -615,7 +615,7 @@ function ok(cond, msg) {
   pw.touch();
   ok(mascot.pick(MORNING).key === 'sad', '截止日已过还有任务 → sad');
 
-  // 摆烂：目标立了 ≥4 天 + 连续 4 天没番茄 → 生气
+  // 摆烂：目标立了 ≥4 天 + 连续 4 天没专注 → 生气
   pw.removeGoal(mU.id);
   const mAngry = pw.addGoal(
     { title: '老目标', raw: 'x', deadline: pw.addDays(pw.today(), 90), dailyMin: 30, level: '' },
@@ -647,7 +647,7 @@ function ok(cond, msg) {
   pw.setTaskStatus(mNew.id, mNew.tasks[0].id, 'done');
   ok(mascot.pick(MORNING).key === 'happy', '今天全部做完 → happy');
 
-  // 连续 3 天都有番茄 → 得意吐舌
+  // 连续 3 天都有专注 → 得意吐舌
   for (let i = 1; i <= 3; i++) {
     const key = pw.addDays(pw.today(), -i);
     if (!st.daily[key]) st.daily[key] = { focusMin: 0, pomo: 0, byApp: {}, byHour: {} };
@@ -686,27 +686,27 @@ function ok(cond, msg) {
   const guide = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/task-guide.js');
   const aiCache = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/ai-cache.js');
 
-  // 造一点"脏"现场：正在跑的番茄 + 规划会话 + AI 缓存
+  // 造一点"脏"现场：正在跑的专注 + 规划会话 + AI 缓存
   focus.setCfg({ focus: 40, rest: 8 });          // 偏好：清数据不该被打回 25/5
   focus.startFocus({ minutes: 25, taskId: 't1', goalId: 'g1', taskTitle: '清数据测试' });
   planTask.startSession({ title: '待清的规划会话' });
   aiCache.rememberWord({ word: 'wipe', pos: 'v.', meaning: '清除' });
 
-  ok(focus.current() !== null, '清之前确实有番茄在跑');
+  ok(focus.current() !== null, '清之前确实有专注在跑');
   ok(planTask.snapshot().stage === 'ask', '清之前规划会话处于 ask');
   ok(aiCache.stats().words > 0, '清之前 AI 缓存里有词条');
 
   const gone = pwreset.clearAll();
-  ok(gone.running === true, 'clearAll 报告"刚才有番茄在跑"');
-  ok(gone.goals > 0 && gone.sessions > 0 && gone.days > 0, 'clearAll 汇报清掉的量（目标/番茄/天数）');
-  ok(focus.current() === null, '进行中的番茄被停掉（不落账）');
+  ok(gone.running === true, 'clearAll 报告"刚才有专注在跑"');
+  ok(gone.goals > 0 && gone.sessions > 0 && gone.days > 0, 'clearAll 汇报清掉的量（目标/专注/天数）');
+  ok(focus.current() === null, '进行中的专注被停掉（不落账）');
   ok(pw.get().runtime === null, 'runtime 现场已清（focus 不会把现场写回来）');
   ok(pw.get().goals.length === 0, 'goals 已空');
   ok(pw.get().sessions.length === 0, 'sessions 已空');
   ok(Object.keys(pw.get().daily).length === 0, 'daily 已空');
   ok(pw.get().dock.length === 0, 'dock 已空');
 
-  // 偏好不跟着清：番茄时长是设置，不是学习数据
+  // 偏好不跟着清：专注时长是设置，不是学习数据
   ok(pw.get().pomoCfg && pw.get().pomoCfg.focus === 40, 'pomoCfg 保留（偏好不属于学习数据）');
   const cfgNow = (await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/settings.js')).get();
   ok(cfgNow && cfgNow.focus && cfgNow.focus.notify === true, 'settings.js（AI 配置/外观）没被清');
@@ -730,15 +730,15 @@ function ok(cond, msg) {
   ok(pw.activeGoals().length === 1 && gAfter.tasks.length === 1, '清完之后还能正常立目标');
   ok(typeof guide.get === 'function', 'task-guide 接口仍在（清缓存没把它搞坏）');
 
-  console.log('\n[20] 番茄结算口径（2026-10-11 三处修复的回归）');
-  // 真实番茄是几十分钟，测试不可能真等 —— 临时把 Date.now 往前拨。
+  console.log('\n[20] 专注结算口径（2026-10-11 三处修复的回归）');
+  // 真实专注是几十分钟，测试不可能真等 —— 临时把 Date.now 往前拨。
   // focus 全程用 endAt 差值算时间，拨表等价于"时间过去了"。
   // 放在最后跑：它会真落账，挪到前面会污染 [5] 的今日分钟断言。
   const realNow = Date.now;
   let off = 0;
   Date.now = function () { return realNow.call(Date) + off; };
   try {
-    // ① 暂停时长不能算进专注时长：25 分钟番茄中途停 1 小时，落账只能是 25 分钟
+    // ① 暂停时长不能算进专注时长：25 分钟专注中途停 1 小时，落账只能是 25 分钟
     focus.startFocus({ minutes: 25, taskTitle: '扣暂停' });
     focus.pause();
     off = 60 * 60000;                        // 暂停了整整 1 小时
@@ -768,19 +768,19 @@ function ok(cond, msg) {
     ok(focus.current() === null, '退出后清场');
     const s2 = pw.get().sessions[pw.get().sessions.length - 1];
     ok(pw.get().sessions.length === prevN2 + 1 && !!s2 && s2.done === true,
-      '看门狗结算照常记一个完整番茄');
-    // ⚠️ 这里不能查 pw.overview().pomo（= 今天的番茄数）：本用例把 Date.now 往前拨了
+      '看门狗结算照常记一个完整专注');
+    // ⚠️ 这里不能查 pw.overview().pomo（= 今天的专注数）：本用例把 Date.now 往前拨了
     // 86 分钟，本地时间过了 22:34 之后这个 startAt 就已经是"明天"了 —— 而 recordPomo
-    // 是按**开始那天**入账的（跨零点跑完的番茄不该算到第二天）。按"今天"查会变成
+    // 是按**开始那天**入账的（跨零点跑完的专注不该算到第二天）。按"今天"查会变成
     // "白天跑绿、晚上跑红"的假红。改成查"这条会话自己那一天"，跨零点也稳。
     const dayKey = pw.dateStr(new Date(s2.startAt));
     ok(!!pw.get().daily[dayKey] && pw.get().daily[dayKey].pomo >= 1,
-      '番茄记在"开始那天"上（跨零点跑完也归属开始日）');
+      '专注记在"开始那天"上（跨零点跑完也归属开始日）');
   } finally {
     Date.now = realNow;
     focus.abort();
   }
-  ok(pw.get().runtime == null, 'abort 后现场清空（不会把番茄留给下次启动）');
+  ok(pw.get().runtime == null, 'abort 后现场清空（不会把专注留给下次启动）');
 
   console.log('\n[21] 没配 AI 时的本地兜底计划');
   // 没填过密钥的用户点「开始规划」必须也能拿到一份能落地的计划，
@@ -793,12 +793,12 @@ function ok(cond, msg) {
   ok(lp.tasks.length > 0, '模板排出任务');
   ok(lp.tasks.every(t => t.day >= 1 && t.day <= lp.totalDays), '任务起始天数都落在期限内');
   ok(lp.tasks.every(t => t.ms >= 1 && t.ms <= lp.milestones.length), '任务归属的阶段号不越界');
-  ok(lp.tasks.every(t => t.pomos >= 1 && t.pomos <= 8), '番茄数夹在 1-8');
+  ok(lp.tasks.every(t => t.pomos >= 1 && t.pomos <= 8), '专注数夹在 1-8');
   ok(/未接入 AI/.test(lp.strategy), '策略文案明说这是模板，不是 AI 排的');
   const lp2 = planAgent.localPlan({ title: 'x', deadline: pw.addDays(pw.today(), 5), dailyMin: 30 });
   ok(lp2.tasks.every(t => t.day <= lp2.totalDays), '5 天的目标也不会把任务排到期限外');
 
-  console.log('\n[22] 顺延期限 / 补记番茄进统计 / 长休 / 跨零点');
+  console.log('\n[22] 顺延期限 / 补记专注进统计 / 长休 / 跨零点');
   // ---- 顺延期限（defer）：以前 ops 只有 move/resize/drop/note，deadline 全库无赋值点 ----
   const deferTasks = [{ id: 't1', day: 3, pomos: 2, status: 'todo' }, { id: 't2', day: 5, pomos: 1, status: 'todo' }];
   const dOk = planAgent.normalizeReplan({
@@ -821,7 +821,7 @@ function ok(cond, msg) {
   ok(planAgent.normalizeReplan({ summary: 's', ops: [{ op: 'move', taskId: 't1', day: 6 }] }, deferTasks).ops.length === 1,
     '不给上限时走 30 天兜底，且不影响别的 op');
 
-  // ---- 补记番茄必须进统计口径 ----
+  // ---- 补记专注必须进统计口径 ----
   const g3 = pw.addGoal(
     { title: '统计口径', raw: 'x', deadline: pw.addDays(pw.today(), 30), dailyMin: 30, level: '' },
     { strategy: '', risks: [], milestones: [{ title: 'm', days: 30 }], tasks: [{ title: '补记用', ms: 1, day: 1, pomos: 3 }] }
@@ -831,12 +831,12 @@ function ok(cond, msg) {
   const pomo0 = pw.get().daily[pw.today()].pomo;
   const min0 = pw.get().daily[pw.today()].focusMin;
   const bh0 = Object.keys(pw.get().daily[pw.today()].byHour || {}).length;
-  ok(pw.creditPomo(g3.id, t3.id, 2) === 2, '补记 2 个番茄');
+  ok(pw.creditPomo(g3.id, t3.id, 2) === 2, '补记 2 段专注');
   ok(pw.get().sessions.length === nS0 + 1, '补记也写进 sessions（统计认这笔）');
-  ok(pw.get().daily[pw.today()].pomo === pomo0 + 2, '今日番茄数 +2（热力图 / forecast 认）');
+  ok(pw.get().daily[pw.today()].pomo === pomo0 + 2, '今日专注数 +2（热力图 / forecast 认）');
   ok(pw.get().daily[pw.today()].focusMin > min0, '今日专注分钟也涨（不是只改任务字段）');
   const sC = pw.get().sessions[pw.get().sessions.length - 1];
-  ok(sC.src === 'log' && sC.done === true, 'session 带 src 标记，能与真番茄分开看');
+  ok(sC.src === 'log' && sC.done === true, 'session 带 src 标记，能与真专注分开看');
   ok(Object.keys(pw.get().daily[pw.today()].byHour || {}).length === bh0,
     '补记不写 byHour（没有真实时段，塞进去会污染"哪几段学得进去"）');
   ok(pw.creditPomo(g3.id, t3.id, 5) === 1, '只补到任务上限（3 个的任务填 5 也只补 1）');
@@ -848,10 +848,10 @@ function ok(cond, msg) {
   );
   const pomoB = pw.get().daily[pw.today()].pomo;
   pw.setTaskStatus(g4.id, g4.tasks[0].id, 'done');
-  ok(g4.tasks[0].donePomos === 2, '手工勾完成补齐番茄数');
-  ok(pw.get().daily[pw.today()].pomo === pomoB + 2, '手工勾完成的差额也进今日番茄数（不再只改字段）');
+  ok(g4.tasks[0].donePomos === 2, '手工勾完成补齐专注数');
+  ok(pw.get().daily[pw.today()].pomo === pomoB + 2, '手工勾完成的差额也进今日专注数（不再只改字段）');
 
-  // ---- 跨零点的番茄记在哪一天 ----
+  // ---- 跨零点的专注记在哪一天 ----
   const yKey = pw.addDays(pw.today(), -1);
   const yMin0 = (pw.get().daily[yKey] || {}).focusMin || 0;
   const tMin0 = pw.get().daily[pw.today()].focusMin;
@@ -859,7 +859,7 @@ function ok(cond, msg) {
   y2350.setDate(y2350.getDate() - 1);
   y2350.setHours(23, 50, 0, 0);
   pw.recordPomo({ id: 'x-midnight', goalId: '', taskId: '', startAt: y2350.getTime(), endAt: y2350.getTime() + 20 * 60000, min: 20, done: true });
-  ok(((pw.get().daily[yKey] || {}).focusMin || 0) === yMin0 + 20, '跨零点的番茄记在开始那天（昨天那 20 分钟不会消失）');
+  ok(((pw.get().daily[yKey] || {}).focusMin || 0) === yMin0 + 20, '跨零点的专注记在开始那天（昨天那 20 分钟不会消失）');
   ok(pw.get().daily[pw.today()].focusMin === tMin0, '今天不会被记上一段没坐过的时间');
 
   // ---- 长休：以前 startRest 读 state.count（恒为 0 且 state 已清空），永远触发不了 ----
@@ -867,7 +867,7 @@ function ok(cond, msg) {
   const everyN = pcfg.every || 4;
   const longMin = pcfg.long || 15;
   const restMin = pcfg.rest || 5;
-  // [20] 那一节已经真跑落账过几个番茄，本轮计数不是 0 —— 先归零再测，才能对上"第几个"
+  // [20] 那一节已经真跑落账过几段专注，本轮计数不是 0 —— 先归零再测，才能对上"第几个"
   pw.get().pomoRound = { count: 0, date: pw.today() };
   const realNow2 = Date.now;
   let off2 = 0;
@@ -881,10 +881,10 @@ function ok(cond, msg) {
       const rest = focus.startRest();  // state 此时已被清空，这里必须还能work
       const want = (i === everyN) ? longMin : restMin;
       ok(rest && rest.phase === 'rest' && rest.totalSec === want * 60,
-        '第 ' + i + ' 个番茄后是' + (i === everyN ? '长' : '短') + '休 ' + want + ' 分钟');
+        '第 ' + i + ' 段专注后是' + (i === everyN ? '长' : '短') + '休 ' + want + ' 分钟');
       focus.abort();
     }
-    ok(focus.roundInfo().count === everyN, '本轮计数跨状态机存活（番茄结束后仍读得到）');
+    ok(focus.roundInfo().count === everyN, '本轮计数跨状态机存活（专注结束后仍读得到）');
     ok(focus.isLongRestNext() === true, 'isLongRestNext 在整轮点上为真');
     ok(focus.nextRestMin() === longMin, 'nextRestMin 给出长休时长');
   } finally {
@@ -928,8 +928,8 @@ function ok(cond, msg) {
   ok(pac1.med === 4, '容量用中位数（单日爆发不抬容量）');
   ok(pac1.capacity === 5, '排期容量 = 中位数 × 1.2 = 5 个/天（略高于现状才会进步，高太多只会崩）');
   ok(pac1.completeRate != null && pac1.completeRate >= 0 && pac1.completeRate <= 1, '完成率来自近 7 天填报（0-1）');
-  ok(/番茄/.test(pacing.promptText(60)) && /容量/.test(pacing.promptText(60)), '给 AI 的画像文字带容量口径');
-  ok(pacing.capacityOf(240) === pacing.DAILY_CAP, '意愿 240 分钟也越不过认知负荷上限（8 番茄/天）');
+  ok(/专注/.test(pacing.promptText(60)) && /容量/.test(pacing.promptText(60)), '给 AI 的画像文字带容量口径');
+  ok(pacing.capacityOf(240) === pacing.DAILY_CAP, '意愿 240 分钟也越不过认知负荷上限（8 专注/天）');
   ok(pacing.capacityOf(30) >= 1, '目标很轻也有下限');
   setHist([9, 9, 9, 9, 9, 9, 9]);
   ok(pacing.profile().capacity === pacing.DAILY_CAP, '连续超量冲刺也不把容量推过 8（超过 4 小时/天的计划没人能维持）');
@@ -953,9 +953,9 @@ function ok(cond, msg) {
     ok(/this\.remindAt = \(g && g\.remindAt\) \|\| ''/.test(gd), 'refresh 时独立字段跟库里同步');
   }
 
-  // ---- 待勾徽标「番茄已满」（2026-10-14 真机反馈）----
-  // 紧迫度按番茄算（做满 = 没活了 → 从容），任务列表按勾没勾算（没勾 = 还挂着），
-  // 两边口径打架：用户看着"一堆活没干却显示不急"。番茄做满但没勾的任务要显示待勾徽标。
+  // ---- 待勾徽标「专注已满」（2026-10-14 真机反馈）----
+  // 紧迫度按专注算（做满 = 没活了 → 从容），任务列表按勾没勾算（没勾 = 还挂着），
+  // 两边口径打架：用户看着"一堆活没干却显示不急"。专注做满但没勾的任务要显示待勾徽标。
   {
     const hm = require('fs').readFileSync(path.join(ROOT, 'pages', 'home', 'home.vue'), 'utf8');
     const s = require('fs').readFileSync(
@@ -964,16 +964,16 @@ function ok(cond, msg) {
     ok(new RegExp('fullOf\\(item\\) \\{[\\s\\S]*?' + judge).test(hm),
       '首页 fullOf 判据是 donePomos >= pomos（且仅限 todo）');
     ok(/'tk-check-full': fullOf\(item\)/.test(hm), '首页勾选圈有 tk-check-full 待勾态');
-    ok(/fullOf\(item\)[^>]*@tap\.stop="toggleTaskDone\(item\)">\{\{ \$t\('番茄已满'\) \}\}/.test(hm.replace(/\n\s*/g, ' ')),
+    ok(/fullOf\(item\)[^>]*@tap\.stop="toggleTaskDone\(item\)">\{\{ \$t\('专注已满'\) \}\}/.test(hm.replace(/\n\s*/g, ' ')),
       '首页徽标点了走勾选链（不是摆设）');
     // ⚠️ 模板在 <script> 之前，两处分开断言、不要求先后顺序
     ok(/'tk-check-full': fullOf\(t\)/.test(s), '目标详情页勾选圈同款（同一口径，别只改首页）');
-    ok(/fullOf\(t\) \{[\s\S]*?'番茄已满'[\s\S]*?$/.test(s) ||
-      (new RegExp('fullOf\\(t\\) \\{[\\s\\S]*?' + judge).test(s) && /\$t\('番茄已满'\)/.test(s)),
+    ok(/fullOf\(t\) \{[\s\S]*?'专注已满'[\s\S]*?$/.test(s) ||
+      (new RegExp('fullOf\\(t\\) \\{[\\s\\S]*?' + judge).test(s) && /\$t\('专注已满'\)/.test(s)),
       '目标详情页 fullOf 判据与徽标齐备');
-    ok(/\$t\('番茄已满'\)/.test(s), '目标详情页徽标用 $t（v-for 的 t 会遮掉 i18n 的 t）');
+    ok(/\$t\('专注已满'\)/.test(s), '目标详情页徽标用 $t（v-for 的 t 会遮掉 i18n 的 t）');
     const en = require('fs').readFileSync(path.join(ROOT, 'utils', 'i18n-en.js'), 'utf8');
-    ok(/'番茄已满':/.test(en), '「番茄已满」有英文译文');
+    ok(/'专注已满':/.test(en), '「专注已满」有英文译文');
   }
 
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');

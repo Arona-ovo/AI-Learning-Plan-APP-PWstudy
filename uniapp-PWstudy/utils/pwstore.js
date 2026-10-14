@@ -1,4 +1,4 @@
-// utils/pwstore.js - PWstudy 核心数据：目标 / 任务 / 番茄记录 / 学习 App 时长
+// utils/pwstore.js - PWstudy 核心数据：目标 / 任务 / 专注记录 / 学习 App 时长
 // 全部本地存储（storage key: fj_pw_data_v1），无后端。
 // 落盘策略与老 store.js 相同：改内存立即生效，节流 800ms 合并写盘；
 // 切后台（App.vue onHide）时 flush，最坏只丢最后一秒。
@@ -44,11 +44,11 @@ function uid() {
 function blank() {
   return {
     goals: [],        // Goal
-    sessions: [],     // 已完成/中断的番茄 {id,goalId,taskId,startAt,endAt,min,done}
+    sessions: [],     // 已完成/中断的专注 {id,goalId,taskId,startAt,endAt,min,done}
     daily: {},        // 'YYYY-MM-DD' -> {focusMin, pomo, byApp:{pkg:min}, done:{…完成台账…}}
     dock: [],         // 学习 App {pkg, name, purpose:'study'|'rest', task, sort}
     pomoCfg: { focus: 25, rest: 5, long: 15, every: 4 },
-    runtime: null,    // 番茄进行中的现场（focus.js 读写）
+    runtime: null,    // 专注进行中的现场（focus.js 读写）
     // 动态重排的"状态机记忆"（见 utils/harvest.js）：
     //   lastSweepDate 上次跑过「跨天兜底重排」的日期 —— 一天只跑一次
     //   lastAllDone   上次跑过「全部完成自动重排」的 {date, at}
@@ -108,9 +108,9 @@ export function flush() {
 
 /**
  * 清空全部学习数据（设置页「清除学习数据」）。
- * 只清数据，不动 pomoCfg —— 番茄时长是偏好（和主题色、昵称一样），
+ * 只清数据，不动 pomoCfg —— 专注时长是偏好（和主题色、昵称一样），
  * 没人想因为清了一次数据就被打回 25/5。
- * 调用方负责先让 focus 停下（见 utils/pwreset.js）：否则在跑的番茄
+ * 调用方负责先让 focus 停下（见 utils/pwreset.js）：否则在跑的专注
  * 下一秒 persist() 又把现场写回来，清了等于没清。
  */
 export function reset() {
@@ -195,7 +195,7 @@ export function removeGoal(id) {
  * 这三件事是"当天完成情况 + 反馈 → 后续重排"这条闭环的唯一输入，
  * 所以必须在完成发生的那一刻就地记一笔，不能靠事后反推任务状态。
  *
- * ⚠️ 台账只在这里（数据层）写：三条完成路径（手工勾 / 番茄做满 / 补记）
+ * ⚠️ 台账只在这里（数据层）写：三条完成路径（手工勾 / 专注做满 / 补记）
  *    全部收敛到 markTaskDone，漏一条就会出现"任务已完成但台账没有"，
  *    于是"今天全部完成"永远判不出来、自动重排永远不触发。
  */
@@ -253,7 +253,7 @@ function ledgerAdd(goalId, taskId, src, date) {
     pomos: t.pomos || 1,
     at: now,               // 完成时刻（毫秒）
     atText: clockText(now),// 完成时刻（人看的 HH:MM）
-    src: src || 'manual',  // manual 手工勾 / pomo 番茄做满 / log 收工填报 / chat 对话记功
+    src: src || 'manual',  // manual 手工勾 / pomo 专注做满 / log 收工填报 / chat 对话记功
     harvest: null          // 额外收获（见 utils/harvest.js）
   };
   l.items.push(rec);
@@ -317,12 +317,12 @@ export function setTaskStatus(goalId, taskId, status) {
   const t = g.tasks.filter(x => x.id === taskId)[0];
   if (!t) return;
   if (status === 'done') {
-    // 手工勾完成要把番茄数补齐：进度条 / 统计只认 donePomos（见 goalProgress），
-    // 不补的话勾完状态是"已完成"但进度仍是 0%，和番茄钟路径两套口径。
+    // 手工勾完成要把专注数补齐：进度条 / 统计只认 donePomos（见 goalProgress），
+    // 不补的话勾完状态是"已完成"但进度仍是 0%，和专注计时路径两套口径。
     // 差额走 creditPomo（而不是直接改字段）—— 补的这些也要进 sessions / daily，
     // 否则"勾一下完成"在热力图和 forecast 里等于没学过。
     // ⚠️ creditPomo 做满时自己会走 markTaskDone 记台账，下面那句是兜底
-    //   （番茄本来就够、补 0 个的情况不会触发 creditPomo 里的完成分支）。
+    //   （专注本来就够、补 0 个的情况不会触发 creditPomo 里的完成分支）。
     creditPomo(goalId, taskId, Math.max(1, t.pomos || 1) - (t.donePomos || 0), { src: 'manual' });
     t.donePomos = Math.max(t.donePomos || 0, t.pomos || 1);
     markTaskDone(g, t, 'manual');
@@ -347,14 +347,14 @@ export function moveTaskDay(goalId, taskId, day) {
   return true;
 }
 
-/** 番茄完成：给任务 +1 */
+/** 专注完成：给任务 +1 */
 export function addPomoToTask(goalId, taskId) {
   const g = goalOf(goalId);
   if (!g) return;
   const t = g.tasks.filter(x => x.id === taskId)[0];
   if (!t) return;
   t.donePomos = (t.donePomos || 0) + 1;
-  // 番茄数做满即自动完成（走 markTaskDone：台账要记一笔，否则"今天全部完成"判不出来）
+  // 专注数做满即自动完成（走 markTaskDone：台账要记一笔，否则"今天全部完成"判不出来）
   if (t.donePomos >= t.pomos && t.status === 'todo') markTaskDone(g, t, 'pomo');
   touch();
 }
@@ -378,7 +378,7 @@ export function todayQueue(limit) {
   return out;
 }
 
-// ---------- 番茄记录 / 每日统计 ----------
+// ---------- 专注记录 / 每日统计 ----------
 function dayOf(st, key) {
   if (!st.daily[key]) st.daily[key] = { focusMin: 0, pomo: 0, byApp: {}, byHour: {} };
   const d = st.daily[key];
@@ -386,18 +386,18 @@ function dayOf(st, key) {
   return d;
 }
 
-/** 记一个完整番茄 */
+/** 记一个完整专注 */
 export function recordPomo(session) {
   const st = get();
   st.sessions.push(session);
   if (st.sessions.length > 500) st.sessions = st.sessions.slice(-400);
-  // 按"番茄开始那天"记账，而不是"落账这一刻"。跨零点跑完的番茄（23:50 → 00:10）
+  // 按"专注开始那天"记账，而不是"落账这一刻"。跨零点跑完的专注（23:50 → 00:10）
   // 以前会整个记到新的一天，昨天那 10 分钟凭空消失，今天又多出一笔没坐过的时长。
-  // 不拆成两天：一个完整的番茄不该在统计里变成 0.4 + 0.6 两个。
+  // 不拆成两天：一个完整的专注不该在统计里变成 0.4 + 0.6 两个。
   // 与下面的 byHour 口径一致（它也是按 startAt 的小时记的）。
   const d = dayOf(st, session.startAt ? dateStr(new Date(session.startAt)) : today());
-  // 分钟照记（中断的那段也是真坐下来的时间），但"完成番茄数"只统计跑完的 ——
-  // 否则中断会话会把今日番茄数与 forecast 的速度算虚高
+  // 分钟照记（中断的那段也是真坐下来的时间），但"完成专注数"只统计跑完的 ——
+  // 否则中断会话会把今日专注数与 forecast 的速度算虚高
   d.focusMin += session.min;
   if (session.done) d.pomo += 1;
   // 按小时分布：用来看"一天里哪几段真的学得进去"（统计页的时段条）
@@ -406,7 +406,7 @@ export function recordPomo(session) {
   touch();
 }
 
-/** 一个番茄算多少分钟：补记时按设置里的专注时长折算 */
+/** 一段专注算多少分钟：补记时按设置里的专注时长折算 */
 function focusLen() {
   const c = get().pomoCfg || {};
   const n = Number(c.focus) || 0;
@@ -414,19 +414,19 @@ function focusLen() {
 }
 
 /**
- * 补记番茄 —— 收工填报 / 对话记功 / 手工勾完成，三条路都走这里。
+ * 补记专注 —— 收工填报 / 对话记功 / 手工勾完成，三条路都走这里。
  *
  * 为什么不能只改 task.donePomos：统计口径只认 sessions 与 daily.pomo|focusMin。
- * 只改任务字段的话，热力图那天仍是一片空白、forecast 算出的速度不含这些番茄、
+ * 只改任务字段的话，热力图那天仍是一片空白、forecast 算出的速度不含这些专注、
  * 重排拿到的 reality.days 也少一截 —— 结果是"任务显示已完成，但这个人今天像没学过，
  * AI 下次重排还以为他进度落后"。
  *
  * 与 recordPomo 的区别：这是事后补记，没有真实起止时间，所以
- *   ① 分钟数按"番茄时长 × 个数"折算；
+ *   ① 分钟数按"专注时长 × 个数"折算；
  *   ② 不写 byHour —— 凭空塞一个时段会污染"一天里哪几段真学得进去"的分析；
  *   ③ session 带 src 标记（log / chat / manual），需要时能单独区分。
  *
- * 只补到任务上限（1 个番茄的任务不会因为填了 3 就补成 3），返回实际补了几个。
+ * 只补到任务上限（1 段专注的任务不会因为填了 3 就补成 3），返回实际补了几个。
  */
 export function creditPomo(goalId, taskId, n, opt) {
   const o = opt || {};
@@ -711,7 +711,7 @@ export function forecast(g, windowDays) {
   const left = Math.max(0, prog.total - prog.done);
   if (!left) return { days: 0, date: today(), perDay: 0, ok: true, done: true };
   if (!active.length) return { days: 0, date: '', perDay: 0, ok: false };
-  // 每个番茄 25 分钟：用番茄数做口径，跟任务量同一单位
+  // 每段专注 25 分钟：用专注数做口径，跟任务量同一单位
   const pomos = recent.reduce((n, d) => n + d.pomo, 0);
   const perDay = pomos / win;
   if (perDay <= 0.05) return { days: 0, date: '', perDay: 0, ok: false };
@@ -719,7 +719,7 @@ export function forecast(g, windowDays) {
   return { days, date: addDays(today(), days), perDay: Math.round(perDay * 10) / 10, ok: true };
 }
 
-/** 目标进度：已完成番茄 / 总番茄 */
+/** 目标进度：已完成专注 / 总专注 */
 export function goalProgress(g) {
   let total = 0, done = 0;
   (g.tasks || []).forEach(t => {

@@ -92,7 +92,7 @@ console.log('');
 
 // 1. 步骤表里混回背单词内容
 shouldCatch('步骤文案里出现「查词」', (c) => {
-  swap(c, ONB, "title: '番茄钟：计时从这里开始',", "title: '番茄钟：查词与计时',");
+  swap(c, ONB, "title: '专注计时：计时从这里开始',", "title: '专注计时：查词与计时',");
 }, '查词');
 
 // 2. 页面内锚点被改名（量不到 → 那一步会静默消失）
@@ -113,7 +113,7 @@ shouldCatch('量不到矩形时不跳过（会卡死）', (c) => {
     "if (!rect || !rect.width || !rect.height) { this.gdStep = step; return }");
 }, '自动跳过');
 
-// 5. stopGuide 里落盘 —— 番茄一起表把引导顶掉，就再也不会重放了
+// 5. stopGuide 里落盘 —— 专注一起表把引导顶掉，就再也不会重放了
 shouldCatch('stopGuide 也记了完成', (c) => {
   swap(c, HOME,
     "    stopGuide() {\n      this.gdOn = false",

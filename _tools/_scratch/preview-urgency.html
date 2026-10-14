@@ -76,7 +76,7 @@
 
 <div class="note">
   <p><b>① 环的填充</b>＝紧迫度 0-100　<b>② 核心呼吸</b>＝越急跳得越快（从容 3.2s → 告急 0.8s）</p>
-  <p><b>③ 方块</b>＝还剩几个番茄（实心）／已做几个（空心）　<b>④ 时间条</b>＝今天 24 小时，竖线是现在，色块是还要多久</p>
+  <p><b>③ 方块</b>＝还剩几段专注（实心）／已做几个（空心）　<b>④ 时间条</b>＝今天 24 小时，竖线是现在，色块是还要多久</p>
   <p>色块顶到条尾并开始闪 ＝ 今天已经排不下；告急档环外多一圈呼吸的光晕。右上角 <b>?</b> 是卡内唯一的文字，点开才有说明。</p>
 </div>
 
@@ -123,7 +123,7 @@ LV.forEach((v, i) => {
       '<div class="ug-help">?</div>' +
     '</div>' +
     '<div class="legend"><i class="swatch" style="background:' + v.color + '"></i><b>' + v.name + '</b>' +
-      '<span>紧迫度 ' + v.score + '/100 · 呼吸 ' + (v.beat / 1000).toFixed(1) + 's · 剩 ' + v.left + ' 个番茄</span></div>';
+      '<span>紧迫度 ' + v.score + '/100 · 呼吸 ' + (v.beat / 1000).toFixed(1) + 's · 剩 ' + v.left + ' 段专注</span></div>';
   wrap.appendChild(card);
 });
 </script>

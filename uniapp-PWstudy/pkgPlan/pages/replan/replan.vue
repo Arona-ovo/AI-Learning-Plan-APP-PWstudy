@@ -72,7 +72,7 @@ export default {
   onLoad(query) {
     this.id = (query && query.id) || ''
     // from=log：从"今日收工"过来 —— 把今天的填报一起喂给 AI，
-    // 它才知道"你今天做的和计划不一样在哪"，而不是只看番茄总数瞎调。
+    // 它才知道"你今天做的和计划不一样在哪"，而不是只看专注总数瞎调。
     this.fromLog = !!(query && query.from === 'log')
     const log = this.fromLog ? dailylog.logOf(pw.today()) : null
     this.logText = log ? dailylog.driftText(log) : ''
@@ -148,7 +148,7 @@ export default {
     },
     opDetail(op) {
       if (op.op === 'move') return '开始时间：第 ' + op.day + ' 天'
-      if (op.op === 'resize') return '预估番茄：' + op.pomos + ' 个'
+      if (op.op === 'resize') return '预估专注：' + op.pomos + ' 个'
       if (op.op === 'defer') {
         const g = this.goal()
         const to = g ? pw.addDays(g.deadline, op.days) : ''

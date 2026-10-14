@@ -47,7 +47,7 @@ export function parseJSON(text) {
   if (o.format && o.format !== FORMAT) return { ok: false, error: '这不是 PWstudy 的备份文件' };
   const data = o.data && typeof o.data === 'object' ? o.data : o;
   if (!data || (!data.goals && !data.daily && !data.sessions)) {
-    return { ok: false, error: '里面没有找到目标 / 每日记录 / 番茄记录' };
+    return { ok: false, error: '里面没有找到目标 / 每日记录 / 专注记录' };
   }
   const goals = Array.isArray(data.goals) ? data.goals : [];
   const sessions = Array.isArray(data.sessions) ? data.sessions : [];

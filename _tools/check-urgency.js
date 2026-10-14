@@ -4,7 +4,7 @@
 // 覆盖：
 //  1) 紧迫度合成：时间压力 / 超期 / 期限压力 三路权重与档位边界
 //  2) 边界：夜里只剩几分钟（MIN_AVAIL 夹取）、时间不够（over）、无期限（不算压力）
-//  3) 番茄方块：封顶 12 个、超出从"已完成"那头砍、overflow 标记
+//  3) 专注方块：封顶 12 个、超出从"已完成"那头砍、overflow 标记
 //  4) 时间条：24h 口径，三个百分比都在 0-100，现在时刻与"已过去"一致
 //  5) 难度：按日常负荷折算，不是绝对值
 //  6) 组件：整张卡**没有中文文本节点**（用户要求"尽量不用文字"），且不自带数据源
@@ -79,16 +79,16 @@ function at(hh, mm) {
 
   /* ---------- 1. 三路权重与档位 ---------- */
   console.log('== 1. 紧迫度合成：时间压力 + 超期 + 期限压力 ==');
-  // 早上 9 点，剩 2 个番茄（50 分），可用 900 分 → 时间很宽裕，没有期限 → 从容
+  // 早上 9 点，剩 2 段专注（50 分），可用 900 分 → 时间很宽裕，没有期限 → 从容
   const easy = scenario({ now: at(9, 0), tasks: [{ pomos: 1 }, { pomos: 1 }] });
-  eq(easy.leftPomos, 2, '轻松：剩余番茄');
+  eq(easy.leftPomos, 2, '轻松：剩余专注');
   eq(easy.needMin, 50, '轻松：需要分钟 = 2 × 25');
   eq(easy.availMin, 900, '轻松：到 24:00 可用分钟');
   assert(easy.score < 25 && easy.level === 0, '轻松 → 档位 0 从容（score ' + easy.score + '）');
   assert(!easy.over, '轻松：时间够（over=false）');
   eq(easy.color, '#3b6d11', '轻松：档位色');
 
-  // 晚上 22 点，剩 9 个番茄（225 分），可用 120 分 → 排不下 → over
+  // 晚上 22 点，剩 9 段专注（225 分），可用 120 分 → 排不下 → over
   const hard = scenario({
     now: at(22, 0),
     createdDaysAgo: 3,                                   // 计划已进行 4 天
@@ -129,9 +129,9 @@ function at(hh, mm) {
   eq(late.availMin, 30, '23:58 可用分钟夹到下限 30');
   eq(late.empty, false, '有任务就不算空');
 
-  // 一个番茄都没排：整张卡不出现（首页 v-if="!u.empty"）
+  // 一段专注都没排：整张卡不出现（首页 v-if="!u.empty"）
   const none2 = scenario({ now: at(12, 0), tasks: [] });
-  eq(none2.totalPomos, 0, '空：总番茄 0');
+  eq(none2.totalPomos, 0, '空：总专注 0');
   eq(none2.empty, true, '空：empty=true（首页整卡隐藏）');
   eq(none2.blocks, [], '空：没有方块');
 
@@ -141,8 +141,8 @@ function at(hh, mm) {
   eq(done.donePomos, 3, '做完：已完成 3');
   assert(!done.over, '做完：不显示排不下');
 
-  /* ---------- 3. 番茄方块 ---------- */
-  console.log('== 3. 番茄方块（难度与进度） ==');
+  /* ---------- 3. 专注方块 ---------- */
+  console.log('== 3. 专注方块（难度与进度） ==');
   const few = scenario({ now: at(12, 0), tasks: [{ pomos: 2, donePomos: 1 }] });
   eq(few.blocks, ['done', 'left'], '2 个：1 空心（已做）+ 1 实心（还剩）');
 
@@ -174,7 +174,7 @@ function at(hh, mm) {
   const light = scenario({ now: at(12, 0), tasks: [{ pomos: 2 }], dailyMin: 240 });
   const heavy = scenario({ now: at(12, 0), tasks: [{ pomos: 2 }], dailyMin: 30 });
   assert(heavy.difficulty > light.difficulty,
-    '同样 2 个番茄，日常只有 30 分的人更难（' + heavy.difficulty + ' > ' + light.difficulty + '）');
+    '同样 2 段专注，日常只有 30 分的人更难（' + heavy.difficulty + ' > ' + light.difficulty + '）');
   eq(easy.difficulty >= 0 && easy.difficulty <= 100, true, '难度夹在 0-100');
   const od = scenario({
     now: at(12, 0), createdDaysAgo: 3,
@@ -214,7 +214,7 @@ function at(hh, mm) {
   // ② 三行读数：分数 / 还剩几个 / 还要多久
   assert(/class="ug-score"[\s\S]{0,80}\{\{ score \}\}/.test(tpl), '第一行读数 = 紧迫度分数');
   assert(/class="ug-hint"[\s\S]{0,80}\{\{ hintText \}\}/.test(tpl), '第一行还有一句人话（档位结论）');
-  assert(/\$t\('还剩 \{n\} 个'/.test(tpl), '第二行读数 = 还剩几个番茄');
+  assert(/\$t\('还剩 \{n\} 个'/.test(tpl), '第二行读数 = 还剩几段专注');
   assert(/class="ug-foot"[\s\S]{0,200}\{\{ needText \}\}[\s\S]{0,120}\{\{ availText \}\}/.test(tpl),
     '第三行读数 = 还要多久 / 今天还剩多久');
 
@@ -241,7 +241,7 @@ function at(hh, mm) {
   assert(/class="ug-ring"/.test(tpl) && /conic-gradient/.test(comp),
     '① 环还在，仍用 conic-gradient 画（不用 canvas：原生组件脱离 CSS transform）');
   assert(/class="ug-core"/.test(tpl) && /class="ug-halo"/.test(tpl), '② 呼吸核心与光晕还在');
-  assert(/class="ug-blk"/.test(tpl), '③ 番茄方块还在');
+  assert(/class="ug-blk"/.test(tpl), '③ 专注方块还在');
   assert(/class="ug-track"/.test(tpl) && /class="ug-now"/.test(tpl), '④ 24h 时间条 + 现在竖线还在');
   assert(/animationDuration/.test(comp), '呼吸周期是运行时下发的（跟着紧迫度变）');
   assert(/props:\s*\{[\s\S]*?u:/.test(comp), '数据靠 props.u 传入（组件自己不读库）');
@@ -267,7 +267,7 @@ function at(hh, mm) {
   assert(!/from\s+'\.\.\/services\//.test(src) && !/from\s+'\.\/services\//.test(src),
     'urgency.js 不依赖 services（首页每次 refresh 都算，不能等网络）');
   assert(!/\bawait\b/.test(src), 'urgency.js 全同步（compute 返回值直接进 data）');
-  assert(/pacing\.focusLen\(\)/.test(src), '番茄时长跟随设置（不写死 25）');
+  assert(/pacing\.focusLen\(\)/.test(src), '专注时长跟随设置（不写死 25）');
 
   /* ---------- 9. 首页接线 ---------- */
   console.log('== 9. 首页接线 ==');

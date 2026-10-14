@@ -85,9 +85,9 @@ export function dateLabel(date) {
 /**
  * 勾选 / 取消完成（首页日程卡与日历页共用）。
  *
- * 记番茄数那一步在 pw.setTaskStatus 里：勾完成会**把差的那几个番茄补上**
+ * 记专注数那一步在 pw.setTaskStatus 里：勾完成会**把差的那几段专注补上**
  * （走 creditPomo，不是直接改字段）—— 否则状态是"已完成"而进度还是 0%，
- * 和番茄钟路径两套口径。取消完成不回滚已记的番茄（做过就是做过）。
+ * 和专注计时路径两套口径。取消完成不回滚已记的专注（做过就是做过）。
  *
  * @returns {{ok:boolean, done:boolean, msg:string}}
  */
@@ -102,7 +102,7 @@ export function toggleDone(row) {
   return {
     ok: true,
     done: !was,
-    msg: was ? '已取消完成' : '做完了 ✓（差的那几个番茄已补记）'
+    msg: was ? '已取消完成' : '做完了 ✓（差的那几段专注已补记）'
   };
 }
 

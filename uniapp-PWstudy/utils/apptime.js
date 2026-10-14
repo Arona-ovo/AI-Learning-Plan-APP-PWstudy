@@ -68,7 +68,7 @@ export function openUsageSettings() {
   }
 }
 
-/** 电池优化白名单列表：番茄在后台不被杀的关键一步（无需权限，只是跳设置页） */
+/** 电池优化白名单列表：专注在后台不被杀的关键一步（无需权限，只是跳设置页） */
 export function openBatterySettings() {
   if (!supported()) return false;
   // #ifdef APP-PLUS

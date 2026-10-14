@@ -5,7 +5,7 @@
 //   0. 没有进行中的目标                     → plana    默认脸（平静打招呼）
 //   1. 截止日已过、还有任务没做完           → sad      委屈：拖过期了
 //   2. 截止日剩 ≤3 天、今天还没做完         → shock    震惊：要来不及了
-//   3. 今天一个番茄都没有：
+//   3. 今天一段专注都没有：
 //      · 连续 ≥4 天没学（且目标立了 ≥4 天） → angry    真生气了
 //      · 连续 ≥2 天没学（且目标立了 ≥2 天） → sad
 //      · 超期任务 ≥3 个                     → surprise 诶？堆了这么多？
@@ -57,7 +57,7 @@ function todayStats() {
   return { total, done, overdue, left: total - done };
 }
 
-/** 从昨天往前数，连续几天一个番茄都没有（不含今天） */
+/** 从昨天往前数，连续几天一段专注都没有（不含今天） */
 function idleDays() {
   const days = pw.recentDays(9);   // 旧 → 新，最后一个是今天
   let n = 0;
@@ -68,7 +68,7 @@ function idleDays() {
   return n;
 }
 
-/** 从昨天往前数，连续几天有番茄（不含今天）——决定 happy 还是 tongue */
+/** 从昨天往前数，连续几天有专注（不含今天）——决定 happy 还是 tongue */
 function streakDays() {
   const days = pw.recentDays(9);
   let n = 0;

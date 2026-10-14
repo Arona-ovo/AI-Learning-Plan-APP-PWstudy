@@ -110,12 +110,12 @@ function defaults() {
       useAI: false,        // 是否启用云端 AI 朗读
       sfx: true            // 答题音效（答对/半对/答错各一声，见 utils/sfx.js）
     },
-    // 专注（番茄钟）行为
+    // 专注（专注计时）行为
     //   notify   结束 / 中断时发系统通知，并常驻显示倒计时（默认开）
     //   sound    结束时响一声（复用 sfx 的 correct）
     //   vibe     结束时震动
     //   wakeLock 息屏保持 CPU（更准，但更费电，默认关）
-    //   strict   严格模式：只在番茄进行中生效，切到非学习 App 就提醒（默认关）
+    //   strict   严格模式：只在专注进行中生效，切到非学习 App 就提醒（默认关）
     //   fgservice 前台服务保活：计时期间常驻前台服务，息屏/后台进程不被杀（默认开；
     //             需自定义基座/云打包才生效，标准基座自动降级为常驻通知）
     //   noise    专注白噪音音色：'' 关 | white | pink | brown | rain（默认关）

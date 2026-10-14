@@ -114,11 +114,11 @@ await shouldCatch('手工勾完成不记台账', (c) => {
   swap(c, PW, "    markTaskDone(g, t, 'manual');", "    /* 忘了记台账 */");
 }, '手工勾完成 → 台账有记录');
 
-// 2. 番茄跑满不记台账
-await shouldCatch('番茄跑满不记台账', (c) => {
+// 2. 专注跑满不记台账
+await shouldCatch('专注跑满不记台账', (c) => {
   swap(c, PW, "  if (t.donePomos >= t.pomos && t.status === 'todo') markTaskDone(g, t, 'pomo');",
     "  if (t.donePomos >= t.pomos && t.status === 'todo') t.status = 'done';");
-}, '番茄跑满 → 台账有记录');
+}, '专注跑满 → 台账有记录');
 
 // 3. 收工补记不记台账
 await shouldCatch('收工补记不记台账', (c) => {
@@ -215,7 +215,7 @@ await shouldCatch('兜底回溯不限天数（一周没开就连补 7 次）', (
 
 await shouldCatch('不分"有没有速度基线"', (c) => {
   swap(c, HV, "  if (donePomo < 3) {", "  if (false) {");
-}, '完成番茄 < 3 → 要问');
+}, '完成专注 < 3 → 要问');
 
 await shouldCatch('不分"近 7 天有没有真学"', (c) => {
   swap(c, HV, "  if (week <= 0) {", "  if (false) {");

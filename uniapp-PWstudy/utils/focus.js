@@ -1,8 +1,8 @@
-// utils/focus.js - 番茄钟状态机（模块级常驻：tab 页不销毁，切页计时不断）
+// utils/focus.js - 专注计时状态机（模块级常驻：tab 页不销毁，切页计时不断）
 //
 // 时间来源统一用"结束时间戳 endAt"而不是倒计数：切页 / 短暂切后台回来时
 // 直接用 now 与 endAt 求差，时钟永远是对的。页面只负责每秒调一次 tick()。
-// 进程被杀后重启：runtime 里有现场，若 endAt 已过 → 按"完整番茄"补记。
+// 进程被杀后重启：runtime 里有现场，若 endAt 已过 → 按"完整专注"补记。
 import * as pw from './pwstore.js';
 import * as notify from './notify.js';
 import * as settings from './settings.js';
@@ -13,14 +13,14 @@ import * as ambient from './ambient.js';
 // state: null = 空闲
 //
 // overrun = 专注跑满预设时长之后的「正计时」段（2026-10-14 真机反馈）：
-//   番茄闹钟的做法是"时间到了不赶人走"——预设的 25 分钟只是这一轮的下限，
+//   专注闹钟的做法是"时间到了不赶人走"——预设的 25 分钟只是这一轮的下限，
 //   人还想接着学就让它继续往上数，想把这一轮合上就自己按「退出」。
 //   所以到点**不收摊**：响铃照旧（让人知道目标时长到了），但 state 继续活着，
 //   环上改显示"已经多坐了多久"，强制/严格模式在这一段一律罢手（不再拉回、不再判违规）。
 //   落账推迟到「退出」—— 这样正计时那段能一起记进去，今日时长才对得上。
 let state = null;
 let onFinish = null;   // 自然结束回调（页面注册，用于响铃/跳转）
-// 上一次专注的任务上下文。番茄跑完时 state 已经被清空，而休息还要知道"刚才在做什么"
+// 上一次专注的任务上下文。专注跑完时 state 已经被清空，而休息还要知道"刚才在做什么"
 let lastCtx = null;
 
 const FINISH_EVENT = 'pw:focus-finish';
@@ -31,7 +31,7 @@ let lastNotifyText = '';
 let lastNotifyAt = 0;
 
 // 看门狗：只有首页和专注页每秒调 tick()，切到"目标/统计/我的"时没人驱动。
-// 番茄在那一刻到点就会一直挂在 runtime 里不结算 —— 用户回到首页才补记，
+// 专注在那一刻到点就会一直挂在 runtime 里不结算 —— 用户回到首页才补记，
 // 中间那段时间首页还显示"专注中"。这里起一个模块级定时器，到点自己结算。
 // 模块级 = 切页不销毁（JS 上下文活着），App 真被杀则由 restoreIfNeeded 兜底。
 let watchdog = 0;
@@ -44,7 +44,7 @@ function armWatchdog() {
   clearWatchdog();
   if (!state || state.paused) return;
   const delay = Math.max(1000, state.endAt - Date.now() + 500);
-  // setTimeout 的延时上限是 32 位有符号毫秒（约 24.8 天）。番茄不可能那么长，
+  // setTimeout 的延时上限是 32 位有符号毫秒（约 24.8 天）。专注不可能那么长，
   // 但万一有人把时长设成离谱的值，别让定时器溢出成"立即触发"。
   if (delay > 0x7fffffff) return;
   watchdog = setTimeout(() => {
@@ -96,7 +96,7 @@ function ongoingPair() {
 }
 
 /**
- * 挂出常驻通知（番茄开始时）：
+ * 挂出常驻通知（专注开始时）：
  * 优先走前台服务（UTS 插件，息屏/后台进程不被杀），插件不可用就退回普通常驻通知。
  */
 function startOngoing() {
@@ -135,9 +135,9 @@ function dueAlert(kind, missed, overrun) {
   if (!c.notify) return;
   if (kind === 'focus') {
     if (overrun) {
-      notify.alert('番茄时间到', '已跑满设定时长，还想接着学就继续，想收就点「退出」');
+      notify.alert('专注时间到', '已跑满设定时长，还想接着学就继续，想收就点「退出」');
     } else {
-      notify.alert(missed ? '番茄已完成（刚才不在，已补记）' : '番茄完成！', '休息一下再继续');
+      notify.alert(missed ? '专注已完成（刚才不在，已补记）' : '专注完成！', '休息一下再继续');
     }
   } else {
     notify.alert('休息结束', '回到专注吧');
@@ -169,7 +169,7 @@ export function setCfg(patch) {
 
 export function current() {
   restoreIfNeeded();
-  // 读到就顺手推进：番茄早就到点了（人切到别的应用 / 停在别的 tab，没人调 tick）
+  // 读到就顺手推进：专注早就到点了（人切到别的应用 / 停在别的 tab，没人调 tick）
   // 时若原样返回"专注中 + 剩 0"，严格/强制模式会一直以为还在计时 ——
   // 强制模式就会持续把 App 拉回前台并累加违规，第 3 次自动作废还会按超长时长落一条账。
   // 专注同理不能一直挂着"剩 0"：要么进正计时（overrun），要么（休息）直接收摊。
@@ -196,7 +196,7 @@ function onDue(missed) {
  *
  * 落账故意推迟到「退出」—— 这样正计时那段能跟预设段合成一条完整会话，
  * 今日专注分钟数才对得上人真实坐下来的时间（不然"多坐 10 分钟"在统计里凭空消失）。
- * 代价是这一刻**不能**算"已完成"：番茄数、任务番茄进度、长休轮次都要等退出才记。
+ * 代价是这一刻**不能**算"已完成"：专注数、任务专注进度、长休轮次都要等退出才记。
  */
 function enterOverrun(s, missed) {
   if (!s || s.overrun) return;
@@ -211,7 +211,7 @@ function enterOverrun(s, missed) {
 }
 
 /**
- * 正计时收摊：番茄早就跑满了，所以按「完整番茄」落账，
+ * 正计时收摊：专注早就跑满了，所以按「完整专注」落账，
  * 并把正计时那段一起算进去（endAt 用当下而不是 s.endAt）。
  */
 export function stopOverrun() {
@@ -289,9 +289,9 @@ export function startFocus(opt) {
     overrun: false,     // 预设时长已跑满、正在正计时
     overrunMs: 0,       // 正计时的累计秒数（暂停期间冻结在这里）
     overrunAt: 0,       // 本段正计时的起点（恢复时换锚点）
-    count: 0   // 本轮已完成的专注番茄数（含长休后的累计）
+    count: 0   // 本轮已完成的专注数（含长休后的累计）
   };
-  // 记下这次在做什么：番茄跑完 state 会被清空，休息还得知道"刚才在忙哪件事"
+  // 记下这次在做什么：专注跑完 state 会被清空，休息还得知道"刚才在忙哪件事"
   lastCtx = { taskId: state.taskId, goalId: state.goalId, taskTitle: state.taskTitle };
   persist();
   lastNotifyText = '';
@@ -303,15 +303,15 @@ export function startFocus(opt) {
   return snapshot();
 }
 
-/* ---------- 本轮番茄计数（长休的依据） ---------- */
+/* ---------- 本轮专注计数（长休的依据） ---------- */
 
 /**
- * 今天已经跑完几个番茄。
+ * 今天已经跑完几段专注。
  *
- * 为什么存在库里而不是 state.count：番茄一结束 state 就被清空，
+ * 为什么存在库里而不是 state.count：专注一结束 state 就被清空，
  * 而"第几个了"必须活到休息开始之后 —— 这正是以前长休永远不触发的根因
  * （startRest 读 state.count，而它恒为 0）。
- * 换天重新数：跨天的"连续番茄"没有意义。
+ * 换天重新数：跨天的"连续专注"没有意义。
  */
 function roundCount() {
   const r = pw.get().pomoRound;
@@ -334,7 +334,7 @@ function everyN() {
   return Math.max(2, Math.floor(Number(cfg().every) || 4));
 }
 
-/** 番茄跑完后的休息：每 every 个番茄给一次长休，其余短休 */
+/** 专注跑完后的休息：每 every 段专注给一次长休，其余短休 */
 export function startRest(opt) {
   const c = cfg();
   const n = roundCount();
@@ -361,14 +361,14 @@ export function isLongRestNext() {
   return n > 0 && n % everyN() === 0;
 }
 
-/** 本轮进度：第几个番茄 / 几个一次长休 / 下一段是不是长休 */
+/** 本轮进度：第几段专注 / 几个一次长休 / 下一段是不是长休 */
 export function roundInfo() {
   const n = roundCount();
   const e = everyN();
   return { count: n, every: e, longNext: n > 0 && n % e === 0 };
 }
 
-/** 独立休息：不依赖"刚跑完一个番茄"，休息本身不落账 */
+/** 独立休息：不依赖"刚跑完一段专注"，休息本身不落账 */
 export function startBreak(minutes, taskId, goalId, taskTitle, count) {
   state = {
     phase: 'rest',
@@ -443,8 +443,8 @@ export function giveUp() {
   notify.cancelOngoing();
   notify.releaseWake();
   if (s.phase !== 'focus') return null;
-  // 正计时段被放弃也是"跑满过的番茄"：番茄早就达标了，不能记成中断会话
-  //（记成中断的话，任务番茄进度与今日番茄数都会少一个，而人明明坐满了）。
+  // 正计时段被放弃也是"跑满过的专注"：专注早就达标了，不能记成中断会话
+  //（记成中断的话，任务专注进度与今日专注数都会少一个，而人明明坐满了）。
   if (s.overrun) {
     bumpRound();
     return settle(s, true, Date.now());
@@ -501,7 +501,7 @@ export function tick() {
 
 /**
  * 专注跑完（进程被杀后恢复这类"人没在"的路径）：
- * 先给本轮计数 +1 —— 长休是按"第几个番茄"触发的，漏了这步它就永远不会来。
+ * 先给本轮计数 +1 —— 长休是按"第几段专注"触发的，漏了这步它就永远不会来。
  * endAt 可显式指定：进程被杀时只认"确定坐过"的预设时长，正计时那段没法证明。
  */
 function finishFocus(s, endAtOverride) {
@@ -509,7 +509,7 @@ function finishFocus(s, endAtOverride) {
   return settle(s, true, endAtOverride);
 }
 
-/** 落账一个番茄（完整或提前放弃满 1 分钟） */
+/** 落账一段专注（完整或提前放弃满 1 分钟） */
 function settle(s, completed, endAtOverride) {
   const endAt = endAtOverride || (completed ? s.endAt : Date.now());
   // 净专注时长 = 全程 − 累计暂停。不减的话"跑 25 分钟中途停 1 小时"会被记成 85 分钟，
@@ -527,13 +527,13 @@ function settle(s, completed, endAtOverride) {
     done: !!completed
   };
   pw.recordPomo(session);
-  // 只有真跑完才记任务番茄：中途放弃的不算完成任务量（与弹窗文案一致），
+  // 只有真跑完才记任务专注：中途放弃的不算完成任务量（与弹窗文案一致），
   // 否则"只剩 1 颗的任务，专注满 1 分钟点放弃"会被 pwstore 判定成已完成
   if (completed && s.taskId && s.goalId) pw.addPomoToTask(s.goalId, s.taskId);
   // 落账后立刻落盘。pwstore 平时是"改内存 + 800ms 节流合并写"，
-  // 但番茄结算恰恰是最不能等的那一刻：用户在这一秒划掉后台 / 系统在这一秒回收进程，
+  // 但专注结算恰恰是最不能等的那一刻：用户在这一秒划掉后台 / 系统在这一秒回收进程，
   // 这 25 分钟就白坐了（整个 fj_pw_data_v1 是一次性写的，丢就一起丢）。
-  // flush 是同步写，代价可以忽略 —— 一次番茄只发生一次。
+  // flush 是同步写，代价可以忽略 —— 一次专注只发生一次。
   try { pw.flush(); } catch (e) {}
   return session;
 }

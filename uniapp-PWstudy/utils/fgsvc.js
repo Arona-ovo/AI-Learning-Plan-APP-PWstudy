@@ -1,4 +1,4 @@
-// utils/fgsvc.js - 番茄前台服务包装（UTS 插件 pwstudy-focus 的唯一调用方）
+// utils/fgsvc.js - 专注前台服务包装（UTS 插件 pwstudy-focus 的唯一调用方）
 //
 // 分层：
 //   · 真正的前台 Service 必须走 UTS 插件（Service 要在 AndroidManifest 里声明，
@@ -7,7 +7,7 @@
 //     标准基座（没打自定义基座）里 UTS 原生代码不存在，调用会失败 → 全部静默降级回
 //     notify.js 的"常驻通知 + endAt 补账"老路，功能不缺、只是保活弱一档。
 //
-// 开关：settings.focus.fgservice（默认 true）。番茄开关"通知提醒"关掉时也不启用
+// 开关：settings.focus.fgservice（默认 true）。专注开关"通知提醒"关掉时也不启用
 // —— 前台服务必然带一条常驻通知，用户已明确说不要通知，就别硬塞。
 
 // #ifdef APP-PLUS
@@ -55,7 +55,7 @@ export function isActive() {
   return active;
 }
 
-/** 番茄开始 / 恢复现场：起前台服务。失败（不可用/标准基座）返回 false，调用方走老路 */
+/** 专注开始 / 恢复现场：起前台服务。失败（不可用/标准基座）返回 false，调用方走老路 */
 export function start(title, text) {
   if (!serviceAllowed() || !available()) return false;
   // #ifdef APP-PLUS
@@ -82,7 +82,7 @@ export function update(title, text) {
   return false;
 }
 
-/** 番茄结束 / 放弃：停服务、撤常驻通知（看门狗跟着服务一起收摊，见 onDestroy） */
+/** 专注结束 / 放弃：停服务、撤常驻通知（看门狗跟着服务一起收摊，见 onDestroy） */
 export function stop() {
   if (!active) return false;
   active = false;
@@ -273,7 +273,7 @@ let watchPushed = false;   // 配置最后一次真的推成功了没（watchRun
  * 下发看门狗配置。
  * @param {{on?:boolean, allow?:string, untilSec?:number}} cfg
  *        allow 是英文逗号分隔的白名单（utils/apptime.js 的 allowList() 拼）；
- *        untilSec 是兜底的自动收手倒计时（= 这个番茄还剩多少秒）。
+ *        untilSec 是兜底的自动收手倒计时（= 这段专注还剩多少秒）。
  * @returns {boolean} 真推下去了（插件可用 + 前台服务在跑）→ 调用方据此决定
  *          还要不要跑 JS 兜底轮询
  */
@@ -361,7 +361,7 @@ export function watchStats() {
   return { pulls: 0, escapes: 0 };
 }
 
-/** 清零战绩（每轮番茄开始时调一次，不然上一轮的数字会滚进来） */
+/** 清零战绩（每轮专注开始时调一次，不然上一轮的数字会滚进来） */
 export function resetWatchStats() {
   if (!available()) return false;
   // #ifdef APP-PLUS
@@ -378,7 +378,7 @@ export function watchRunning() {
 }
 
 function pushWatch() {
-  // 服务没在跑就别去推：随便 startService 会把它又拽起来（放弃番茄后重启前台服务，
+  // 服务没在跑就别去推：随便 startService 会把它又拽起来（放弃专注后重启前台服务，
   // 用户会看到一条莫名其妙的常驻通知）
   if (!available() || !active) { watchPushed = false; return false; }
   const on = watchCfg.on && !watchCfg.paused && watchCfg.untilSec > 0;

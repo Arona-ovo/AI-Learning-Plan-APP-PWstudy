@@ -21,7 +21,7 @@
         <view class="ct-main">
           <view class="ct-title" :class="{ 'ct-title-done': t.status !== 'todo' }">{{ t.title }}</view>
           <view class="ct-sub">
-            {{ t.goalTitle }} · {{ t.donePomos }}/{{ t.pomos }} 番茄
+            {{ t.goalTitle }} · {{ t.donePomos }}/{{ t.pomos }} 专注
             <text v-if="t.status === 'done'" class="ct-done">已完成</text>
             <text v-else-if="t.status === 'dropped'" class="ct-drop">已砍掉</text>
             <text v-else-if="t.overdue" class="ct-late">已超期</text>

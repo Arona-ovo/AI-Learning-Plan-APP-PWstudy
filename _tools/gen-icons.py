@@ -45,7 +45,7 @@ def save_pair(name, draw_fn):
         draw_fn(d, color)
         im.save(os.path.join(STATIC, 'tabbar', name + suffix + '.png'))
 
-# 专注：番茄钟 —— 圆环 + 顶部按钮 + 指针
+# 专注：专注计时 —— 圆环 + 顶部按钮 + 指针
 def draw_focus(d, c):
     ring(d, 48, 54, 30, c)
     d.line((48, 10, 48, 20), fill=c, width=STROKE)          # 顶部提手

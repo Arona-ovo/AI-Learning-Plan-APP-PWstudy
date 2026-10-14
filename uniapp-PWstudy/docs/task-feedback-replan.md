@@ -35,10 +35,10 @@ fj_pw_data_v1
                 title:    '背单词',            // 任务内容（快照，任务改名不影响历史）
                 goalTitle:'考研英语',
                 day:      1,                   // 计划里的第几天
-                pomos:    2,                   // 计划的番茄数
+                pomos:    2,                   // 计划的专注数
                 at:       1791920812291,       // 完成时刻（毫秒）
                 atText:   '09:42',             // 完成时刻（人看的 HH:MM）
-                src:      'manual',            // manual 手工勾 / pomo 番茄跑满 / log 收工填报 / chat 对话记功
+                src:      'manual',            // manual 手工勾 / pomo 专注跑满 / log 收工填报 / chat 对话记功
                 harvest:  null                 // 额外收获（见下），没填是 null
               }
             ]
@@ -78,13 +78,13 @@ replan: {
     at: 1791920812291, kind: 'alldone',            // alldone | sweep
     goalId: 'm3k9x', applied: 2, src: 'ai',        // ai | ai-empty | ai-error | local
     summary: '你连着两天没做完，后面的量往下压一档',
-    detail:  '「做阅读」改成 1 个番茄'
+    detail:  '「做阅读」改成 1 段专注'
   },
   pending: [                                       // 不敢自动落地的"大动作"，等人点头
     { op:'drop',  goalId:'m3k9x', taskId:'t7b2q', title:'做阅读', reason:'太难了', at:… },
     { op:'defer', goalId:'m3k9x', days:5, title:'考研英语', reason:'来不及', at:… }
   ],
-  lastNote: '每天最多 2 个番茄'                     // 信息不足时问来的最新意见
+  lastNote: '每天最多 2 段专注'                     // 信息不足时问来的最新意见
 }
 ```
 
@@ -105,7 +105,7 @@ replan: {
 
 ```
 手工勾完成   setTaskStatus(id, 'done')  ┐
-番茄跑满     addPomoToTask()            ├→ markTaskDone(g, t, src) → status='done' + 记台账
+专注跑满     addPomoToTask()            ├→ markTaskDone(g, t, src) → status='done' + 记台账
 收工/对话补记 creditPomo()               ┘
 ```
 
@@ -167,7 +167,7 @@ allDoneOn(date) =
 ### 3.5 AI 不可用必须照样重排
 
 `localRoll()`：把"今天及以后还没做的"按剩余天数重新铺开，
-`cap = ceil(剩余总番茄 / 剩余天数)`，**原顺序与相对先后一律保留**
+`cap = ceil(剩余总专注 / 剩余天数)`，**原顺序与相对先后一律保留**
 （本地规则不负责判断哪件事更重要，那是模型的事）。
 
 三种情况都走它，且给用户的说法要分开：
@@ -184,7 +184,7 @@ allDoneOn(date) =
 
 | why | 判据 | 问什么 |
 |-----|------|--------|
-| `completed-pomo-lt-3` | 完成的番茄 < 3，没有速度基线 | 这次想怎么安排？（比如"每天最多 2 个番茄"） |
+| `completed-pomo-lt-3` | 完成的专注 < 3，没有速度基线 | 这次想怎么安排？（比如"每天最多 2 段专注"） |
 | `no-focus-in-7d` | 近 7 天 0 分钟，连真实投入都没有 | 最近的学习时间大概什么样？ |
 | `short-without-reason` | 连续没做完，却既没收工填报也没额外收获 | 方便说一句卡在哪吗？ |
 

@@ -145,7 +145,7 @@ export function compute(now) {
 }
 
 /**
- * 番茄方块：done 个空心 + left 个实心，总数封顶。
+ * 专注方块：done 个空心 + left 个实心，总数封顶。
  * 超过上限时从**已完成**那头开始砍 —— 用户关心的是还剩几个，不是做了几个。
  */
 function blocksOf(done, left) {

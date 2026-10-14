@@ -12,7 +12,7 @@
 
     <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
 
-      <!-- ===== 番茄进行中：首页被"硬控"，只剩倒计时 =====
+      <!-- ===== 专注进行中：首页被"硬控"，只剩倒计时 =====
            计时一旦开始，首页不再显示任务列表 / 目标 / Dock 这些会让人分心的东西；
            想看的话先暂停或结束这一轮。 -->
       <view v-if="locked" class="lock">
@@ -26,7 +26,7 @@
           </view>
         </view>
 
-        <!-- 正计时段：番茄已经跑满，这里同样只给「退出」 -->
+        <!-- 正计时段：专注已经跑满，这里同样只给「退出」 -->
         <view v-if="cur.overrun" class="lock-ctrl">
           <button class="lock-btn lock-btn-main" @tap="exitOverrun">{{ $t('退出') }}</button>
         </view>
@@ -43,7 +43,7 @@
         </text>
         <text v-else class="lock-foot">{{ lockFoot }}</text>
 
-        <text class="lock-today">今日 {{ todayMin }} 分钟 · {{ todayPomo }} 个番茄</text>
+        <text class="lock-today">今日 {{ todayMin }} 分钟 · {{ todayPomo }} 段专注</text>
       </view>
 
       <!-- ===== 空闲态：卡片按用户保存的顺序渲染（可在「编辑首页」里排 / 收纳） =====
@@ -106,7 +106,7 @@
             <text class="mod-hide" @touchstart.stop="noop" @mousedown.stop="noop" @tap="stashModule(id)">{{ $t('收纳') }}</text>
           </view>
 
-          <!-- 番茄钟状态卡：和其它卡一样按注册表显隐（以前这张是硬写的，收纳不生效） -->
+          <!-- 专注计时状态卡：和其它卡一样按注册表显隐（以前这张是硬写的，收纳不生效） -->
           <!-- 点卡片 = 进专注页的准备态（**不**自动开始，先看看 / 调设置 / 改时长）；
                点右边的「开始」也是同一个落点 —— 起表前必须先让人看清
                "这一轮是几分钟、绑的哪个任务、开了哪些模式"，再自己按下确认。
@@ -118,7 +118,7 @@
               </view>
               <view class="fc-info">
                 <view class="fc-title">{{ running ? (cur.phase === 'rest' ? '休息中' : '专注中') : '今日专注' }}</view>
-                <view class="fc-sub">{{ running ? cur.taskTitle : (todayPomo + ' 个番茄 · 点「开始」先确认时长') }}</view>
+                <view class="fc-sub">{{ running ? cur.taskTitle : (todayPomo + ' 段专注 · 点「开始」先确认时长') }}</view>
               </view>
               <view class="fc-go" @tap.stop="quickStart()">{{ running ? '继续' : '开始' }}</view>
             </view>
@@ -126,7 +126,7 @@
 
           <!-- 今日紧迫程度：卡片头一行字（标题 + 档位胶囊 + ?），下面靠图形说话 ——
                环的填充 = 有多赶，核心呼吸的快慢 = 赶的程度，
-               方块 = 还剩几个番茄（实心）与已做几个（空心），
+               方块 = 还剩几段专注（实心）与已做几个（空心），
                底下那条 = 今天 24 小时，竖线是"现在"，色块是"还要多久"。
                右侧三行小字是图形的读数（分数 / 还剩几个 / 还要多久）。
                右上角一个 ? —— 想看完整解释就点它。 -->
@@ -168,8 +168,8 @@
               >
                 <!-- 勾选圈：做完就地勾掉，不用非得进 ⋯ 菜单找「标记完成」。
                      点行仍然是"开始专注"（快路径），两者互不干扰。
-                     tk-check-full = 番茄已做满但还没勾（2026-10-14 真机反馈：
-                     紧迫度按番茄算"没活了"，任务列表按勾没勾算"还有 3 条"，
+                     tk-check-full = 专注已做满但还没勾（2026-10-14 真机反馈：
+                     紧迫度按专注算"没活了"，任务列表按勾没勾算"还有 3 条"，
                      两边口径打架 —— 把"就差你点一下"摆到明处） -->
                 <view
                   class="tk-check"
@@ -182,9 +182,9 @@
                 <view class="tk-main">
                   <view class="tk-title" :class="{ 'tk-title-done': item.task.status === 'done' }">{{ item.task.title }}</view>
                   <view class="tk-sub">
-                    {{ item.goal.title }} · 第 {{ item.task.day }} 天 · {{ item.task.donePomos }}/{{ item.task.pomos }} 番茄 · 剩 ≈ {{ item.estMin }} 分
+                    {{ item.goal.title }} · 第 {{ item.task.day }} 天 · {{ item.task.donePomos }}/{{ item.task.pomos }} 专注 · 剩 ≈ {{ item.estMin }} 分
                     <text v-if="item.overdue" class="tk-late">已超期</text>
-                    <text v-else-if="fullOf(item)" class="tk-full" @tap.stop="toggleTaskDone(item)">{{ $t('番茄已满') }}</text>
+                    <text v-else-if="fullOf(item)" class="tk-full" @tap.stop="toggleTaskDone(item)">{{ $t('专注已满') }}</text>
                   </view>
                 </view>
                 <!-- 点行 = 直接开始（快路径）；点这个 ⋯ = 弹出操作对话框 -->
@@ -217,7 +217,7 @@
               <view class="progress-track">
                 <view class="progress-fill" :style="{ width: progressOf(g).pct + '%' }"></view>
               </view>
-              <view class="gr-sub">{{ progressOf(g).done }}/{{ progressOf(g).total }} 番茄 · {{ progressOf(g).pct }}%</view>
+              <view class="gr-sub">{{ progressOf(g).done }}/{{ progressOf(g).total }} 专注 · {{ progressOf(g).pct }}%</view>
             </view>
             <!-- 编辑态会强制显形（否则收纳区里找不到它），没数据时给一句说明 -->
             <view v-if="!goals.length" class="empty">
@@ -544,11 +544,11 @@ export default {
     }
   },
   watch: {
-    // 番茄一跑起来首页就被倒计时"硬控"，整个卡片区都不显示了 ——
+    // 专注一跑起来首页就被倒计时"硬控"，整个卡片区都不显示了 ——
     // 编辑态必须跟着收掉，否则会留下一个点不动的把手浮在倒计时上面。
     locked(v) {
       if (v) this.finishEdit()
-      // 番茄一跑起来卡片区整个不显示了，引导的高亮目标也就没了 ——
+      // 专注一跑起来卡片区整个不显示了，引导的高亮目标也就没了 ——
       // 收掉但**不记完成**：这次没看成，下次进首页再放一遍
       if (v && this.gdOn) this.stopGuide()
     }
@@ -631,7 +631,7 @@ export default {
   },
   /**
    * 弹完成弹窗。
-   * ⚠️ 番茄起表时首页被倒计时硬控，卡片都没了 —— 那时不弹（也无处可弹）。
+   * ⚠️ 专注起表时首页被倒计时硬控，卡片都没了 —— 那时不弹（也无处可弹）。
    */
   openDoneDialog(row) {
     if (this.locked || this.gdOn) return
@@ -663,7 +663,7 @@ export default {
       content: (ask && ask.ask) || '现在的数据还不够排出更好的安排，方便说一句你的想法吗？',
       mode: 'input',
       confirmText: '就这样重排',
-      placeholder: '比如：每天最多 2 个番茄 / 先啃阅读',
+      placeholder: '比如：每天最多 2 段专注 / 先啃阅读',
       value: '',
       maxlength: 120,
       action: 'replan-note'
@@ -706,9 +706,9 @@ export default {
     if (this.sheetShow) { this.sheetShow = false; return true }
     if (this.editing) { this.finishEdit(); return true }
     if (!this.forcedOn) return false
-    // 正计时段放行：番茄已跑满，这时候还把人按在首页就是"拦人不放"
+    // 正计时段放行：专注已跑满，这时候还把人按在首页就是"拦人不放"
     if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false
-    uni.showToast({ title: '先把这个番茄跑完，或到专注页放弃', icon: 'none' })
+    uni.showToast({ title: '先把这段专注跑完，或到专注页放弃', icon: 'none' })
     return true
   },
   methods: {
@@ -717,7 +717,7 @@ export default {
       this.todayMin = ov.todayMin
       this.todayPomo = ov.pomo
       this.queue = pw.todayQueue(6).map(q => {
-        // 剩余预计时长 = 还没做的番茄数 × 单番茄时长（跟随设置，别写死 25）
+        // 剩余预计时长 = 还没做的专注数 × 单段专注时长（跟随设置，别写死 25）
         const left = Math.max(0, (q.task.pomos || 0) - (q.task.donePomos || 0))
         q.estMin = left * pacing.focusLen()
         return q
@@ -896,7 +896,7 @@ export default {
         content:
           this.$t('① 圆环填充 = 紧迫度 {n}/100', { n: v.score || 0 }) + '\n' +
           this.$t('② 中心呼吸 = 越急跳得越快') + '\n' +
-          this.$t('③ 方块 = 还剩 {a} 个番茄（实心），已做 {b} 个（空心）',
+          this.$t('③ 方块 = 还剩 {a} 段专注（实心），已做 {b} 个（空心）',
             { a: v.leftPomos || 0, b: v.donePomos || 0 }) + '\n' +
           this.$t('④ 时间条 = 今天 24 小时，竖线是现在，色块是还要多久 —— {s}', { s: left }) +
           (v.overdue ? '\n' + this.$t('另有 {n} 项已超期', { n: v.overdue }) : ''),
@@ -1048,7 +1048,7 @@ export default {
       this.stopGuide()
       try { onboarding.finish() } catch (e) {}
     },
-    /** 只收起不记完成（比如番茄起表把卡片顶掉了）—— 下次进首页再放一遍 */
+    /** 只收起不记完成（比如专注起表把卡片顶掉了）—— 下次进首页再放一遍 */
     stopGuide() {
       this.gdOn = false
       this.gdStep = null
@@ -1063,7 +1063,7 @@ export default {
       setup.markPrompted()
       this.ask({
         title: '先开几个权限',
-        content: '通知、使用情况访问（开了无障碍就不必）、电池优化白名单 —— 不开的话番茄锁屏会被系统回收、学习 App 列表读不出来；开了强制模式还多一项无障碍，否则切走拉不回来。现在去设置吗？',
+        content: '通知、使用情况访问（开了无障碍就不必）、电池优化白名单 —— 不开的话专注锁屏会被系统回收、学习 App 列表读不出来；开了强制模式还多一项无障碍，否则切走拉不回来。现在去设置吗？',
         confirmText: '去设置',
         action: 'setup'
       })
@@ -1077,7 +1077,7 @@ export default {
      *
      * 五个条件缺一不可（都在 utils/partner.js 里判）：装了 + 还没决定 +
      * 没问够 3 次 + 距上次 ≥ 2 天 + 当前不在专注中。
-     * 最后那条是硬规矩：一个"可选的关联"，不配打断一次番茄。
+     * 最后那条是硬规矩：一个"可选的关联"，不配打断一次专注。
      *
      * 延迟 1.2s 再弹：首页刚渲染完就糊一张卡片上来，用户还没看清自己在哪。
      * 已经有别的弹窗在（比如权限引导）就让路 —— 权限比这个重要。
@@ -1123,7 +1123,7 @@ export default {
       Object.keys(d.byApp).forEach(k => { s += d.byApp[k] })
       return s
     },
-    // ---------- 番茄 ----------
+    // ---------- 专注 ----------
     // 首页被"硬控"时，这三个就是全部操作：让时间继续 / 让时间停下 / 不学了
     togglePause() {
       if (!this.cur) { this.goFocus(); return }
@@ -1133,7 +1133,7 @@ export default {
       strict.sync()
       forced.sync()
     },
-    /** 正计时收摊：番茄早就跑满，按完整番茄落账（含多坐的那段），然后回空闲态 */
+    /** 正计时收摊：专注早就跑满，按完整专注落账（含多坐的那段），然后回空闲态 */
     exitOverrun() {
       focus.stopOverrun()
       this.cur = null
@@ -1254,17 +1254,17 @@ export default {
     tick() {
       const r = focus.tick()
       this.cur = r.state
-      strict.sync()   // 严格模式跟番茄同步：有在跑才轮询，没在跑一次都不查
+      strict.sync()   // 严格模式跟专注同步：有在跑才轮询，没在跑一次都不查
       forced.sync()   // 强制模式同理：只有「正在专注且没暂停」才盯着前台
       if (r.justOverrun) {
         // 预设时长跑满 → 转正计时（不再弹"休息一下"：人还没说要走）
         this.refresh()
-        uni.showToast({ title: this.$t('番茄时间到'), icon: 'none' })
+        uni.showToast({ title: this.$t('专注时间到'), icon: 'none' })
         strict.sync()
         forced.sync()
       } else if (r.justFinished === 'focus') {
         this.refresh()
-        uni.showToast({ title: '番茄完成！休息一下', icon: 'success' })
+        uni.showToast({ title: '专注完成！休息一下', icon: 'success' })
       }
       this.checkRemind()
     },
@@ -1285,7 +1285,7 @@ export default {
     },
     startFor(item) {
       if (this.cur) {
-        uni.showToast({ title: '有一个番茄正在进行', icon: 'none' })
+        uni.showToast({ title: '有一段专注正在进行', icon: 'none' })
         return
       }
       uni.navigateTo({
@@ -1317,7 +1317,7 @@ export default {
       return '/pkgPlan/pages/focus/focus' + (q.length ? '?' + q.join('&') : '')
     },
     /**
-     * 点番茄卡 / 计时环 = 进专注页的准备态，**不自动开始**。
+     * 点专注卡 / 计时环 = 进专注页的准备态，**不自动开始**。
      * 计时是件有成本的事（起表后首页被硬控、严格模式开始记账），
      * 不能因为手指落在卡片空白处就莫名其妙开始一轮。
      */
@@ -1343,8 +1343,8 @@ export default {
       })
     },
     /**
-     * 番茄已做满但还没勾：列表里显示「番茄已满」待勾徽标。
-     * 为什么要有：紧迫度按番茄算（做满 = 今天没活了 → 从容），任务列表按勾没勾算
+     * 专注已做满但还没勾：列表里显示「专注已满」待勾徽标。
+     * 为什么要有：紧迫度按专注算（做满 = 今天没活了 → 从容），任务列表按勾没勾算
      * （没勾 = 还挂着 3 条没完成）—— 两边口径打架，真机上用户看着"一堆活没干
      * 却显示不急"。把"就差你点一下"摆到明处；点徽标 = 走勾选链（同勾选圈）。
      */
@@ -1675,7 +1675,7 @@ export default {
    所以这里不用再套一层 .card-head，留白比通用卡紧一点。 */
 .urg-card { padding: 30rpx 36rpx 32rpx; }
 
-/* ===== 番茄进行中：首页被倒计时"硬控" =====
+/* ===== 专注进行中：首页被倒计时"硬控" =====
    这一屏刻意只留三样东西：还剩多久、在为谁计时、继续/停下。
    任务列表、目标进度、Dock 全收起来，不给"顺手划两下"的机会。 */
 .lock {
@@ -1865,7 +1865,7 @@ export default {
 .lb-txt { font-size: 25rpx; color: #b25e00; }
 .lb-go { font-size: 25rpx; font-weight: 600; color: #f79009; }
 
-/* ===== 番茄钟状态卡 ===== */
+/* ===== 专注计时状态卡 ===== */
 .focus-card { margin-bottom: 20rpx; }
 .fc-main { display: flex; align-items: center; }
 .fc-ring {
@@ -1983,7 +1983,7 @@ export default {
   margin-left: 10rpx;
   color: #e5484d;
 }
-/* 番茄做满还没勾：勾选圈换成绿色描边（"就差你点一下"），徽标同色系淡底 */
+/* 专注做满还没勾：勾选圈换成绿色描边（"就差你点一下"），徽标同色系淡底 */
 .tk-check-full {
   border-color: #3b6d11;
   border-width: 3rpx;

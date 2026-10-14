@@ -1,7 +1,7 @@
 {
     "name" : "PWstudy",
     "appid" : "__UNI__53285BF",
-    "description" : "AI 学习规划：输入远期目标自动拆解为可执行计划，番茄钟专注执行，统计学习 App 时长并动态修正计划",
+    "description" : "AI 学习规划：输入远期目标自动拆解为可执行计划，专注计时专注执行，统计学习 App 时长并动态修正计划",
     "versionName" : "1.3beta",
     "versionCode" : 104,
     "vueVersion" : "3",

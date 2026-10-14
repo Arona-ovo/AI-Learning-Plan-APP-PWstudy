@@ -65,7 +65,7 @@
       </view>
       <view class="st-item">
         <text class="st-num">{{ overview.pomo }}</text>
-        <text class="st-label">{{ $t('今日番茄') }}</text>
+        <text class="st-label">{{ $t('今日专注') }}</text>
       </view>
       <view class="st-item">
         <text class="st-num">{{ overview.goals }}</text>

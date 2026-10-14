@@ -129,7 +129,7 @@ export default {
         coach.setDrift(today, !!r.drift)
         // 只有"确实和计划不一样"才写回收工记录 —— 他说按计划完成了就别制造偏差
         if (r.drift && r.facts.length) coach.applyFacts(today, r.facts)
-        // 记功与偏差无关：说"按计划做完了"也要把番茄记上去，否则下次重排会让他重做
+        // 记功与偏差无关：说"按计划做完了"也要把专注记上去，否则下次重排会让他重做
         if (r.credits && r.credits.length) coach.applyCredits(r.credits)
         this.msgs = coach.messages(today)
         this.$emit('changed')

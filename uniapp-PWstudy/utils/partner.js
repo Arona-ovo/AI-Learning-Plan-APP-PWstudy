@@ -99,7 +99,7 @@ export function installed() {
  * 是否该弹首次询问。条件缺一不可（文档 5.1）：
  *   已安装 + 状态仍是 undecided + 没问够 3 次 + 距上次 ≥ 2 天 + 不在专注中
  *
- * focusing 由调用方传：番茄正在跑的时候**绝不弹窗**，这是硬规矩。
+ * focusing 由调用方传：专注正在跑的时候**绝不弹窗**，这是硬规矩。
  * 一个可选的关联提示，不配打断一次专注。
  */
 export function shouldAsk(opt) {

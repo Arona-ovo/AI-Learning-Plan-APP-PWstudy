@@ -77,8 +77,8 @@ eq(sent.length, 0, '没到点一条都不发');
 eq(reminder.check({ now: at(20, 30) }), 1, '20:30 到点 → 提醒 1 个目标');
 eq(sent.length, 1, '只发一条');
 assert(/^该开始了：考研英语$/.test(sent[0].title), '通知标题带上目标名（' + sent[0].title + '）');
-assert(/背单词/.test(sent[0].text) && /2 个番茄/.test(sent[0].text),
-  '正文说清"今天做哪件事、几个番茄"（' + sent[0].text + '）');
+assert(/背单词/.test(sent[0].text) && /2 段专注/.test(sent[0].text),
+  '正文说清"今天做哪件事、几段专注"（' + sent[0].text + '）');
 assert(/分钟/.test(sent[0].text), '正文带上预计时长');
 
 eq(reminder.check({ now: at(21, 0) }), 0, '同一天再查 → 不重复催');

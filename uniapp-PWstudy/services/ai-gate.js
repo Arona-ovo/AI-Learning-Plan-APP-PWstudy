@@ -38,7 +38,7 @@ export const AI_FEATURES = [
   {
     key: 'coach',
     name: 'AI 教练对话',
-    desc: '首页教练框的一问一答：帮你记番茄、把说出口的改动落到计划上。关掉后教练框不再回复',
+    desc: '首页教练框的一问一答：帮你记专注、把说出口的改动落到计划上。关掉后教练框不再回复',
     level: 'mid', levelLabel: '中'
   },
   {

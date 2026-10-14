@@ -67,7 +67,7 @@ else bad('默认主题色应为 rose，实际 ' + theme.currentAccent());
 const PINKISH = ['sakura', 'dawn'];
 if (PINKISH.indexOf(theme.current()) < 0) ok('出厂背景不在粉红系（' + PINKISH.join('/') + '）');
 else bad('出厂背景又回到粉红系：' + theme.current());
-// 出厂主色必须在红系（色相 330°–360° 或 0°–20°）：玫红 ~347°、番茄红 ~10° 都算；
+// 出厂主色必须在红系（色相 330°–360° 或 0°–20°）：玫红 ~347°、朱红 ~10° 都算；
 // 蓝绿紫当默认不符合"红色调为主"的定调
 function hueOf(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');

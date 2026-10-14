@@ -8,7 +8,7 @@ const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const TARGETS = ['App.vue', 'pages', 'pkgPlan/pages', 'pkgManage/pages', 'pkgStudy/pages', 'components'];
 const SKIP = /(node_modules|unpackage)/;
 
-// 历代出厂主色（玫红 #e11d48 / 蓝 #2e6bff / 青 #0d9488 / 番茄红 #e54d2e）→ 当前出厂主色。
+// 历代出厂主色（玫红 #e11d48 / 蓝 #2e6bff / 青 #0d9488 / 朱红 #e54d2e）→ 当前出厂主色。
 // 2026-10-12 玫红 → 绯红（对齐图标/启动页光环实测 #e0183c）：main #e4173d / strong #bb1332 / rgb 228,23,61
 // 绯红 rose：main #e4173d / strong #bb1332 / rgb 228,23,61
 const RULES = [

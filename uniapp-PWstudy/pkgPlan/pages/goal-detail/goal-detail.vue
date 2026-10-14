@@ -10,7 +10,7 @@
         <view class="progress-track">
           <view class="progress-fill" :style="{ width: progress.pct + '%' }"></view>
         </view>
-        <view class="gd-sub">{{ progress.done }}/{{ progress.total }} 番茄 · {{ progress.pct }}%</view>
+        <view class="gd-sub">{{ progress.done }}/{{ progress.total }} 专注 · {{ progress.pct }}%</view>
         <view v-if="g.strategy" class="gd-strategy">{{ g.strategy }}</view>
         <view v-if="g.risks.length" class="gd-risks">
           <text v-for="(r, i) in g.risks" :key="i" class="gd-risk">⚠ {{ r }}</text>
@@ -49,13 +49,13 @@
           <view class="tk-main">
             <view class="tk-title" :class="{ 'tk-title-done': t.status !== 'todo' }">{{ t.title }}</view>
             <view class="tk-sub">
-              第 {{ t.day }} 天开始 · {{ t.donePomos }}/{{ t.pomos }} 番茄
+              第 {{ t.day }} 天开始 · {{ t.donePomos }}/{{ t.pomos }} 专注
               <text v-if="slotOf(t)" class="tk-slot">{{ slotOf(t) }}</text>
               <text v-if="t.status === 'dropped'" class="tk-drop">已砍掉</text>
               <text v-else-if="t.status === 'done'" class="tk-done">已完成</text>
-              <!-- 番茄做满还没勾：与首页同一套待勾提示（点徽标 = 勾掉，走同一条完成链）。
+              <!-- 专注做满还没勾：与首页同一套待勾提示（点徽标 = 勾掉，走同一条完成链）。
                    ⚠️ 这里必须用 $t 不能用 t()：v-for 的循环变量就叫 t，会遮掉 i18n 的 t -->
-              <text v-else-if="fullOf(t)" class="tk-full" @tap.stop="toggle(t)">{{ $t('番茄已满') }}</text>
+              <text v-else-if="fullOf(t)" class="tk-full" @tap.stop="toggle(t)">{{ $t('专注已满') }}</text>
             </view>
             <view v-if="t.res && t.res.length" class="tk-res">
               <text v-for="(r, ri) in t.res" :key="ri" class="tk-res-chip">📖 {{ r }}</text>
@@ -207,8 +207,8 @@ export default {
       this.$forceUpdate && this.$forceUpdate()
     },
     /**
-     * 番茄已做满但还没勾（与首页 home.vue 的 fullOf 同一口径）：
-     * 紧迫度按番茄算"没活了"，这里按勾没勾算"还没完成" —— 把"就差你点一下"摆到明处。
+     * 专注已做满但还没勾（与首页 home.vue 的 fullOf 同一口径）：
+     * 紧迫度按专注算"没活了"，这里按勾没勾算"还没完成" —— 把"就差你点一下"摆到明处。
      */
     fullOf(t) {
       if (!t || t.status !== 'todo') return false
@@ -257,7 +257,7 @@ export default {
     openPartner() {
       const t = this.guideTask
       if (!t) return
-      // 给对端的"这次学多久"要跟本机的番茄时长一致（用户改过 45 分钟就传 45×番茄数）
+      // 给对端的"这次学多久"要跟本机的专注时长一致（用户改过 45 分钟就传 45×专注数）
       const ok = link.openPartner(t, Math.max(1, (t.pomos || 1)) * pacing.focusLen())
       if (!ok) {
         uni.showToast({ title: '还没装背单词 App，或当前端不支持跳转', icon: 'none' })
@@ -403,7 +403,7 @@ export default {
 }
 .tk-drop { color: #e5484d; margin-left: 8rpx; }
 .tk-done { color: #3b6d11; margin-left: 8rpx; }
-/* 番茄做满还没勾：勾选圈绿色描边 + 待勾徽标（与首页同一套） */
+/* 专注做满还没勾：勾选圈绿色描边 + 待勾徽标（与首页同一套） */
 .tk-check-full { border-color: #3b6d11; border-width: 3rpx; }
 .tk-full {
   margin-left: 10rpx; padding: 2rpx 12rpx; border-radius: 999rpx;

@@ -28,7 +28,7 @@
       "pages": [
         {
           "path": "pages/focus/focus",
-          "style": { "navigationBarTitleText": "番茄专注", "navigationStyle": "custom" }
+          "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom" }
         },
         {
           "path": "pages/wizard/wizard",

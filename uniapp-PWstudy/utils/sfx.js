@@ -63,7 +63,7 @@ export function stop() {
  * @returns {boolean} 是否真的播了（关掉开关 / 连点 / 平台不支持都会返回 false）
  */
 export function play(kind, opt) {
-  // ⚠️ force：番茄结束的「响铃」必须走这一路。
+  // ⚠️ force：专注结束的「响铃」必须走这一路。
   // isEnabled() 管的是设置里的「朗读与音效」（背单词时代那一栏），跟专注页的
   // 「结束响铃」是两个开关 —— 响铃不该被另一个用户根本没见过的开关掐掉。
   // 谁开谁负责：focus.sound 已经判过了才轮到 beep()，这里就不能再查一遍 voice.sfx。
@@ -72,7 +72,7 @@ export function play(kind, opt) {
   const name = FILES[kind];
   if (!name) return false;
 
-  // 提醒类（番茄结束响铃）：媒体音量为 0 时直接走系统闹钟流蜂鸣。
+  // 提醒类（专注结束响铃）：媒体音量为 0 时直接走系统闹钟流蜂鸣。
   // 安卓的播放器固定走 STREAM_MUSIC，而"专注时把媒体音量调成 0"非常常见 ——
   // 那是"叫得醒"的场景，不该被媒体静音掐掉。
   if (force && audio.quiet()) {

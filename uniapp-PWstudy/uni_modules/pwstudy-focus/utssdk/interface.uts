@@ -1,7 +1,7 @@
 /**
- * pwstudy-focus —— 番茄钟前台服务（接口定义）
+ * pwstudy-focus —— 专注计时前台服务（接口定义）
  *
- * 职责：番茄计时开始时启动 Android 前台服务（常驻通知），
+ * 职责：专注计时开始时启动 Android 前台服务（常驻通知），
  * 保证息屏 / 后台期间进程不被回收，计时与结束提醒不中断。
  *
  * 只有 app-android 实现；H5 / 小程序 / iOS 由 utils/fgsvc.js 降级处理，
@@ -11,13 +11,13 @@ export type FocusServiceState = {
   running: boolean
 }
 
-/** 启动前台服务并挂出常驻通知（番茄开始时调用；重复调用 = 刷新文案） */
+/** 启动前台服务并挂出常驻通知（专注开始时调用；重复调用 = 刷新文案） */
 export function startFocusService(title: string, text: string): boolean
 
 /** 只刷新常驻通知的文案（服务已在前台时，倒计时每 30 秒刷一次） */
 export function updateFocusNotification(title: string, text: string): boolean
 
-/** 停止前台服务并移除常驻通知（番茄结束 / 放弃时调用） */
+/** 停止前台服务并移除常驻通知（专注结束 / 放弃时调用） */
 export function stopFocusService(): boolean
 
 /** 探测插件是否可用（标准基座里没有 UTS 原生代码，调用会失败） */
@@ -31,7 +31,7 @@ export function isAvailable(): boolean
  *
  * @param on       是否启用
  * @param allowCsv 白名单包名（英文逗号分隔）：本 App + 系统中性包 + 登记为「学习」的 App
- * @param untilSec 自动收手倒计时（秒，= 本番茄剩余时间）；JS 被冻结时靠它兜底
+ * @param untilSec 自动收手倒计时（秒，= 本专注剩余时间）；JS 被冻结时靠它兜底
  */
 export function setWatch(on: boolean, allowCsv: string, untilSec: Int): boolean
 
@@ -41,7 +41,7 @@ export function watchPulls(): number
 /** 强制模式战绩：逃逸次数（连续离开学习 App 的"次"） */
 export function watchEscapes(): number
 
-/** 清零战绩（每轮番茄开始时调一次） */
+/** 清零战绩（每轮专注开始时调一次） */
 export function resetWatchStats(): boolean
 
 /**

@@ -35,7 +35,7 @@
                HBuilderX 的 UTS 编译链已经升到 API 34+，然后把这两行加回来：
                  android:foregroundServiceType="specialUse"
                  <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                           android:value="Pomodoro study timer" />
+                           android:value="Focus study timer" />
              否则会出现"编译链不认 → 只能不声明 → targetSdk 34 又强制要声明"的死结。 -->
         <service
             android:name="uts.sdk.modules.pwstudyFocus.PWFocusService"

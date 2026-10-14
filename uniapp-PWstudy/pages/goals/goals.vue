@@ -39,7 +39,7 @@
           <view class="progress-fill" :style="{ width: progressOf(g).pct + '%' }"></view>
         </view>
         <view class="g-foot">
-          <text>{{ progressOf(g).done }}/{{ progressOf(g).total }} 番茄 · {{ progressOf(g).pct }}%</text>
+          <text>{{ progressOf(g).done }}/{{ progressOf(g).total }} 专注 · {{ progressOf(g).pct }}%</text>
           <text class="g-today">{{ todayCount(g) ? '今日任务 ' + todayCount(g) + ' 个' : '今日无任务' }}</text>
         </view>
         <view class="g-actions">

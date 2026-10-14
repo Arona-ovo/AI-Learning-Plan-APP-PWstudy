@@ -20,11 +20,11 @@
         </view>
         <view class="st-item">
           <text class="st-num">{{ today.pomo }}</text>
-          <text class="st-label">番茄</text>
+          <text class="st-label">专注(段)</text>
         </view>
         <view class="st-item">
           <text class="st-num">{{ totalDone }}</text>
-          <text class="st-label">累计番茄</text>
+          <text class="st-label">累计(段)</text>
         </view>
       </view>
 
@@ -104,14 +104,14 @@
         <view v-for="f in forecasts" :key="f.id" class="fc-row" @tap="goDetail(f.id)">
           <view class="fc-main">
             <view class="fc-title">{{ f.title }}</view>
-            <view class="fc-sub">{{ f.done }}/{{ f.total }} 番茄 · 每天约 {{ f.perDay }} 个</view>
+            <view class="fc-sub">{{ f.done }}/{{ f.total }} 专注 · 每天约 {{ f.perDay }} 个</view>
           </view>
           <view class="fc-right">
             <text class="fc-date" :class="{ 'fc-date-late': f.late }">{{ f.dateText }}</text>
             <text v-if="f.late" class="fc-late">比截止晚 {{ f.lateDays }} 天</text>
           </view>
         </view>
-        <view class="hr-best">速度按最近 7 天实际完成的番茄算，没学的日子算 0 —— 是对自己诚实的值。</view>
+        <view class="hr-best">速度按最近 7 天实际完成的专注算，没学的日子算 0 —— 是对自己诚实的值。</view>
       </view>
 
       <!-- AI 周复盘 -->
@@ -205,7 +205,7 @@ export default {
       return this.week.reduce((s, d) => s + d.focusMin, 0)
     },
     heatTip() {
-      return this.heatDays ? '连续记录是最难的部分，别断' : '还没有记录，做完一个番茄就有了'
+      return this.heatDays ? '连续记录是最难的部分，别断' : '还没有记录，做完一段专注就有了'
     },
     bestText() {
       const best = pw.bestHours(30)

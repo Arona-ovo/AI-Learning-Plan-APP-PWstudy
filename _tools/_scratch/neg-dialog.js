@@ -4,7 +4,7 @@
 // ⚠️ 同进程 require 而不是起子进程：这个沙箱里 spawnSync 直接 EBUSY，
 //    而且失败时 status/signal 都是 null、stdout 为空 —— 会被误判成"被抓到"（假绿）。
 // ⚠️ 最后一条用例改的是**护栏自己**（PAGES_DIRS），那是"漏扫目录"的元测试：
-//    pkgPlan 以前就漏在那儿，番茄页 / 目标详情 / 向导页三处 showModal 长期没人管。
+//    pkgPlan 以前就漏在那儿，专注页 / 目标详情 / 向导页三处 showModal 长期没人管。
 const fs = require('fs');
 const path = require('path');
 
@@ -122,15 +122,15 @@ console.log('反向测试：check-dialog.js 应该抓到下面这些坏法');
 console.log('');
 
 // ---- 1. 页面又开始用系统弹窗 ----
-shouldCatch('番茄页「自定义时长」退回系统 showModal', (c) => {
+shouldCatch('专注页「自定义时长」退回系统 showModal', (c) => {
   swap(c, FOCUS, '    customMinutes() {', '    customMinutes() {\n' + SHOW_MODAL);
 }, 'focus.vue 未调用系统弹窗');
 
-shouldCatch('番茄页切音色退回系统 showActionSheet', (c) => {
+shouldCatch('专注页切音色退回系统 showActionSheet', (c) => {
   swap(c, FOCUS, '    cycleNoise() {', '    cycleNoise() {\n      uni.showActionSheet({ itemList: [] });');
 }, 'focus.vue 未调用系统弹窗');
 
-shouldCatch('番茄页「放弃番茄」退回系统 showModal', (c) => {
+shouldCatch('专注页「放弃专注」退回系统 showModal', (c) => {
   swap(c, FOCUS, '    confirmGiveUp() {', '    confirmGiveUp() {\n' + SHOW_MODAL);
 }, 'focus.vue 未调用系统弹窗');
 
@@ -202,7 +202,7 @@ shouldCatch('.dlg-sheet 项多了不滚', (c) => {
 }, '自己滚');
 
 // ---- 4. 元测试：目录漏扫 ----
-shouldMiss('PAGES_DIRS 漏掉 pkgPlan（番茄页的系统弹窗就没人管了）', (c) => {
+shouldMiss('PAGES_DIRS 漏掉 pkgPlan（专注页的系统弹窗就没人管了）', (c) => {
   swap(c, CHECK,
     "['pages', 'pkgPlan/pages', 'pkgStudy/pages', 'pkgManage/pages']",
     "['pages', 'pkgStudy/pages', 'pkgManage/pages']");

@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav focus-page" :class="appTheme" :style="appBgStyle">
-    <float-navbar title="番茄专注" />
+    <float-navbar title="专注" />
 
     <view class="focus-body">
 
@@ -93,7 +93,7 @@
           </view>
         </view>
 
-        <!-- 严格模式：只在番茄进行中生效，不计时的时候完全不动 -->
+        <!-- 严格模式：只在专注进行中生效，不计时的时候完全不动 -->
         <view class="strict-card">
           <view class="sr-head">
             <view class="sr-info">
@@ -115,7 +115,7 @@
           <view class="sr-head">
             <view class="sr-info">
               <text class="sr-title">强制模式</text>
-              <text class="sr-sub">专注时切到别的 App，立刻把 PWstudy 拉回前台；连续 3 次强行离开，本次番茄作废</text>
+              <text class="sr-sub">专注时切到别的 App，立刻把 PWstudy 拉回前台；连续 3 次强行离开，本次专注作废</text>
             </view>
             <view class="sr-switch" :class="{ 'sr-switch-on': forcedOn }" @tap="toggleForced">
               <view class="sr-knob" :class="{ 'sr-knob-on': forcedOn }"></view>
@@ -152,7 +152,7 @@
       </view>
 
       <!-- 正计时段：预设时长已经跑满，人还在继续 —— 这一屏只给「退出」，
-           不再有暂停/放弃（番茄本身早就跑完了，谈"放弃"是骗人）。
+           不再有暂停/放弃（专注本身早就跑完了，谈"放弃"是骗人）。
            强制拉回与违规判定也在这一刻停手（见 utils/forced.js / strict.js 的 overrun 分支）。 -->
       <view v-if="active && overrun" class="ctrl">
         <button class="ctrl-btn ctrl-main" @tap="exitOverrun">{{ $t('退出') }}</button>
@@ -174,11 +174,11 @@
         </view>
       </view>
 
-      <!-- 刚完成一个专注番茄：引导休息 -->
+      <!-- 刚完成一个专注：引导休息 -->
       <view v-if="finished" class="after">
         <text class="after-txt">
           完成 {{ lastMin }} 分钟专注，{{ longNext
-            ? '这是本轮第 ' + roundCount + ' 个番茄 —— 来一段 ' + restMin + ' 分钟的长休吧'
+            ? '这是本轮第 ' + roundCount + ' 段专注 —— 来一段 ' + restMin + ' 分钟的长休吧'
             : '休息 ' + restMin + ' 分钟吧' }}。
         </text>
         <button class="btn-primary after-btn" @tap="startRestNow">开始休息</button>
@@ -186,8 +186,8 @@
       </view>
       <!-- 刚完成休息 -->
       <view v-if="restDone" class="after">
-        <text class="after-txt">休息结束，准备好开始下一个番茄了吗？</text>
-        <button class="btn-primary after-btn" @tap="startNextFocus">再来一个番茄</button>
+        <text class="after-txt">休息结束，准备好开始下一段专注了吗？</text>
+        <button class="btn-primary after-btn" @tap="startNextFocus">再来一段专注</button>
       </view>
 
       <!-- 强制模式实时状态：真拉回了几次要看得见，不然用户会怀疑它到底有没有干活。
@@ -220,7 +220,7 @@
 
       <view class="today-strip">
         <text v-if="taskProg" class="ts-prog">{{ taskProg }}</text>
-        <text>今日 {{ todayMin }} 分钟 · {{ todayPomo }} 个番茄</text>
+        <text>今日 {{ todayMin }} 分钟 · {{ todayPomo }} 段专注</text>
       </view>
 
     </view>
@@ -273,7 +273,7 @@ export default {
       finished: false,
       restDone: false,
       lastMin: 0,
-      // 本轮番茄进度与下一段休息时长（长休按"第几个番茄"触发，所以要显示出来）
+      // 本轮专注进度与下一段休息时长（长休按"第几段专注"触发，所以要显示出来）
       roundCount: 0,
       longNext: false,
       restMin: 5,
@@ -305,8 +305,8 @@ export default {
       optRows: [
         { key: 'notify', title: '通知提醒', sub: '结束后发通知，专注中在状态栏显示剩余时间' },
         { key: 'fgservice', title: '后台保活', sub: '计时期间常驻前台服务，息屏也不中断（需正式打包/自定义基座生效）' },
-        { key: 'sound', title: '结束响铃', sub: '番茄结束时响一声' },
-        { key: 'vibe', title: '震动', sub: '番茄结束时震一下' }
+        { key: 'sound', title: '结束响铃', sub: '专注结束时响一声' },
+        { key: 'vibe', title: '震动', sub: '专注结束时震一下' }
       ],
       noiseKinds: [
         { k: 'white', t: '白噪' },
@@ -325,7 +325,7 @@ export default {
     paused() {
       return !!(this.cur && this.cur.paused)
     },
-    /** 预设时长已跑满、正在正计时（番茄闹钟的做法：到点不赶人走） */
+    /** 预设时长已跑满、正在正计时（专注闹钟的做法：到点不赶人走） */
     overrun() {
       return !!(this.cur && this.cur.overrun)
     },
@@ -336,9 +336,9 @@ export default {
       return !!(this.cur && this.cur.phase === 'rest')
     },
     phaseText() {
-      // 正计时与"完成面板"共用这一档：番茄本身跑满了，区别只在于人还在继续
+      // 正计时与"完成面板"共用这一档：专注本身跑满了，区别只在于人还在继续
       //（写成两个分支会多出一条静态中文，i18n 阈值正卡满 —— 能省就省）
-      if (this.finished || this.overrun) return '番茄完成'
+      if (this.finished || this.overrun) return '专注完成'
       if (this.restDone) return '休息结束'
       if (!this.cur) return '准备开始'
       if (this.paused) return '已暂停'
@@ -371,7 +371,7 @@ export default {
     /**
      * 当前关联任务的进度一句话：任务进度 + 剩余量折算分钟。
      * 让"计时"和"计划"看得见是同一件事 —— 只显示任务名的话，
-     * 用户不知道这个任务还要来几个番茄、今天专注算不算数。
+     * 用户不知道这个任务还要来几段专注、今天专注算不算数。
      */
     taskProg() {
       const t = this.presetTaskObj()
@@ -380,7 +380,7 @@ export default {
       const total = t.pomos || 1
       const remain = Math.max(0, total - done)
       const len = pacing.focusLen()
-      return '任务 ' + done + '/' + total + ' 番茄 · 还剩 ' + remain + ' 个 ≈ ' + (remain * len) + ' 分钟'
+      return '任务 ' + done + '/' + total + ' 专注 · 还剩 ' + remain + ' 个 ≈ ' + (remain * len) + ' 分钟'
     },
     noiseKindName() {
       const k = this.noiseKinds.filter(x => x.k === this.noiseKind)[0]
@@ -515,9 +515,9 @@ export default {
   // 暂停 / 休息阶段照常放行 —— 拦人是为了专注，不是把人困死。
   onBackPress() {
     if (!this.forcedOn) return false
-    // 正计时段放行：番茄已经跑满了，这时候再把人按在页面里就是"拦人不放"
+    // 正计时段放行：专注已经跑满了，这时候再把人按在页面里就是"拦人不放"
     if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false
-    uni.showToast({ title: '强制模式：先把这个番茄跑完', icon: 'none' })
+    uni.showToast({ title: '强制模式：先把这段专注跑完', icon: 'none' })
     return true
   },
   methods: {
@@ -527,7 +527,7 @@ export default {
       this.todayPomo = ov.pomo
     },
     /**
-     * 本轮第几个番茄 / 下一段是不是长休。
+     * 本轮第几段专注 / 下一段是不是长休。
      * 这两个值存在库里、不是响应式的，只能靠手动刷 —— computed 会一直拿旧值。
      */
     refreshRound() {
@@ -567,7 +567,7 @@ export default {
         this.finished = true
         this.restDone = false
         this.refreshToday()
-        // 番茄刚跑完 → 本轮计数变了，下一段可能是长休，得马上重算
+        // 专注刚跑完 → 本轮计数变了，下一段可能是长休，得马上重算
         this.refreshRound()
         try { uni.vibrateLong({}) } catch (e) {}
       } else if (r.justFinished === 'rest') {
@@ -591,7 +591,7 @@ export default {
       this.restDone = false
       strict.sync()
       forced.sync()
-      // 番茄刚起：这时候问"要不要离开就拉回"最自然 —— 晚了就是人已经跑掉了
+      // 专注刚起：这时候问"要不要离开就拉回"最自然 —— 晚了就是人已经跑掉了
       this.maybeAskForced()
     },
     togglePause() {
@@ -602,10 +602,10 @@ export default {
       strict.sync()
       forced.sync()
     },
-    /** 放弃当前番茄：走统一弹窗（以前是系统 showModal，样式跟 App 对不上） */
+    /** 放弃当前专注：走统一弹窗（以前是系统 showModal，样式跟 App 对不上） */
     confirmGiveUp() {
       this.ask({
-        title: '放弃这个番茄？',
+        title: '放弃这段专注？',
         content: '满 1 分钟会按实际时长记录，但不算完成任务量。',
         confirmText: '放弃',
         danger: true,
@@ -613,7 +613,7 @@ export default {
       })
     },
     /**
-     * 正计时收摊：番茄早就跑满了，所以按「完整番茄」落账（正计时那段一起算进去），
+     * 正计时收摊：专注早就跑满了，所以按「完整专注」落账（正计时那段一起算进去），
      * 然后才落到"完成"面板 —— 让人决定是去休息还是再来一个。
      */
     exitOverrun() {
@@ -630,7 +630,7 @@ export default {
     },
     startRestNow() {
       this.finished = false
-      // 必须走 startRest：只有它按"本轮第几个番茄"决定短休还是长休。
+      // 必须走 startRest：只有它按"本轮第几段专注"决定短休还是长休。
       // 以前这里自己拼了一段固定短休，长休就永远轮不到。
       this.cur = focus.startRest()
       this.refreshRound()
@@ -655,9 +655,9 @@ export default {
     },
     /**
      * 按任务剩余量推荐本次专注时长。
-     * 25 分钟的"标准番茄"只对颗粒度负责，不对总量负责 —— 剩 3 个番茄的任务
+     * 25 分钟的"标准专注"只对颗粒度负责，不对总量负责 —— 剩 3 段专注的任务
      * 推荐一次 60 分钟的深专注，剩 1 个就 25 分钟；但都夹在 15-60，
-     * 超过 60 分钟的单次专注违背番茄节奏，是"推荐值"而不是硬性值。
+     * 超过 60 分钟的单次专注违背专注节奏，是"推荐值"而不是硬性值。
      */
     suggestMinutes() {
       const t = this.presetTaskObj()
@@ -780,10 +780,10 @@ export default {
      * 为什么必须有这一段：强制模式是独立开关、默认关，而它那张设置卡只在**空闲态**
      * 出现。用户一点"开始专注"，卡片就没了 —— 于是他压根不知道还有这么个功能，
      * 退出 App 发现没人拦，唯一合理的结论就是"专注功能没做"。
-     * 番茄闹钟类 App 的做法是"开始专注 = 锁住"，所以我们至少要问一次。
+     * 专注闹钟类 App 的做法是"开始专注 = 锁住"，所以我们至少要问一次。
      */
 
-    /** 开始番茄时调：只在"没开 + 从没问过"时弹一次，别每轮都烦人 */
+    /** 开始专注时调：只在"没开 + 从没问过"时弹一次，别每轮都烦人 */
     maybeAskForced() {
       if (this.forcedOn) return
       try {
@@ -819,7 +819,7 @@ export default {
     askForced() {
       this.ask({
         title: '要不要开启「离开就拉回」？',
-        content: '开启后，在这个番茄跑完之前切到别的 App，PWstudy 会立刻把你拉回来；连续强行离开 3 次，本次番茄作废。它需要你再授权「无障碍」—— 安卓 10 起系统默认禁止应用从后台跳回前台，官方只给无障碍这类"由系统绑定的服务"开口子。',
+        content: '开启后，在这段专注跑完之前切到别的 App，PWstudy 会立刻把你拉回来；连续强行离开 3 次，本次专注作废。它需要你再授权「无障碍」—— 安卓 10 起系统默认禁止应用从后台跳回前台，官方只给无障碍这类"由系统绑定的服务"开口子。',
         confirmText: '开启并去授权',
         cancelText: '这次不用',
         action: 'forced-on'
@@ -876,7 +876,7 @@ export default {
       const act = this.dlg.action
       this.dlg.show = false
       this.dlg.error = ''
-      // 选了"这次不用"也算问过了 —— 不记住的话下一轮番茄又会弹
+      // 选了"这次不用"也算问过了 —— 不记住的话下一轮专注又会弹
       if (act === 'forced-on') this.markForcedAsked()
     },
 
@@ -1109,7 +1109,7 @@ export default {
     /**
      * 让白噪音跟"现在这一刻的状态"对齐：专注进行中且开关开着 → 立刻响，否则立刻停。
      *
-     * ⚠️ 以前只有 focus.start()（开始专注）这一条路会起声 —— 番茄跑到一半才开开关，
+     * ⚠️ 以前只有 focus.start()（开始专注）这一条路会起声 —— 专注跑到一半才开开关，
      *    要等**下一轮**才响，用户只会以为这个功能坏了。所以开关、切音色都得当场生效。
      * 休息不陪：口径与 utils/focus.js 一致（白噪音只陪专注，进休息就停）。
      */

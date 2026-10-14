@@ -11,7 +11,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 // 主包 + 三个分包的页面目录（页面物理位置随 pages.json 的 subPackages）。
-// ⚠️ pkgPlan 以前漏在这儿 —— 番茄专注 / 目标详情 / 规划向导三页的
+// ⚠️ pkgPlan 以前漏在这儿 —— 专注计时 / 目标详情 / 规划向导三页的
 //    uni.showModal 因此长期没被守到（2026-10-14「自定义时长那个框没适配」就是漏网的）。
 const PAGES_DIRS = ['pages', 'pkgPlan/pages', 'pkgStudy/pages', 'pkgManage/pages'].map(d => path.join(ROOT, d));
 const PAGES = PAGES_DIRS[0]; // 兼容下方少量单文件拼接（book-switch 在 pkgManage）
@@ -163,7 +163,7 @@ assert(/var\(--safe-bottom/.test(maskCss),
 assert(/max-height:/.test(sheetCss), '.dlg-sheet 有高度上限（菜单项多了不顶出屏幕）');
 assert(/overflow-y:\s*auto/.test(sheetCss), '.dlg-sheet 项多了自己滚');
 
-console.log('== 11. 番茄页「自定义时长」走统一弹窗（真实执行） ==');
+console.log('== 11. 专注页「自定义时长」走统一弹窗（真实执行） ==');
 // 以前这是 uni.showModal({ editable: true })：系统原生弹窗，CSS 一律管不到，
 // 所以圆角 / 字号 / 按钮 / 暗色 / 屏宽全都跟 App 对不上。现在必须是 input 模式。
 // ⚠️ focus.vue 只 import utils / components。utils 那批只有真正被调用的方法才需要，

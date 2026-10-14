@@ -27,9 +27,9 @@ export const ACCENTS = [
   { key: 'green', name: '绿', rgb: '34, 139, 87', main: '#228b57', strong: '#1a6d43', rgbDark: '74, 222, 128', mainDark: '#4ade80', strongDark: '#86efac' },
   { key: 'purple', name: '紫', rgb: '124, 58, 237', main: '#7c3aed', strong: '#5b21b6', rgbDark: '167, 139, 250', mainDark: '#a78bfa', strongDark: '#c4b5fd' },
   { key: 'amber', name: '橙', rgb: '202, 111, 6', main: '#ca6f06', strong: '#a15405', rgbDark: '251, 191, 36', mainDark: '#fbbf24', strongDark: '#fcd34d' },
-  // 番茄红：偏橙的暖红（色相 ~12°）。当过一轮出厂默认，大块实心用时观感偏怪，
+  // 朱红：偏橙的暖红（色相 ~12°）。当过一轮出厂默认，大块实心用时观感偏怪，
   // 现在与绯红一样只作为可选项（红系点缀）。
-  { key: 'tomato', name: '番茄红', rgb: '229, 77, 46', main: '#e54d2e', strong: '#c43f22', rgbDark: '244, 117, 90', mainDark: '#f4755a', strongDark: '#f9a189' },
+  { key: 'tomato', name: '朱红', rgb: '229, 77, 46', main: '#e54d2e', strong: '#c43f22', rgbDark: '244, 117, 90', mainDark: '#f4755a', strongDark: '#f9a189' },
   { key: 'rose', name: '绯红', rgb: '228, 23, 61', main: '#e4173d', strong: '#bb1332', rgbDark: '249, 124, 138', mainDark: '#f97c8a', strongDark: '#fda6b0' },
   { key: 'graphite', name: '墨绿灰', rgb: '62, 74, 66', main: '#3e4a42', strong: '#2b332d', rgbDark: '154, 167, 160', mainDark: '#9aa7a0', strongDark: '#c2ccc6' }
 ];
@@ -60,7 +60,7 @@ export const DENSITY_GAP = { compact: '14rpx', cozy: '24rpx', relaxed: '34rpx' }
 export const BACKGROUNDS = [
   { key: 'default', name: '浅灰', css: '#e4e9e4', solid: '#e4e9e4', darkCss: DARK_BG_CSS, darkSolid: DARK_BG },
   // 暖砂渐变：PWstudy 的出厂默认背景（settings.theme.background 默认指向它）。
-  // 出厂主色是番茄红，配暖砂的米黄底 = 番茄 + 牛皮纸的暖调，
+  // 出厂主色是朱红，配暖砂的米黄底 = 朱红 + 牛皮纸的暖调，
   // 而不是"品红 + 粉白渐变"那种经期 App 的观感（色相从 348° 挪到 12°）。
   { key: 'sand', name: '暖砂', css: 'linear-gradient(165deg, #f7f1e6 0%, #f0e4d2 52%, #e7d7bd 100%)', solid: '#f0e4d2',
     darkCss: 'linear-gradient(165deg, #332a19 0%, #282013 52%, #1e180e 100%)', darkSolid: '#282013' },

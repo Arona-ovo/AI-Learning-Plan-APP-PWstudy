@@ -17,7 +17,7 @@
         </view>
         <view class="stat">
           <text class="sv">{{ stat.sessions }}</text>
-          <text class="sl">番茄</text>
+          <text class="sl">专注</text>
         </view>
         <view class="stat">
           <text class="sv">{{ stat.days }}</text>
@@ -61,7 +61,7 @@
       />
       <view v-if="parsed.ok" class="pk-ok">
         识别到 {{ parsed.summary.goals }} 个目标 · {{ parsed.summary.tasks }} 个任务 ·
-        {{ parsed.summary.sessions }} 个番茄 · {{ parsed.summary.days }} 天记录
+        {{ parsed.summary.sessions }} 段专注 · {{ parsed.summary.days }} 天记录
       </view>
       <view v-else-if="parsed.error" class="pk-err">{{ parsed.error }}</view>
 
@@ -198,7 +198,7 @@ export default {
       }
       this.refreshStat()
       uni.showToast({
-        title: '导入完成：+' + res.added.goals + ' 目标 / +' + res.added.sessions + ' 番茄',
+        title: '导入完成：+' + res.added.goals + ' 目标 / +' + res.added.sessions + ' 专注',
         icon: 'success',
         duration: 2200
       })

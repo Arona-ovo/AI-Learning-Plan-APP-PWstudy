@@ -1,11 +1,11 @@
-// utils/forced.js - 强制模式（默认关；开了以后，一轮番茄没跑完就走不掉）
+// utils/forced.js - 强制模式（默认关；开了以后，一轮专注没跑完就走不掉）
 //
 // 与严格模式的分工（两个开关彼此独立，别混）：
 //   · 严格模式（utils/strict.js）—— 管"记账"：
-//       抓到跑偏 → 先提醒 → 给 30 秒宽限 → 还不回来就把这次番茄作废。
+//       抓到跑偏 → 先提醒 → 给 30 秒宽限 → 还不回来就把这次专注作废。
 //   · 强制模式（本文件）      —— 管"行为"：
 //       抓到跑偏 → 当场把 PWstudy 拉回前台，不给宽限；连续跑偏 3 次才作废。
-//     也就是番茄闹钟那种"离开就失败/把你拽回来"的手感。
+//     也就是专注闹钟那种"离开就失败/把你拽回来"的手感。
 //
 // 生效条件（三条全中才动）：设置里开了强制模式 + 正在"专注"阶段 + 没暂停。
 // 休息阶段不拦（休息就该休息），不计时的时候一次系统都不查。
@@ -41,7 +41,7 @@ let escapes = 0;            // 本次专注累计"逃逸"次数（JS 侧记的�
 let escapeArmed = true;     // 回到合规状态后重新武装：同一次离开只记一笔（抗抖动）
 let lastPullAt = 0;
 let nativeSeen = { pulls: 0, escapes: 0 };
-let alertedAt = 0;          // 上次弹"先把这个番茄跑完"的时间（同一次逃逸别刷屏）
+let alertedAt = 0;          // 上次弹"先把这段专注跑完"的时间（同一次逃逸别刷屏）
 
 // ---- 原生看门狗："我认为它在跑"的三件套 ----
 // 光记住"推成功过"不够：原生按 untilSec 自己掐表，到点会自己收手。
@@ -138,7 +138,7 @@ export function capability(ext) {
   let usage = false;
   try { usage = !!apptime.hasUsagePermission(); } catch (err) { usage = false; }
   // 看门狗长在前台服务里：服务起不来，前面三条能力全是空谈
-  let svc = false;        // 现在活着吗（诊断用：番茄跑着的时候才应该为 true）
+  let svc = false;        // 现在活着吗（诊断用：专注跑着的时候才应该为 true）
   try { svc = !!fgsvc.serviceAlive(); } catch (err) { svc = false; }
   let svcAllowed = false; // 设置层让不让它起（「后台保活」/「通知提醒」任一关掉 = false）
   try { svcAllowed = !!fgsvc.serviceAllowed(); } catch (err) { svcAllowed = false; }
@@ -194,7 +194,7 @@ export function nativeActive() {
 }
 
 /**
- * 由页面在开始/结束/暂停番茄时调用（跟 strict.sync() 成对出现）。
+ * 由页面在开始/结束/暂停专注时调用（跟 strict.sync() 成对出现）。
  * 自带定时器，页面 onHide 也不停 —— 人切走才是它该干活的时候
  *（真正常驻后台的是原生看门狗，这里的定时器只在本进程活着时跑）。
  */
@@ -205,7 +205,7 @@ export function sync() {
   const should = !!(cur && !cur.paused && !cur.overrun && cur.phase === 'focus' && enabled());
   if (should === on) {
     // 状态没变也要对一次账：暂停→恢复会重算 endAt，而原生是按"还剩多少秒"掐表的，
-    // 不更新就会比番茄早收手（等于恢复之后其实没人盯着）。
+    // 不更新就会比专注早收手（等于恢复之后其实没人盯着）。
     if (on) pushConfig(false);
     return;
   }
@@ -215,7 +215,7 @@ export function sync() {
     escapeArmed = true;
     alertedAt = 0;
     lastPullAt = Date.now();
-    // 战绩清零：不然上一轮番茄的"逃逸 3 次"会把这轮直接判死
+    // 战绩清零：不然上一轮专注的"逃逸 3 次"会把这轮直接判死
     try { fgsvc.resetWatchStats(); } catch (e) {}
     nativeSeen = { pulls: 0, escapes: 0 };
     pushedOn = false;
@@ -341,13 +341,13 @@ function warn() {
   const now = Date.now();
   if (now - alertedAt < 4000) return;   // 同一次离开别反复弹
   alertedAt = now;
-  notify.alert('强制模式', '先把这个番茄跑完，再去做别的');
+  notify.alert('强制模式', '先把这段专注跑完，再去做别的');
 }
 
-/** 连续跑偏满 3 次：这次番茄作废，按中断记（满 1 分钟才落账，规则同 giveUp） */
+/** 连续跑偏满 3 次：这次专注作废，按中断记（满 1 分钟才落账，规则同 giveUp） */
 function breakNow() {
   const n = MAX_ESCAPE;
-  notify.alert('本次番茄已作废', '强制模式下连续 ' + n + ' 次离开学习 App，这次不算');
+  notify.alert('本次专注已作废', '强制模式下连续 ' + n + ' 次离开学习 App，这次不算');
   try { focus.giveUp(); } catch (e) {}
   on = false;
   stop();

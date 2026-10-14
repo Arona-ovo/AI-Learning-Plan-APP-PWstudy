@@ -129,7 +129,7 @@ function eq(a, b, label) {
   MUST_IDS.forEach(id => {
     assert(tpl.indexOf("id === '" + id + "'") >= 0, '卡片分支 v-if="id === \'' + id + '\'"');
   });
-  // 紧迫度卡：只有排了任务才出现（u.empty = 今天一个番茄都没排），
+  // 紧迫度卡：只有排了任务才出现（u.empty = 今天一段专注都没排），
   // 否则新用户进来会看到一张"全空"的环，不知道它在说什么。
   // 这条判据现在在 cardVisible() 里，模板只管渲染 —— 少一层判断就会掉进
   // "编辑态必须显形" 的坑，所以这里改成验脚本。
@@ -139,13 +139,13 @@ function eq(a, b, label) {
   // 编辑态必须反过来：哪怕 u.empty 也要显形，否则收纳后永远捞不回来
   assert(/cardOrder\(\)\s*\{[\s\S]*?if\s*\(this\.editing\)\s*return ids/.test(sc0),
     '编辑态 cardOrder 返回全部（条件卡也显形）');
-  // 番茄卡：点卡片 ≠ 开始计时（2026-10-12 真机反馈"一点今日专注的卡就直接开始了"）。
+  // 专注卡：点卡片 ≠ 开始计时（2026-10-12 真机反馈"一点今日专注的卡就直接开始了"）。
   // 起表是有成本的动作（首页立刻被硬控、严格模式开始记账），
   // 手指落在卡片空白处就开一轮，等于把"看一眼"变成了"必须做完 25 分钟"。
   // 所以：卡片 = 进专注页，**「开始」按钮才是唯一直接起表的入口**。
   const focusCard = /<view[^>]*class="card focus-card"[^>]*>/.exec(tpl);
   assert(focusCard && /@tap="goFocus\(\)"/.test(focusCard[0]),
-    '点番茄卡只进专注页（卡片本身不带 auto=1）');
+    '点专注卡只进专注页（卡片本身不带 auto=1）');
   assert(/class="fc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(tpl),
     '「开始」按钮是独立入口，且 stop 掉冒泡（不会顺带触发卡片跳转）');
   assert(/点「开始」先确认时长/.test(tpl), '副标题点明"「开始」是去确认时长，不是直接起表"');

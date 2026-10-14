@@ -4,7 +4,7 @@
 // 两件事都可以**完全静默地坏掉** —— 不报错、不崩、界面照常，只是功能没了：
 //   · 取消关联后退回 undecided   → 用户刚选了「不用了」，下次启动又被问一遍（最招人烦）
 //   · 取消关联时顺手删了数据     → 那是真实发生过的学习，不该跟着意愿一起消失
-//   · shouldAsk 漏了 focusing    → 番茄跑到一半弹出一张关联卡，直接毁掉一次专注
+//   · shouldAsk 漏了 focusing    → 专注跑到一半弹出一张关联卡，直接毁掉一次专注
 //   · 设置页不读 lastSyncAt      → 通道断了用户看不出来，只会以为"今天没背"
 //   · 三选一的分支写错下标       → 点「不用了」结果关联上了
 // 所以这里钉的全是"错了也没人报警"的那几处。设计文档：uniapp-PWstudy/docs/partner-link.md
@@ -65,7 +65,7 @@ else bad('缺 ASK_MAX —— 会一直问下去');
 if (/ASK_GAP_MS\s*=/.test(pjs)) ok('有 ASK_GAP_MS 间隔');
 else bad('缺 ASK_GAP_MS');
 if (/export\s+function\s+shouldAsk[\s\S]{0,600}o\.focusing/.test(pjs)) ok('shouldAsk() 有 focusing 短路（专注中绝不弹窗）');
-else bad('shouldAsk() 没判 focusing —— 番茄跑到一半弹关联卡，直接毁掉一次专注');
+else bad('shouldAsk() 没判 focusing —— 专注跑到一半弹关联卡，直接毁掉一次专注');
 if (/export\s+function\s+shouldAsk[\s\S]{0,600}ASK_MAX/.test(pjs) &&
     /export\s+function\s+shouldAsk[\s\S]{0,600}ASK_GAP_MS/.test(pjs)) ok('shouldAsk() 同时卡次数与间隔');
 else bad('shouldAsk() 漏了次数或间隔判定');

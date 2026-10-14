@@ -104,7 +104,7 @@ export function context(date) {
     q.forEach(x => {
       const t = x.task;
       lines.push('- 「' + t.title + '」（' + x.goal.title + '，第 ' + t.day + ' 天，已做 ' +
-        (t.donePomos || 0) + '/' + (t.pomos || 1) + ' 番茄' + (x.overdue ? '，已超期' : '') + '）');
+        (t.donePomos || 0) + '/' + (t.pomos || 1) + ' 专注' + (x.overdue ? '，已超期' : '') + '）');
     });
   } else {
     lines.push('今天计划里没有任务。');
@@ -134,7 +134,7 @@ export function context(date) {
     }
   } catch (e) {}
   if (tasks.length) {
-    lines.push('可记功的任务（说过"做完了"就按 id 记番茄）：' +
+    lines.push('可记功的任务（说过"做完了"就按 id 记专注）：' +
       tasks.map(t => t.id + '=「' + t.title + '」第' + t.day + '天 ' + (t.done || 0) + '/' + t.pomos).join('；'));
   }
   return { text: lines.join('\n'), goalIds: gs.map(g => g.id), taskIds: tasks.map(t => t.id) };
@@ -145,7 +145,7 @@ export function applyFacts(date, facts) {
   return dailylog.appendFacts(date, facts);
 }
 
-/** "我把 X 做完了" → 真把番茄记到任务上（只增不减） */
+/** "我把 X 做完了" → 真把专注记到任务上（只增不减） */
 export function applyCredits(credits) {
   return dailylog.creditPomos(credits);
 }

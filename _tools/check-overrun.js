@@ -1,8 +1,8 @@
-// _tools/check-overrun.js - 番茄「到点转正计时」的校验
+// _tools/check-overrun.js - 专注「到点转正计时」的校验
 // 运行：node _tools/check-overrun.js
 //
 // 真机反馈（2026-10-14）：「专注模式按照用户预设的时间结束以后计时要继续（正计时），
-// 只是没有强制拉回，按钮变成退出，参考番茄闹钟」。
+// 只是没有强制拉回，按钮变成退出，参考专注闹钟」。
 //
 // 这条改动最容易被人改坏的地方**不是状态机本身**，而是它牵出来的四件事：
 //   1) 到点不许收摊（tick / 看门狗 / 被人读到 current() 三条路必须同一个结论 ——
@@ -106,8 +106,8 @@ assert(/s\.paused \? 0 :/.test(osec), 'overSec 在暂停期间冻结（不接着
 console.log('== 3. 落账口径 ==');
 const so = fnBody(fjS, 'stopOverrun');
 assert(/settle\(s, true, Date\.now\(\)\)/.test(so),
-  '按「退出」落账 = 完整番茄，endAt 取当下（正计时那段一起记进去）');
-assert(/bumpRound\(\)/.test(so), '退出时才 bumpRound（番茄数与长休轮次都等这一刻）');
+  '按「退出」落账 = 完整专注，endAt 取当下（正计时那段一起记进去）');
+assert(/bumpRound\(\)/.test(so), '退出时才 bumpRound（专注数与长休轮次都等这一刻）');
 const settle = fnBody(fjS, 'settle');
 assert(/endAtOverride \|\| \(completed \? s\.endAt : Date\.now\(\)\)/.test(settle),
   'settle 支持显式 endAt（恢复路径只认预设时长的口子）');
@@ -116,7 +116,7 @@ assert(/finishFocus\(rt, rt\.endAt\)/.test(restore),
   '进程被杀恢复：只按预设时长落账（证明不了人还坐了多久，就不许算）');
 const gu = fnBody(fjS, 'giveUp');
 assert(/if \(s\.overrun\)[\s\S]*?settle\(s, true, Date\.now\(\)\)/.test(gu),
-  '放弃正计时也按"跑满过的番茄"记（记成中断会让今日番茄数平白少一个）');
+  '放弃正计时也按"跑满过的专注"记（记成中断会让今日专注数平白少一个）');
 
 /* ---------- 4. 强制 / 严格模式在正计时段罢手 ---------- */
 console.log('== 4. 正计时段不再拉回、不再判违规 ==');

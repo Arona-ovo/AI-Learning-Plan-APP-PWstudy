@@ -4,7 +4,7 @@
 // 真跑 utils/harvest.js（不是只看源码），AI 那一层用假替身 —— 替身只把
 // "传了什么进去、回了什么出来"记下来给我们断言。守的是需求里的六条边界：
 //   1) 数据结构：当天完成情况（任务内容 / 完成时间 / 额外收获）真的落在本地
-//   2) 三条完成路径（手工勾 / 番茄跑满 / 收工补记）都收敛到同一个出口 ——
+//   2) 三条完成路径（手工勾 / 专注跑满 / 收工补记）都收敛到同一个出口 ——
 //      漏一条就会出现"任务显示已完成但台账没有"，于是"今天全部完成"永远判不出来、
 //      自动重排永远不触发（这是整套功能最脆的一环）
 //   3) 「全部完成」四个条件缺一不可（今天有安排 / 无待办 / 无欠账 / 台账非空）
@@ -118,7 +118,7 @@ function backdate(g, n) {
   return g;
 }
 
-/** 造出"数据够了"的假象：3 个以上完成番茄 + 近 7 天有专注 */
+/** 造出"数据够了"的假象：3 个以上完成专注 + 近 7 天有专注 */
 function enoughData(o) {
   const opt = o || {};
   const st = pw.get();
@@ -202,13 +202,13 @@ console.log('== 2. 三条完成路径都收敛到同一个出口 ==');
   assert(!!a, '手工勾完成 → 台账有记录');
   eq(a && a.src, 'manual', '  来源 = manual');
 
-  // 路径 B：番茄跑满自动完成
+  // 路径 B：专注跑满自动完成
   const gb = fresh([{ title: '背单词', day: 1, pomos: 2 }]);
   pw.addPomoToTask(gb.id, gb.tasks[0].id);
-  assert(gb.tasks[0].donePomos === 1 && gb.tasks[0].status === 'todo', '  第 1 个番茄：还没做满');
+  assert(gb.tasks[0].donePomos === 1 && gb.tasks[0].status === 'todo', '  第 1 段专注：还没做满');
   pw.addPomoToTask(gb.id, gb.tasks[0].id);
   const b = pw.ledgerList(T0)[0];
-  assert(!!b, '番茄跑满 → 台账有记录');
+  assert(!!b, '专注跑满 → 台账有记录');
   eq(b && b.src, 'pomo', '  来源 = pomo');
 
   // 路径 C：收工填报 / 对话补记
@@ -425,7 +425,7 @@ console.log('== 7. AI 不可用也要重排（localRoll 兜底）==');
   assert(n > 0, 'localRoll 改了 ' + n + ' 项');
   const order1 = g4.tasks.filter(t => t.status === 'todo').map(t => t.title).join(',');
   eq(order1, order0, '  原顺序保留（本地规则不判断谁更重要）');
-  eq(g4.tasks[1].pomos, 2, '  不动番茄量（只重排日子）');
+  eq(g4.tasks[1].pomos, 2, '  不动专注量（只重排日子）');
 }
 
 /* ================= 8. 信息不足先问本人（需求 6） ================= */
@@ -434,7 +434,7 @@ console.log('== 8. 信息不足 → 先问本人，不拿半截数据硬排 ==')
 {
   // ① 从没跑出速度基线
   const g = fresh();
-  eq(harvest.needsAsk(g).why, 'completed-pomo-lt-3', '完成番茄 < 3 → 要问');
+  eq(harvest.needsAsk(g).why, 'completed-pomo-lt-3', '完成专注 < 3 → 要问');
   assert(harvest.needsAsk(g).ask.length > 10, '  给了具体的问题（不是空的"你说呢"）');
 
   // ② 近 7 天一分没学
@@ -461,13 +461,13 @@ console.log('== 8. 信息不足 → 先问本人，不拿半截数据硬排 ==')
   assert(r.ok === false && !!r.ask,
     '信息不足时**不硬排**，把问题抛给调用方' + (r.skipped ? '（却是 ' + r.skipped + '）' : ''));
   eq(calls.length, 0, '  没有去调模型');
-  harvest.saveNote('每天最多 2 个番茄');
-  eq(harvest.lastNote(), '每天最多 2 个番茄', '记下本人最新意见');
+  harvest.saveNote('每天最多 2 段专注');
+  eq(harvest.lastNote(), '每天最多 2 段专注', '记下本人最新意见');
   harvest.saveNote('   ');
-  eq(harvest.lastNote(), '每天最多 2 个番茄', '空意见不覆盖（手滑清空不会丢）');
+  eq(harvest.lastNote(), '每天最多 2 段专注', '空意见不覆盖（手滑清空不会丢）');
   const r2 = await harvest.autoReplan({ force: true });
   assert(calls.length > 0, '有了意见才去排');
-  assert(calls[calls.length - 1].extra.indexOf('每天最多 2 个番茄') >= 0,
+  assert(calls[calls.length - 1].extra.indexOf('每天最多 2 段专注') >= 0,
     '意见进了模型上下文');
   assert(calls[calls.length - 1].extra.indexOf('【本人最新意见（最高优先级）】') >= 0,
     '  且标成最高优先级');

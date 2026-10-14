@@ -1,12 +1,12 @@
-// utils/notify.js - App 端系统通知（番茄钟常驻倒计时 / 结束提醒 / 严格模式提醒）
+// utils/notify.js - App 端系统通知（专注计时常驻倒计时 / 结束提醒 / 严格模式提醒）
 //
-// 为什么单独一个模块：番茄钟切后台、息屏后页面定时器会被系统限制，
+// 为什么单独一个模块：专注计时切后台、息屏后页面定时器会被系统限制，
 // 只有系统通知能在状态栏把"还剩多久"持续露出来，结束时也靠它把人叫回来。
 //
 // 三条硬规矩：
 //   1) 全是 App(Android) 端能力，H5 / 小程序一律安全返回 false，绝不报错。
 //   2) 每一步都 try/catch：拿不到图标、建不了渠道、没通知权限，都退化成"没通知"，
-//      绝不能因为通知失败把番茄钟搞崩。
+//      绝不能因为通知失败把专注计时搞崩。
 //   3) 常驻通知用固定 id 反复 notify 同一个 id 来"刷新文案"，不要反复新建。
 //
 // 关于"真正的前台服务"：JS 层起不了 Service（需要原生插件 / UTS + 自定义基座）。
@@ -188,7 +188,7 @@ export function showOngoing(o) {
   if (!supported()) return false;
   // #ifdef APP-PLUS
   try {
-    ensureChannel(CH_ONGOING, '专注进行中', 2, '番茄钟倒计时，低打扰');
+    ensureChannel(CH_ONGOING, '专注进行中', 2, '专注计时倒计时，低打扰');
     const nm = manager();
     if (!nm) return false;
     const n = buildNotification(o && o.title, o && o.text, { channelId: CH_ONGOING, ongoing: true });
@@ -225,7 +225,7 @@ export function alert(title, text) {
   if (!supported()) return false;
   // #ifdef APP-PLUS
   try {
-    ensureChannel(CH_ALERT, '专注提醒', 4, '番茄结束与严格模式提醒');
+    ensureChannel(CH_ALERT, '专注提醒', 4, '专注结束与严格模式提醒');
     const nm = manager();
     if (!nm) return false;
     const n = buildNotification(title, text, { channelId: CH_ALERT, ongoing: false });

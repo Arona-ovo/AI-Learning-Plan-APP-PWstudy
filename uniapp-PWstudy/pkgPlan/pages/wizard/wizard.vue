@@ -271,7 +271,7 @@
               <view class="pv-main">
                 <view class="pv-txt" :class="{ 'pv-txt-off': !picked[t.idx] }">{{ t.title }}</view>
                 <view class="pv-sub">
-                  第 {{ t.day }} 天开始 · {{ t.pomos }} 个番茄
+                  第 {{ t.day }} 天开始 · {{ t.pomos }} 段专注
                   <text v-if="t.light" class="pv-light">{{ t.light }}·已减量</text>
                 </view>
               </view>
@@ -413,7 +413,7 @@ export default {
       return Object.keys(this.picked).filter(k => this.picked[k]).length
     },
     /**
-     * 计划量 vs 实际能力：计划是"意愿"，近期真实完成的番茄数是"能力"。
+     * 计划量 vs 实际能力：计划是"意愿"，近期真实完成的专注数是"能力"。
      * 超出容量的计划落地第一天就会开始欠账，后面全部跟着错位 —— 提前把话说清楚。
      */
     capInfo() {
@@ -424,12 +424,12 @@ export default {
       const cap = pac.capacity || pacing.capacityOf(this.draft.dailyMin)
       if (perDay > cap) {
         return {
-          text: '这份计划平均每天 ' + perDay + ' 个番茄，高于你近期的实际容量 ' + cap +
+          text: '这份计划平均每天 ' + perDay + ' 段专注，高于你近期的实际容量 ' + cap +
             ' 个 —— 落地后大概率完不成。建议回对话说明真实可用时间，让 AI 减量或改截止日期。',
           over: true
         }
       }
-      return { text: '平均每天约 ' + perDay + ' 个番茄，在你近期的实际容量（' + cap + ' 个/天）之内。', over: false }
+      return { text: '平均每天约 ' + perDay + ' 段专注，在你近期的实际容量（' + cap + ' 个/天）之内。', over: false }
     },
     capText() { return this.capInfo.text },
     capOver() { return this.capInfo.over }

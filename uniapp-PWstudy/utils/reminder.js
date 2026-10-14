@@ -1,7 +1,7 @@
 // utils/reminder.js - 每日提醒：到点催一句"今天该做的事"
 //
 // 为什么需要它：目标一旦落地，最难的不是排计划而是**每天都想起来**。
-// 番茄钟管的是"开始了之后别跑掉"，这个管的是"今天还没开始"。
+// 专注计时管的是"开始了之后别跑掉"，这个管的是"今天还没开始"。
 //
 // 时间存在 goal.remindAt（'HH:mm'，空串 = 不提醒），跟着目标走 —— 不同目标可以
 // 定不同的时间（早上背单词、晚上刷阅读），全局一个开关反而没法这么用。
@@ -104,7 +104,7 @@ export function check(opt) {
     const pomos = Math.max(1, t.pomos || 1);
     const ok = notify.remind(
       '该开始了：' + g.title,
-      '今天「' + t.title + '」' + pomos + ' 个番茄，约 ' + (pomos * pacing.focusLen()) + ' 分钟',
+      '今天「' + t.title + '」' + pomos + ' 段专注，约 ' + (pomos * pacing.focusLen()) + ' 分钟',
       i
     );
     if (!ok) return;
@@ -151,7 +151,7 @@ export function checkSlot(opt) {
     if (!list.length) return;
     const t = list[0];
     const pomos = Math.max(1, t.pomos || 1);
-    const tail = list.length > 1 ? ('等 ' + list.length + ' 件') : (pomos + ' 个番茄');
+    const tail = list.length > 1 ? ('等 ' + list.length + ' 件') : (pomos + ' 段专注');
     const ok = notify.slotNotify(
       timeslot.labelOf(key) + '该开始了：' + g.title,
       '「' + t.title + '」' + tail + '，约 ' + (pomos * pacing.focusLen()) + ' 分钟',

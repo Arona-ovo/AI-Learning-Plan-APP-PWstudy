@@ -149,7 +149,7 @@ export function summaryFor(date) {
   items.forEach(it => {
     const h = it.harvest;
     lines.push('- ' + (it.atText || '') + ' 完成「' + it.title + '」（' + it.goalTitle +
-      '，第' + it.day + '天，' + it.pomos + ' 番茄，来源 ' + srcText(it.src) + '）');
+      '，第' + it.day + '天，' + it.pomos + ' 专注，来源 ' + srcText(it.src) + '）');
     if (h && h.summary) {
       lines.push('  本人补充（' + (h.atText || '') + '）：' + h.summary +
         ((h.tags && h.tags.length) ? '｜标签：' + h.tags.join('、') : ''));
@@ -224,7 +224,7 @@ export function lastBlock() {
 
 /** 完成来源（给人看） */
 function srcText(src) {
-  return { manual: '手工勾完成', pomo: '番茄跑满', log: '收工填报', chat: '对话记功' }[src] || src || '完成';
+  return { manual: '手工勾完成', pomo: '专注跑满', log: '收工填报', chat: '对话记功' }[src] || src || '完成';
 }
 
 /* ---------- ② 判定：今天是不是"全做完了" ---------- */
@@ -273,7 +273,7 @@ export function leftBehind() {
  * 判断"AI 掌握的数据够不够排出最优方案"。不够就先问，别拿半截数据硬排。
  *
  * 三条判据（都是本地能算的，不用去问模型）：
- *   ① 从没跑出速度基线：完成的番茄 < 3 —— 只有"排了什么"没有"做得动多少"，
+ *   ① 从没跑出速度基线：完成的专注 < 3 —— 只有"排了什么"没有"做得动多少"，
  *      模型减量减到多少全是猜；
  *   ② 近 7 天一分没学：连真实投入都没有，任何"按你的速度"都无从谈起；
  *   ③ 有欠账但没人说过原因：连续没做完，却既没有收工填报也没有额外收获 ——
@@ -288,7 +288,7 @@ export function needsAsk(goal) {
     return {
       need: true,
       why: 'completed-pomo-lt-3',
-      ask: '你才刚开始，我还没看出你一天做得动多少。这次想怎么安排？（比如"每天最多 2 个番茄""先啃阅读"）'
+      ask: '你才刚开始，我还没看出你一天做得动多少。这次想怎么安排？（比如"每天最多 2 段专注""先啃阅读"）'
     };
   }
   const week = pw.recentDays(7).reduce((n, d) => n + (d.focusMin || 0), 0);
@@ -389,7 +389,7 @@ export function applyOps(goal, ops, auto) {
     } else if (op.op === 'resize') {
       const p = Math.min(Math.max(1, Math.floor(Number(op.pomos) || t.pomos)), 20);
       if (p !== t.pomos) { t.pomos = p; out.applied++; }
-      bits.push('「' + t.title + '」改成 ' + p + ' 个番茄');
+      bits.push('「' + t.title + '」改成 ' + p + ' 段专注');
     } else if (op.op === 'drop') {
       t.status = 'dropped';
       t.droppedAt = Date.now();
@@ -444,8 +444,8 @@ function applyDefer(g, op) {
  * 要解决的问题本身。
  *
  * 做法（不猜能力、不算速度，只做几何上的重新分配）：
- *   剩余任务按原顺序排好 → 从今天起到截止日，按"每天 cap 个番茄"一段段铺进去，
- *   cap = ceil(剩余总番茄 / 剩余天数)。原顺序与相对先后一律保留 ——
+ *   剩余任务按原顺序排好 → 从今天起到截止日，按"每天 cap 段专注"一段段铺进去，
+ *   cap = ceil(剩余总专注 / 剩余天数)。原顺序与相对先后一律保留 ——
  *   本地规则不负责判断"哪件事更重要"，那是模型的事。
  *
  * @returns {number} 实际改了几项

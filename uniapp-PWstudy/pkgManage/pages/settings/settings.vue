@@ -631,7 +631,7 @@
         <view class="row" @tap="clearLearningData">
           <view class="row-main">
             <text class="row-title danger">{{ $t('清除学习数据') }}</text>
-            <text class="row-desc">{{ $t('删除全部目标、任务与番茄记录，不可恢复') }}</text>
+            <text class="row-desc">{{ $t('删除全部目标、任务与专注记录，不可恢复') }}</text>
           </view>
           <text class="row-arrow">›</text>
         </view>
@@ -738,7 +738,7 @@
           <view class="row-main">
             <text class="row-title">{{ $t('介绍') }}</text>
           </view>
-          <text class="row-value">{{ $t('番茄钟 · AI 学习规划 · 用时统计，全部离线') }}</text>
+          <text class="row-value">{{ $t('专注计时 · AI 学习规划 · 用时统计，全部离线') }}</text>
         </view>
 
         <!-- 更新：wgt 热更新为主，装不上（或动了原生）就走完整包 -->
@@ -1681,7 +1681,7 @@ export default {
       this.confirm = Object.assign(this.blankConfirm(), {
         show: true,
         title: t('清除学习数据'),
-        content: t('将删除全部目标、任务、番茄与每日统计，进行中的番茄会立即停止且不记入统计。此操作不可恢复，建议先到「我的 → 数据备份」导出一份。确定继续？'),
+        content: t('将删除全部目标、任务、专注与每日统计，进行中的专注会立即停止且不记入统计。此操作不可恢复，建议先到「我的 → 数据备份」导出一份。确定继续？'),
         confirmText: t('清除'),
         action: 'clear'
       })
@@ -1732,7 +1732,7 @@ export default {
         return
       }
       if (act === 'clear') {
-        // 清的是 PWstudy 自己的库（目标/任务/番茄/Dock/每日统计 + 规划会话 + 要点 + AI 缓存）；
+        // 清的是 PWstudy 自己的库（目标/任务/专注/Dock/每日统计 + 规划会话 + 要点 + AI 缓存）；
         // AI 配置与外观属于偏好，走「退出登录」才清
         const gone = pwreset.clearAll()
         this.cacheStats = aiCache.stats()

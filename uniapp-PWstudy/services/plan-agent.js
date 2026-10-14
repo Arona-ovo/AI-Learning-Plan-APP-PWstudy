@@ -187,7 +187,7 @@ export function normalizePlan(raw, input) {
   if (input.slotOn) timeslot.spread(tasks, input.slots);
 
   // 假期减量（确定性，不靠模型自觉）：模型就算被提示了也常把假期排满，
-  // 所以落地前统一按 dayType 打折 —— 假期半量、周末八折，最少留 1 个番茄。
+  // 所以落地前统一按 dayType 打折 —— 假期半量、周末八折，最少留 1 段专注。
   const start = input.startDate || holiday.today();
   let cut = 0;
   tasks.forEach(t => {
@@ -234,7 +234,7 @@ function planSystemPrompt(input) {
   return [
     '你是学习规划专家。用户会给出一个远期学习目标，请把它拆解为可执行的日程计划。',
     '只输出一个 JSON 对象，不要任何解释、不要 markdown 围栏。格式：',
-    '{"strategy":"总体策略，80字内","risks":["风险提示，最多3条"],"milestones":[{"title":"阶段名","days":该阶段跨越天数}],"tasks":[{"title":"任务名（动词开头，可执行）","milestone":阶段序号从1开始,"day":建议第几天开始,"pomos":预估番茄数1-8' +
+    '{"strategy":"总体策略，80字内","risks":["风险提示，最多3条"],"milestones":[{"title":"阶段名","days":该阶段跨越天数}],"tasks":[{"title":"任务名（动词开头，可执行）","milestone":阶段序号从1开始,"day":建议第几天开始,"pomos":预估专注数1-8' +
       (input.slotOn ? ',"slot":"am|noon|pm"' : '') +
       ',"tags":["标签"]' + (input.resOn ? ',"res":["资料/工具建议"]' : '') + ']}',
     '约束：',
@@ -249,14 +249,14 @@ function planSystemPrompt(input) {
       '最后一条任务要落在第 ' + Math.max(1, totalDays - 2) + '-' + totalDays + ' 天附近 —— ' +
       '不许提前收工（' + totalDays + ' 天的目标排到一半就停 = 排期不完整）。' +
       '任务总数按长度给：建议 ' + taskCap + ' 个左右，长目标靠间隔复习 / 阶段自测 / 分批推进把中间的天填上；',
-    '4. 每个番茄 25 分钟。',
+    '4. 每段专注 25 分钟。',
     // 排期按"能力"而不是"意愿"：完不成的计划从第一天起就是假的，后面全部跟着错位
     '5. **每日任务量以下面这条画像为准**：' + pacing.promptText(dailyMin),
     '6. **认知负荷上限**：一天新学内容不超过 ' + pacing.DAILY_CAP +
-      ' 个番茄，超过就拆阶段 / 砍范围，不要靠"今天多学一会"硬扛 —— 长期日均超过 4 小时的计划没有人能维持；',
+      ' 段专注，超过就拆阶段 / 砍范围，不要靠"今天多学一会"硬扛 —— 长期日均超过 4 小时的计划没有人能维持；',
     '7. **遗忘曲线 / 间隔重复**：背诵记忆类内容（单词、公式、概念、法条等）第一次学完后，' +
-      '必须安排轻量复习任务（如"重背第 1-3 批不熟的词"，1-2 个番茄），在第 1/2/4/7/15 天反复出现，' +
-      '间隔逐次拉长、单次番茄数递减 —— 没有复习排期的背诵计划等于白背；',
+      '必须安排轻量复习任务（如"重背第 1-3 批不熟的词"，1-2 段专注），在第 1/2/4/7/15 天反复出现，' +
+      '间隔逐次拉长、单次专注数递减 —— 没有复习排期的背诵计划等于白背；',
     '8. 任务要具体可执行（如"做完 2019 年真题卷并整理错题"），不要"努力学习"这类空话；',
     '9. 用户当前水平：' + (input.level || '未提供，按零基础规划') + '；截止日期：' + input.deadline + '。',
     '10. 节假日（已核对国务院安排，务必照做）：' + holiday.summaryFor(holiday.today(), input.deadline) + '。'
@@ -335,7 +335,7 @@ export function localPlan(input) {
 
   return {
     strategy: '未接入 AI，按' + totalDays + '天、每天' + dailyMin + '分钟排了一份通用计划：先摸底打基础，再系统推进，最后冲刺复盘。配好 AI 后会按你的具体情况重排。',
-    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天番茄数按 ' + perDay + ' 个估算，跟不上就及时收工填报让计划重排'],
+    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天专注数按 ' + perDay + ' 个估算，跟不上就及时收工填报让计划重排'],
     milestones,
     tasks,
     totalDays,
@@ -553,7 +553,7 @@ export function normalizeChat(raw, goalIds, taskIds) {
     credits.push({ taskId: id, add });
   });
   return {
-    reply: reply || '没太听明白，能再说具体点吗？比如「今天背单词只做了 1 个番茄，跑去刷阅读了」。',
+    reply: reply || '没太听明白，能再说具体点吗？比如「今天背单词只做了 1 段专注，跑去刷阅读了」。',
     facts,
     drift: !!o.drift,
     goalId: ids.indexOf(gid) >= 0 ? gid : '',
@@ -579,7 +579,7 @@ export async function chatToday(text, ctx, history) {
   const sys = [
     '你是学习教练。用户会用一句大白话告诉你他今天实际做了什么 —— 可能和 AI 排的计划不一样，也可能只是想聊聊。',
     '你要做三件事：①把他说的**事实**提炼出来；②判断这和今天的计划算不算不一致；③给一条今天就照做的建议。',
-    '只输出一个 JSON 对象：{"reply":"回给用户的话","facts":["事实1","事实2"],"drift":true|false,"goalId":"涉及的目标id","credits":[{"taskId":"任务id","add":这次新做的番茄数}]}',
+    '只输出一个 JSON 对象：{"reply":"回给用户的话","facts":["事实1","事实2"],"drift":true|false,"goalId":"涉及的目标id","credits":[{"taskId":"任务id","add":这次新做的专注数}]}',
     '要求：',
     '1. reply 150 字内，说人话，像朋友复盘不像老师评语；先接住他说的事实再给建议，不要复述原话、不要列编号；',
     '2. facts 每条 20 字内，只写事实（做了什么 / 没做什么 / 做了多少），不写评价；听不出事实就给空数组；',
@@ -588,7 +588,7 @@ export async function chatToday(text, ctx, history) {
     '4. goalId 从给定的目标 id 里挑最相关的一个，都不相关就给空字符串；',
     '5. 今天根本没有计划时，drift 一律 false —— 没有计划就谈不上偏离；',
     '6. 他说得含糊（比如"没怎么学"）就用一句话追问清楚，drift 保持 false，别猜；',
-    '7. credits：他明确说做完了 / 做了一部分某个可记功任务时才给，add 是**这次新做的**番茄数',
+    '7. credits：他明确说做完了 / 做了一部分某个可记功任务时才给，add 是**这次新做的**专注数',
     '   （说"做完了"按该任务剩余量记，没说数量就给 1，最多 8）；只是抱怨、提问、闲聊就给空数组。',
     '   别替他总结："今天学了不少"这种没有指名任务的，一律不记。'
   ].join('\n');
@@ -709,11 +709,11 @@ export async function reviewWeek(payload) {
     '要求：',
     '1. 只基于给的数据说话，不要编造；数据少就直说"样本太少"；',
     '2. bad 只挑一条最该改的，别列一筐让人无从下手；',
-    '3. next 要具体到能照做（如"每天先做 2 个番茄的真题阅读"），不要"继续保持"；',
+    '3. next 要具体到能照做（如"每天先做 2 段专注的真题阅读"），不要"继续保持"；',
     '4. 语气像朋友复盘，不像老师评语。'
   ].join('\n');
   const days = (p.days || []).map(d => d.date.slice(5) + ' ' + d.focusMin + '分/' + d.pomo + '个').join('，') || '没有记录';
-  const goals = (p.goals || []).map(g => g.title + '（' + g.done + '/' + g.total + ' 番茄，' + g.pct + '%' +
+  const goals = (p.goals || []).map(g => g.title + '（' + g.done + '/' + g.total + ' 专注，' + g.pct + '%' +
     (typeof g.remainDays === 'number' ? '，剩 ' + g.remainDays + ' 天' : '') + '）').join('；') || '没有进行中的目标';
   const user = [
     '近 7 天每天：' + days,
@@ -775,7 +775,7 @@ export async function explainTask(task, goal) {
     '任务：' + (t.title || ''),
     '所属目标：' + ((goal && goal.title) || '未指定'),
     (goal && goal.level) ? '学习者当前水平：' + goal.level : '',
-    '这个任务安排了 ' + (t.pomos || 1) + ' 个番茄（每个 25 分钟）。'
+    '这个任务安排了 ' + (t.pomos || 1) + ' 段专注（每个 25 分钟）。'
   ].filter(Boolean).join('\n');
 
   let lastErr = '';
@@ -845,7 +845,7 @@ export async function summarizeHarvest(ctx) {
   const user = [
     '任务：' + (c.taskTitle || ''),
     '所属目标：' + (c.goalTitle || ''),
-    '这项任务安排了 ' + (c.pomos || 1) + ' 个番茄，完成于 ' + (c.date || '') + ' ' + (c.atText || '') + '。',
+    '这项任务安排了 ' + (c.pomos || 1) + ' 段专注，完成于 ' + (c.date || '') + ' ' + (c.atText || '') + '。',
     '他的原话：' + texts.join(' / ')
   ].join('\n');
 
@@ -888,7 +888,7 @@ export function replanGoal(goal, reality, opt, extra) {
 /**
  * 收工重排：在 replanGoal 的基础上，把「今天计划 vs 实际」的差集一起喂给模型。
  *
- * 这是"动态安排"真正落地的一步：光有番茄总数，模型分不清
+ * 这是"动态安排"真正落地的一步：光有专注总数，模型分不清
  *   A：今天一个都没做（任务太重 / 状态不行 → 减量）
  *   B：今天提前把后面第 8 天的活干了（节奏变了 → 往前提）
  * 这两种情况该给的 op 完全相反。拿到填报之后它才判断得出来。
@@ -912,14 +912,14 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
   const maxDefer = Math.max(0, Math.min(90, (opt && typeof opt.maxDeferDays === 'number') ? Math.floor(opt.maxDeferDays) : 30));
   const sys = [
     '你是学习规划专家。根据学习者的真实执行情况，对剩余任务提出调整建议。',
-    '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|defer|note","level":"strategy|content|time","taskId":"任务id","day":新建议第几天,"pomos":新番茄数,"days":顺延天数,"reason":"一句话理由","text":note类建议的正文}]}',
+    '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|defer|note","level":"strategy|content|time","taskId":"任务id","day":新建议第几天,"pomos":新专注数,"days":顺延天数,"reason":"一句话理由","text":note类建议的正文}]}',
     '规则：',
     '1. 只调整未完成任务；已完成/已放弃的任务不要动；',
     '2. **调整优先级（必须严格遵守）**：① strategy 调策略（换个学法、调顺序、调配比——不动任务量与期限）',
     '   ② content 调内容（砍掉低价值任务、减量、合并）③ time 调时间（顺延任务日期/阶段，最后手段）；',
     '3. 有任务超期时：先想能不能用策略或内容解决（比如换成更省时的学法、砍掉次要任务），',
     '   只有当真实速度确实追不上时才用 time 顺延；超期严重且内容已无可砍，才允许 move 大幅后移；',
-    '4. op 只能是 move（改时间）/ resize（改番茄数）/ drop（砍掉）/ note（给学习者的建议文字，level 一律 strategy）' +
+    '4. op 只能是 move（改时间）/ resize（改专注数）/ drop（砍掉）/ note（给学习者的建议文字，level 一律 strategy）' +
       (maxDefer ? '/ defer（顺延整个目标的截止日期，days = 往后几天，最多 ' + maxDefer + ' 天，level 一律 time）' : ''),
     maxDefer
       ? '5. **defer 是最后中的最后**：它改的是目标截止日，代价最大。只有在"连续好几天都做不完、' +
