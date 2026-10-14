@@ -1380,7 +1380,11 @@ export function serviceAlive(): boolean {
 /** 原生侧实测的悬浮窗权限（JS 侧 utils/apptime.js 也有一份，两个都要有 ——
  *  遮罩是原生挂的，判定必须以原生这一份为准） */
 export function overlayGranted(): boolean {
-  return canDrawOverlays(UTSAndroid.getAppContext());
+  // ⚠️ canDrawOverlays 收非空 Context；getAppContext() 是可空的。
+  //    直接透传 = Kotlin 报 Argument type mismatch（云打包 2026-10-15 实测炸在
+  //    compileReleaseKotlin）。canDrawOverlays 的其余调用点都写 ctx! 就是这个原因。
+  let ctx = UTSAndroid.getAppContext();
+  return ctx != null && canDrawOverlays(ctx!);
 }
 
 /**
@@ -1425,7 +1429,8 @@ export function watchDiag(): string {
     ',"allowN":' + allowN +
     ',"pulls":' + watchPullCount +
     ',"escapes":' + watchEscapeCount +
-    ',"ovGrant":' + (canDrawOverlays(ctx) ? '1' : '0') +
+    // 同 overlayGranted：ctx 可空，canDrawOverlays 收非空 —— 判空短路再断言
+    ',"ovGrant":' + (ctx != null && canDrawOverlays(ctx!) ? '1' : '0') +
     ',"ovWanted":' + (overlayWanted ? '1' : '0') +
     ',"ovOn":' + (overlayView != null ? '1' : '0') +
     ',"a11y":' + (guardOn ? '1' : '0') +

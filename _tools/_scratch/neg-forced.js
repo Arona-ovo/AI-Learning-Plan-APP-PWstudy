@@ -147,8 +147,10 @@ shouldCatch('fgsvc 里丢掉同一句纠正', (cur) => {
 /* ---------- 第 3 节：自检面板 ---------- */
 
 // ⚠️ 字段名前带 `,"`（拼接是从第二个字段起才带逗号），锚点别写漏
+// 2026-10-15：源码判空修 UTS 编译错后，ovGrant 变成 ctx != null && canDrawOverlays(ctx!)，
+// 锚点跟着改（不跟 = 注入不命中 = 反向测试假"抓到不了"）
 shouldCatch('watchDiag 少输出 ovGrant（看不出有没有悬浮窗权限）', (cur) => {
-  sub(cur, UTS, /"ovGrant":' \+ \(canDrawOverlays\(ctx\) \? '1' : '0'\) \+/, '"ovGrantX":\' + (canDrawOverlays(ctx) ? \'1\' : \'0\') + ');
+  sub(cur, UTS, /"ovGrant":' \+ \(ctx != null && canDrawOverlays\(ctx!\) \? '1' : '0'\) \+/, '"ovGrantX":\' + (ctx != null && canDrawOverlays(ctx!) ? \'1\' : \'0\') + ');
 }, '输出字段含 ovGrant');
 
 shouldCatch('watchDiag 少输出 ovOn（看不出遮罩挂没挂上）', (cur) => {

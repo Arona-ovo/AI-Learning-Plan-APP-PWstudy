@@ -423,9 +423,15 @@ while ((m = declRe.exec(mf)) !== null) declared.push(m[1]);
 if (!declared.length) bad('清单里没解析到任何 uts.sdk.modules.pwstudyFocus.* 类');
 declared.forEach((cls) => {
   const n = (utsSrc.match(new RegExp('\\b' + cls + '\\b', 'g')) || []).length;
-  if (n >= 2) ok('清单声明的 ' + cls + ' 在源码里有 ' + n + ' 处引用（不会被剪枝）');
-  else bad('清单声明了 ' + cls + '，但源码里只有 ' + n + ' 处（= 只有声明、没人引用）' +
-    ' —— UTS 会把它整块剪掉，dex 里没有这个类');
+  // ⚠️ 光数"出现次数 ≥2"不够（2026-10-15 反向测试实测假绿）：类型注解
+  //    （guardRef: PFGuardService | null）和注释里的提法都不构成"可达代码引用"，
+  //    而 UTS 剪枝只认后者 —— 删掉 keepGuardClass 里唯一的 new 之后"出现次数"
+  //    还有 2，护栏照样绿。判据收紧成：剥注释后的源码里必须有 new <Cls>(
+  //    （系统创建的服务靠 keepGuardClass 显式 new 钉住，见该函数注释）。
+  const hasNew = new RegExp('new\\s+' + cls + '\\s*\\(').test(utsSrc);
+  if (hasNew) ok('清单声明的 ' + cls + ' 有 new 引用钉着（' + n + ' 处出现，不会被剪枝）');
+  else bad('清单声明了 ' + cls + '，但源码里没有 new ' + cls + '(' +
+    ' —— UTS 会把它整块剪掉，dex 里没有这个类，用户开开关只有 ClassNotFoundException');
 });
 
 /* ---------- 10. UTS 里"能写但编不过"的四个表达式（2026-10-13 云打包炸出来的） ----------

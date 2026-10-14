@@ -38,7 +38,7 @@ const cases = [
   ['删掉 A11yQueryThread 的 constructor',
     (s) => s.replace('  constructor() {\n    super();\n  }\n\n  override run(): void {', '  override run(): void {')],
   ['删掉 PFGuardService 的 constructor',
-    (s) => s.replace('  constructor() {\n    super();\n  }\n\n  override onServiceConnected(): void {', '  override onServiceConnected(): void {')],
+    (s) => s.replace('  constructor() {\n    super();\n    // 记下实例：拉回要从服务内部发起才拿得到豁免（见 pullFromGuard）\n    try { guardRef = this } catch (e) {}\n  }', '')],
   ['去掉把 PFGuardService 钉住的 new',
     (s) => s.replace('let probe = new PFGuardService();', 'let probe: any = null;')],
   ['把 WatchLoop 的 super() 去掉',
@@ -86,7 +86,7 @@ const homeCases = [
   ['首页 onBackPress 不看 forcedOn（硬控屏按返回就能退出 App）',
     (s) => s.replace('if (!this.forcedOn) return false', 'if (false) return false')],
   ['首页 onBackPress 不看 phase（休息 / 暂停也被拦死）',
-    (s) => s.replace("if (!this.cur || this.cur.paused || this.cur.phase !== 'focus') return false", "if (!this.cur) return false")],
+    (s) => s.replace("if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false", "if (!this.cur) return false")],
   ['首页整个 onBackPress 被删掉',
     (s) => s.replace('onBackPress() {', 'onBackPressX() {')]
 ];
