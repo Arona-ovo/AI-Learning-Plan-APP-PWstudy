@@ -14,6 +14,7 @@
 // plus / uni 全是假替身：这里是 node，装不了真包。
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');   // 只用来跟自己写的 sha256 对拍
 const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
 const R = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const T = (rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8');
@@ -32,8 +33,29 @@ function eq(a, b, label) {
 /* ---------------- mock ---------------- */
 const kv = {};
 const net = { release: null, reqFail: false, dlFail: false };
-const log = { modal: [], toast: [], loading: [], clip: [], downloaded: [], installed: [], restarted: 0, opened: [] };
+const log = { modal: [], toast: [], loading: [], clip: [], downloaded: [], installed: [], restarted: 0, opened: [], removed: [] };
 let modalAnswer = { confirm: true };
+
+// 假的"本地文件长什么样"。校验三层的用例都靠拧这几个旋钮：
+//   fileSize 实际大小（跟资产声明的 size 不一样 → 大小那层拦下）
+//   badHead  开头不是 PK\x03\x04（不是 zip）
+//   noEocd   结尾没有 EOCD（被截断的半个包）
+const FILE = {
+  size: 300000,      // 默认跟 release() 里资产声明的 size 一致
+  badHead: false,
+  noEocd: false,
+  data: null,        // 给死内容（算摘要用）
+  reset() { this.size = 300000; this.badHead = false; this.noEocd = false; this.data = null; return this; },
+  bytes() {
+    if (this.data) return this.data;
+    const n = this.size;
+    const b = new Uint8Array(n);
+    if (this.badHead) { b[0] = 0x41; b[1] = 0x42; b[2] = 0x43; b[3] = 0x44; }
+    else { b[0] = 0x50; b[1] = 0x4b; b[2] = 0x03; b[3] = 0x04; }
+    if (!this.noEocd && n >= 22) { b[n - 22] = 0x50; b[n - 21] = 0x4b; b[n - 20] = 0x05; b[n - 19] = 0x06; }
+    return b;
+  }
+};
 
 global.uni = {
   getStorageSync: (k) => (k in kv ? kv[k] : ''),
@@ -56,6 +78,20 @@ global.uni = {
     return { onProgressUpdate: (cb) => { cb({ progress: 42 }); cb({ progress: 100 }); } };
   },
   saveFile: (o) => { (o && o.success ? o.success({ savedFilePath: '/doc/x.wgt' }) : null); },
+  // 校验要用：getFileInfo 取大小，readFile 按 offset/length 取一段字节
+  getFileSystemManager: () => ({
+    getFileInfo: (o) => {
+      if (plus.__fileGone) { o.fail({ errMsg: 'file not found' }); return; }
+      o.success({ size: FILE.size });
+    },
+    readFile: (o) => {
+      if (plus.__fileGone) { o.fail({ errMsg: 'file not found' }); return; }
+      const all = FILE.bytes();
+      const off = Math.max(0, Number(o && o.position) || 0);
+      const len = Number(o && o.length) > 0 ? Number(o.length) : (all.length - off);
+      o.success({ data: all.slice(off, off + len) });
+    }
+  }),
   getNetworkType: (o) => { o && o.success && o.success({ networkType: typeof net.type === 'string' ? net.type : 'wifi' }); },
   onNetworkStatusChange: (cb) => { (net.watchers = net.watchers || []).push(cb); }
 };
@@ -81,7 +117,8 @@ const plus = {
   io: {
     resolveLocalFileSystemURL(p, onOk, onErr) {
       if (plus.__fileGone) { onErr({ code: 1 }); return; }
-      onOk({});
+      // remove 用来清旧包 / 清残缺包，删了什么要能查
+      onOk({ remove: (onOk2, onErr2) => { log.removed.push(p); onOk2 && onOk2(); } });
     }
   },
   networkinfo: (() => {
@@ -127,15 +164,20 @@ assert(updater.parseVersion('1.0.1').code > updater.parseVersion('1.0').code, '1
 console.log('== 2. 资产名约定（发布脚本 ↔ 客户端） ==');
 eq(updater.parseAssetName('PWstudy-1.0.1-n101.wgt'), { version: '1.0.1', code: 10001, minNative: 101 },
   "parseAssetName('PWstudy-1.0.1-n101.wgt')");
-eq(updater.parseAssetName('PWstudy-1.0.1.wgt').minNative, 0, '不带 n 段 = 不挑基座');
-eq(updater.parseAssetName('PWstudy-2.0.0-n102.wgt').code, 20000, '版本号照常解析');
+// ⚠️ 先判非空再取属性：直接写 `.minNative` 的话，反向测试把前缀改掉时这里是
+//    **崩溃**而不是报红 —— 崩溃会被当成"抓到了"，那是假绿。
+const noN = updater.parseAssetName('PWstudy-1.0.1.wgt');
+assert(!!noN && noN.minNative === 0, '不带 n 段 = 不挑基座');
+const two = updater.parseAssetName('PWstudy-2.0.0-n102.wgt');
+eq(two ? two.code : null, 20000, '版本号照常解析');
 eq(updater.parseAssetName('__UNI__53285BF.wgt'), null, 'HBuilder 默认名不是我们的包 → 认不出来');
 eq(updater.parseAssetName('PWstudy.apk'), null, 'APK 不走热更新');
 eq(updater.parseAssetName('别的-1.0.1.wgt'), null, '前缀不对不认');
 // 整包也要挑名字：Release 里常挂着云打包直接产出的默认名（只有时间戳）当占位
 eq(updater.parseApkName('__UNI__53285BF__20261011204240.apk'), null,
   '云打包默认名的 APK（占位用）不认 —— 名字里没有版本号，判断不出新旧');
-eq(updater.parseApkName('PWstudy-1.2.0.apk').code, 10200, "parseApkName('PWstudy-1.2.0.apk')");
+const apk2 = updater.parseApkName('PWstudy-1.2.0.apk');
+eq(apk2 ? apk2.code : null, 10200, "parseApkName('PWstudy-1.2.0.apk')");
 eq(updater.parseApkName('PWstudy-1.0.1-n101.wgt'), null, 'wgt 不算整包');
 eq(updater.parseApkName('app-release.apk'), null, '随便一个 APK 也不认');
 // 两头对齐：脚本生成用的模板串，必须能被客户端这条正则解析出来
@@ -288,10 +330,12 @@ function main() {
   });
   steps.push(() => { plus.__installFail = false; return Promise.resolve(); });
 
-  // 下载失败同理
+  // 下载失败同理。
+  // ⚠️ 必须换个**没下过**的版本号：本地已经有一份 1.0.2 的完整包时，下载失败
+  //    根本不影响安装（直接装本地那份）——那是新逻辑的正确行为，不是这条要测的。
   steps.push(() => {
     net.dlFail = true;
-    net.release = release(['PWstudy-1.0.2-n101.wgt']);
+    net.release = release(['PWstudy-1.0.7-n101.wgt']);
     return updater.check({ manual: true })
       .then(r => updater.applyUpdate(r))
       .then(() => bad('下载失败却没有抛错'), e => ok('下载失败会抛出来（' + e.message + '）'));
@@ -418,7 +462,9 @@ function main() {
     net.release = release(['PWstudy-1.0.2-n101.wgt']);
     plus.runtime.version = '1.0.1';
     settings.set({ update: { skip: '' } });
+    // ⚠️ 红点现在要"本地包已就绪"才亮，所以先静默把包准备好
     return updater.manualCheck()
+      .then(() => updater.prefetch())
       .then(() => updater.pending())
       .then((p) => {
         assert(!!p && p.version === '1.0.2', '先记下 1.0.2（红点亮着）');
@@ -437,8 +483,12 @@ function main() {
   });
 
   /* ---------- 6.8 预下载：只在 Wi-Fi 下；用户点确认时最好已经备好 ---------- */
-  const cleanPending = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '' };
-  const resetUpdate = (patch) => settings.set({ update: Object.assign({ pending: cleanPending, skip: '', lastCheckAt: '' }, patch || {}) });
+  const cleanPending = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '', digestUrl: '' };
+  // dl 也要一起清：它是跨用例共享的，漏了会拿上一轮"已经下好"的包当这一轮的成果
+  const cleanDl = { code: 0, kind: '', version: '', url: '', size: 0, sha256: '', path: '', state: '', tries: 0, startedAt: 0 };
+  const resetUpdate = (patch) => settings.set({
+    update: Object.assign({ pending: cleanPending, dl: cleanDl, skip: '', lastCheckAt: '' }, patch || {})
+  });
 
   steps.push(() => {
     console.log('== 6.8 Wi-Fi 下先把包准备好（不安装） ==');
@@ -484,7 +534,7 @@ function main() {
     console.log('== 6.8c 本地包被回收 → 不硬装，重新下 ==');
     plus.__fileGone = true;
     return updater.pending().then((p) => {
-      assert(!!p && !p.downloadPath, '失效的路径被清掉了（不许拿空路径说"已经下好了"）');
+      eq(p, null, '★ 包被回收 → 红点直接灭（不许拿一个已不在的路径说"已经下好了"）');
       plus.__fileGone = false;
       log.downloaded.length = 0;
       return updater.prefetch();
@@ -495,26 +545,22 @@ function main() {
   });
 
   steps.push(() => {
-    console.log('== 6.8d 移动网络：不预下载，点了也不动他的流量 ==');
+    console.log('== 6.8d 移动网络：照样下（两种网都能下） ==');
     plus.__net = '4g';
     plus.runtime.version = '1.0.1';
     net.release = release(['PWstudy-1.0.5-n101.wgt']);
     resetUpdate();
     log.downloaded.length = 0;
-    log.opened.length = 0;
     log.modal.length = 0;
-    return updater.manualCheck().then(() => updater.prefetch()).then(() => {
-      eq(log.downloaded.length, 0, '移动网络下一次网都不上');
+    log.toast.length = 0;
+    return updater.manualCheck().then(() => updater.prefetch()).then((p) => {
+      eq(log.downloaded.length, 1, '★ 移动网络下也照下（用户要的是两种网都能下）');
+      assert(!!p && !!p.downloadPath, '包落本地了');
       return updater.pending();
     }).then((p) => {
-      assert(!!p && !p.downloadPath, '没有本地包');
-      return updater.runUpdate({ state: 'update', remote: p, notes: '' });
-    }).then((v) => {
-      eq(v, false, '没装成');
-      eq(log.downloaded.length, 0, '★ 他的移动流量一分没花');
-      const m = log.modal[log.modal.length - 1];
-      assert(!!m && /Wi-Fi/.test(m.title), '弹的是"请在 Wi-Fi 下更新"（' + (m && m.title) + '）');
-      eq(log.opened.length, 0, '★ 没把他推去下 20MB 的整包（那等于同一个坑再跳一次）');
+      assert(!!p && !!p.downloadPath, '包已就绪 → 红点亮');
+      eq(log.modal.length, 0, '★ 全程一声不吭（下载不弹窗）');
+      eq(log.toast.length, 0, '★ 也不 toast（那是手动检查才有的东西）');
     });
   });
 
@@ -522,9 +568,10 @@ function main() {
     console.log('== 6.8e 网络类型判定 ==');
     eq(updater.canDownloadNetwork('wifi').ok, true, 'wifi → 放行');
     eq(updater.canDownloadNetwork('ethernet').ok, true, '有线网 → 放行');
-    eq(updater.canDownloadNetwork('4g').ok, false, '4g → 拦下');
+    eq(updater.canDownloadNetwork('4g').ok, true, '★ 4g → 放行（两种网都能下）');
     eq(updater.canDownloadNetwork('5g').why, 'cellular', '5g 也归属蜂窝');
     eq(updater.canDownloadNetwork('2g').why, 'cellular', '2g 同上');
+    eq(updater.canDownloadNetwork('none').ok, false, '★ 完全没网 → 拦下（真下不动）');
     eq(updater.canDownloadNetwork('none').why, 'none', '没网单独一个标记');
     // unknown 必须放行：读不出网络类型的机型上，一拦就等于永远不许更新
     eq(updater.canDownloadNetwork('unknown').ok, true, 'unknown → 放行（不许把更新锁死）');
@@ -536,13 +583,12 @@ function main() {
     plus.runtime.version = '1.0.1';
     net.release = release(['PWstudy-1.0.6-n101.wgt']);
     resetUpdate();
-    // ① 移动网络、包还没下 —— 点之前就该知道一会儿要 Wi-Fi
+    // ① 包还没下好 —— 按钮写「下载并安装」（移动网络不再单独拦，也就不单独说）
     plus.__net = '4g';
     log.modal.length = 0;
     return updater.manualCheck().then((r) => {
       updater.showResult(r);
       const m1 = log.modal[log.modal.length - 1];
-      assert(!!m1 && /移动网络/.test(m1.content), '当场说明是移动网络、只 Wi-Fi 能下');
       eq(m1.confirmText, '下载并安装', '没下好 → 按钮写「下载并安装」');
       // ② 连上 Wi-Fi 下好之后 → 同一张卡该说"点一下就装完"
       plus.__net = 'wifi';
@@ -560,26 +606,37 @@ function main() {
   steps.push(() => {
     console.log('== 6.8g 挂一次监听，别重复挂 ==');
     const before = (net.watchers || []).length;
-    const first = updater.watchWifi();
-    const second = updater.watchWifi();
+    const first = updater.watchNetwork();
+    const second = updater.watchNetwork();
     eq(first, true, '第一次挂上了');
     eq(second, false, '第二次是空操作（幂等）');
     eq((net.watchers || []).length, before + 1, '监听器只多了一个');
-    // 连上 Wi-Fi → 自动补下载；连上蜂窝网 → 什么都不做
+    // 连上网 → 自动补下载。Wi-Fi 和蜂窝网都算（现在两种网都能下）
     const push = net.watchers[net.watchers.length - 1];
-    plus.__net = '4g';
-    log.downloaded.length = 0;
-    push({ isConnected: true, networkType: '4g' });
-    plus.__net = 'wifi';
     plus.runtime.version = '1.0.1';
     net.release = release(['PWstudy-1.0.7-n101.wgt']);
     resetUpdate();
     return updater.manualCheck().then(() => {
       log.downloaded.length = 0;
+      plus.__net = '4g';
+      push({ isConnected: true, networkType: '4g' });
+      return new Promise((res) => setTimeout(res, 0));
+    }).then(() => {
+      eq(log.downloaded.length, 1, '★ 连上蜂窝网也把包补下来了');
+      resetUpdate();
+      return updater.manualCheck();
+    }).then(() => {
+      log.downloaded.length = 0;
+      plus.__net = 'wifi';
       push({ isConnected: true, networkType: 'wifi' });
       return new Promise((res) => setTimeout(res, 0));
     }).then(() => {
-      eq(log.downloaded.length, 1, '连上 Wi-Fi 那一刻把包补下来了');
+      eq(log.downloaded.length, 1, '连上 Wi-Fi 也补下来');
+      log.downloaded.length = 0;
+      push({ isConnected: false, networkType: 'none' });
+      return new Promise((res) => setTimeout(res, 0));
+    }).then(() => {
+      eq(log.downloaded.length, 0, '断网通知 → 不动（没网下不了，也不该白试）');
     });
   });
 
@@ -597,6 +654,7 @@ function main() {
     settings.set({ update: { skip: '' } });
     log.modal.length = 0;
     return updater.manualCheck()
+      .then(() => updater.prefetch())          // 包没准备好时连弹窗都不该有，先备好
       .then(() => updater.promptOnce({ busy: true }))
       .then((v) => {
         eq(v, false, '有别的事在场 → 让路（这次不弹，下次进首页再说）');
@@ -623,12 +681,261 @@ function main() {
     settings.set({ update: { skip: '' } });
     log.modal.length = 0;
     modalAnswer = { confirm: false };
+    return updater.manualCheck()
+      .then((r) => updater.prefetch().then(() => r))
+      .then((r) => {
+        updater.showResult(r);
+        const u = settings.get().update || {};
+        eq(u.skip, '1.0.3', '点「不再提示」记下了这个版本');
+        return updater.pending();
+      })
+      .then((p) => {
+        // ★ 先证明包是就绪的：否则下面"红点不亮"可能是"没下好"造成的假绿
+        assert(!!p && !!p.downloadPath, '包确实已就绪（红点灭是因为 skip，不是因为没下好）');
+        return updater.hasUpdate();
+      })
+      .then((v) => eq(v, false, '说过不再提示 → 红点也不亮'));
+  });
+
+  /* ---------- 6.9 完整性校验：大小 / zip 结构 / 摘要 ---------- */
+  steps.push(() => {
+    console.log('== 6.9 完整性校验（大小 / 结构 / 摘要） ==');
+    FILE.reset();
+    plus.__fileGone = false;
+    const it = { kind: 'wgt', version: '1.2.0', code: 10200, url: 'https://dl/x.wgt', size: 300000 };
+    return updater.verifyFile('/doc/x.wgt', it).then((v) => {
+      eq(v.ok, true, '全对 → 通过');
+      eq(v.size, 300000, '顺带把真实大小带回来');
+      FILE.size = 12345;                    // ① 下到一半断了最常见的样子
+      return updater.verifyFile('/doc/x.wgt', it);
+    }).then((v) => {
+      eq(v.ok, false, '大小对不上 → 不过');
+      eq(v.why, 'size', '★ 理由是 size');
+      FILE.reset(); FILE.badHead = true;    // ② 拿到的是错误页 / 不是 zip
+      return updater.verifyFile('/doc/x.wgt', it);
+    }).then((v) => {
+      eq(v.why, 'format', '★ 开头不是 PK\\x03\\x04 → format');
+      FILE.reset(); FILE.noEocd = true;     // ③ 大小骗得过，结构骗不过
+      return updater.verifyFile('/doc/x.wgt', it);
+    }).then((v) => {
+      eq(v.why, 'truncated', '★ 尾部没有 EOCD → truncated（被截断的半个包）');
+      FILE.reset();
+      const real = crypto.createHash('sha256').update(Buffer.from(FILE.bytes())).digest('hex');
+      return updater.verifyFile('/doc/x.wgt', Object.assign({}, it, { sha256: real }));
+    }).then((v) => {
+      eq(v.ok, true, '摘要对得上 → 通过');
+      return updater.verifyFile('/doc/x.wgt', Object.assign({}, it, { sha256: new Array(65).join('0') }));
+    }).then((v) => {
+      eq(v.why, 'sha256', '★ 摘要对不上 → sha256');
+      FILE.reset();
+      plus.__fileGone = true;
+      return updater.verifyFile('/doc/x.wgt', it);
+    }).then((v) => {
+      eq(v.why, 'gone', '文件不在 → gone');
+      plus.__fileGone = false;
+      return Promise.resolve();
+    });
+  });
+
+  // 自己写的摘要要是错的，上面那批用例全是假绿 —— 必须跟标准库对拍
+  steps.push(() => {
+    console.log('== 6.9a sha256 跟标准实现对拍 ==');
+    ['', 'a', 'PWstudy-1.3.1-n104.wgt', new Array(200).join('x'), new Array(70).join('z')].forEach((s) => {
+      const buf = Buffer.from(s, 'utf8');
+      const want = crypto.createHash('sha256').update(buf).digest('hex');
+      const label = s.length > 12 ? s.slice(0, 12) + '…(' + s.length + ')' : s;
+      eq(updater.sha256Hex(new Uint8Array(buf)), want, 'sha256("' + label + '")');
+    });
+    return Promise.resolve();
+  });
+
+  /* ---------- 6.9b 单实例 + 去重 ---------- */
+  steps.push(() => {
+    console.log('== 6.9b 单实例：同一时间只下一份 ==');
+    plus.__net = 'wifi';
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.0.9-n101.wgt']);
+    resetUpdate();
+    FILE.reset();
+    const it = { kind: 'wgt', version: '1.0.9', code: 10009, url: 'https://dl/PWstudy-1.0.9-n101.wgt', size: 300000 };
+    return updater.manualCheck().then(() => {
+      log.downloaded.length = 0;
+      // 同一时刻并发两个（自检 + 网络监听同时触发就是这个样子）
+      return Promise.all([updater.ensurePackage(it), updater.ensurePackage(it)]);
+    }).then((rs) => {
+      eq(log.downloaded.length, 1, '★ 并发两次 → 只下一次（全局单实例）');
+      assert(!!rs[0] && !!rs[1] && rs[0].path === rs[1].path, '两个调用拿到同一份');
+      return updater.ensurePackage(it);
+    }).then(() => {
+      eq(log.downloaded.length, 1, '★ 已经下好 → 复用，一次网都不上（去重）');
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.9c 换版本：旧包清掉，不堆一串文件 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.1.0-n101.wgt']);
+    // ⚠️ 这里**故意不清** dl：要的就是"上一个版本（1.0.9）还记在任务里"这个前提。
+    //    清掉它，谁也不知道旧包落在哪个路径，也就谈不上清理 —— 真实运行中
+    //    dl 不会被清（clearPending 只动 pending），所以清场一定查得到旧路径。
+    log.removed.length = 0;
+    log.downloaded.length = 0;
+    const it = { kind: 'wgt', version: '1.1.0', code: 10100, url: 'https://dl/PWstudy-1.1.0-n101.wgt', size: 300000 };
+    return updater.manualCheck().then(() => updater.ensurePackage(it)).then((r) => {
+      eq(log.downloaded.length, 1, '新的下了一次');
+      assert(log.removed.indexOf('/doc/x.wgt') >= 0, '★ 上一个版本的包被删掉了（不堆文件）');
+      assert(!!r && !!r.path, '拿到新包');
+      return Promise.resolve();
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.9d 进程被杀（停在 downloading）→ 重启后重新校准 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.1.0-n101.wgt']);
+    resetUpdate();
+    FILE.reset();
+    return updater.manualCheck().then(() => {
+      // 模拟上次下到一半进程没了：持久化停在 downloading，还留着一个残缺路径
+      settings.set({
+        update: {
+          dl: Object.assign({}, cleanDl, {
+            code: 10100, kind: 'wgt', version: '1.1.0', url: 'https://dl/PWstudy-1.1.0-n101.wgt',
+            size: 300000, state: 'downloading', path: '/doc/x.wgt', startedAt: Date.now() - 3600000
+          })
+        }
+      });
+      log.removed.length = 0;
+      log.downloaded.length = 0;
+      return updater.prefetch();
+    }).then((p) => {
+      assert(log.removed.indexOf('/doc/x.wgt') >= 0, '★ 残缺包被清掉（不拿半成品去装）');
+      eq(log.downloaded.length, 1, '重新下一次');
+      assert(!!p && !!p.downloadPath, '校准完拿到了好包');
+      eq((settings.get().update.dl || {}).state, 'done', '任务状态回到 done');
+      return updater.pending();
+    }).then((p) => {
+      assert(!!p && !!p.downloadPath, '★ 红点正常亮（恢复成功，不是卡死）');
+    });
+  });
+
+  /* ---------- 6.9e 失败与恢复：全程静默 ---------- */
+  steps.push(() => {
+    console.log('== 6.9e 下载失败：静默，不亮红点，下回自动补 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.2.1-n101.wgt']);
+    resetUpdate();
+    FILE.reset();
+    net.dlFail = true;
+    log.modal.length = 0;
+    log.toast.length = 0;
+    return updater.manualCheck()
+      .then(() => updater.prefetch())
+      .then((p) => {
+        eq(p, null, '下载失败 → 静默返回 null');
+        eq(log.modal.length, 0, '★ 不弹窗');
+        eq(log.toast.length, 0, '★ 不 toast');
+        eq((settings.get().update.dl || {}).state, 'failed', '失败记进任务状态（下回才知道要重来）');
+        return updater.pending();
+      })
+      .then((p) => {
+        eq(p, null, '★ 没下好 → 红点不亮');
+        net.dlFail = false;                 // 网络恢复
+        return updater.prefetch();
+      })
+      .then((p) => {
+        assert(!!p && !!p.downloadPath, '★ 恢复后自动补下成功');
+        eq((settings.get().update.dl || {}).state, 'done', '任务状态回到 done');
+        return updater.pending();
+      })
+      .then((p) => assert(!!p && !!p.downloadPath, '★ 这时红点才亮'));
+  });
+
+  steps.push(() => {
+    console.log('== 6.9f 校验不过的残包：删掉，不留在本地 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.2.2-n101.wgt']);
+    resetUpdate();
+    FILE.reset();
+    FILE.size = 999;                        // 跟资产声明的 300000 不符
+    log.removed.length = 0;
+    return updater.manualCheck()
+      .then(() => updater.prefetch())
+      .then((p) => {
+        eq(p, null, '校验失败 → null');
+        assert(log.removed.indexOf('/doc/x.wgt') >= 0,
+          '★ 残包被删掉了（不占地方，也不会哪天被当成"已下好"）');
+        eq((settings.get().update.dl || {}).state, 'failed', '状态记的是 failed，不是 done');
+        return updater.pending();
+      })
+      .then((p) => eq(p, null, '★ 校验没过 → 红点不亮'));
+  });
+
+  /* ---------- 6.9g 整包（APK）共用同一套 ---------- */
+  steps.push(() => {
+    console.log('== 6.9g 整包走同一套静默下载与校准 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-2.0.0.apk']);
+    resetUpdate();
+    FILE.reset();
+    log.downloaded.length = 0;
     return updater.manualCheck().then((r) => {
-      updater.showResult(r);
-      const u = settings.get().update || {};
-      eq(u.skip, '1.0.3', '点「不再提示」记下了这个版本');
-      return updater.hasUpdate();
-    }).then((v) => eq(v, false, '说过不再提示 → 红点也不亮'));
+      eq(r.state, 'apk', '远端只有整包 → apk');
+      return updater.prefetch();
+    }).then((p) => {
+      eq(log.downloaded.length, 1, '★ 整包也在后台下好了（跟 wgt 同一条路）');
+      assert(!!p && !!p.downloadPath, '整包落本地');
+      eq((settings.get().update.dl || {}).kind, 'apk', '任务记的 kind 是 apk');
+      const before = log.restarted;
+      return updater.runUpdate({ state: 'apk', remote: p, notes: '' }).then(() => before);
+    }).then((before) => {
+      eq(log.restarted, before, '★ 装 APK 不重启（系统安装器接管，重启会打断它）');
+      return Promise.resolve();
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.9h 基座太老：不许把 wgt 当整包装上去 ==');
+    plus.runtime.version = '1.0.1';
+    plus.runtime.versionCode = 100;                    // 比要求的 n101 老
+    net.release = release(['PWstudy-1.5.0-n101.wgt']);  // Release 里没有整包
+    resetUpdate();
+    FILE.reset();
+    log.downloaded.length = 0;
+    return updater.manualCheck().then((r) => {
+      eq(r.state, 'native', '基座太老 → native');
+      return updater.prefetch();
+    }).then((p) => {
+      eq(p, null, '★ 没有真整包 → 什么也不下');
+      eq(log.downloaded.length, 0, '★ 没把 wgt 拉下来（老基座装上会白屏）');
+      return updater.pending();
+    }).then((p) => {
+      eq(p, null, '★ 红点也不亮（装不了就别撩人）');
+      plus.runtime.versionCode = 101;
+      return Promise.resolve();
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.9i 整包已下好 → 弹窗改成「立即安装」 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-2.0.1.apk']);
+    resetUpdate();
+    FILE.reset();
+    return updater.manualCheck()
+      .then(() => updater.prefetch())
+      .then((p) => {
+        log.modal.length = 0;
+        updater.askFull({ state: 'apk', remote: p, notes: '' });
+        const m = log.modal[log.modal.length - 1];
+        eq(m.confirmText, '立即安装', '整包已下好 → 「立即安装」');
+        log.modal.length = 0;
+        resetUpdate();                      // 清掉下载任务 = 没下好
+        updater.askFull({ state: 'apk', remote: { version: '2.0.1', code: 20001, url: 'https://dl/PWstudy-2.0.1.apk' }, notes: '' });
+        const m2 = log.modal[log.modal.length - 1];
+        eq(m2.confirmText, '去下载', '没下好 → 「去下载」（带他去 Release 页）');
+        return Promise.resolve();
+      });
   });
 
   /* ---------- 7. 设置默认值 ---------- */
@@ -674,8 +981,10 @@ const autoBlk = block(upSrc, 'export async function autoCheck()');
 assert(!!autoBlk && !/askUpdate/.test(autoBlk), '自检只记录 pending、**不弹窗**（弹窗交给首页排队）');
 assert(/savePending\(r\)/.test(upSrc) && /clearPending\(\)/.test(upSrc), '检查结果会记进 / 清掉 pending');
 assert('pending' in settings.defaults().update, 'update.pending 落在 storage（不是内存变量）');
-assert(/function pending\(\)[\s\S]{0,300}local\.code >= p\.code/.test(upSrc),
+assert(/function storedPending\(\)[\s\S]{0,400}local\.code >= p\.code/.test(upSrc),
   'pending 每次读都跟本机版本比 —— 红点就是靠这个自动消失的');
+assert(/function pending\(\)[\s\S]{0,500}if \(!path\) return null/.test(upSrc),
+  '★ 红点只在本地包校验通过后才亮（没下好 = 不亮、不弹）');
 assert(/if \(prompted\) return Promise\.resolve\(false\)/.test(upSrc), 'promptOnce 本次进程只弹一次');
 assert(/if \(o\.busy\) return Promise\.resolve\(false\)/.test(upSrc), 'promptOnce 看到 busy 就让路');
 assert(/skip === p\.version/.test(upSrc), '说过「不再提示」的版本既不弹窗也不亮红点');
@@ -760,8 +1069,8 @@ assert(updater.RELEASE_TAG === 'PWstudy', '有固定 tag 常量');
 assert(updater.REPO_API.indexOf('/releases/tags/' + updater.RELEASE_TAG) > 0,
   '清单接口按 tag 精确取（不是 /releases/latest）');
 
-/* ---------- 11. 源码：更新包只在 Wi-Fi 下走流量 ---------- */
-console.log('== 11. 预下载与网络门禁（源码） ==');
+/* ---------- 11. 源码：静默预下载与网络判定 ---------- */
+console.log('== 11. 静默预下载与网络判定（源码） ==');
 // `up` 已在第 10 节剥掉行内注释，这里直接用
 const upCode = up;
 
@@ -809,45 +1118,50 @@ const netFn = fnBody(upCode, 'netTypeSync');
 assert(!!netFn && /getCurrentType\(\)/.test(netFn), 'netTypeSync 走 plus.networkinfo 的同步接口');
 assert(!/getNetworkType\(/.test(upCode), '不许再用异步的 uni.getNetworkType 决定弹窗文案');
 
-// ③ 蜂窝网络必须拦，unknown 必须放行（一拦就是永久不许更新）
+// ③ 只有"完全没网"才拦；蜂窝必须放行（用户要的是两种网都能下）
 const judge = fnBody(upCode, 'canDownloadNetwork');
-assert(!!judge && /none/.test(judge) && /why:\s*'cellular'/.test(judge), '判定里区分了没网与蜂窝');
-assert(/cellular'\]\[\s\S]*indexOf|CELLULAR\.indexOf/.test(upCode) || /CELLULAR/.test(upCode),
-  '蜂窝网络走 CELLULAR 名单');
+assert(!!judge && /type === 'none'/.test(judge), '判定里认得出"完全没网"');
+assert(/CELLULAR/.test(upCode), '蜂窝网络走 CELLULAR 名单');
+assert(!!judge && /ok: true, type: type, why: 'cellular'/.test(judge),
+  '★ 蜂窝网络放行（Wi-Fi 和移动数据都能下）');
 
 // ④ prefetch 只下载、绝不安装（合规红线是"不许静默安装"）
 const pre = fnBody(upCode, 'prefetch');
 assert(!!pre && !/install\(/.test(pre), 'prefetch 里没有 install（下载 ≠ 安装）');
 assert(!!pre && !/restart\(/.test(pre), 'prefetch 里也没有 restart');
-assert(!!pre && /state !== 'update'/.test(pre), '只预下载热更包（整包不去后台偷着拉）');
+assert(!!pre && !/state !== 'update'/.test(pre), '★ 整包也预取（不再只下热更包）');
+assert(!!pre && /ensurePackage\(/.test(pre), '预下载走 ensurePackage —— 跟 APK 同一条路');
 
 // ⑤ applyUpdate 必须先认缓存，再谈下载
 const apd = fnBody(upCode, 'applyUpdate');
-assert(!!apd && apd.indexOf('downloadPath') < apd.indexOf('await download('),
-  'applyUpdate 先查本地缓存的包，命中就直接装');
-assert(!!apd && /e\.why = net\.why/.test(apd), '拦下来那个错误带 why 标记');
+assert(!!apd && /ensurePackage\(/.test(apd) && !/await download\(/.test(apd),
+  'applyUpdate 走 ensurePackage（先认缓存再谈下载，不自己另开一路下载）');
+assert(!!apd && /e\.why = net\.ok/.test(apd), '没网那个错误带 why 标记');
 
-// ⑥ runUpdate 要把"网络不允许"和"包坏了"分开处理
+// ⑥ runUpdate 要把"没网"和"包坏了"分开处理
 const run = fnBody(upCode, 'runUpdate');
-assert(!!run && /netHint\(why\)/.test(run), '网络类失败走 netHint，不是 failDialog');
+assert(!!run && /netHint\(\)/.test(run), '没网走 netHint，不是 failDialog');
 assert(!!run && /failDialog/.test(run), '其它失败仍然给"去下载完整包"的出口');
 
 // ⑦ netHint 不许给下载按钮 —— 那时给"去下整包"等于把他推回同一个坑
 const hint = fnBody(upCode, 'netHint');
 assert(!!hint && /showCancel:\s*false/.test(hint), 'netHint 只留一个「知道了」');
-assert(!!hint && !/openRelease/.test(hint), 'netHint 不给下载入口（整包更大，一样吃流量）');
+assert(!!hint && !/openRelease/.test(hint), 'netHint 不给下载入口（点了还是下不动）');
 
-// ⑧ watchWifi 幂等（挂在 launch 上会被反复调用）
-const wf = fnBody(upCode, 'watchWifi');
-assert(!!wf && /if \(wifiWatched\) return false/.test(wf), 'watchWifi 幂等');
+// ⑧ watchNetwork 幂等（挂在 launch 上会被反复调用）
+const wf = fnBody(upCode, 'watchNetwork');
+assert(!!wf && /if \(netWatched\) return false/.test(wf), 'watchNetwork 幂等');
 
-// ⑨ pending() 里要顺手校验本地文件还在不在
+// ⑨ pending() 只在"本地包校验通过"时才算数 —— 红点的语义是"点一下就能装完"
 const pd = fnBody(upCode, 'pending');
-assert(!!pd && /fileUsable\(/.test(pd), 'pending() 会验一遍本地包还在不在');
-assert(!!pd && /clearDownloadPath/.test(pd), '失效的路径被清掉，不是硬装');
+assert(!!pd && /readyLocal\(/.test(pd), 'pending() 拿本地包重新校准一遍');
+assert(!!pd && /if \(!path\) return null/.test(pd), '★ 没准备好 → 直接 null（不亮红点、不弹窗）');
+const rl = fnBody(upCode, 'readyLocal');
+assert(!!rl && /verifyFile\(/.test(rl), '★ 校准是真的校验，不是只看看文件在不在');
+assert(!!rl && /removeFile\(/.test(rl), '校验不过的残包被删掉，不是硬装');
 
-// ⑩ App.vue 得把监听挂上 —— 自检一天只有一次，连上 Wi-Fi 才是最该下包的时刻
-assert(/updater\.watchWifi\(\)/.test(R('App.vue')), 'App.vue 挂了 watchWifi');
+// ⑩ App.vue 得把监听挂上 —— 自检一天只有一次，刚连上网才是最该下包的时刻
+assert(/updater\.watchNetwork\(\)/.test(R('App.vue')), 'App.vue 挂了 watchNetwork');
 
 // ⑪ 门禁的**前提权限**：没有 ACCESS_NETWORK_STATE，plus.networkinfo 只能读出
 //    unknown，而 unknown 是放行的 —— 移动网络照样下，整个功能等于没做，
@@ -857,6 +1171,12 @@ const perms = ((((mf['app-plus'] || {}).distribute || {}).android || {}).permiss
 assert(perms.some(p => /ACCESS_NETWORK_STATE/.test(String(p))),
   'manifest 声明了 ACCESS_NETWORK_STATE（没有它网络类型只能读出 unknown）');
 assert(perms.some(p => /android\.permission\.INTERNET/.test(String(p))), '有联网权限');
+
+// ⑫ 摘要只对小文件算：整包 20MB 读进内存逐字节滚一遍会把主线程卡死，
+//    那种尺寸交给系统安装时的验签（见 verifyFile 的注释）
+const vf = fnBody(upCode, 'verifyFile');
+assert(!!vf && /st\.size <= SHA256_MAX/.test(vf), '★ 大文件跳过摘要（不把 20MB 读进内存滚）');
+assert(/const SHA256_MAX = /.test(upCode), '有摘要体积上限常量');
 
 main().then(() => {
   console.log(fail === 0 ? '\n热更新校验全部通过' : '\n失败 ' + fail + ' 项 ✗');

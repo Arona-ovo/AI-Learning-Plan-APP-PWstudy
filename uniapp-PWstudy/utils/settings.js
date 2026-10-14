@@ -159,8 +159,18 @@ function defaults() {
       // 红点怎么消失：**不靠"记一笔看过了"**，而是每次读的时候拿它跟本机版本比 ——
       // 装完新版，记的版本号自然就不再比本机新，红点自己没了。零维护，
       // 也不会有"标记漏清"这种脏数据。
-      // downloadPath = Wi-Fi 下预先下好的更新包路径（没有就是还没下）
-      pending: { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '' }
+      // downloadPath = 已经下到本地、校验通过的更新包路径（没有就是还没下好）
+      pending: { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '', digestUrl: '' },
+      //
+      // dl = **下载任务本身**（utils/updater.js 的 ensurePackage 专用）。
+      // 为什么它要跟 pending 分开存两条：pending 是"远端有什么"，每次 check()
+      // 都整条覆写；dl 是"本地下到哪一步了"，跨进程、跨网络切换都要接着算。
+      // 混在一条里，一次重查就把"正在下 / 已经下好"冲没了 —— 于是同一个包被
+      // 下一遍又一遍，_doc 里堆出一串 APK。
+      //   code/kind/url 定位"下的是哪个包"，path 是落地的本地路径，
+      //   state: '' | 'downloading' | 'done' | 'failed'
+      //   tries 连续失败次数，startedAt 用来认出"上次没跑完就被杀了"
+      dl: { code: 0, kind: '', version: '', url: '', size: 0, sha256: '', path: '', state: '', tries: 0, startedAt: 0 }
     },
     // AI 服务配置（统一服务层读取）
     ai: {

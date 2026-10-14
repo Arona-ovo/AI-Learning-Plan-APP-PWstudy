@@ -154,7 +154,11 @@ function pickAsset(rel, ext, parse) {
     if (!url) return;
     const item = {
       version: p.version, code: p.code, minNative: p.minNative, url,
-      size: (a && a.size) || 0
+      // 远端声明的大小 —— 校验第 ① 层就靠它。GitHub 的 assets[].size 是准的，
+      // 断了/被截断的包在这一层就被拦下，不用把坏包装进去才知道
+      size: (a && a.size) || 0,
+      // 同名 `.sha256` 摘要文件（发布者可选挂的），没有就是 '' → 跳过摘要那一层
+      digestUrl: digestUrlOf(rel, a && a.name)
     };
     if (!best || item.code > best.code) best = item;
   });
@@ -213,9 +217,13 @@ async function checkRaw(opt) {
   const notes = notesOf(rel);
 
   if (remote && local.code < remote.code) {
-    // 基座太老：wgt 里改不了原生，装上去只会白屏 —— 必须整包
+    // 基座太老：wgt 里改不了原生，装上去只会白屏 —— 必须整包。
+    // Release 里挂了整包的话把它挑出来（这样整包也能提前下好，用户点一下就装）；
+    // 没挂就还是那个 wgt —— packageOf 会因为"不是真 APK"返回 null，
+    // 于是既不下载也不安装，走浏览器那条老路。绝不许把 wgt 装到老基座上。
     if (remote.minNative && local.nativeCode && local.nativeCode < remote.minNative) {
-      return { state: 'native', local, remote, notes };
+      const apk = pickApk(rel);
+      return { state: 'native', local, remote: apk || remote, notes };
     }
     if (!o.manual) {
       try {
@@ -251,34 +259,31 @@ function markSkip(v) {
  * 漏了这个字段，旧路径就会残留下来 —— 下一次比对会拿着一个指向旧包（甚至已被
  * 系统回收）的路径去安装，白屏或装回旧版本。
  */
-const EMPTY_PENDING = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '' };
+const EMPTY_PENDING = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '', digestUrl: '' };
 
 /** 记一笔"有个新版本等着装" */
 function savePending(r) {
   try {
     const v = r.remote || {};
-    // 同一个版本之前已经下好了，别把它丢掉 —— 重查一次就把几百 KB 作废太浪费，
-    // 而且用户已经看过一次更新弹窗，再让他等一遍下载会更不想更。
+    // 同一个版本之前已经下好了，别把它丢掉 —— 重查一次就把几百 KB 作废太浪费。
+    // 路径的权威来源是**下载任务**（dl），pending 里这只是个影子，方便弹窗直接读。
     const old = (settings.get().update || {}).pending || {};
-    const keep = (old.code && old.code === (v.code || 0) && old.downloadPath) ? old.downloadPath : '';
+    const d = dlGet();
+    let keep = '';
+    if (old.code && old.code === (v.code || 0)) {
+      keep = (d && d.code === (v.code || 0) && d.state === 'done' && d.path)
+        ? d.path : (old.downloadPath || '');
+    }
     settings.set({
       update: {
         pending: {
           version: v.version || '', code: v.code || 0, minNative: v.minNative || 0,
           url: v.url || '', size: v.size || 0, notes: r.notes || '', state: r.state || '',
+          digestUrl: v.digestUrl || '',
           downloadPath: keep
         }
       }
     });
-  } catch (e) {}
-}
-
-/** 记下"这个版本的包已经下好了"（只对当前 pending 的版本生效，别串台） */
-function markDownloaded(code, path) {
-  try {
-    const p = (settings.get().update || {}).pending;
-    if (!p || !p.code || p.code !== code) return;
-    settings.set({ update: { pending: Object.assign({}, p, { downloadPath: path }) } });
   } catch (e) {}
 }
 
@@ -287,36 +292,80 @@ export function clearPending() {
 }
 
 /**
- * 当前等着装的更新（没有则 null）。
+ * 把 check 的结果（或记下的 pending）翻译成一个"要下的包" —— APK/WGT 共用同一份。
  *
- * 判据是**拿记下的版本号跟本机比** —— 装完新版之后它自然就不再比本机新，
- * 顺手清掉。这就是红点"自动消失"的全部机制，不需要额外记"看过了"。
+ * ⚠️ kind 由**文件后缀**定，不由 state 定：state 说的是"该走哪条 UI 路径"
+ *    （装资源包还是装整包），而 `native` 那条路上 remote 可能仍然是 wgt
+ *    （Release 里没挂整包）。拿 state 猜后缀，就会把 wgt 当 APK 下下来装 ——
+ *    老基座装上新资源包 = 白屏，这是第 3 条纪律，不能破。
  */
-export function pending() {
-  return localVersion().then(async (local) => {
+function packageOf(r) {
+  const rm = (r && r.remote) || r || {};
+  const st = (r && r.state) || rm.state || '';
+  if (!rm.code || !rm.url) return null;
+  const isApk = /\.apk(\?|$)/i.test(String(rm.url));
+  // 基座太老 / 只有整包：必须是**真的 APK**才有的下。没有 → 返回 null，
+  // 让调用方走"去浏览器下载"那条路，别偷偷下个 wgt 装上去。
+  if ((st === 'native' || st === 'apk') && !isApk) return null;
+  return {
+    kind: isApk ? 'apk' : 'wgt', version: rm.version || '', code: rm.code, url: rm.url,
+    size: rm.size || 0, digestUrl: rm.digestUrl || '', sha256: rm.sha256 || ''
+  };
+}
+
+/** 记下的待更新信息 —— 不管本地包下好没下好，下载链路读它 */
+function storedPending() {
+  return localVersion().then((local) => {
     let p = null;
     try { p = (settings.get().update || {}).pending; } catch (e) {}
     if (!p || !p.version || !p.code) return null;
+    // 本机已经不比它旧 = 装过了 → 顺手清掉。这就是红点"自动消失"的全部机制，
+    // 不需要额外记"看过了"。
     if (local && local.code >= p.code) { clearPending(); return null; }
-    // 记下的本地包路径不一定还在（清缓存 / 换机恢复 / 系统回收）。**在这里统一验一遍**
-    // 是唯一合适的时机：pending() 是红点、首页弹窗、预下载共同的入口，过这一道之后
-    // 后面所有地方拿到 downloadPath 都可以当"文件真的在"，不用各自再异步查一遍
-    // —— 那会让 askUpdate 变成异步，调用它的页面全都要跟着 await。
-    if (p.downloadPath && !(await fileUsable(p.downloadPath))) {
-      clearDownloadPath(p.code);
-      p = Object.assign({}, p, { downloadPath: '' });
-    }
     return Object.assign({}, p, { local: local });
   }).catch(() => null);
 }
 
-/** 本地包没了：只清路径，pending 其余字段留着（"有新版本"这件事还是要继续盯着） */
-function clearDownloadPath(code) {
-  try {
-    const p = (settings.get().update || {}).pending;
-    if (!p || !p.code || p.code !== code) return;
-    settings.set({ update: { pending: Object.assign({}, p, { downloadPath: '' }) } });
-  } catch (e) {}
+/**
+ * 当前等着装的更新（没有则 null）—— **红点和弹窗都只看它**。
+ *
+ * ★ 关键判据：光"远端有新版本"不算数，必须**本地已经有一份校验通过的包**。
+ *   下载是静默做的，没准备好之前连红点都不亮 —— 红点的语义是"点一下就能装完"，
+ *   不是"有个新版本你装不上"。
+ *
+ * 本机版本比对那条（装完就自动消失）见 storedPending。
+ */
+export function pending() {
+  return storedPending().then(async (p) => {
+    if (!p) return null;
+    const item = packageOf(p);
+    if (!item) return null;
+    const path = await readyLocal(item);
+    if (!path) return null;              // 没下好 / 校验没过 → 不亮、不弹
+    return Object.assign({}, p, { downloadPath: path, ready: true });
+  }).catch(() => null);
+}
+
+/**
+ * 本地有没有这个包的**完整可用**副本（只判定，不下网）。
+ * 判据：任务记的 code/kind/url 全对得上 + state 是 done + 文件还在 + 重新校验通过。
+ * （url 也要比：发布者重传过同名包的话，内容已经换了，旧的不能再复用。）
+ */
+async function readyLocal(item) {
+  const d = dlGet();
+  if (!d || !d.path || d.state !== 'done') return '';
+  if (d.code !== item.code || d.kind !== item.kind) return '';
+  if (d.url && item.url && d.url !== item.url) return '';
+  if (!(await fileUsable(d.path))) { dlSet({ path: '', state: '' }); return ''; }
+  const v = await verifyFile(d.path, item);
+  if (!v.ok) {
+    // 记着的是"下好了"，实际已经不对了（清缓存改过 / 上次写坏了）→ 删掉重来。
+    // 别拿坏包去装：装失败弹的是系统那句"解析包错误"，用户根本不知道该干什么。
+    await removeFile(d.path);
+    dlSet({ path: '', state: 'failed', tries: (d.tries || 0) + 1 });
+    return '';
+  }
+  return d.path;
 }
 
 /** 红点要不要亮：有新版本 **且** 用户没对这个版本说过"不再提示" */
@@ -398,27 +447,27 @@ export async function manualCheck() {
 
 /* ---------------- 下载 / 安装 ---------------- */
 
-/* ---------- 网络：更新包只在 Wi-Fi 下走流量 ---------- */
+/* ---------- 网络 ---------- */
 
 const CELLULAR = ['2g', '3g', '4g', '5g', 'cellular'];
 
 /**
  * 这个网络能不能用来下更新包。
  *
- * ⚠️ 蜂窝网络一律不许。更新包是用户**没主动要**的东西，拿他的流量去下，
- *   下完还只是告诉他"可以更新了" —— 这笔流量花得不值，账单是他在付。
- *   所以只要不是 Wi-Fi（有线网也算有保证），就拦下来让他连 Wi-Fi。
+ * **只有完全没网才拦** —— Wi-Fi 和移动数据都放行。更新是后台静默做的，
+ * 用户看不见进度也看不见提示，所以"什么时候下"不该由网络类型来替他决定；
+ * 真正会打扰他的东西（红点、弹窗）要等包在本地校验通过之后才出现，
+ * 那时候下载早结束了。
  *
  * ⚠️ unknown 必须放行：部分机型 / 模拟器 / 没给网络权限时会返回 unknown，
- *   这时候**不能把更新永久锁死** —— 一拦他就再也更不了了。放过去走正常下载，
- *   真下不动自然会落到既有的"去下载完整包"兜底上。
+ *   一拦就等于把更新永久锁死。
  *
  * @param {string} type 'wifi' | 'cellular' | 'none' | 'unknown'
  */
 export function canDownloadNetwork(type) {
-  if (type === 'wifi' || type === 'ethernet' || type === 'wired') return { ok: true, type: type, why: '' };
   if (type === 'none') return { ok: false, type: 'none', why: 'none' };
-  if (type === 'cellular' || CELLULAR.indexOf(type) >= 0) return { ok: false, type: type, why: 'cellular' };
+  if (type === 'wifi' || type === 'ethernet' || type === 'wired') return { ok: true, type: type, why: '' };
+  if (type === 'cellular' || CELLULAR.indexOf(type) >= 0) return { ok: true, type: type, why: 'cellular' };
   return { ok: true, type: type || 'unknown', why: '' };
 }
 
@@ -466,6 +515,70 @@ function fileUsable(path) {
       plus.io.resolveLocalFileSystemURL(path, () => resolve(true), () => resolve(false));
       return;
     } catch (e) { resolve(false); return; }
+    // #endif
+    resolve(false);
+  });
+}
+
+/** 本地文件的大小。不在 / 读不出来都算"不能用"（size -1） */
+function fileStat(p) {
+  return new Promise((resolve) => {
+    if (!p) { resolve({ ok: false, size: -1 }); return; }
+    try {
+      uni.getFileSystemManager().getFileInfo({
+        filePath: p,
+        success: (r) => resolve({ ok: true, size: Number(r && r.size) || 0 }),
+        fail: () => resolve({ ok: false, size: -1 })
+      });
+      return;
+    } catch (e) {}
+    resolve({ ok: false, size: -1 });
+  });
+}
+
+/**
+ * 读文件中间一段字节（校验要用）。
+ * 为什么不全量读：整包 20MB，只为了看开头 4 个字节读进来太蠢。
+ */
+function readBytes(p, offset, len) {
+  return new Promise((resolve) => {
+    if (!p || len <= 0) { resolve(null); return; }
+    try {
+      uni.getFileSystemManager().readFile({
+        filePath: p, position: offset, length: len,
+        success: (r) => {
+          const d = r && r.data;
+          if (!d) { resolve(null); return; }
+          if (typeof d === 'string') { resolve(strBytes(d)); return; }
+          try { resolve(new Uint8Array(d)); } catch (e) { resolve(null); }
+        },
+        fail: () => resolve(null)
+      });
+      return;
+    } catch (e) {}
+    resolve(null);
+  });
+}
+
+/** 个别端把二进制给成 latin1 字符串，转回字节 */
+function strBytes(s) {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+  return out;
+}
+
+/** 删一个本地文件（下新包之前清旧的、校验失败清残缺的，都靠它） */
+function removeFile(p) {
+  return new Promise((resolve) => {
+    if (!p) { resolve(false); return; }
+    // #ifdef APP-PLUS
+    try {
+      plus.io.resolveLocalFileSystemURL(p, (e) => {
+        try { e.remove(() => resolve(true), () => resolve(false)); }
+        catch (err) { resolve(false); }
+      }, () => resolve(false));
+      return;
+    } catch (err) {}
     // #endif
     resolve(false);
   });
@@ -526,79 +639,332 @@ export function restart() {
   return false;
 }
 
+/* ---------------- 完整性校验 ---------------- */
+
 /**
- * 下载 → 安装 → 重启。任何一步失败都抛出，由调用方引导"去下载完整包"。
+ * 超过这个体积就不在本地算摘要了 —— 整包 20MB 读进内存再逐字节滚一遍，
+ * 换来的只是"跟远端对上了"，不值。交给下面的第 ② 层和系统安装时的验签。
+ */
+const SHA256_MAX = 8 * 1024 * 1024;
+
+const K256 = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+];
+
+function ror(x, n) { return ((x >>> n) | (x << (32 - n))) >>> 0; }
+function hex8(n) { const s = (n >>> 0).toString(16); return ('00000000' + s).slice(-8); }
+
+/** 纯 JS sha256（只为校验更新包，不碰业务数据） */
+export function sha256Hex(bytes) {
+  const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+             0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const n = bytes.length;
+  const blocks = (((n + 8) / 64) | 0) + 1;      // 末尾 8 字节存长度，另外至少 1 字节填充
+  const buf = new Uint8Array(blocks * 64);
+  buf.set(bytes, 0);
+  buf[n] = 0x80;
+  const bits = n * 8;
+  const hi = Math.floor(bits / 4294967296), lo = bits % 4294967296;
+  const e = blocks * 64;
+  buf[e - 8] = (hi >>> 24) & 0xff; buf[e - 7] = (hi >>> 16) & 0xff;
+  buf[e - 6] = (hi >>> 8) & 0xff;  buf[e - 5] = hi & 0xff;
+  buf[e - 4] = (lo >>> 24) & 0xff; buf[e - 3] = (lo >>> 16) & 0xff;
+  buf[e - 2] = (lo >>> 8) & 0xff;  buf[e - 1] = lo & 0xff;
+  const w = new Uint32Array(64);
+  for (let b = 0; b < blocks; b++) {
+    const o = b * 64;
+    for (let i = 0; i < 16; i++) {
+      w[i] = ((buf[o + i * 4] << 24) | (buf[o + i * 4 + 1] << 16) |
+              (buf[o + i * 4 + 2] << 8) | buf[o + i * 4 + 3]) >>> 0;
+    }
+    for (let i = 16; i < 64; i++) {
+      const x = w[i - 15], y = w[i - 2];
+      const s0 = ror(x, 7) ^ ror(x, 18) ^ (x >>> 3);
+      const s1 = ror(y, 17) ^ ror(y, 19) ^ (y >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+    }
+    let a = H[0], b1 = H[1], c = H[2], d = H[3], f1 = H[4], g1 = H[5], h1 = H[6], i1 = H[7];
+    for (let i = 0; i < 64; i++) {
+      const S1 = ror(f1, 6) ^ ror(f1, 11) ^ ror(f1, 25);
+      const ch = ((f1 & g1) ^ (~f1 & h1)) >>> 0;
+      const t1 = (i1 + S1 + ch + K256[i] + w[i]) >>> 0;
+      const S0 = ror(a, 2) ^ ror(a, 13) ^ ror(a, 22);
+      const maj = ((a & b1) ^ (a & c) ^ (b1 & c)) >>> 0;
+      const t2 = (S0 + maj) >>> 0;
+      i1 = h1; h1 = g1; g1 = f1; f1 = (d + t1) >>> 0;
+      d = c; c = b1; b1 = a; a = (t1 + t2) >>> 0;
+    }
+    H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b1) >>> 0;
+    H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+    H[4] = (H[4] + f1) >>> 0; H[5] = (H[5] + g1) >>> 0;
+    H[6] = (H[6] + h1) >>> 0; H[7] = (H[7] + i1) >>> 0;
+  }
+  return H.map(hex8).join('');
+}
+
+/** 摘要文本 → 纯 hex（兼容 `hash  filename` 和带引号的写法） */
+function normHex(s) {
+  const m = /[0-9a-fA-F]{64}/.exec(String(s || ''));
+  return m ? m[0].toLowerCase() : '';
+}
+
+/** zip 的结尾标记 EOCD（PK\x05\x06）。尾巴可能带注释，所以在整段里找 */
+function hasEocd(b) {
+  for (let i = 0; i + 3 < b.length; i++) {
+    if (b[i] === 0x50 && b[i + 1] === 0x4b && b[i + 2] === 0x05 && b[i + 3] === 0x06) return true;
+  }
+  return false;
+}
+
+/**
+ * 校验本地包完不完整。三层，从便宜到贵，过了才算"能用"：
+ *
+ *   ① 大小  —— 跟远端 assets[].size 对。断了、被代理截断的，这一层就拦住。
+ *   ② 结构  —— zip 的开头 PK\x03\x04 + 结尾的 EOCD。wgt 和 apk 都是 zip，
+ *              所以两条路径共用这一层。专治"大小刚好对但内容是半个包"
+ *              （缓存服务偶尔会回一个截短的 200）。
+ *   ③ 摘要  —— Release 里挂了同名 `.sha256` 才算；没挂就跳过，不因为没摘要判失败。
+ *
+ * **APK 的签名不在这里验**：plus.runtime.install 装 APK 时，Android 的
+ * PackageInstaller 必然验签，签不对根本装不上，弹的是系统自己的"解析包错误"。
+ * 我们要做的是别拿残缺包去触发它 —— 也就是上面三层。
+ *
+ * @returns {Promise<{ok:boolean, why:string, size:number, want?:number}>}
+ *   why: 'gone' 不在 | 'size' 大小不对 | 'format' 不是 zip | 'truncated' 被截断
+ *        | 'sha256' 摘要对不上 | 'read' 读不出来
+ */
+export async function verifyFile(p, item) {
+  const st = await fileStat(p);
+  if (!st.ok || st.size <= 0) return { ok: false, why: 'gone', size: st.size };
+  const want = Number(item && item.size) || 0;
+  if (want > 0 && st.size !== want) return { ok: false, why: 'size', size: st.size, want: want };
+  const head = await readBytes(p, 0, 4);
+  if (!head || head.length < 4 ||
+      !(head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04)) {
+    return { ok: false, why: 'format', size: st.size };
+  }
+  const tail = await readBytes(p, Math.max(0, st.size - 22), 22);
+  if (!tail || !hasEocd(tail)) return { ok: false, why: 'truncated', size: st.size };
+  const want256 = normHex(item && item.sha256);
+  if (want256 && st.size <= SHA256_MAX) {
+    const buf = await readBytes(p, 0, st.size);
+    if (!buf || buf.length !== st.size) return { ok: false, why: 'read', size: st.size };
+    if (sha256Hex(buf) !== want256) return { ok: false, why: 'sha256', size: st.size };
+  }
+  return { ok: true, why: '', size: st.size };
+}
+
+/* ---------------- 下载任务：全局单一实例 + 持久化 + 校准 ---------------- */
+
+/** 下载状态记在哪：见 settings.js 的 update.dl（跟 pending 分开存，别互相冲掉） */
+function dlGet() {
+  try { return (settings.get().update || {}).dl || null; } catch (e) { return null; }
+}
+
+function dlSet(patch) {
+  try {
+    const cur = dlGet() || {};
+    settings.set({ update: { dl: Object.assign({}, cur, patch) } });
+  } catch (e) {}
+}
+
+const EMPTY_DL = { code: 0, kind: '', version: '', url: '', size: 0, path: '', state: '', tries: 0, startedAt: 0 };
+
+function dlReset() {
+  try { settings.set({ update: { dl: EMPTY_DL } }); } catch (e) {}
+}
+
+/** 内存里的"正在下"—— 单实例的第一道闸（第二道是持久化的 state） */
+let inflight = null;
+
+/** 远端挂的摘要文件（`<资产名>.sha256`），没有就返回 '' */
+export function digestUrlOf(rel, assetName) {
+  const want = String(assetName || '') + '.sha256';
+  const list = (rel && rel.assets) || [];
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (a && a.name === want && a.browser_download_url) return a.browser_download_url;
+  }
+  return '';
+}
+
+/** 拉摘要文件的文本 → hex 串。拿不到就 ''（没摘要不算失败） */
+function fetchDigest(url) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(''); return; }
+    try {
+      uni.request({
+        url: url, method: 'GET', timeout: CHECK_TIMEOUT,
+        success: (res) => resolve(normHex((res && res.data) || '')),
+        fail: () => resolve('')
+      });
+    } catch (e) { resolve(''); }
+  });
+}
+
+/**
+ * 本地有没有这个包的**完整可用**副本。有就直接复用，一次网都不上。
+ * 判据：记下的 code/kind/url 全都对得上 + 文件还在 + 重新校验通过。
+ * （url 也要比：发布者重传过同名包的话，文件内容已经换了。）
+ */
+async function reuseIfReady(item) {
+  const path = await readyLocal(item);   // 跟红点判据同一份逻辑，别两边各写一套
+  return path ? Object.assign({}, item, { path: path }) : null;
+}
+
+/**
+ * 下新包之前清场。
+ *
+ * 两件事：① 上次那个**别的版本**的包已经没用了，删掉（不然 _doc 里会堆一串
+ * 历史 APK）；② 同一个版本停在 `downloading` —— 说明上次进程被杀了，
+ * 留下的是个残缺包，不可信，删掉重新下（这就是"进程重启后重新校准"）。
+ */
+async function cleanStale(item) {
+  const d = dlGet();
+  if (!d || !d.code) return;
+  const same = d.code === item.code && d.kind === item.kind;
+  const stale = !same || (d.url && item.url && d.url !== item.url) || d.state === 'downloading';
+  if (stale && d.path) await removeFile(d.path);
+  if (stale) dlSet({ path: '', state: '' });
+}
+
+/**
+ * 保证本地有一份完整可用的包 —— **APK 与 WGT 两条路径共用这一套**。
+ *
+ * 三道闸：
+ *   ① 单实例：同一个包正在下就直接复用那个 Promise，绝不开第二路；
+ *      换目标了才把旧的作废（旧的结果不再被采用，但也拦不住它写完文件 ——
+ *      真写完也会被下一次 cleanStale 当旧包清掉）。
+ *   ② 去重：本地已经有一份**校验通过**的同版本包 → 直接返回，一次网都不上。
+ *   ③ 校准：下之前先清场（旧包 / 残缺包），下完再校验，过了才落 state='done'。
+ *
+ * ⚠️ 全程静默：不弹窗、不 toast、不红点。失败一律返回 null，
+ *    由"包没准备好 → 不提示"这条规则自然消化掉。
+ *
+ * @param {{kind:string, version:string, code:number, url:string, size:number, sha256?:string, digestUrl?:string}} item
+ * @returns {Promise<null|object>} 拿到的是 { ...item, path }
+ */
+export function ensurePackage(item, onProgress) {
+  const it = item || {};
+  if (!it.url || !it.code) return Promise.resolve(null);
+  const key = it.code + '|' + (it.kind || '') + '|' + it.url;
+  if (inflight && inflight.key === key) return inflight.promise;   // ① 同一个包：复用
+  inflight = null;                                                 // 换目标：旧的作废
+  const clear = () => { if (inflight && inflight.key === key) inflight = null; };
+  const p = runEnsure(it, onProgress).then((r) => { clear(); return r; },
+                                           (e) => { clear(); throw e; });
+  inflight = { key: key, promise: p };
+  return p;
+}
+
+async function runEnsure(item, onProgress) {
+  // ② 本地已有完整副本 → 复用
+  const ready = await reuseIfReady(item);
+  if (ready) return ready;
+  // ③ 下之前先清场
+  await cleanStale(item);
+  const net = network();
+  if (!net.ok) return null;                       // 没网：静默，等下次
+  let sha = normHex(item.sha256);
+  if (!sha && item.digestUrl) sha = await fetchDigest(item.digestUrl);
+  dlSet({
+    code: item.code, kind: item.kind || '', version: item.version || '',
+    url: item.url, size: item.size || 0, sha256: sha,
+    state: 'downloading', path: '', startedAt: Date.now()
+  });
+  let path = '';
+  try {
+    path = await download(item.url, onProgress);
+  } catch (e) {
+    const d = dlGet() || {};
+    dlSet({ state: 'failed', path: '', tries: (d.tries || 0) + 1 });
+    return null;
+  }
+  const v = await verifyFile(path, Object.assign({}, item, { sha256: sha }));
+  if (!v.ok) {
+    // 残缺/损坏 → 删掉，不留着占地方，也不让它有机会被当成"已下好"
+    await removeFile(path);
+    const d = dlGet() || {};
+    dlSet({ state: 'failed', path: '', tries: (d.tries || 0) + 1 });
+    return null;
+  }
+  dlSet({ state: 'done', path: path, size: v.size, tries: 0 });
+  return Object.assign({}, item, { path: path, sha256: sha, size: v.size });
+}
+
+/**
+ * 把更新包准备好 → 安装 → 重启。**APK 与 WGT 走的是同一条路**（ensurePackage）。
+ *
+ * 已经下好就直接装（一次网都不上）；没下好就当场下（用户点了确认，这时走流量
+ * 是他自己的意思）。任何一步失败都抛出，由调用方引导"去下载完整包"。
  */
 export async function applyUpdate(r, onProgress) {
-  const rm = r.remote || {};
-  // ① 已经下好了 → 直接装，不再走一遍流量
-  if (rm.downloadPath && (await fileUsable(rm.downloadPath))) {
-    if (onProgress) onProgress(100);
-    await install(rm.downloadPath);
-    restart();
-    return true;
-  }
-  // ② 没下好 → 先看网络允不允许下
-  const net = await network();
-  if (!net.ok) {
-    const msg = net.why === 'none'
-      ? '当前没有联网，连上 Wi-Fi 后再更新'
-      : '你现在用的是移动网络，为了不占流量，更新包只在 Wi-Fi 下下载';
-    const e = new Error(msg);
-    e.why = net.why;                     // 带标记：这条不走"更新失败→去下载整包"那条兜底
+  const item = packageOf(r);
+  if (!item) { throw new Error('没有可用的更新包'); }
+  const got = await ensurePackage(item, onProgress);
+  if (!got) {
+    // 静默下载那一路失败是**不吭声**的（纪律 1）；但这里是用户点了「立即更新」，
+    // 点了没反应比报错更糟，所以给一句话，并且区分"没网"和"包没准备好"
+    const net = network();
+    const e = new Error(net.ok ? '更新包还没准备好，稍后再试一次' : '当前没有联网，连上网络后再更新');
+    e.why = net.ok ? '' : (net.why || 'none');
     throw e;
   }
-  const path = await download(rm.url, onProgress);
-  if (rm.code) markDownloaded(rm.code, path);   // 装不上又没重启时，下次还能直接命中
-  await install(path);
-  restart();
+  if (onProgress) onProgress(100);
+  await install(got.path);
+  // wgt 不重启不生效；APK 是**系统安装器**接管的，这时候重启会把它打断，
+  // 用户看到的是"安装被取消"，比不重启糟得多
+  if (got.kind === 'wgt') restart();
   return true;
 }
 
-/* ---------------- Wi-Fi 下先把包准备好 ---------------- */
+/* ---------------- 后台静默地把包准备好 ---------------- */
 
 /**
- * Wi-Fi 下把更新包先拉到本地，**不安装**。
+ * 把更新包先拉到本地、**校验通过**放好，**不安装**。
  *
- * 为什么"静默下载"不等于"静默安装"：省掉的只是用户盯着进度条那几秒，
- * 装不装依然要他点头（弹窗在 askUpdate）。这两件事是分开的，缺一个都不成立。
+ * 为什么"静默下载"不等于"静默安装"：省掉的只是用户盯着进度条那几秒和那一下
+ * 加载，装不装依然要他点头（弹窗在 askUpdate）。这两件事分开，缺一个都不成立。
  *
- * ⚠️ 只预下载热更包（state === 'update'）：整包本来就要带用户去浏览器下，
- *    后台偷偷拉个 20MB 的 APK 只会白占空间。
- * ⚠️ 非 Wi-Fi / 下载失败都静默返回 —— 纪律 1：用户没主动点更新，就没资格打扰他。
+ * 全程不弹窗、不 toast、不红点 —— 没下好就当没这事，下次再校准。
+ * wgt 和 apk 都下：整包虽然大，但"用户点更新时要等 20MB"比"提前占着 20MB"
+ * 难受得多，空间换时间，装完就清。
  */
 export async function prefetch() {
-  const p = await pending();
-  if (!p || p.state !== 'update') return null;
-  if (p.downloadPath && (await fileUsable(p.downloadPath))) return p;
-  const net = await network();
-  if (!net.ok) return null;              // 移动网络或没网：什么都不做，等 Wi-Fi 再说
-  try {
-    const path = await download(p.url);
-    markDownloaded(p.code, path);
-    return Object.assign({}, p, { downloadPath: path });
-  } catch (e) {
-    return null;                         // 预下载失败也静默（纪律 1）
-  }
+  const p = await storedPending();
+  if (!p) return null;
+  const item = packageOf(p);
+  if (!item) return null;
+  const got = await ensurePackage(item);
+  // 没准备好就返回 null —— 调用方（红点 / 弹窗）照"没有可装的"处理，一声不吭
+  if (!got) return null;
+  return Object.assign({}, p, { downloadPath: got.path, ready: true });
 }
 
-let wifiWatched = false;
+let netWatched = false;
 
 /**
- * 连上 Wi-Fi 时自动补一次预下载。
+ * 网络一通就补一次准备动作。
  *
- * 为什么单独要它：自检是一天一次、手动检查要用户点 —— 都不是"刚连上 Wi-Fi"
- * 这个最该下包的时刻。挂在 launch 上一次就够（内部幂等）。
+ * 为什么单独要它：自检一天一次、手动检查要用户点 —— 都不是"刚连上网"这个
+ * 最该下包的时刻。挂在 launch 上一次就够（内部幂等）。
+ * 蜂窝网也触发：现在的规矩是两种网都能下，断网重连当然也算。
  */
-export function watchWifi() {
+export function watchNetwork() {
   // #ifdef APP-PLUS
-  if (wifiWatched) return false;
-  wifiWatched = true;
+  if (netWatched) return false;
+  netWatched = true;
   try {
     uni.onNetworkStatusChange((r) => {
       if (!r || !r.isConnected) return;
-      const t = r.networkType;
-      if (t === 'wifi' || t === 'ethernet') { try { prefetch() } catch (e) {} }
+      try { prefetch() } catch (e) {}
     });
     return true;
   } catch (e) { return false; }
@@ -656,19 +1022,15 @@ export function failDialog(msg) {
 }
 
 /**
- * 网络不允许下载时的提示。
+ * 没网时的提示（现在只有这一种网络拦法：蜂窝网也能下，见 canDownloadNetwork）。
  *
- * ⚠️ **不许落到 failDialog**：那条路会劝用户"去下载完整包"，而整包 20MB，
- *    在移动网络下等于把他往同一个坑里再推一次。他的问题不是包坏了，
- *    是当下这个网络不能下 —— 所以出口只有"连上 Wi-Fi 再来"，不给下载按钮。
+ * ⚠️ **不许落到 failDialog**：那条路会劝用户"去下载完整包"，而他的问题不是包坏了，
+ *    是当下连不上网 —— 给他一个下载按钮，点下去还是失败，只会更莫名其妙。
  */
-export function netHint(why) {
-  const noNet = why === 'none';
+export function netHint() {
   uni.showModal({
-    title: noNet ? '没有联网' : '请在 Wi-Fi 下更新',
-    content: noNet
-      ? '当前没有联网。连上 Wi-Fi 后回到这里，点一下就能更新。'
-      : '你现在用的是移动网络。为了不占你的流量，更新包只在 Wi-Fi 下下载 —— 连上 Wi-Fi 后回到这里就行。',
+    title: '没有联网',
+    content: '当前没有联网。连上网络后回到这里，点一下就能更新。',
     confirmText: '知道了',
     showCancel: false
   });
@@ -691,12 +1053,12 @@ export function askUpdate(r) {
   return r;
 }
 
-/** 这个包的本地缓存路径 —— 可能是调用方带来的（pending），也可能要自己去 pending 里查 */
+/** 这个包本地有没有已校验通过的副本 —— 同步读下载任务（弹窗文案要用，不能异步） */
 function cachedPath(rm) {
   try {
-    const p = (settings.get().update || {}).pending;
-    if (!p || !p.code || p.code !== (rm && rm.code)) return '';
-    return p.downloadPath || '';
+    const d = dlGet();
+    if (!d || !d.code || d.code !== (rm && rm.code) || d.state !== 'done') return '';
+    return d.path || '';
   } catch (e) { return ''; }
 }
 
@@ -725,8 +1087,6 @@ function showAsk(r, info) {
   // 三种情况给的说法不一样：能不能当场装完，用户点之前就该知道
   if (info.cached) {
     lines.push('更新包已经下好了，点一下就装完，不用再下载。装完会自动重启一次，学习数据不受影响。');
-  } else if (info.why === 'cellular') {
-    lines.push('当前是移动网络。为了不占你的流量，更新包只在 Wi-Fi 下下载 —— 连上 Wi-Fi 回到这里就行。');
   } else if (info.why === 'none') {
     lines.push('当前没有联网，连上网络后回到这里就能更新。');
   } else {
@@ -762,8 +1122,8 @@ export function runUpdate(r) {
   }).catch((e) => {
     try { uni.hideLoading(); } catch (e) {}
     const why = e && e.why;
-    // 网络不让下 ≠ 包坏了：这时给"去下载完整包"是害他（整包更大，一样吃流量）
-    if (why === 'cellular' || why === 'none') { netHint(why); return false; }
+    // 没网 ≠ 包坏了：这时给"去下载完整包"是害他（点下去一样下不动）
+    if (why === 'none') { netHint(); return false; }
     failDialog((e && e.message) || '');
     return false;
   });
@@ -787,18 +1147,28 @@ export function showResult(r) {
   return r;
 }
 
-/** 基座太老（或远端只有整包）：只能整包 */
-function askFull(r) {
+/**
+ * 基座太老（或远端只有整包）：只能整包。
+ *
+ * 整包走的是**同一套**静默下载 + 校准，所以也可能已经下好了 —— 那就别再让人
+ * 去浏览器等 20MB，直接装本地那份（装 APK 是系统安装器接管，见 applyUpdate）。
+ * 没下好才带他去 Release 页。
+ */
+export function askFull(r) {
+  const v = (r.remote && r.remote.version) || '';
+  const cached = !!cachedPath(r.remote);
   uni.showModal({
     title: '需要更新到完整包',
-    content: '新版本 ' + (r.remote && r.remote.version ? r.remote.version : '') +
-      ' 要更新的原生基座，热更新装不了。下载完整安装包覆盖安装即可，数据都在。',
-    confirmText: '去下载',
+    content: '新版本 ' + v + ' 要更新的原生基座，热更新装不了。' +
+      (cached ? '安装包已经下好了，点一下转到系统安装界面就行，数据都在。'
+              : '下载完整安装包覆盖安装即可，数据都在。'),
+    confirmText: cached ? '立即安装' : '去下载',
     cancelText: '不再提示',
     success: (res) => {
       if (!res) return;
-      if (res.confirm) openRelease();
-      else markSkip(r.remote && r.remote.version);
+      if (!res.confirm) { markSkip(v); return; }
+      if (cached) runUpdate(r);          // 装不动会兜底回"去下载整包"
+      else openRelease();
     }
   });
 }

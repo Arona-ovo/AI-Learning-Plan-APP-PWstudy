@@ -52,12 +52,14 @@ export default {
     // 只检查、**这里不弹**：有更新会记进 settings.update.pending，由首页
     // onShow 的 updater.promptOnce() 统一弹 —— 那儿才看得见有没有别的询问在场。
     // 用户可以点确认才装（合规红线是"不许静默安装"，不是"不许提前下载"）：
-    // 自检发现新版本后，Wi-Fi 下会把包先拉到本地等着，等他点头时装得上。
+    // 自检发现新版本后，后台静默把包拉到本地并校验好，等他点头时装得上。
+    // 下载全程不出声，红点也要等包校验通过才亮（见 utils/updater.js）。
     try {
       setTimeout(() => { updater.autoCheck() }, 3000)
     } catch (e) {}
-    // 挂一次网络监听：自检一天只有一次，而"刚连上 Wi-Fi"才是最该下包的时刻。
-    try { updater.watchWifi() } catch (e) {}
+    // 挂一次网络监听：自检一天只有一次，而"刚连上网"才是最该下包的时刻
+    // （Wi-Fi 和移动数据都下，见 updater.canDownloadNetwork）。
+    try { updater.watchNetwork() } catch (e) {}
   },
   onShow() {
     // App 从后台回前台后原生 tabBar 可能复现，补一次隐藏
