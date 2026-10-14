@@ -938,6 +938,21 @@ function ok(cond, msg) {
   pw.touch();
   ok(pacing.profile().samples >= 1, '删掉几天历史后仍能工作（不炸、按剩余样本算）');
 
+  // ---- 目标详情页：点完要立刻变（2026-10-14 真机反馈）----
+  // App 端"store 裸对象 → 浅拷贝替换 g"这条路不保证触发重渲染：
+  // 提醒 chip 与任务勾选点完没反应，退出重进才刷新（daily.vue 四处 $forceUpdate 是同一批坑）
+  {
+    const gd = require('fs').readFileSync(
+      path.join(ROOT, 'pkgPlan', 'pages', 'goal-detail', 'goal-detail.vue'), 'utf8');
+    ok(/remindAt: ''/.test(gd), '提醒时间是独立 data 字段（不只挂在 g 上）');
+    ok(/chip-on': remindAt === t/.test(gd), 'chip 选中态绑独立字段 remindAt');
+    ok(!/chip-on': g\.remindAt/.test(gd), 'chip 不许再绑 g.remindAt（App 端不保证重渲染）');
+    ok(/pickRemind\(t\) \{[\s\S]*?this\.remindAt = t \|\| ''[\s\S]*?\n    \},/.test(gd),
+      'pickRemind 里直接赋独立字段（普通响应式赋值，必触发）');
+    ok(/toggle\(t\) \{[\s\S]*?\$forceUpdate/.test(gd), '勾选任务补 $forceUpdate（同一个坑）');
+    ok(/this\.remindAt = \(g && g\.remindAt\) \|\| ''/.test(gd), 'refresh 时独立字段跟库里同步');
+  }
+
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('测试脚本异常:', e); process.exit(1); });

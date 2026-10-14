@@ -28,7 +28,7 @@
             v-for="t in remindTimes"
             :key="t"
             class="chip"
-            :class="{ 'chip-on': g.remindAt === t }"
+            :class="{ 'chip-on': remindAt === t }"
             @tap="pickRemind(t)"
           >{{ t }}</text>
         </view>
@@ -131,6 +131,11 @@ export default {
   data() {
     return {
       id: '', g: null,
+      // ⚠️ 提醒时间**单独**放一份：chip 的选中态绑它，不绑 g.remindAt。
+      //    真机踩过（2026-10-14）：选中的时间点是从 store 里拿的**裸对象**浅拷贝来的，
+      //    App 端"替换整个 g 对象"这条路不保证触发重渲染 —— 表现就是"点完没反应，
+      //    退出重进才刷新"。独立 data 字段走的是最普通的响应式赋值，一定触发。
+      remindAt: '',
       remindTimes: reminder.TIMES,
       slotOn: timeslot.enabled(),
       guideOpen: false, guideLoading: false, guideError: '',
@@ -142,7 +147,8 @@ export default {
   },
   computed: {
     remindOn() {
-      return !!(this.g && reminder.valid(this.g.remindAt))
+      // 读 this.remindAt（独立字段），不再读 this.g.remindAt —— 理由见 data 里的注释
+      return reminder.valid(this.remindAt)
     },
     remainDays() {
       return this.g ? pw.dayDiff(pw.today(), this.g.deadline) : 0
@@ -179,6 +185,8 @@ export default {
       //    改动发生在 store 的 raw 对象上，不经过页面这份 proxy，赋同引用连 setter 都不走。
       const g = pw.goalOf(this.id)
       this.g = g ? Object.assign({}, g) : null
+      // 提醒时间是独立字段（chip 选中态绑它），跟着库里的值同步一次
+      this.remindAt = (g && g.remindAt) || ''
     },
     /** 任务行上的时段徽标（'晚上'）。开关关着就一律不显示 —— 纯任务模式 */
     slotOf(t) {
@@ -189,11 +197,18 @@ export default {
       if (t.status === 'dropped') return
       pw.setTaskStatus(this.id, t.id, t.status === 'done' ? 'todo' : 'done')
       this.refresh()
+      // ⚠️ 补一刀强刷：勾选的 ✓ 走的是 grouped → g.tasks 里的**裸对象**，
+      //    App 端不保证因为 refresh 的浅拷贝就重渲染 —— 与每日提醒是同一个坑
+      //    （daily.vue 里四处 $forceUpdate 治的就是它）。真机上表现同样是
+      //    "点了没反应，退出重进才变"。
+      this.$forceUpdate && this.$forceUpdate()
     },
     /** 改提醒时间（传空 = 关掉）。改完立刻重读，界面跟着变 */
     pickRemind(t) {
       reminder.setRemind(this.id, t || '')
       this.refresh()
+      // chip 选中态绑的是独立字段 remindAt —— 直接赋值，必触发重渲染
+      this.remindAt = t || ''
       try {
         uni.showToast({
           title: t ? '已设为每天 ' + t + ' 提醒' : '已关掉每日提醒',
