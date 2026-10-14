@@ -11,10 +11,11 @@ const ROOT = path.join(__dirname, '..', '..');
 const CHECK = path.join(ROOT, '_tools', 'check-onboarding.js');
 const ONB = path.join(ROOT, 'uniapp-PWstudy', 'utils', 'onboarding.js');
 const HOME = path.join(ROOT, 'uniapp-PWstudy', 'pages', 'home', 'home.vue');
+const MASK = path.join(ROOT, 'uniapp-PWstudy', 'components', 'onboarding-mask', 'onboarding-mask.vue');
 const SETTINGS = path.join(ROOT, 'uniapp-PWstudy', 'pkgManage', 'pages', 'settings', 'settings.vue');
 const EN = path.join(ROOT, 'uniapp-PWstudy', 'utils', 'i18n-en.js');
 
-const FILES = [ONB, HOME, SETTINGS, EN];
+const FILES = [ONB, HOME, SETTINGS, EN, MASK];
 const backup = {};
 FILES.forEach(f => { backup[f] = fs.readFileSync(f); });
 function restore() {
@@ -71,11 +72,19 @@ function shouldCatch(label, mutate, expect) {
   restore();
 }
 
-/** 锚点替换：换了必须真的生效，否则抛错 */
+/**
+ * 锚点替换：换了必须真的生效，否则抛错
+ * ⚠️ 工作区里 home.vue 是 CRLF、别的文件是 LF —— 多行锚点写 \n 会在 CRLF 上全部落空
+ *    （已踩过：stopGuide / 返回键两条用例长期"注入失败"）。按目标文件自动转换。
+ */
 function swap(cur, file, from, to) {
   const before = cur[file];
-  cur[file] = before.replace(from, to);
-  if (cur[file] === before) throw new Error('锚点没命中：' + from.slice(0, 60));
+  const crlf = before.indexOf('\r\n') >= 0;
+  const f = crlf ? from.split('\n').join('\r\n') : from;
+  const t = crlf ? to.split('\n').join('\r\n') : to;
+  const next = before.replace(f, t);
+  if (next === before) throw new Error('锚点没命中：' + from.slice(0, 60));
+  cur[file] = next;
 }
 
 console.log('反向测试：check-onboarding.js 应该抓到下面这些坏法');
@@ -137,6 +146,51 @@ shouldCatch('设置页重看不跳回首页', (c) => {
 shouldCatch('步骤文案缺英文', (c) => {
   swap(c, EN, "'欢迎使用 PWstudy':", "'欢迎使用 PWstudy ':");
 }, '英文译文');
+
+// ---- 屏幕尺寸 / 横竖屏 / 箭头（2026-10-14 补的那批）----
+// 11. 步骤数超上限：用户明确要求 3-5 步
+shouldCatch('步骤加到 6 步（超出 3-5 步）', (c) => {
+  swap(c, ONB, "  {\n    id: 'tabbar',", "  {\n    id: 'edit',\n    title: '编辑首页：卡片自己排',\n    body: '点「编辑首页」可以拖动卡片。',\n    target: { sel: '.foot-link' }\n  },\n  {\n    id: 'tabbar',");
+}, '3-5 步');
+
+// 12. 转屏后不重排：尺寸只在 created 读一次
+shouldCatch('遮罩不订阅窗口尺寸变化', (c) => {
+  swap(c, MASK, "      uni.onWindowResize(this._onResize);", "      /* 忘了订阅 */");
+}, '窗口尺寸');
+
+// 13. 订阅了不卸载解绑 —— 页面走了还在收事件
+shouldCatch('尺寸监听不解绑', (c) => {
+  swap(c, MASK, "      uni.offWindowResize(this._onResize);", "      /* 忘了解绑 */");
+}, '解绑');
+
+// 14. 挖洞不夹回视口：目标半露在外时洞跑到屏幕外
+shouldCatch('挖洞不夹回视口', (c) => {
+  swap(c, MASK,
+    "      const l = Math.max(0, Math.min(b.left, this.sw - 1));\n      const t = Math.max(0, Math.min(b.top, this.sh - 1));",
+    "      const l = b.left;\n      const t = b.top;");
+}, '夹回视口');
+
+// 15. 上下都放不下时不居中 —— 气泡飞出屏幕
+shouldCatch('放不下时不居中兜底', (c) => {
+  swap(c, MASK,
+    "        side = 'center';",
+    "        side = 'below';");
+}, '居中');
+
+// 16. 箭头删掉
+shouldCatch('删掉指示箭头', (c) => {
+  swap(c, MASK, 'class="gd-arrow"', 'class="gd-arrow-x"');
+}, '指示箭头');
+
+// 17. 目标滚出视口不滚回来 —— 那一步被整步吞掉
+shouldCatch('目标不在视口时不滚进视口', (c) => {
+  swap(c, HOME, "uni.pageScrollTo({ selector: t.sel, duration: 200 })", "/* 忘了滚 */");
+}, '滚进视口');
+
+// 18. 转屏后页面不重测
+shouldCatch('resize 后不重新量目标', (c) => {
+  swap(c, HOME, 'setTimeout(() => { if (this.gdOn) this.measureStep() }, 160)', '/* 不重测 */');
+}, '重新量目标矩形');
 
 restore();
 console.log('');

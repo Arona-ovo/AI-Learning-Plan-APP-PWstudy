@@ -355,6 +355,7 @@
       :dark="gdDark"
       @next="guideNext"
       @skip="guideSkip"
+      @resize="guideResize"
     />
   </view>
 </template>
@@ -948,14 +949,33 @@ export default {
     /**
      * 量当前步的目标矩形。量不到（模块被收纳 / 结构改了 / 正在硬控）
      * 就**自动跳过这一步** —— 绝不把用户卡死在引导里。
+     * @param {boolean} retried 已经为这一步滚过一次了（防止来回滚不停）
      */
-    measureStep() {
+    measureStep(retried) {
       const step = onboarding.stepAt(this.gdIndex)
       if (!step) { this.endGuide(); return }
       const t = step.target
       if (!t) { this.gdBox = null; this.gdStep = step; return }  // 欢迎步：整屏居中
       const got = (rect) => {
         if (!rect || !rect.width || !rect.height) { this.guideAdvance(); return }
+        // 目标不在视口里（首页往下滚过 / 转屏后布局变了）：先把页面滚到它可见再量一次。
+        // 滚完还是看不见就退化成"居中讲解"—— 宁可没有挖洞，也别把这一步整步吞掉，
+        // 用户会以为引导坏了（这一步讲的正是最该知道的入口）。
+        if (!this._inView(rect) && !retried && !t.ref) {
+          try {
+            uni.pageScrollTo({ selector: t.sel, duration: 200 })
+            setTimeout(() => { if (this.gdOn) this.measureStep(true) }, 280)
+            return
+          } catch (e) { /* 不支持滚动定位 → 走下面的居中兜底 */ }
+          this.gdBox = null
+          this.gdStep = step
+          return
+        }
+        if (!this._inView(rect)) {
+          this.gdBox = null
+          this.gdStep = step
+          return
+        }
         this.gdBox = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
         this.gdStep = step
       }
@@ -968,6 +988,20 @@ export default {
       try {
         uni.createSelectorQuery().in(this).select(t.sel).boundingClientRect(got).exec()
       } catch (e) { this.guideAdvance() }
+    },
+
+    /** 量到的矩形是否整个落在视口里（留 8px 余量，贴边不算"看得见"） */
+    _inView(rect) {
+      if (!rect || !rect.height) return false
+      let vh = 667
+      try { vh = uni.getSystemInfoSync().windowHeight || 667 } catch (e) {}
+      return rect.top >= 8 && rect.top + rect.height <= vh - 8
+    },
+
+    /** 转屏 / 分屏 / 折叠屏展开：旧矩形作废，等布局落地后重新量当前这一步 */
+    guideResize() {
+      if (!this.gdOn || !this.gdStep) return
+      setTimeout(() => { if (this.gdOn) this.measureStep() }, 160)
     },
 
     /** 推进一步；走完就收尾并落盘（下次不再放） */

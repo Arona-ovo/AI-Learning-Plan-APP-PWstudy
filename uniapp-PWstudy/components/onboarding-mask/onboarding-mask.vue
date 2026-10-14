@@ -14,10 +14,17 @@
   >
     <!-- 高亮挖洞：巨大 spread 的 box-shadow 在框外铺满遮罩色，中间自然镂空。
          各端（H5/小程序/App webview）都支持 box-shadow，比四块矩形拼接稳。 -->
-    <view v-if="box" class="gd-hole" :style="holeStyle" @tap.stop="onNext"></view>
+    <view v-if="box" class="gd-hole" :style="layout.hole" @tap.stop="onNext"></view>
 
-    <!-- 气泡：有高亮时贴着目标（上下自适应），无高亮（欢迎步骤）时整屏居中 -->
-    <view v-if="box" class="gd-tip" :style="tipStyle" @tap.stop="onNext">
+    <!-- 气泡：有高亮时贴着目标（下方 → 上方 → 居中三级兜底），无高亮（欢迎步骤）时整屏居中 -->
+    <view v-if="box" class="gd-tip" :style="layout.tip" @tap.stop="onNext">
+      <!-- 指示箭头：气泡在目标下方就朝上指，反之朝下；居中态（放不下）不画 -->
+      <view
+        v-if="layout.side !== 'center'"
+        class="gd-arrow"
+        :class="'gd-arrow-' + layout.side"
+        :style="layout.arrow"
+      ></view>
       <view class="gd-head">
         <text class="gd-step-no">{{ stepNo }}</text>
         <text class="gd-skip" @tap.stop="onSkip">{{ $t('跳过') }}</text>
@@ -75,19 +82,39 @@ export default {
     box: { type: Object, default: null },
     dark: { type: Boolean, default: false }
   },
-  emits: ['next', 'skip'],
+  // resize：转屏 / 分屏 / 折叠屏展开后让页面重新量一次目标（尺寸变了，旧矩形全作废）
+  emits: ['next', 'skip', 'resize'],
   data() {
     return {
       sw: 375,  // 视口宽（px）
-      sh: 667   // 视口高（px）
+      sh: 667,  // 视口高（px）
+      _onResize: null
     };
   },
   created() {
+    this.readScreen();
+  },
+  mounted() {
+    // ⚠️ 在 created 里读一次是不够的：转屏、分屏、折叠屏展开都会改视口尺寸，
+    //    气泡还按旧尺寸摆会直接飞出屏幕 —— 必须订阅窗口变化并回抛 resize 让页面重测。
+    if (typeof uni.onWindowResize !== 'function') return;
+    this._onResize = (res) => {
+      const w = res && res.size && res.size.windowWidth;
+      const h = res && res.size && res.size.windowHeight;
+      if (!w || !h || (w === this.sw && h === this.sh)) return;
+      this.readScreen({ windowWidth: w, windowHeight: h });
+      this.$emit('resize');
+    };
     try {
-      const info = uni.getSystemInfoSync();
-      this.sw = info.windowWidth || 375;
-      this.sh = info.windowHeight || 667;
-    } catch (e) { /* 用默认值兜底 */ }
+      uni.onWindowResize(this._onResize);
+    } catch (e) { /* 不支持就算了，按首屏尺寸摆 */ }
+  },
+  unmounted() {
+    if (!this._onResize || typeof uni.offWindowResize !== 'function') return;
+    try {
+      uni.offWindowResize(this._onResize);
+    } catch (e) { /* 同上 */ }
+    this._onResize = null;
   },
   computed: {
     isLast() {
@@ -96,27 +123,71 @@ export default {
     stepNo() {
       return (this.index + 1) + ' / ' + this.total;
     },
-    // 挖洞位置：直接用测量到的视口矩形
-    holeStyle() {
-      const b = this.box;
-      if (!b) return '';
-      return 'left:' + b.left + 'px;top:' + b.top + 'px;width:' + b.width + 'px;height:' + b.height + 'px;';
+    /** 气泡估算高度：横屏（屏高变矮）时按比例收紧，别照搬竖屏的 190 */
+    estTipH() {
+      return Math.round(Math.min(190, Math.max(120, this.sh * 0.42)));
     },
-    // 气泡位置：默认贴目标下方；下方放不下（估算高 190px）则贴上方。
-    // 用 bottom 定位避免依赖气泡实际高度（内容自适应，渲染前未知）。
-    tipStyle() {
+    /**
+     * 一次算完挖洞 + 气泡 + 箭头三处位置，避免三份 computed 各夹一次视口、
+     * 夹出互相矛盾的结果（改一处忘了另一处就是"洞在屏幕外、气泡贴着边"）。
+     * @return {{hole:string, tip:string, arrow:string, side:string}}
+     */
+    layout() {
       const b = this.box;
-      if (!b) return '';
-      const w = Math.min(this.sw - 32, 320);
-      const left = Math.max(12, Math.min(b.left - 8, this.sw - w - 12));
-      const below = b.top + b.height + 14;
-      if (below + 190 <= this.sh) {
-        return 'left:' + left + 'px;top:' + below + 'px;width:' + w + 'px;';
+      const none = { hole: '', tip: '', arrow: '', side: 'center' };
+      if (!b) return none;
+      // 1) 挖洞：夹回视口 —— 目标半露在屏幕外（滚动位置 / 转屏）时也要挖得出来，
+      //    否则挖洞跑出屏幕，用户只看到一整片黑、不知道在看哪
+      const l = Math.max(0, Math.min(b.left, this.sw - 1));
+      const t = Math.max(0, Math.min(b.top, this.sh - 1));
+      const w = Math.max(1, Math.min(b.width, this.sw - l));
+      const h = Math.max(1, Math.min(b.height, this.sh - t));
+      const hole = 'left:' + l + 'px;top:' + t + 'px;width:' + w + 'px;height:' + h + 'px;';
+
+      // 2) 气泡：下方 → 上方 → 整屏居中，三级兜底
+      const tw = Math.min(this.sw - 32, 320);
+      const eh = this.estTipH;
+      const belowTop = t + h + 14;
+      const aboveTop = t - 14 - eh;
+      let side = 'below';
+      let left = 0;
+      let top = 0;
+      if (belowTop + eh <= this.sh) {
+        side = 'below';
+        left = Math.max(12, Math.min(b.left - 8, this.sw - tw - 12));
+        top = belowTop;
+      } else if (aboveTop >= 12) {
+        side = 'above';
+        left = Math.max(12, Math.min(b.left - 8, this.sw - tw - 12));
+        top = aboveTop;
+      } else {
+        // 上下都塞不下（横屏 / 目标占了半屏）：居中，箭头没法指就不画
+        side = 'center';
+        left = Math.max(12, (this.sw - tw) / 2);
+        top = Math.max(12, Math.min((this.sh - eh) / 2, this.sh - eh - 12));
       }
-      return 'left:' + left + 'px;bottom:' + (this.sh - b.top + 14) + 'px;width:' + w + 'px;';
+      const tip = 'left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px;width:' + tw + 'px;';
+
+      // 3) 箭头：水平对齐挖洞中心，夹在气泡内（别露到气泡外）
+      const cx = l + w / 2;
+      const ax = Math.max(14, Math.min(cx - left - 8, tw - 26));
+      const arrow = 'left:' + Math.round(ax) + 'px;';
+      return { hole: hole, tip: tip, arrow: arrow, side: side };
     }
   },
   methods: {
+    readScreen(info) {
+      let i = info;
+      if (!i) {
+        try {
+          i = uni.getSystemInfoSync();
+        } catch (e) {
+          i = null;
+        }
+      }
+      this.sw = (i && i.windowWidth) || 375;
+      this.sh = (i && i.windowHeight) || 667;
+    },
     onNext() {
       this.$emit('next');
     },
@@ -179,6 +250,27 @@ export default {
   position: relative;
   width: 300px;
   max-width: calc(100vw - 48px);
+}
+
+/* 指示箭头：纯 CSS 三角，颜色跟气泡一致（深色档在下面单独换色） */
+.gd-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+}
+
+/* 气泡在目标下方 → 箭头长在气泡顶上、朝上指 */
+.gd-arrow-below {
+  top: -8px;
+  border-bottom: 8px solid rgba(255, 255, 255, 0.97);
+}
+
+/* 气泡在目标上方 → 箭头长在气泡底下、朝下指 */
+.gd-arrow-above {
+  bottom: -8px;
+  border-top: 8px solid rgba(255, 255, 255, 0.97);
 }
 
 .gd-head {
@@ -263,6 +355,14 @@ export default {
 .gd-dark .gd-tip {
   background: rgba(30, 34, 32, 0.97);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+.gd-dark .gd-arrow-below {
+  border-bottom-color: rgba(30, 34, 32, 0.97);
+}
+
+.gd-dark .gd-arrow-above {
+  border-top-color: rgba(30, 34, 32, 0.97);
 }
 
 .gd-dark .gd-title {

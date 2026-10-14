@@ -210,6 +210,112 @@ assert(miss.length === 0, miss.length === 0
   ? '每条文案在 i18n-en.js 里都有译文'
   : '缺英文：' + miss.slice(0, 3).join(' / '));
 
+/* ---------- 7. 屏幕尺寸 / 横竖屏适配（真跑布局计算，不只看有没有那行代码） ---------- */
+console.log('');
+console.log('== 7. 屏幕尺寸与横竖屏适配 ==');
+
+const MASK = path.join(ROOT, 'components', 'onboarding-mask', 'onboarding-mask.vue');
+const maskSrc = fs.readFileSync(MASK, 'utf8');
+const maskCode = maskSrc.replace(/<!--[\s\S]*?-->/g, '');
+// 步骤数：用户明确要求 3-5 步，多了没人点得下去
+assert(steps.length >= 3 && steps.length <= 5,
+  '步骤数在 3-5 步之间（实际 ' + steps.length + ' 步）');
+
+// 视口尺寸不能只在 created 里读一次：转屏 / 分屏 / 折叠屏展开都会改
+// ⚠️ 判据要认"订阅动作"而不是"方法名"：方法名还出现在 typeof 的可用性判断里，
+//    只测名字的话，把订阅那行删掉照样绿（反向测试第 12/13 条专门盯这个）
+assert(/uni\.onWindowResize\(/.test(maskCode), '遮罩订阅了窗口尺寸变化（转屏后重排）');
+assert(/uni\.offWindowResize\(/.test(maskCode), '遮罩在卸载时解绑尺寸监听');
+const mUnmount = fnBody(maskSrc, 'unmounted');
+assert(/offWindowResize/.test(mUnmount), '解绑写在 unmounted 里（页面走了就停，别越积越多）');
+assert(/'resize'/.test(maskSrc), '遮罩会回抛 resize 事件');
+assert(/@resize="guideResize"/.test(homeSrc), '首页接了 resize 并重测当前步');
+const gResize = fnBody(homeSrc, 'guideResize');
+assert(gResize.length > 0 && /measureStep\(\)/.test(gResize), 'guideResize() 真的会重新量目标矩形');
+
+// 目标滚出视口：先滚进去再量一次，别整步吞掉
+const mMeasure = fnBody(homeSrc, 'measureStep');
+assert(/pageScrollTo/.test(mMeasure), '目标不在视口里会先滚进视口再量');
+assert(/measureStep\(true\)/.test(mMeasure), '重测只做一次（retried 防来回滚死循环）');
+assert(/this\.gdBox = null[\s\S]{0,120}this\.gdStep = step/.test(mMeasure),
+  '滚完还是看不见就退化成居中讲解（不吞掉这一步）');
+// 指示箭头
+assert(/class="gd-arrow"/.test(maskCode), '气泡带指示箭头（指向高亮）');
+assert(/gd-arrow-below/.test(maskCode) && /gd-arrow-above/.test(maskCode),
+  '箭头有朝上 / 朝下两态（气泡在目标上方 / 下方）');
+
+// ---- 真跑一遍组件的 layout()：把 <script> 抽出来实例化 ----
+const scriptBlock = /<script>([\s\S]*?)<\/script>/.exec(maskSrc);
+let mask = null;
+try {
+  const body = scriptBlock[1].replace('export default', 'return ');
+  const factory = new Function('uni', body);
+  mask = factory({
+    getSystemInfoSync: () => ({ windowWidth: 375, windowHeight: 667 }),
+    onWindowResize: () => {},
+    offWindowResize: () => {}
+  });
+  ok('能实例化遮罩组件的 script（uni 用桩）');
+} catch (e) {
+  bad('抽不出遮罩的 script：' + e.message);
+}
+
+if (mask) {
+  /** 造一个组件实例：data + computed(getter) + methods 都绑到同一个 this 上 */
+  function inst(sw, sh, box, extra) {
+    const o = Object.assign({}, mask.data(), { sw: sw, sh: sh }, extra || {});
+    Object.keys(mask.computed || {}).forEach(k => {
+      Object.defineProperty(o, k, { get: mask.computed[k].bind(o), configurable: true });
+    });
+    Object.keys(mask.methods || {}).forEach(k => { o[k] = mask.methods[k].bind(o); });
+    o.box = box;
+    return o;
+  }
+  /** 从 'left:12px;top:34px;width:320px;' 里抠数字 */
+  function num(style, key) {
+    const m = new RegExp(key + ':(-?\\d+(?:\\.\\d+)?)px').exec(style || '');
+    return m ? Number(m[1]) : NaN;
+  }
+
+  // ① 竖屏：目标在中部 → 气泡贴下方，且不超出屏底
+  let v = inst(375, 667, { left: 20, top: 100, width: 335, height: 120 });
+  let L = v.layout;
+  assert(L.side === 'below', '竖屏目标在中部 → 气泡贴目标下方');
+  assert(num(L.tip, 'top') + v.estTipH <= 667, '竖屏气泡不超出屏底（估算高 ' + v.estTipH + '）');
+
+  // ② 竖屏：目标贴底 → 翻到上方
+  v = inst(375, 667, { left: 20, top: 560, width: 335, height: 100 });
+  L = v.layout;
+  assert(L.side === 'above', '竖屏目标贴底 → 气泡翻到目标上方');
+  assert(num(L.tip, 'top') >= 0, '翻到上方后气泡顶不穿屏幕（top=' + num(L.tip, 'top') + '）');
+
+  // ③ 横屏：目标占了大半屏，上下都塞不下 → 居中兜底
+  v = inst(667, 375, { left: 20, top: 60, width: 627, height: 300 });
+  L = v.layout;
+  assert(L.side === 'center', '横屏上下都放不下 → 气泡居中兜底');
+  const cTop = num(L.tip, 'top');
+  assert(cTop >= 0 && cTop + v.estTipH <= 375, '居中气泡整体在视口内（' + cTop + ' ~ ' + (cTop + v.estTipH) + '）');
+  assert(v.estTipH < 190, '横屏时气泡估算高度收紧（' + v.estTipH + ' < 190），别照搬竖屏');
+
+  // ④ 目标半露在屏幕外 → 挖洞夹回视口（不夹就是"一整片黑、不知道在看哪"）
+  v = inst(375, 667, { left: -50, top: -30, width: 400, height: 200 });
+  L = v.layout;
+  const hl = num(L.hole, 'left'), ht = num(L.hole, 'top');
+  const hw = num(L.hole, 'width'), hh = num(L.hole, 'height');
+  assert(hl >= 0 && ht >= 0, '挖洞被夹回视口左上角（left=' + hl + ' top=' + ht + '）');
+  assert(hl + hw <= 375 && ht + hh <= 667, '挖洞右下角不超出视口');
+
+  // ⑤ 箭头：水平对齐挖洞中心，且夹在气泡内（不露到气泡外）
+  v = inst(375, 667, { left: 20, top: 100, width: 335, height: 120 });
+  L = v.layout;
+  const ax = num(L.arrow, 'left');
+  const tw = num(L.tip, 'width');
+  assert(ax >= 0 && ax <= tw - 26, '箭头夹在气泡内（left=' + ax + ' 宽 ' + tw + '）');
+  const holeCx = num(L.hole, 'left') + num(L.hole, 'width') / 2;
+  assert(Math.abs((num(L.tip, 'left') + ax + 8) - holeCx) <= 2,
+    '箭头指向挖洞中心（偏差 ' + Math.round(Math.abs((num(L.tip, 'left') + ax + 8) - holeCx)) + 'px）');
+}
+
 console.log('');
 console.log(fail === 0 ? '新手引导校验全部通过' : '失败 ' + fail + ' 项 ✗');
 process.exit(fail ? 1 : 0);

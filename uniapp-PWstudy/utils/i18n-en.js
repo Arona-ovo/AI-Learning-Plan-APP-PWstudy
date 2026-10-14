@@ -820,8 +820,6 @@ export default {
   '目标拆到今天的这几项。点一整行直接开始专注，点左边的小圈就地勾掉。这里空着的话，去底栏「目标」定一个远期目标。': 'These are the items your goal breaks down into for today. Tap a row to start focusing, tap the circle on the left to tick it off. If it is empty, set a long-term goal under "Goals".',
   '今日收工：说一句今天的出入': 'Wrap up: log how today went',
   '做多了、做少了、临时加了别的 —— 花十几秒说完，明天的安排才排得准。填过就变成「改一下」。': 'Did more, did less, or did something unplanned — say it in a few seconds and tomorrow gets planned accurately. Once logged, this becomes "Edit".',
-  '编辑首页：卡片自己排': 'Edit home: arrange the cards',
-  '点「编辑首页」可以把卡片拖成你想要的顺序、把不想要的那张收纳起来，之后从「＋ 添加组件」随时加回来。': 'Tap "Edit home" to drag cards into any order and stash the ones you do not want, then re-add them any time from "Add widget".',
   '底部导航：另外三个页': 'Bottom tabs: three more pages',
   '目标（定目标、看进度）、统计（用时与走势）、我的（设置与 AI 配置）。首页左右滑动也能切页。': 'Goals (set one, track progress), Stats (time spent and trends), Me (settings and AI config). Swiping sideways on the home page switches tabs too.',
   '跳过': 'Skip',
