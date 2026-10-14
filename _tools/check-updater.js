@@ -701,6 +701,12 @@ assert(/--bump/.test(pub), '支持自动抬版本');
 assert(/data\/build-info\.js/.test(pub) && /_vocab/.test(pub), '抬版本同步三处（manifest / build-info / _vocab）');
 assert(/--dry/.test(pub), '支持空跑');
 assert(/RELEASE_URL/.test(pub), '打完打印上传指引');
+// 上传指引要把**三段式版本号**直接打出来（手填 Release 标题/说明时照抄即可）。
+// GitHub 上写 `1.3`、资产名却是 `PWstudy-1.3.1-n104.wgt`，隔几个月回来就对不上是哪一版。
+// ⚠️ 一并提醒 tag 永远是 PWstudy —— 客户端按固定 tag 取，写成版本号就全查不到。
+assert(/标题写\s+PWstudy ' \+ ver/.test(pub), '指引给出三段式的 Release 标题');
+assert(/说明首行写\s+' \+ ver/.test(pub), '指引给出三段式的说明首行');
+assert(/tag 永远是 PWstudy/.test(pub), '指引提醒 tag 不要写成版本号');
 // 包内版本必须跟着文件名走：包里那个 manifest.json 是"发行那一刻"的值，
 // 不跟文件名对齐的话，装完 App 还报旧版本 → 客户端以为没装上，每次启动再提示一遍
 // 断言**调用点**（只断言函数存在的话，把调用删了照样绿）

@@ -147,6 +147,13 @@ const cases = [
     // check-updater 会在 JSON.parse 处**崩掉**而不是报红（那就成了假绿：看着"被抓到"了）
     s => s.replace('"<uses-permission android:name=\\"android.permission.ACCESS_NETWORK_STATE\\"/>",', '')],
 
+  // 上传指引要把三段式版本号打出来 —— Release 标题/说明是手填的，照抄才不会写成别的号
+  ['发布指引不再给出 Release 标题（GitHub 上会写成别的号）', PUB,
+    s => s.replace(/console\.log\('  3\. 标题写  PWstudy ' \+ ver[^;]*\);/, '')],
+  ['发布指引不再给出说明首行的版本号', PUB,
+    s => s.replace(/console\.log\('  4\. 说明首行写  ' \+ ver[^;]*\);/, '')],
+  ['发布指引不提醒 tag 别写成版本号（tag 一改客户端就全查不到了）', PUB,
+    s => s.replace(/console\.log\('[^']*tag 永远是 PWstudy[^;]*\);/, '')],
   ['下载失败被吞掉（静默）', 'utils/updater.js',
     s => s.replace('fail: (e) => reject(new Error((e && e.errMsg) || \'下载失败\'))', "fail: (e) => resolve('/tmp/x.wgt')")],
   ['默认不自检（功能等于没有）', 'utils/settings.js',

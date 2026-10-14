@@ -343,7 +343,12 @@ if (has('--upload')) {
 console.log('\n下一步（把 wgt 传到固定 tag 的 Release）：');
 console.log('  1. 打开 ' + RELEASE_URL);
 console.log('  2. Edit release → 把 ' + file + ' 拖进 Attach assets');
-console.log('  3. 在说明里写这次改了什么（会显示在「有新版本」弹窗里）');
-console.log('  4. Update release');
+// 标题与说明里的版本号一律跟产物同款三段式 —— 免得 GitHub 上写 1.3、
+// 资产名却是 1.3.1，翻 Release 的时候对不上是哪一版
+console.log('  3. 标题写  PWstudy ' + ver + '（版本号一律 x.y.z，跟资产名同款）');
+console.log('  4. 说明首行写  ' + ver + '，下面写这次改了什么（会显示在「有新版本」弹窗里）');
+console.log('  5. Update release');
+console.log('\n  ⚠️ tag 永远是 PWstudy，不要写成版本号 —— 客户端按 /releases/tags/PWstudy');
+console.log('     精确取，tag 一改就全都查不到了。版本号只在标题 / 说明 / 资产名里出现。');
 console.log('\n传完之后，装了旧版本的 App 下次启动（或手动「检查更新」）就会收到热更新。');
 console.log('校验：node _tools/check-updater.js');
