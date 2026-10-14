@@ -1,7 +1,7 @@
 // check-pwstudy.js - PWstudy 新数据层冒烟测试（node 直接跑，不需要 uni 运行时）
-// 用法：node check-pwstudy.js
+// 用法：node _tools/check-pwstudy.js（从仓库根目录跑）
 const path = require('path');
-const ROOT = path.resolve(__dirname, 'uniapp-PWstudy');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 
 // ---------- UTS 插件打桩 ----------
 // utils/fgsvc.js 静态 import 了 UTS 插件 '@/uni_modules/pwstudy-focus'（条件编译

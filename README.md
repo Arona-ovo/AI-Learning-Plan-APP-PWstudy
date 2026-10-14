@@ -12,7 +12,7 @@
 ![framework](https://img.shields.io/badge/framework-uni--app%20%C2%B7%20Vue%203-41B883?logo=vue.js&logoColor=white)
 ![ai](https://img.shields.io/badge/AI-OpenAI%20%E5%85%BC%E5%AE%B9%EF%BC%88%E5%8F%AF%E9%80%89%EF%BC%89-412991?logo=openai&logoColor=white)
 ![privacy](https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E5%8F%AA%E5%AD%98%E6%9C%AC%E5%9C%B0-0F6E56)
-![checks](https://img.shields.io/badge/checks-59%20%E8%84%9A%E6%9C%AC%E5%85%A8%E7%BB%BF-success)
+![checks](https://img.shields.io/badge/checks-63%20%E8%84%9A%E6%9C%AC%E5%85%A8%E7%BB%BF-success)
 ![version](https://img.shields.io/badge/version-1.0%20Beta-orange)
 
 </div>
@@ -154,21 +154,28 @@
 ## 🧩 仓库结构
 
 ```
-├── uniapp-PWstudy/                     ⭐ 主工程（uni-app + Vue 3）
-│   ├── pages/                  tabBar 四页：专注 / 目标 / 统计 / 我的
-│   ├── pkgPlan/pages/          分包：目标向导 / 番茄钟全屏 / 重排预览 /
-│   │                           App 管理 / 日历 / 今日收工 / 教练对话 …
+├── uniapp-PWstudy/                     ⭐ 主工程（uni-app + Vue 3），在 HBuilderX 里打开它
+│   ├── pages/                  tabBar 页
+│   ├── pkgPlan/pages/          分包：目标向导 / 番茄钟 / 重排 / App 管理 / 日历 / 收工 …
 │   ├── pkgManage/pages/        分包：设置 / 聊天 / 登录 / 备份 …
-│   ├── utils/                  pwstore / focus / apptime / plan-task /
-│   │                           dailylog / coach / 主题 / 性能 / insets …
+│   ├── components/             统一弹窗 / 浮层导航 / 日程表 / 引导遮罩 …
+│   ├── utils/                  pwstore / focus / apptime / plan-task / 主题 / insets …
 │   ├── services/               plan-agent / llm / http / page-agent …
-│   └── data/                   词表 / 假期表 / 目标模板 / 构建信息
-├── _removed_vocab/             旧背单词页面（保留，待与原 App 联动）
-├── _tools/                     59 个只读校验脚本，不改动工程文件
-└── check-*.js                  工作区级快速校验（vue 语法 / 数据层 / import）
-```
+│   ├── data/                   假期表 / 目标模板 / 构建信息
+│   ├── static/                 图标 / 吉祥物 / 白噪音 / 提示音 / 启动图
+│   ├── assets/                 需再加工的原素材（如 icon-src.jpg）
+│   ├── docs/                   工程文档（发版 / 强制模式 / 原生资源 / AI 卡片规范 …）
+│   └── scripts/                给 App 本身用的脚本（如生成 tabBar 图标）
+├── _tools/                     ⭐ 只读校验与一次性工具脚本，不改动工程文件
+│   ├── check-*.js              63 个护栏（含 check-vue / check-pwstudy / check-refs）
+│   ├── gen-*.py                生成图标 / 吉祥物 / 白噪音 / 提示音 / 启动图
+│   ├── publish-wgt.js          打热更新包
+│   └── _scratch/               临时脚本与反向测试（neg-*.js），不进 README
+├── _removed_vocab/             退役的背单词页面（编译之外，部分老护栏仍按此取源码）
+└── _vocab/                     词表构建
 
 📄 工程向详尽文档（模块取舍与踩坑记录）见 👉 [uniapp-PWstudy/README.md](./uniapp-PWstudy/README.md)
+```
 
 ---
 
@@ -176,14 +183,17 @@
 
 ```bash
 # 改完 .vue 先跑（秒级语法检查，比等 HBuilderX 编译快得多）
-node check-vue.js
+node _tools/check-vue.js
 
 # 数据层与引用完整性
-node check-pwstudy.js && node check-refs.js
+node _tools/check-pwstudy.js && node _tools/check-refs.js
 
-# 全量回归（59 个）
-cd _tools && for f in check-*.js; do node "$f" || echo "FAIL: $f"; done
+# 全量回归（63 个，约 3 分钟）
+node _tools/_scratch/run-all.js
 ```
+
+> 所有校验脚本都是只读 / 幂等的：运行时会接管 `process.exit`、临时目录用完即删，不会改动工程文件。
+> `_tools/_scratch/neg-*.js` 是配套反向测试 —— 故意把源码改坏，确认护栏真的会红（防假绿）。
 
 ---
 

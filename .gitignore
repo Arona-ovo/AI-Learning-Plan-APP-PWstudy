@@ -15,7 +15,12 @@ pnpm-debug.log*
 _tools/.tmp/
 _tools/.esmcheck/
 
-# ---- WorkBuddy 工作区数据（非工程文件） ----
+# ---- 本机遗留工程（微信小程序版原型，只在开发机上）----
+# 曾经被当成子模块提交过（gitlink），但仓库里从来没有 .gitmodules ——
+# 别人 clone 只能拿到一个解析不了的指针。已从版本库摘掉，本地文件保留。
+fujian-english-trainer/
+
+# ---- 工作区数据（非工程文件） ----
 .workbuddy/
 
 # ---- 本地环境 / 密钥 ----

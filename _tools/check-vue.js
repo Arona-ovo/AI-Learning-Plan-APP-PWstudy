@@ -1,5 +1,5 @@
 // check-vue.js - 改完 .vue 的秒级预检：SFC 的 <script> ESM 语法 + <style> 括号平衡
-// 用法：node check-vue.js
+// 用法：node _tools/check-vue.js（从仓库根目录跑）
 //
 // style 块为什么要一并查：HBuilderX 编译才会报 postcss 的错，反馈慢一轮。
 // 最常见的坑是 var() 兜底值里再嵌一个函数 —— 例如
@@ -13,7 +13,7 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 
 const NODE = process.execPath;
-const ROOT = path.resolve(__dirname, 'uniapp-PWstudy');
+const ROOT = path.resolve(__dirname, '..', 'uniapp-PWstudy');
 const list = [];
 
 (function collect(dir) {

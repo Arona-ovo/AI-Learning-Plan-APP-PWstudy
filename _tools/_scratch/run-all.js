@@ -1,5 +1,5 @@
-// 全量回归：跑 _tools/check-*.js + 根目录三个总检，统计红绿。
-// 不能 spawn（沙箱 EBUSY），用同进程 require + 接管 process.exit 取退出码。
+// 全量回归：跑 _tools/ 下的全部 check-*.js，统计红绿。
+// 用法：node _tools/_scratch/run-all.js
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
@@ -76,11 +76,20 @@ async function run(file) {
   return { code: crash ? 99 : (falseAlarm ? 0 : code), buf, crash, badLines, falseAlarm };
 }
 
+// ⚠️ 顺序不能随便调（2026-10-14 踩过）：
+//   下面这三样是**整仓级**检查，用 `await import('file:///…/pwstore.js')` 动态
+//   加载数据层。**ESM 的模块注册表不清空、也无法像 require.cache 那样手动失效**
+//   —— 同一个 file:/// URL 在整个进程里只有一份实例，pwstore.js 的库存放在模块作用域，
+//   谁先 import 谁就一直持有。于是它们跑在中间时，后面同样 import pwstore 的护栏会
+//   读到前一个脚本塞进去的目标：check-schedule 的"今天只有第 1 天那一项"从 1 变成 5。
+//   （曾经试过按 dump require.cache 隔离，对 ESM 完全无效。）
+//   所以：整仓级检查固定放最后。别为了让列表"看起来整齐"把它们并进上面的字母序。
+const HEAVY = ['check-refs.js', 'check-pwstudy.js', 'check-vue.js'];
 const files = [];
 for (const f of fs.readdirSync(path.join(ROOT, '_tools')).sort()) {
-  if (/^check-.*\.js$/.test(f)) files.push(path.join(ROOT, '_tools', f));
+  if (/^check-.*\.js$/.test(f) && HEAVY.indexOf(f) < 0) files.push(path.join(ROOT, '_tools', f));
 }
-for (const f of ['check-vue.js', 'check-pwstudy.js']) files.push(path.join(ROOT, f));
+HEAVY.forEach(f => files.push(path.join(ROOT, '_tools', f)));
 
 const green = [];
 const red = [];

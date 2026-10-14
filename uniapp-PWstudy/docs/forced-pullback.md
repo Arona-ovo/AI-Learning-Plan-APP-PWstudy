@@ -182,7 +182,7 @@ aapt2 dump resources <your.apk> | grep -i pw_accessibility   # res/xml 打进去
 | 状态条三态 | 没开（灰）/ 开了但缺权限（琥珀）/ 就绪（红），文案与能力一致 |
 | 只问一次 | 选"这次不用"之后，下一轮番茄不再弹 |
 | 编译 | `node _tools/uts-to-kotlin.js`（本地转 Kotlin 扫类型坑，几秒出结果，别傻等云打包） |
-| 静态护栏 | `node _tools/check-uts.js` / `check-vue.js` / `check-pwstudy.js` / `_tools/_scratch/run-all.js` |
+| 静态护栏 | `node _tools/check-uts.js` / `_tools/check-vue.js` / `_tools/check-pwstudy.js` / `_tools/_scratch/run-all.js` |
 
 ⚠️ **改了 `uni_modules/**/utssdk/**` 必须重新云打包 APK** —— wgt 包不住 UTS
 （wgt 里那份 `src/index.kt` 只是产物拷贝，运行时用的是编译进基座的那份）。
