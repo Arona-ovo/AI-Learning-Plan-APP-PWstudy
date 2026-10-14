@@ -11,8 +11,16 @@
       <view class="ring-wrap">
         <view class="ring" :style="ringStyle">
           <view class="ring-inner">
-            <text class="time">{{ fmtMMSS(remainSec) }}</text>
-            <text class="task-title">{{ taskTitle }}</text>
+            <!-- 正计时段：数字前面加个「+」，一眼看出这是"多坐了多久"而不是"还剩多久" -->
+            <text class="time">{{ timeText }}</text>
+            <!-- 任务名：单行截断，点一下展开（最多 3 行）。
+                 圆盘里能放字的宽度只有 320rpx，长任务名一直被吃掉一半，
+                 而它恰恰是"这一轮在为什么事计时"的唯一线索 —— 不可点等于没救。 -->
+            <text
+              class="task-title"
+              :class="{ 'task-title-open': titleOpen }"
+              @tap="toggleTitle"
+            >{{ taskTitle }}</text>
           </view>
         </view>
       </view>
@@ -143,11 +151,19 @@
         </view>
       </view>
 
+      <!-- 正计时段：预设时长已经跑满，人还在继续 —— 这一屏只给「退出」，
+           不再有暂停/放弃（番茄本身早就跑完了，谈"放弃"是骗人）。
+           强制拉回与违规判定也在这一刻停手（见 utils/forced.js / strict.js 的 overrun 分支）。 -->
+      <view v-if="active && overrun" class="ctrl">
+        <button class="ctrl-btn ctrl-main" @tap="exitOverrun">{{ $t('退出') }}</button>
+      </view>
+
       <!-- 运行态 / 暂停态 -->
-      <view v-else class="ctrl">
+      <view v-else-if="active" class="ctrl">
         <button class="ctrl-btn ctrl-main" @tap="togglePause">{{ paused ? '继续' : '暂停' }}</button>
         <button class="ctrl-btn ctrl-ghost" @tap="confirmGiveUp">放弃</button>
       </view>
+      <text v-if="overrun" class="over-hint">{{ $t('预设时长已跑完，继续计时中') }}</text>
 
       <!-- 运行态的白噪音控制：以前开关只在空闲态，一开表想关噪音就得先放弃 -->
       <view v-if="active" class="run-noise">
@@ -251,6 +267,7 @@ export default {
     return {
       minutesOptions: [15, 20, 25, 30, 45, 60],
       minutes: 25,
+      titleOpen: false,      // 圆盘里的任务名是否展开（默认单行，点一下展开到 3 行）
       presetTask: null,      // {taskId, goalId, title}
       cur: null,
       finished: false,
@@ -308,11 +325,20 @@ export default {
     paused() {
       return !!(this.cur && this.cur.paused)
     },
+    /** 预设时长已跑满、正在正计时（番茄闹钟的做法：到点不赶人走） */
+    overrun() {
+      return !!(this.cur && this.cur.overrun)
+    },
+    overSec() {
+      return this.cur ? (Number(this.cur.overSec) || 0) : 0
+    },
     isRest() {
       return !!(this.cur && this.cur.phase === 'rest')
     },
     phaseText() {
-      if (this.finished) return '番茄完成'
+      // 正计时与"完成面板"共用这一档：番茄本身跑满了，区别只在于人还在继续
+      //（写成两个分支会多出一条静态中文，i18n 阈值正卡满 —— 能省就省）
+      if (this.finished || this.overrun) return '番茄完成'
       if (this.restDone) return '休息结束'
       if (!this.cur) return '准备开始'
       if (this.paused) return '已暂停'
@@ -321,11 +347,15 @@ export default {
     remainSec() {
       return this.cur ? this.cur.remainSec : this.minutes * 60
     },
-    // conic-gradient 比例
+    /** 环心的大号读数：正计时段显示"+MM:SS"（多坐了多久），其余显示"还剩多久" */
+    timeText() {
+      return this.overrun ? '+' + this.fmtMMSS(this.overSec) : this.fmtMMSS(this.remainSec)
+    },
+    // conic-gradient 比例（正计时段恒为满环 —— 目标已经达成了）
     ringStyle() {
       const total = this.cur ? this.cur.totalSec : this.minutes * 60
       const remain = this.remainSec
-      const pct = total > 0 ? Math.max(0, Math.min(1, 1 - remain / total)) : 0
+      const pct = this.overrun ? 1 : (total > 0 ? Math.max(0, Math.min(1, 1 - remain / total)) : 0)
       const deg = Math.round(pct * 360)
       const run = this.active && !this.paused
       const c1 = this.isRest ? '#3b6d11' : (run ? '#e5484d' : '#98a19b')
@@ -365,9 +395,12 @@ export default {
      *    任何一条不满足，"离开就拉回"就是假的，界面不许说它已就绪。
      */
     forceLine() {
+      void this.__lang      // 下面用到了 $t：computed 要建立语言依赖，否则切语言不重算
       const c = this.forceCap
       let s
-      if (!this.forcedOn) s = '离开不会被拉回'
+      // 正计时段：拉回与违规判定都已停手，界面不许再说"已就绪 · 离开立刻拉回"
+      if (this.overrun) s = this.$t('已跑满预设时长，不再拉回')
+      else if (!this.forcedOn) s = '离开不会被拉回'
       else if (!c.native) s = '当前包没有原生拉回能力，只能提醒'
       else if (!c.svcAllowed) s = '「后台保活」或「通知提醒」关着，拉回起不来'
       else if (!c.canDetect) s = '看不出你在哪个 App —— 要开「无障碍」或「使用情况访问」'
@@ -454,7 +487,8 @@ export default {
   // 暂停 / 休息阶段照常放行 —— 拦人是为了专注，不是把人困死。
   onBackPress() {
     if (!this.forcedOn) return false
-    if (!this.cur || this.cur.paused || this.cur.phase !== 'focus') return false
+    // 正计时段放行：番茄已经跑满了，这时候再把人按在页面里就是"拦人不放"
+    if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false
     uni.showToast({ title: '强制模式：先把这个番茄跑完', icon: 'none' })
     return true
   },
@@ -492,7 +526,14 @@ export default {
         this.__forceAt = now
         this.refreshForce()
       }
-      if (r.justFinished === 'focus') {
+      if (r.justOverrun) {
+        // 预设时长跑满 → 转正计时。只震一下并把两个模式叫停：
+        // 弹"完成"面板会把人正学到一半的思路打断（他还没说要走）。
+        try { uni.vibrateLong({}) } catch (e) {}
+        strict.sync()
+        forced.sync()
+        this.refreshForceCap()
+      } else if (r.justFinished === 'focus') {
         const s = this.lastSession()
         this.lastMin = s ? s.min : (this.minutes || 25)
         this.finished = true
@@ -511,6 +552,8 @@ export default {
       return ss.length ? ss[ss.length - 1] : null
     },
     beginFocus() {
+      // 换一轮 / 换任务就把展开态收回：留着上一条的展开，下一条短任务名会顶着一块空
+      this.titleOpen = false
       const opt = this.presetTask
         ? { minutes: this.minutes, taskId: this.presetTask.taskId, goalId: this.presetTask.goalId, taskTitle: this.presetTask.title }
         : { minutes: this.minutes, taskTitle: '自由专注' }
@@ -541,6 +584,22 @@ export default {
         action: 'give-up'
       })
     },
+    /**
+     * 正计时收摊：番茄早就跑满了，所以按「完整番茄」落账（正计时那段一起算进去），
+     * 然后才落到"完成"面板 —— 让人决定是去休息还是再来一个。
+     */
+    exitOverrun() {
+      const s = focus.stopOverrun()
+      this.cur = null
+      this.titleOpen = false
+      this.lastMin = s ? s.min : (this.minutes || 25)
+      this.finished = true
+      this.restDone = false
+      this.refreshToday()
+      this.refreshRound()
+      strict.sync()
+      forced.sync()
+    },
     startRestNow() {
       this.finished = false
       // 必须走 startRest：只有它按"本轮第几个番茄"决定短休还是长休。
@@ -554,7 +613,11 @@ export default {
       this.restDone = false
       this.beginFocus()
     },
-    clearPreset() { this.presetTask = null },
+    /** 圆盘里的任务名：点一下展开 / 收起。换了任务就收回单行（免得留着上一条的展开态） */
+    toggleTitle() {
+      this.titleOpen = !this.titleOpen
+    },
+    clearPreset() { this.presetTask = null; this.titleOpen = false },
     /** 绑定的任务对象（找不到目标/任务返回 null） */
     presetTaskObj() {
       if (!this.presetTask) return null
@@ -1179,6 +1242,26 @@ export default {
   color: var(--ink-2, #5a6560);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: center;
+  /* 可点：给一点按下反馈，否则用户不知道这里能展开 */
+  border-radius: 8rpx;
+  padding: 4rpx 8rpx;
+}
+
+/* 展开态：多行显示（最多 3 行，再长仍省略 —— 圆盘里放不下整篇）。
+   ⚠️ 3 行 + 时间号 ≈ 220rpx，仍在 420rpx 的圆内，不会把数字挤出去。 */
+.task-title-open {
+  white-space: normal;
+  text-overflow: clip;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+
+.task-title:active {
+  background: rgba(23, 32, 26, 0.06);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.06);
 }
 
 /* ===== 配置 ===== */
@@ -1336,6 +1419,15 @@ export default {
 .ctrl-main { width: 300rpx; }
 .ctrl-ghost { width: 200rpx; }
 .ctrl-btn::after { border: none; }
+/* 正计时说明：环上那个 +MM:SS 是什么意思，必须写出来 ——
+   不然用户只会以为"倒计时卡在 00:00 不动了" */
+.over-hint {
+  margin-top: 18rpx;
+  font-size: 22rpx; line-height: 1.6;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  text-align: center;
+}
 
 /* ===== 完成态 ===== */
 .after { margin-top: 60rpx; width: 86%; display: flex; flex-direction: column; align-items: center; }

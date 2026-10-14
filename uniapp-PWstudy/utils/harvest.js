@@ -26,6 +26,8 @@ import { isAIEnabled } from '../services/config.js';
 
 /** 历史反馈回溯多少天（给 AI 的"过去他怎么说"） */
 const HISTORY_DAYS = 14;
+/** 外部学习数据回溯多少天（给 AI 的"他几点在外面学"） */
+const EXT_DAYS = 7;
 /** 待确认队列最多留几条（堆太多就变成没人看的垃圾堆） */
 const MAX_PENDING = 8;
 /** 自动重排时允许"顺延截止日"的门槛：连续这么多天没做完才开门（与 replan 页同口径） */
@@ -171,6 +173,40 @@ export function historyBlock(days) {
   return lines.join('\n');
 }
 
+/**
+ * 给 AI 看的「外部学习数据」（背单词 App 回传：完成时刻 + 时间范围 + 时段分布）。
+ *
+ * 为什么必须喂给模型：一个人固定在 19:00-19:30 背单词，排期就不该再往那半小时里塞任务；
+ * 他一次只坐得住 20 分钟，"一段"就不该排 60 分钟的量。
+ * 这些判断**只有拿到时间范围才做得出来** —— 光给一个"今天背了 30 分钟"的总数没用
+ * （总数在 byApp 里，模型看不出它落在一天的哪一段）。
+ *
+ * 只算不调 AI：纯本地分布，任何情况下都能给。
+ */
+export function externalBlock(days) {
+  let s;
+  try { s = pw.extStudySummary(pw.today(), days || EXT_DAYS); } catch (e) { s = null; }
+  if (!s) return '';
+  // 措辞用"已关联的学习 App"而不是具体某一款：伙伴注册表是按"可以有多个"组织的，
+  // 而且 check-isolation 盯的就是"别把 PWstudy 写成某个背单词 App 的界面"
+  const lines = ['【外部学习数据（近 ' + s.days + ' 天，已关联的学习 App 回传 —— 这些时段已经被占住）】'];
+  lines.push('- 共 ' + s.times + ' 次 · ' + s.min + ' 分钟 · ' + s.words + ' 词 · 平均每次 ' + s.avgMin + ' 分钟');
+  if (s.topHours.length) {
+    lines.push('- 集中在这几个时段：' + s.topHours.map(h => h + ' 点（' + s.byHour[h] + ' 分钟）').join('、'));
+  }
+  // 最近 8 次的时间范围：让模型看得见"他一次真的坐多久、几点开始"
+  const recent = s.spans.slice(-8);
+  if (recent.length) {
+    lines.push('- 最近几次的时间范围：');
+    recent.forEach(sp => {
+      lines.push('  · ' + sp.date + ' ' + pw.spanText(sp.from, sp.to) +
+        ' · ' + sp.min + ' 分钟' + (sp.words ? ' · ' + sp.words + ' 词' : ''));
+    });
+  }
+  lines.push('- 排期请避开上面这些时段；若与计划冲突，用 move 把任务挪开，不要硬塞进同一段。');
+  return lines.join('\n');
+}
+
 /** 上次自动重排的结果（让下一次别来回横跳） */
 export function lastBlock() {
   const r = pw.replanState();
@@ -300,6 +336,10 @@ function extraBlock() {
   if (lb) parts.push(lb);
   const today = summaryFor(pw.today());
   if (today) parts.push(today);
+  // 外部（背单词 App）学习数据：两条自动重排主线（全部完成 / 跨天兜底）都走这里，
+  // 所以"每日任务都完成后"与"第二天"这两个时刻都会重新带上它一起分析。
+  const eb = externalBlock();
+  if (eb) parts.push(eb);
   return parts.join('\n');
 }
 

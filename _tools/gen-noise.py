@@ -23,8 +23,20 @@ import wave
 RATE = 16000          # 采样率：噪声没有高频细节，16k 足够且省一半体积
 SECONDS = 8           # 循环长度：太短听得出规律，太长费体积；8s 是甜点
 XFADE_MS = 120        # 首尾交叉淡化宽度
-PEAK = 0.7            # 峰值归一化目标（留 3dB 余量，配合 App 内 volume=0.6）
+PEAK = 0.55           # 峰值归一化目标（见下：响度交给 App 内 volume，素材只管不削波）
 OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp-PWstudy', 'static', 'noise')
+
+# ⚠️ 柔化截止频率（2026-10-14 真机反馈"白噪音很刺耳"）
+#
+# 只调音量解决不了"刺"：刺耳是**高频段**的能量问题，不是整体响度问题。
+# 均匀随机白噪每倍频程 +3dB，能量全堆在 3~8kHz —— 正是人耳最敏感、也最容易疲劳的区间，
+# 听久了像"电视没信号"的沙沙声。参数化一阶低通把这一段压下去：
+#   white  压到 3.2k：原本最刺的一个，柔化后是"远处的风声"
+#   pink   压到 4.5k：本身已往低频倾，少压一点，保留掩蔽人声的能力
+#   brown  不压：它只有低频，压了反而更闷
+#   rain   已在合成里低通过，这里只补一小刀去残余毛刺
+# 掩蔽效果（挡住外界说话声）主要由中低频贡献，压高频几乎不损失这个功能。
+SOFTEN = {'white': 3200, 'pink': 4500, 'brown': 0, 'rain': 5200}
 
 
 def gen_white(n):
@@ -80,10 +92,35 @@ def gen_rain(n):
     return out
 
 
-def normalize(samples, peak=PEAK):
-    m = max(1e-9, max(abs(x) for x in samples))
-    k = peak / m
-    return [x * k for x in samples]
+def soften(samples, cutoff_hz):
+    """一阶低通：压掉最刺耳的高频段（cutoff_hz <= 0 表示不处理）"""
+    if cutoff_hz <= 0:
+        return samples
+    # 一阶 RC：系数由截止频率与采样率推出
+    a = 1.0 - math.exp(-2.0 * math.pi * cutoff_hz / RATE)
+    out = []
+    acc = 0.0
+    for x in samples:
+        acc += a * (x - acc)
+        out.append(acc)
+    return out
+
+
+RMS_TARGET = 0.12      # 统一的目标平均电平（听感响度由 RMS 决定，不是峰值）
+
+def normalize(samples, rms=RMS_TARGET, peak_cap=PEAK):
+    """按 RMS 归一，再夹峰值。
+    ⚠️ 为什么不是按峰值：白噪的峰值因子只有 3~4dB，同样峰值下平均能量比粉噪/雨声高
+       近一倍 —— 按峰值归一的结果就是"切到白噪突然变吵一倍"。按 RMS 归一才能让
+       四种音色听起来一样响，切换音色不会有落差。"""
+    cur = math.sqrt(sum(x * x for x in samples) / max(1, len(samples)))
+    k = rms / max(1e-9, cur)
+    out = [x * k for x in samples]
+    m = max(1e-9, max(abs(x) for x in out))
+    if m > peak_cap:
+        k2 = peak_cap / m
+        out = [x * k2 for x in out]
+    return out
 
 
 def crossfade_loop(samples):
@@ -112,15 +149,21 @@ def write_wav(name, samples):
     print('  %-6s %6.1f KB  (%d s @ %d Hz)' % (name, kb, SECONDS, RATE))
 
 
+def build(name, gen):
+    """合成 → 柔化高频 → 峰值归一化 → 首尾交叉淡化"""
+    raw = gen(RATE * SECONDS)
+    soft = soften(raw, SOFTEN.get(name, 0))
+    return crossfade_loop(normalize(soft))
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
-    n = RATE * SECONDS
     print('合成专注白噪音 →', os.path.normpath(OUT))
-    write_wav('white', crossfade_loop(normalize(gen_white(n))))
-    write_wav('pink', crossfade_loop(normalize(gen_pink(n))))
-    write_wav('brown', crossfade_loop(normalize(gen_brown(n))))
-    write_wav('rain', crossfade_loop(normalize(gen_rain(n))))
-    print('完成：4 种音色，全部无缝循环。')
+    write_wav('white', build('white', gen_white))
+    write_wav('pink', build('pink', gen_pink))
+    write_wav('brown', build('brown', gen_brown))
+    write_wav('rain', build('rain', gen_rain))
+    print('完成：4 种音色，全部无缝循环（高频已按 SOFTEN 柔化）。')
 
 
 if __name__ == '__main__':

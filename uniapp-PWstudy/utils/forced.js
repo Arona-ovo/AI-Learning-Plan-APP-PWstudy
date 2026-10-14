@@ -156,7 +156,9 @@ export function nativeActive() {
  */
 export function sync() {
   const cur = focus.current();
-  const should = !!(cur && !cur.paused && cur.phase === 'focus' && enabled());
+  // ⚠️ 正计时段一律罢手：预设时长跑满之后是"人自己还想接着学"，
+  // 这时候还把人从别的 App 拽回来 / 记违规，就是把"不赶人走"做成假的。
+  const should = !!(cur && !cur.paused && !cur.overrun && cur.phase === 'focus' && enabled());
   if (should === on) {
     // 状态没变也要对一次账：暂停→恢复会重算 endAt，而原生是按"还剩多少秒"掐表的，
     // 不更新就会比番茄早收手（等于恢复之后其实没人盯着）。
@@ -207,7 +209,7 @@ function stop() {
  */
 function pushConfig(force) {
   const cur = focus.current();
-  if (!on || !cur || cur.paused || cur.phase !== 'focus') {
+  if (!on || !cur || cur.paused || cur.overrun || cur.phase !== 'focus') {
     pushedOn = false;
     pushedEndAt = 0;
     pushedUntilMs = 0;
@@ -237,7 +239,7 @@ function pushConfig(force) {
 function check() {
   // 兜底：计时停了就立刻收手，绝不留下一个还在轮询的定时器
   const cur = focus.current();
-  if (!cur || cur.paused || cur.phase !== 'focus' || !enabled()) { sync(); return; }
+  if (!cur || cur.paused || cur.overrun || cur.phase !== 'focus' || !enabled()) { sync(); return; }
 
   // ① 定期和原生对账（内部节流），保证"还剩多少秒"跟着暂停/恢复实时更新
   pushConfig(false);

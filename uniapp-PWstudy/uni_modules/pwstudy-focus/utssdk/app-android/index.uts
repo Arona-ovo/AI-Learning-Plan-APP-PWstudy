@@ -132,6 +132,11 @@ let mainHandler: Handler | null = null;
  * 看门狗负责按同一套策略决定拉不拉、拉多狠。
  */
 let svcRef: PWFocusService | null = null;   // 看门狗服务的实例（护卫要靠它跑同一套判定）
+// 无障碍服务的实例。**拉回必须经它** —— 见 pullFromGuard() 的注释：
+// 安卓 10+ "后台启动 Activity" 的官方豁免只给被系统绑定的无障碍服务，
+// 应用进程里怎么调 startActivity 都还是会被拦。以前没这条通路，
+// 于是"无障碍开了、状态条说已就绪、切走以后毫无反应"。
+let guardRef: PFGuardService | null = null;
 let guardOn = false;                // 无障碍服务是否已连上（系统绑定成功）
 let guardPkg = '';                  // 护卫最近一次报上来的"应用窗口"包名
 let guardAtSec = 0;                 // 上报时刻（秒），过期就不再信任
@@ -755,6 +760,37 @@ class PFGuardService extends AccessibilityService {
   // 靠显式构造里的 super() 把父类初始化掉，缺了就编不过。
   constructor() {
     super();
+    // 记下实例：拉回要从服务内部发起才拿得到豁免（见 pullFromGuard）
+    try { guardRef = this } catch (e) {}
+  }
+
+  /**
+   * 用**服务自己**的 context 把 PWstudy 拉回前台。
+   *
+   * ⚠️ 这是"开了无障碍还是拉不回"的根因所在，务必看清楚再改：
+   *    安卓 10（Q）起限制后台启动 Activity。豁免清单里给的是"由系统绑定的服务"
+   *    —— 无障碍服务正属此类，但**豁免依附于服务实例**：只有从服务内部
+   *    （this.startActivity）发起才生效。应用进程里拿 appContext.startActivity()，
+   *    权限判定走的是应用进程，一样被拦。
+   *    以前只有应用进程那两条路（moveTaskToFront / launch intent），
+   *    所以无障碍开关怎么开都拉不动，而 pullSelf 的返回值只看"有没有抛异常"，
+   *    于是界面一直显示"已就绪"。
+   */
+  pullFromGuard(): boolean {
+    try {
+      let pm = this.getPackageManager();
+      if (pm == null) return false;
+      let launch = pm.getLaunchIntentForPackage(this.getPackageName());
+      if (launch == null) return false;
+      // NEW_TASK：服务没有 task 栈，必须有；
+      // REORDER_TO_FRONT + SINGLE_TOP：把已存在的那个 Activity 提到前面，
+      // **不重建** —— 专注页正在跑的计时状态原样留着。
+      launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+      this.startActivity(launch);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   override onServiceConnected(): void {
@@ -816,6 +852,7 @@ class PFGuardService extends AccessibilityService {
   override onUnbind(intent: Intent): boolean {
     try {
       guardOn = false;
+      guardRef = null;        // 服务不在了 → 豁免通路随之失效，别再让 pullSelf 走它
       guardPkg = '';
       kickWanted = true;      // 让看门狗立刻重判一次（判定依据变了）
     } catch (e) {}
@@ -825,6 +862,7 @@ class PFGuardService extends AccessibilityService {
   override onDestroy(): void {
     try { super.onDestroy() } catch (e) {}
     try { guardOn = false } catch (e) {}
+    try { guardRef = null } catch (e) {}
     try { guardPkg = '' } catch (e) {}
   }
 }
@@ -1049,6 +1087,17 @@ function queryForeground(ctx: Context): string {
  */
 @UTSAndroid.Suppress("DEPRECATION")
 function pullSelf(round: Int): boolean {
+  // ⓪ 无障碍豁免通路（2026-10-14 新增，且必须排第一）：
+  //    护卫被系统绑定时，从服务内部启动 Activity 才拿得到后台启动豁免 ——
+  //    这是四条路里唯一在安卓 10+ 上真的拉得动的。放到最后等于没有：
+  //    前面两条"没抛异常"就 return true 了，永远轮不到它。
+  let g = guardRef;
+  if (g != null) {
+    let byGuard: Boolean = false;
+    try { byGuard = g.pullFromGuard() } catch (e) { byGuard = false }
+    if (byGuard) return true;
+  }
+
   let ctx = UTSAndroid.getAppContext()
   if (ctx == null) return false
   let pkg = ctx!.getPackageName()
@@ -1224,6 +1273,17 @@ export function bringToFront(): boolean {
 /** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean {
   return UTSAndroid.getAppContext() != null
+}
+
+/**
+ * 无障碍豁免通路现在可用吗（护卫被系统绑定 + 拿到服务实例）。
+ *
+ * 给 JS 侧的能力盘点用：以前 `canPullBack = native && (a11y || overlay)`，
+ * 只要用户在系统设置里开了无障碍就报 true，但实际拉不动（缺的正是这条通路），
+ * 状态条于是长期"说谎"。现在把"豁免通路在不在"单独报出来，界面才说得准。
+ */
+export function a11yPullReady(): boolean {
+  return guardRef != null && guardOn;
 }
 
 /**

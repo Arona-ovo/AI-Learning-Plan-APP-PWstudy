@@ -116,6 +116,23 @@ export function context(date) {
   const log = dailylog.logOf(key);
   if (log) lines.push(dailylog.summaryFor(log));
   lines.push('近 7 天每天专注分钟（旧→新）：' + pw.recentDays(7).map(d => d.focusMin).join(','));
+  // 外部学习数据（背单词 App 回传：完成时刻 + 时间范围）。
+  // 收工这段对话每天都开，所以"第二天"他来填报时，模型手上已经有
+  // "昨天几点在外面学了多久" —— 这正是"结合外部数据重新分析"要求的。
+  try {
+    const ext = pw.extStudySummary(key, 3);
+    if (ext) {
+      const sp = ext.spans.slice(-4);
+      lines.push('外部学习（已关联的学习 App，近 ' + ext.days + ' 天）：' + ext.times + ' 次 · ' +
+        ext.min + ' 分钟 · ' + ext.words + ' 词 · 平均每次 ' + ext.avgMin + ' 分钟' +
+        (ext.topHours.length ? '，集中在 ' + ext.topHours.join('、') + ' 点' : ''));
+      if (sp.length) {
+        lines.push('其中最近几次的时间范围：' + sp.map(x =>
+          x.date + ' ' + pw.spanText(x.from, x.to) + '（' + x.min + ' 分钟' +
+          (x.words ? ' · ' + x.words + ' 词' : '') + '）').join('；'));
+      }
+    }
+  } catch (e) {}
   if (tasks.length) {
     lines.push('可记功的任务（说过"做完了"就按 id 记番茄）：' +
       tasks.map(t => t.id + '=「' + t.title + '」第' + t.day + '天 ' + (t.done || 0) + '/' + t.pomos).join('；'));

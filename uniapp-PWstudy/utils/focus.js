@@ -11,6 +11,13 @@ import * as ambient from './ambient.js';
 
 // phase: idle | focus | rest | paused（paused 只在 focus/rest 上叠加）
 // state: null = 空闲
+//
+// overrun = 专注跑满预设时长之后的「正计时」段（2026-10-14 真机反馈）：
+//   番茄闹钟的做法是"时间到了不赶人走"——预设的 25 分钟只是这一轮的下限，
+//   人还想接着学就让它继续往上数，想把这一轮合上就自己按「退出」。
+//   所以到点**不收摊**：响铃照旧（让人知道目标时长到了），但 state 继续活着，
+//   环上改显示"已经多坐了多久"，强制/严格模式在这一段一律罢手（不再拉回、不再判违规）。
+//   落账推迟到「退出」—— 这样正计时那段能一起记进去，今日时长才对得上。
 let state = null;
 let onFinish = null;   // 自然结束回调（页面注册，用于响铃/跳转）
 // 上一次专注的任务上下文。番茄跑完时 state 已经被清空，而休息还要知道"刚才在做什么"
@@ -44,9 +51,10 @@ function armWatchdog() {
     watchdog = 0;
     if (!state) return;
     if (state.paused) return;
+    if (state.overrun) return;             // 正计时没有终点，不再需要闹钟
     // 后台可能被节流延后触发：没真到点就重新排一次，别提前结算
     if (Date.now() < state.endAt) { armWatchdog(); return; }
-    finishExpired(isMissed(state));
+    onDue(isMissed(state));
   }, delay);
 }
 
@@ -69,12 +77,21 @@ function mmss(sec) {
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
+/** 正计时已经多坐了多久（秒）。暂停期间冻结在 overrunMs 上，恢复时换个锚点接着数 */
+function overSecOf(s) {
+  if (!s || !s.overrun) return 0;
+  const live = s.paused ? 0 : Math.max(0, Math.round((Date.now() - (s.overrunAt || s.endAt)) / 1000));
+  return (Number(s.overrunMs) || 0) + live;
+}
+
 /** 当前常驻通知该显示什么（专注/休息共用一套文案） */
 function ongoingPair() {
   const title = state.phase === 'focus' ? '专注中' : '休息中';
   const head = state.paused ? '已暂停 · ' : '';
-  const text = head + (state.taskTitle || (state.phase === 'focus' ? '自由专注' : '休息一下')) +
-    ' · 剩 ' + mmss(state.paused ? state.remainSec : (state.endAt - Date.now()) / 1000);
+  const tail = state.overrun
+    ? ' · 超时 ' + mmss(overSecOf(state))
+    : ' · 剩 ' + mmss(state.paused ? state.remainSec : (state.endAt - Date.now()) / 1000);
+  const text = head + (state.taskTitle || (state.phase === 'focus' ? '自由专注' : '休息一下')) + tail;
   return { title, text };
 }
 
@@ -109,21 +126,33 @@ function pushOngoing() {
   }
 }
 
-/** 结束时收尾：停前台服务 + 撤常驻通知 + 发提醒 + 响铃/震动 */
-function finishAlert(kind, missed) {
-  lastNotifyText = '';
-  fgsvc.stop();
-  ambient.stop();
-  notify.cancelOngoing();
+/**
+ * 到点的那一声：发提醒 + 响铃 + 震动。
+ * ⚠️ 只出声，不动前台服务与常驻通知 —— 正计时那一段还要接着显示"超时多久"。
+ */
+function dueAlert(kind, missed, overrun) {
   const c = fcfg();
   if (!c.notify) return;
   if (kind === 'focus') {
-    notify.alert(missed ? '番茄已完成（刚才不在，已补记）' : '番茄完成！', '休息一下再继续');
+    if (overrun) {
+      notify.alert('番茄时间到', '已跑满设定时长，还想接着学就继续，想收就点「退出」');
+    } else {
+      notify.alert(missed ? '番茄已完成（刚才不在，已补记）' : '番茄完成！', '休息一下再继续');
+    }
   } else {
     notify.alert('休息结束', '回到专注吧');
   }
   if (c.sound) notify.beep();
   if (c.vibe) notify.vibrate();
+}
+
+/** 真收摊：停前台服务 + 撤常驻通知 + 停白噪音 + 到点的那一声 */
+function finishAlert(kind, missed) {
+  lastNotifyText = '';
+  fgsvc.stop();
+  ambient.stop();
+  notify.cancelOngoing();
+  dueAlert(kind, missed, false);
 }
 
 export function onFinishEvent() { return FINISH_EVENT; }
@@ -140,11 +169,65 @@ export function setCfg(patch) {
 
 export function current() {
   restoreIfNeeded();
-  // 读到就顺手结算：番茄早就到点了（人切到别的应用 / 停在别的 tab，没人调 tick）
+  // 读到就顺手推进：番茄早就到点了（人切到别的应用 / 停在别的 tab，没人调 tick）
   // 时若原样返回"专注中 + 剩 0"，严格/强制模式会一直以为还在计时 ——
   // 强制模式就会持续把 App 拉回前台并累加违规，第 3 次自动作废还会按超长时长落一条账。
-  if (state && !state.paused && Date.now() >= state.endAt) finishExpired(isMissed(state));
+  // 专注同理不能一直挂着"剩 0"：要么进正计时（overrun），要么（休息）直接收摊。
+  if (state && !state.paused && !state.overrun && Date.now() >= state.endAt) onDue(isMissed(state));
   return state ? snapshot() : null;
+}
+
+/**
+ * 到点：专注 → 转「正计时」继续跑；休息 → 直接收摊。
+ * 三个驱动源（页面 tick / 看门狗 / 被人读到）都走这里，保证行为一致 ——
+ * 各写一套必然出现"在专注页到点不结束、回到首页才结束"这种分裂。
+ */
+function onDue(missed) {
+  if (!state) return;
+  if (state.phase === 'focus' && !state.overrun) {
+    enterOverrun(state, missed);
+    return;
+  }
+  finishExpired(missed);
+}
+
+/**
+ * 进入正计时：预设时长跑满，但不赶人走。
+ *
+ * 落账故意推迟到「退出」—— 这样正计时那段能跟预设段合成一条完整会话，
+ * 今日专注分钟数才对得上人真实坐下来的时间（不然"多坐 10 分钟"在统计里凭空消失）。
+ * 代价是这一刻**不能**算"已完成"：番茄数、任务番茄进度、长休轮次都要等退出才记。
+ */
+function enterOverrun(s, missed) {
+  if (!s || s.overrun) return;
+  s.overrun = true;
+  s.overrunMs = 0;
+  s.overrunAt = Date.now();
+  persist();
+  clearWatchdog();          // 正计时没有终点，闹钟留着只会白响
+  lastNotifyText = '';
+  dueAlert('focus', !!missed, true);
+  try { uni.$emit(FINISH_EVENT, { kind: 'focus', missed: !!missed, overrun: true }); } catch (e) {}
+}
+
+/**
+ * 正计时收摊：番茄早就跑满了，所以按「完整番茄」落账，
+ * 并把正计时那段一起算进去（endAt 用当下而不是 s.endAt）。
+ */
+export function stopOverrun() {
+  if (!state || !state.overrun) return null;
+  const s = state;
+  state = null;
+  persist();
+  clearWatchdog();
+  lastNotifyText = '';
+  fgsvc.stop();
+  ambient.stop();
+  notify.cancelOngoing();
+  notify.releaseWake();
+  if (s.phase !== 'focus') return null;
+  bumpRound();
+  return settle(s, true, Date.now());
 }
 
 /** 到点了但没人驱动 tick（在别的页面 / 刚回前台 / 看门狗触发）时的结算 */
@@ -180,6 +263,8 @@ function snapshot() {
     endAt: state.endAt,
     totalSec: state.totalSec,
     remainSec: remain,
+    overrun: !!state.overrun,
+    overSec: overSecOf(state),
     paused: !!state.paused,
     count: state.count
   };
@@ -201,6 +286,9 @@ export function startFocus(opt) {
     paused: false,
     pausedMs: 0,        // 累计暂停时长：落账时要扣掉，否则"停 1 小时再跑完"会被记成 85 分钟
     pausedAt: 0,
+    overrun: false,     // 预设时长已跑满、正在正计时
+    overrunMs: 0,       // 正计时的累计秒数（暂停期间冻结在这里）
+    overrunAt: 0,       // 本段正计时的起点（恢复时换锚点）
     count: 0   // 本轮已完成的专注番茄数（含长休后的累计）
   };
   // 记下这次在做什么：番茄跑完 state 会被清空，休息还得知道"刚才在忙哪件事"
@@ -294,6 +382,9 @@ export function startBreak(minutes, taskId, goalId, taskTitle, count) {
     paused: false,
     pausedMs: 0,
     pausedAt: 0,
+    overrun: false,     // 休息到点就结束，不做正计时（字段留着是让 snapshot 形状稳定）
+    overrunMs: 0,
+    overrunAt: 0,
     count: count || 0
   };
   persist();
@@ -308,6 +399,12 @@ export function startBreak(minutes, taskId, goalId, taskTitle, count) {
 export function pause() {
   if (!state || state.paused) return;
   state.remainSec = Math.max(0, Math.round((state.endAt - Date.now()) / 1000));
+  // 正计时的读数必须自己冻结：下面 resume() 会把 endAt 重算成 now + remainSec（= now），
+  // 若只靠 endAt 推，暂停再恢复会把"已经多坐了多久"清零 —— 环上的 +08:12 一夜回到 00:00。
+  if (state.overrun) {
+    state.overrunMs = overSecOf(state);
+    state.overrunAt = Date.now();
+  }
   state.paused = true;
   state.pausedAt = Date.now();     // 从这里开始不算专注时长
   persist();
@@ -324,6 +421,7 @@ export function resume() {
   if (state.pausedAt) state.pausedMs = (state.pausedMs || 0) + (Date.now() - state.pausedAt);
   state.pausedAt = 0;
   state.endAt = Date.now() + state.remainSec * 1000;
+  if (state.overrun) state.overrunAt = Date.now();
   state.paused = false;
   persist();
   armWatchdog();
@@ -344,8 +442,14 @@ export function giveUp() {
   ambient.stop();
   notify.cancelOngoing();
   notify.releaseWake();
-  if (s.phase === 'focus') return settle(s, false);
-  return null;
+  if (s.phase !== 'focus') return null;
+  // 正计时段被放弃也是"跑满过的番茄"：番茄早就达标了，不能记成中断会话
+  //（记成中断的话，任务番茄进度与今日番茄数都会少一个，而人明明坐满了）。
+  if (s.overrun) {
+    bumpRound();
+    return settle(s, true, Date.now());
+  }
+  return settle(s, false);
 }
 
 /**
@@ -367,42 +471,47 @@ export function abort() {
 }
 
 // ---------- 每秒驱动 ----------
-// 返回 { state, justFinished: 'focus' | 'rest' | null }
+// 返回 { state, justFinished: 'focus' | 'rest' | null, justOverrun: boolean }
+//   justFinished = 这一轮**真的收摊了**（休息结束，或正计时被退出）
+//   justOverrun  = 专注跑满预设时长、刚转入正计时（人还在继续，UI 不用弹"完成"面板）
 export function tick() {
   restoreIfNeeded();
-  if (!state || state.paused) return { state: state ? snapshot() : null, justFinished: null };
+  if (!state || state.paused) return { state: state ? snapshot() : null, justFinished: null, justOverrun: false };
   const now = Date.now();
-  if (now >= state.endAt) {
+  if (now >= state.endAt && !state.overrun) {
     clearWatchdog();
     const kind = state.phase;
-    const s = state;
     if (kind === 'focus') {
-      finishFocus(s);
+      // 专注到点：转正计时，不收摊（响铃/通知在 enterOverrun 里已经发了）
+      enterOverrun(state, false);
+      return { state: snapshot(), justFinished: null, justOverrun: true };
     }
+    const s = state;
     state = null;
     persist();
     notify.releaseWake();
     finishAlert(kind, false);
     try { uni.$emit(FINISH_EVENT, { kind: kind }); } catch (e) {}
     if (onFinish) { try { onFinish(kind); } catch (e) {} }
-    return { state: null, justFinished: kind };
+    return { state: null, justFinished: kind, justOverrun: false };
   }
   pushOngoing();
-  return { state: snapshot(), justFinished: null };
+  return { state: snapshot(), justFinished: null, justOverrun: false };
 }
 
 /**
- * 专注跑完（自然到点 / 人不在时补记 / 进程被杀后恢复）：
+ * 专注跑完（进程被杀后恢复这类"人没在"的路径）：
  * 先给本轮计数 +1 —— 长休是按"第几个番茄"触发的，漏了这步它就永远不会来。
+ * endAt 可显式指定：进程被杀时只认"确定坐过"的预设时长，正计时那段没法证明。
  */
-function finishFocus(s) {
+function finishFocus(s, endAtOverride) {
   bumpRound();
-  return settle(s, true);
+  return settle(s, true, endAtOverride);
 }
 
 /** 落账一个番茄（完整或提前放弃满 1 分钟） */
-function settle(s, completed) {
-  const endAt = completed ? s.endAt : Date.now();
+function settle(s, completed, endAtOverride) {
+  const endAt = endAtOverride || (completed ? s.endAt : Date.now());
   // 净专注时长 = 全程 − 累计暂停。不减的话"跑 25 分钟中途停 1 小时"会被记成 85 分钟，
   // 既污染当天专注分钟数，也污染统计页的时段分布（byHour）。
   const spanMs = Math.max(0, (endAt - s.startAt) - (s.pausedMs || 0));
@@ -447,8 +556,10 @@ function restoreIfNeeded() {
   } else if (Date.now() < rt.endAt) {
     state = rt;                       // 还没到点，继续跑
   } else if (rt.phase === 'focus') {
-    // 人不在的这段时间跑完了 → 补记
-    finishFocus(rt);
+    // 人不在的这段时间跑完了 → 补记。
+    // ⚠️ 只按预设时长落账（rt.endAt）：进程被杀之后我们证明不了人还坐了多久，
+    // 把"离开的那几个小时"算进专注时长就是造假 —— 正计时的补记只有人亲自按「退出」才算数。
+    finishFocus(rt, rt.endAt);
     state = null;
     finishAlert('focus', true);
     try { uni.$emit(FINISH_EVENT, { kind: 'focus', missed: true }); } catch (e) {}

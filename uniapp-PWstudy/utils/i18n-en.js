@@ -1051,5 +1051,11 @@ export default {
   '已关联':
     'Linked',
   '已打通 · 过去背完会自动记回今天':
-    'Linked — what you finish over there is written back into today'
+    'Linked — what you finish over there is written back into today',
+
+  // ---------- 番茄正计时（2026-10-14 真机反馈：到点不赶人走） ----------
+  //（'退出' → 'Exit' 通用段里早就有，别重复加 —— 对象字面量里后者会静默覆盖前者）
+  '预设时长已跑完，继续计时中': 'Target time reached — still counting',
+  '番茄时间到': "Pomodoro time's up",
+  '已跑满预设时长，不再拉回': 'Target reached — no more pull-back'
 };

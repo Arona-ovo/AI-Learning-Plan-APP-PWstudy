@@ -31,8 +31,9 @@ export function enabled() {
 /** 由 focus 页在开始/结束番茄时调用，或页面 onShow 时调一下 */
 export function sync() {
   const cur = focus.current();
-  // 只在"正在专注"时干活：休息阶段不算（用户要的是跟番茄钟同步，休息就该休息）
-  const should = !!(cur && !cur.paused && cur.phase === 'focus' && enabled());
+  // 只在"正在专注"时干活：休息阶段不算（用户要的是跟番茄钟同步，休息就该休息）；
+  // 正计时（预设时长已跑满、人在继续）也不算 —— 那一段不该再判人违规。
+  const should = !!(cur && !cur.paused && !cur.overrun && cur.phase === 'focus' && enabled());
   if (should === running) return;
   running = should;
   if (running) {
@@ -56,7 +57,7 @@ function stopTimer() {
 function check() {
   // 兜底：计时停了就立刻收手，绝不留下一个还在轮询的定时器
   const cur = focus.current();
-  if (!cur || cur.paused || cur.phase !== 'focus' || !enabled()) { sync(); return; }
+  if (!cur || cur.paused || cur.overrun || cur.phase !== 'focus' || !enabled()) { sync(); return; }
   if (!apptime.supported()) return;               // 非安卓：没有能力就别折腾
   if (!apptime.hasUsagePermission()) return;      // 没授权：静默（页面上有引导）
 

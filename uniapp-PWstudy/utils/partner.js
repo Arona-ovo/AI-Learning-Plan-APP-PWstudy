@@ -150,6 +150,44 @@ export function noteSync(min, words) {
   return write(patch)
 }
 
+/* ==================== 一去一回：算得出"学习的时间范围" ==================== */
+
+/**
+ * 记一次"从 PWstudy 出发去伙伴 App"。
+ *
+ * 为什么要有它：对方回传的 min 只有一个数字，而"他到底是哪一段在学"要有起点才算得出。
+ * 我们自己正是把他送过去的 —— 出发时刻是这边唯一确定的硬数据。
+ * ⚠️ 不关联也照样记：只是多一个时间戳，不影响任何主流程。
+ */
+export function noteLaunch(taskId, minutes) {
+  const patch = { launch: { at: Date.now(), taskId: String(taskId || ''), minutes: Math.round(Number(minutes) || 0) } };
+  try { write(patch); } catch (e) {}
+  return true;
+}
+
+/**
+ * 取走那次出发记录（**取走即作废**，一笔出发只能配一次回传）。
+ *
+ * ⚠️ 有保鲜期：出发时是带着"建议学 X 分钟"去的，超过 X+60 分钟才回来，
+ *    那段多出来的时间不该都算在"背单词"头上（他很可能早就切去干别的了）。
+ *    这种时候**宁可返回 null**（交给 pwstore 按"完成时刻往前推时长"倒推），
+ *    也别给出一个把半天都框进去的离谱范围 —— 错的范围比没有范围更误导排期。
+ */
+export function takeLaunch(minutes) {
+  try {
+    const p = state();
+    const l = p.launch;
+    if (l && l.at) write({ launch: null });
+    if (!l || !l.at) return null;
+    const min = Math.round(Number(minutes) || 0);
+    const budget = ((Number(l.minutes) || min || 25) + 60) * 60000;
+    if (Date.now() - Number(l.at) > budget) return null;
+    return l;
+  } catch (e) {
+    return null;
+  }
+}
+
 /** 今日从伙伴 App 背了多少词（daily[].vocabWords，只有对方回传才拿得到） */
 export function todayWords() {
   try { return pw.vocabWords() } catch (e) { return 0 }

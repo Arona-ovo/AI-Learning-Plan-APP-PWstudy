@@ -92,8 +92,17 @@ function ok(cond, msg) {
   ok(cur && cur.phase === 'focus' && cur.taskTitle === '背词', 'startFocus 进入 focus');
   await new Promise(r => setTimeout(r, 1400));
   let r = focus.tick();
-  ok(r.justFinished === 'focus' && focus.current() === null, '到点自然结束 → justFinished=focus');
-  ok(pw.overview().pomo === 0, '不足 1 分钟的番茄不落账');
+  // 2026-10-14 起：专注到点**不收摊**，转「正计时」（番茄闹钟的做法：不赶人走）
+  ok(r.justOverrun === true && r.justFinished === null, '到点转「正计时」→ justOverrun=true');
+  cur = focus.current();
+  ok(cur && cur.overrun === true && cur.phase === 'focus', '到点后 state 还在（人还在继续）');
+  ok(cur && cur.remainSec === 0, '倒读数归零（环上改由 overSec 说话）');
+  await new Promise(r2 => setTimeout(r2, 1100));
+  const cur2 = focus.current();
+  ok(cur2 && cur2.overSec >= 1, '正计时读数真的在往上走（overSec=' + (cur2 && cur2.overSec) + '）');
+  ok(pw.overview().pomo === 0, '正计时期间还没落账（落账推迟到「退出」）');
+  ok(focus.stopOverrun() === null && pw.overview().pomo === 0, '不足 1 分钟的番茄退出也不落账');
+  ok(focus.current() === null, '按「退出」才清场');
   // 落账与任务联动用直接调用验证（真实番茄是 25 分钟，测试不等真实时长）
   pw.recordPomo({ id: 's1', goalId: g.id, taskId: g.tasks[0].id, startAt: 0, endAt: 0, min: 25, done: true });
   pw.addPomoToTask(g.id, g.tasks[0].id);
@@ -734,23 +743,29 @@ function ok(cond, msg) {
     focus.pause();
     off = 60 * 60000;                        // 暂停了整整 1 小时
     focus.resume();
-    off = 86 * 60000;                        // 恢复后跑完剩下的 25 分钟
+    off = 85 * 60000;                        // 恢复后正好跑完剩下的 25 分钟
     const prevN = pw.get().sessions.length;
-    const expired = focus.current();          // 全程没调 tick
-    const lastS = pw.get().sessions[pw.get().sessions.length - 1];
-    ok(expired === null, '结束时间戳到了就算完，不需要页面驱动');
-    ok(pw.get().sessions.length === prevN + 1, '结算落了一条会话');
-    ok(lastS && lastS.min === 25, '净专注时长 = 25 分钟（暂停那 1 小时被扣掉了）');
+    const due = focus.current();             // 全程没调 tick
+    ok(due && due.overrun === true, '到点转「正计时」，不需要页面驱动');
+    ok(pw.get().sessions.length === prevN, '正计时期间还没落账（等「退出」才记）');
+    off = 95 * 60000;                        // 又多坐了 10 分钟
+    const lastS = focus.stopOverrun();
+    ok(pw.get().sessions.length === prevN + 1, '退出时结算落了一条会话');
+    ok(lastS && lastS.min === 35, '落账 = 25 预设 + 10 正计时 = 35 分钟（暂停那 1 小时仍被扣掉）');
     ok(lastS && lastS.done === true, '自然跑完 → done=true');
+    ok(focus.current() === null, '退出后清场');
 
-    // ② 看门狗：只有首页和专注页会每秒调 tick，切到别的 tab 时靠它结算
+    // ② 看门狗：只有首页和专注页会每秒调 tick，切到别的 tab 时靠它推进
     const prevN2 = pw.get().sessions.length;
     focus.startFocus({ minutes: 1, taskTitle: '看门狗' });
-    off = 87 * 60000;                        // 上面停在 86 分钟处，再走 1 分钟到点
+    off = 96 * 60000;                        // 上面停在 95 分钟处，再走 1 分钟到点
     focus.pause();                           // remainSec 被压成 0
     focus.resume();                          // 重新排定时器 ≈ 1 秒后触发
     await new Promise(r3 => setTimeout(r3, 1600));
-    ok(focus.current() === null, '看门狗自己到点结算（人在别的 tab 也不会挂住）');
+    const wd = focus.current();
+    ok(wd && wd.overrun === true, '看门狗自己到点推进正计时（人在别的 tab 也不会挂住）');
+    focus.stopOverrun();
+    ok(focus.current() === null, '退出后清场');
     const s2 = pw.get().sessions[pw.get().sessions.length - 1];
     ok(pw.get().sessions.length === prevN2 + 1 && !!s2 && s2.done === true,
       '看门狗结算照常记一个完整番茄');
@@ -861,7 +876,8 @@ function ok(cond, msg) {
     for (let i = 1; i <= everyN; i++) {
       focus.startFocus({ minutes: 1, taskTitle: '长休测试' });
       off2 += 61 * 60000;
-      focus.current();                 // 到点自结算 → 本轮计数 +1
+      focus.current();                 // 到点 → 转「正计时」（不收摊）
+      focus.stopOverrun();             // 人按「退出」→ 落账 + 本轮计数 +1
       const rest = focus.startRest();  // state 此时已被清空，这里必须还能work
       const want = (i === everyN) ? longMin : restMin;
       ok(rest && rest.phase === 'rest' && rest.totalSec === want * 60,

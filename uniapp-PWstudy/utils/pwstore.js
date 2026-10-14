@@ -493,6 +493,115 @@ export function vocabWords(key) {
   return d && d.vocabWords ? d.vocabWords : 0;
 }
 
+/**
+ * 记一条**外部学习明细**（伙伴 App 回传 / 我们自己记的一来一回）。
+ *
+ * 为什么要在 byApp 之外再存一份明细：byApp 只答得出"今天在那个 App 里待了 30 分钟"，
+ * 答不出"他几点学的、一次学多久、一天分几次" —— 而这正是排期要知道的：
+ * 一个人固定在 19:00-19:30 背单词，排期就该把那半小时让出来，别再往里塞任务。
+ *
+ * ⚠️ 这份是**明细**，不是第二份总账：分钟总数仍然只认 byApp['app:awword']，
+ *    下面的 extStudySummary 只把它按小时重新摊一遍，不重复累加
+ *    —— 同一笔时长记两处，早晚对不上，而且没人读第二份。
+ *
+ * @param {string} key 日期
+ * @param {{min?:number,words?:number,from?:number,to?:number,at?:number,taskId?:string,src?:string}} rec
+ */
+export function addExtStudy(key, rec) {
+  const r = rec || {};
+  const min = Math.max(0, Math.round(Number(r.min) || 0));
+  const words = Math.max(0, Math.round(Number(r.words) || 0));
+  if (!(min > 0) && !(words > 0)) return null;
+  const d = dayOf(get(), key || today());
+  if (!Array.isArray(d.ext)) d.ext = [];
+  const to = Number(r.to) > 0 ? Number(r.to) : (Number(r.at) > 0 ? Number(r.at) : Date.now());
+  // 起点：对方给了就用；否则由"完成时刻往前推时长"倒推 ——
+  // 完成时刻与时长都是硬数据，倒推出来的范围比"没有范围"有用得多，
+  // 也比拿一个几小时前的出发时间去凑一个离谱的范围靠谱。
+  let from = Number(r.from) > 0 ? Number(r.from) : to - min * 60000;
+  // 起点晚于终点（对面给了个怪值 / 出发时间记岔了）→ 一律退回"按时长倒推"。
+  // 宁可给一个保守的范围，也不能让"从某时刻开始"框出一个比时长还长的空壳 ——
+  // 那种范围喂给排期，会把一整段根本没在学习的时间当成"已经被占住"。
+  if (from > to) from = to - min * 60000;
+  const item = {
+    at: to,
+    from: from,
+    to: to,
+    min: min,
+    words: words,
+    taskId: String(r.taskId || ''),
+    src: String(r.src || 'awword')
+  };
+  d.ext.push(item);
+  if (d.ext.length > 80) d.ext = d.ext.slice(-60);   // 只留最近 60 条，别让老数据无限长
+  touch();
+  return item;
+}
+
+/** 某天的外部学习明细（副本） */
+export function extStudyOf(key) {
+  const d = get().daily[key || today()];
+  return d && Array.isArray(d.ext) ? d.ext.slice() : [];
+}
+
+/**
+ * 外部学习的**节奏摘要**（近 n 天，缺省 7 天）。
+ *
+ * 只做分布与节奏，不重算总分钟（总数认 byApp）。回答三个排期真会用到的问题：
+ *   ① 他通常几点在学（topHours）→ 别把任务排到那会儿
+ *   ② 一次学多久（avgMin）→ 决定"一段"该排多少量
+ *   ③ 一天分几次（times）→ 判断他是集中型还是碎片型
+ */
+export function extStudySummary(key, days) {
+  const n = Math.max(1, Math.floor(Number(days) || 7));
+  const items = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const k = addDays(key || today(), -i);
+    extStudyOf(k).forEach(it => items.push(Object.assign({ date: k }, it)));
+  }
+  if (!items.length) return null;
+  let min = 0;
+  let words = 0;
+  let lastAt = 0;
+  const byHour = {};
+  const spans = [];
+  items.forEach(it => {
+    min += it.min || 0;
+    words += it.words || 0;
+    const h = new Date(it.at || Date.now()).getHours();
+    byHour[h] = (byHour[h] || 0) + (it.min || 0);
+    if (it.to && it.from && it.to > it.from) {
+      spans.push({ date: it.date, from: it.from, to: it.to, min: it.min, words: it.words });
+    }
+    if ((it.at || 0) > lastAt) lastAt = it.at;
+  });
+  const topHours = Object.keys(byHour)
+    .sort((a, b) => byHour[b] - byHour[a])
+    .slice(0, 3)
+    .map(Number);
+  return {
+    days: n,
+    times: items.length,
+    min: min,
+    words: words,
+    avgMin: items.length ? Math.round(min / items.length) : 0,
+    byHour: byHour,
+    topHours: topHours,
+    spans: spans,
+    firstAt: items[0].at || 0,
+    lastAt: lastAt
+  };
+}
+
+/** 一段时间范围的人话（08:30-09:00）；只有起点没有终点时给"08:30 起" */
+export function spanText(from, to) {
+  const a = Number(from) || 0;
+  const b = Number(to) || 0;
+  if (!a) return '';
+  if (!b || b <= a) return clockText(a) + ' 起';
+  return clockText(a) + '-' + clockText(b);
+}
+
 /** 系统级 UsageStats 拉平：直接覆盖某天各 App 分钟数（仅统计 dock 里登记的包） */
 export function setAppMinutes(key, byApp) {
   const st = get();

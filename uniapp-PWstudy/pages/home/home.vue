@@ -21,15 +21,20 @@
         <!-- 点环 = 进全屏专注页（首页这一屏刻意只留"看时间"这一件事） -->
         <view class="lock-ring" :class="{ 'lock-ring-run': running }" @tap="goFocus()">
           <view class="lock-ring-inner">
-            <text class="lock-time">{{ fmtMMSS(cur.remainSec) }}</text>
+            <text class="lock-time">{{ lockTime }}</text>
             <text class="lock-task">{{ cur.taskTitle || '自由专注' }}</text>
           </view>
         </view>
 
-        <view class="lock-ctrl">
+        <!-- 正计时段：番茄已经跑满，这里同样只给「退出」 -->
+        <view v-if="cur.overrun" class="lock-ctrl">
+          <button class="lock-btn lock-btn-main" @tap="exitOverrun">{{ $t('退出') }}</button>
+        </view>
+        <view v-else class="lock-ctrl">
           <button class="lock-btn lock-btn-main" @tap="togglePause">{{ cur.paused ? '继续' : '暂停' }}</button>
           <button class="lock-btn lock-btn-ghost" @tap="confirmGiveUp">放弃</button>
         </view>
+        <text v-if="cur.overrun" class="lock-over">{{ $t('预设时长已跑完，继续计时中') }}</text>
 
         <!-- 判断"你在用哪个 App"有两条路：开了无障碍就不必再要「使用情况访问」
              （前台包名由系统事件直推，更快更省电），所以这里是"两条都没有"才提示。 -->
@@ -484,8 +489,20 @@ export default {
     phaseText() {
       const c = this.cur
       if (!c) return ''
+      // 正计时仍算"专注中"：人确实还在学，且下面 lockTime 的 +MM:SS 与那行说明
+      // 已经把"预设时长跑满了"讲清楚了 —— 这里再分一档只是多一条静态中文。
       if (c.paused) return '已暂停'
       return c.phase === 'rest' ? '休息中' : '专注中'
+    },
+    /**
+     * 硬控屏那个大号读数。
+     * 正计时段必须显示"+MM:SS"：沿用 remainSec 的话会一直卡在 00:00，
+     * 看着就是"计时坏了"，而实际上人只是把这一轮接着做下去了。
+     */
+    lockTime() {
+      const c = this.cur
+      if (!c) return '00:00'
+      return c.overrun ? '+' + this.fmtMMSS(Number(c.overSec) || 0) : this.fmtMMSS(c.remainSec)
     },
     // 硬控屏底部那句话：把"现在是哪档约束"说清楚，别让人蒙着
     lockFoot() {
@@ -685,7 +702,8 @@ export default {
     if (this.sheetShow) { this.sheetShow = false; return true }
     if (this.editing) { this.finishEdit(); return true }
     if (!this.forcedOn) return false
-    if (!this.cur || this.cur.paused || this.cur.phase !== 'focus') return false
+    // 正计时段放行：番茄已跑满，这时候还把人按在首页就是"拦人不放"
+    if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false
     uni.showToast({ title: '先把这个番茄跑完，或到专注页放弃', icon: 'none' })
     return true
   },
@@ -1111,6 +1129,14 @@ export default {
       strict.sync()
       forced.sync()
     },
+    /** 正计时收摊：番茄早就跑满，按完整番茄落账（含多坐的那段），然后回空闲态 */
+    exitOverrun() {
+      focus.stopOverrun()
+      this.cur = null
+      this.refresh()
+      strict.sync()
+      forced.sync()
+    },
     // ---------- 统一弹窗 ----------
     // 全 App 只有一套弹窗（components/app-dialog）：系统弹窗在 App 端样式管不到，
     // 跟这套毛玻璃卡片不是一个画风。ask() 只负责描述，动作在 onDlgYes 里按 action 分派。
@@ -1226,7 +1252,13 @@ export default {
       this.cur = r.state
       strict.sync()   // 严格模式跟番茄同步：有在跑才轮询，没在跑一次都不查
       forced.sync()   // 强制模式同理：只有「正在专注且没暂停」才盯着前台
-      if (r.justFinished === 'focus') {
+      if (r.justOverrun) {
+        // 预设时长跑满 → 转正计时（不再弹"休息一下"：人还没说要走）
+        this.refresh()
+        uni.showToast({ title: this.$t('番茄时间到'), icon: 'none' })
+        strict.sync()
+        forced.sync()
+      } else if (r.justFinished === 'focus') {
         this.refresh()
         uni.showToast({ title: '番茄完成！休息一下', icon: 'success' })
       }
@@ -1719,6 +1751,15 @@ export default {
 .lock-foot {
   margin-top: 40rpx;
   font-size: 24rpx; letter-spacing: 2rpx; text-indent: 2rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+/* 正计时说明：环上那个 +MM:SS 是什么意思，得写出来 ——
+   否则用户只会以为"倒计时卡在 00:00 不动了" */
+.lock-over {
+  margin-top: 18rpx;
+  font-size: 22rpx; line-height: 1.6;
+  text-align: center;
   color: #98a19b;
   color: var(--ink-3, #98a19b);
 }
