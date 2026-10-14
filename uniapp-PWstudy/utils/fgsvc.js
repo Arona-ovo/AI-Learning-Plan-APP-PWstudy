@@ -148,15 +148,26 @@ export function bringToFrontSupported() {
   return false;
 }
 
-/* ==================== 无障碍护卫（强制模式的能力前提） ====================
+/* ==================== 无障碍护卫（强制模式的"眼睛"） ====================
  *
- * 为什么强制模式需要它，两句话：
- *   ① 安卓 10 起系统限制"后台启动 Activity"。官方豁免清单里明确列了
- *      "由系统绑定的服务（无障碍 / 通知监听 / VPN / 输入法）"这一类 ——
- *      无障碍服务挂上之后，moveTaskToFront / startActivity 才真的拉得动，
- *      这是遮罩（事后盖上去）之外唯一"提前拿到许可"的路子；
- *   ② 前台是谁：窗口事件由系统直推，比轮询 UsageStats 快得多也准得多，
- *      而且**不再需要**用户单独去授「使用情况访问」。
+ * ⚠️ 2026-10-14 纠正掉一条**错误结论**，别再照它改回去：
+ *   旧注释写的是"官方豁免清单里列了'由系统绑定的服务（无障碍…）'，所以无障碍服务
+ *   startActivity 才拉得动"。**这是错的**，而且它是强制模式连着好几轮"完全没反应"
+ *   的根源 —— 每一轮都基于它去加固，越加固越错。
+ *
+ *   官方《Activity security》后台启动的豁免是：
+ *     有可见窗口 / 是输入法 / **有 SYSTEM_ALERT_WINDOW** / 有系统特权 /
+ *     **被"另一个可见应用"的服务绑定** / 系统发的 PendingIntent。
+ *   无障碍服务是**我们自己这个 App** 的组件，不是"另一个可见应用"，
+ *   所以它内部 startActivity 在安卓 10+ 一样被 AMS 静默拦掉（**不抛异常**，
+ *   于是 pullSelf 永远返回 true、界面永远显示"已就绪"，实际一动不动）。
+ *
+ * 纠正后的定位：
+ *   ① 无障碍服务的价值只剩一条 —— **它是"眼睛"**：窗口事件由系统直推，
+ *      比轮询 UsageStats 快得多也准得多，而且**不再需要**用户单独授「使用情况访问」。
+ *   ② 真正能"拉回来"的只有悬浮窗（SYSTEM_ALERT_WINDOW）：它既能直接盖住那个 App，
+ *      又顺带让上面豁免清单里的那条成立，于是 startActivity 才真的被放行。
+ *      所以悬浮窗是强制模式的**准入条件**，不是"可选兜底"。
  *
  * 查询有成本（要问 AccessibilityManager），所以缓存 —— 但缓存必须能被"主动失效"：
  * 用户刚从设置页回来时，界面立刻要知道新状态（见 invalidateA11y）。
@@ -287,6 +298,55 @@ export function pauseWatch() {
 export function resumeWatch() {
   watchCfg.paused = false;
   return pushWatch();
+}
+
+/**
+ * 强制模式自检快照。
+ *
+ * 为什么要有：这条链有十几环（前台服务 → 看门狗 → 探测前台 → 判定跑偏 → 拉回 → 遮罩），
+ * 任何一环断掉都表现成同一个"没反应"。与其每轮猜一次再发个包，不如让界面把
+ * 每一环的实测值直接列出来 —— 用户一眼就能说出断在哪。
+ *
+ * @returns {{svc:boolean, watch:boolean, fg:string, src:string, episode:boolean,
+ *            tries:number, blind:number, allowN:number, pulls:number, escapes:number,
+ *            ovGrant:boolean, ovWanted:boolean, ovOn:boolean, a11y:boolean,
+ *            a11yEv:number, tripped:boolean}}
+ */
+export function watchDiag() {
+  const empty = {
+    svc: false, watch: false, fg: '', src: '', episode: false, tries: 0, blind: 0,
+    allowN: 0, pulls: 0, escapes: 0, ovGrant: false, ovWanted: false, ovOn: false,
+    a11y: false, a11yEv: 0, tripped: false
+  };
+  // #ifdef APP-PLUS
+  try {
+    if (!available() || typeof fgs.watchDiag !== 'function') return empty;
+    const raw = String(fgs.watchDiag() || '');
+    if (!raw) return empty;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return empty;
+    const b = (v) => v === 1 || v === '1' || v === true;
+    const n = (v) => Number(v) || 0;
+    return {
+      svc: b(o.svc), watch: b(o.watch), fg: String(o.fg || ''), src: String(o.src || ''),
+      episode: b(o.episode), tries: n(o.tries), blind: n(o.blind), allowN: n(o.allowN),
+      pulls: n(o.pulls), escapes: n(o.escapes), ovGrant: b(o.ovGrant),
+      ovWanted: b(o.ovWanted), ovOn: b(o.ovOn), a11y: b(o.a11y),
+      a11yEv: n(o.a11yEv), tripped: b(o.tripped)
+    };
+  } catch (e) {}
+  // #endif
+  return empty;
+}
+
+/** 原生侧实测的悬浮窗权限（遮罩是原生挂的，判定以原生这份为准） */
+export function overlayGranted() {
+  // #ifdef APP-PLUS
+  try {
+    if (available() && typeof fgs.overlayGranted === 'function') return !!fgs.overlayGranted();
+  } catch (e) {}
+  // #endif
+  return false;
 }
 
 /** 强制模式战绩：{ pulls, escapes } —— 拉回次数 / 逃逸（连续离开）次数 */

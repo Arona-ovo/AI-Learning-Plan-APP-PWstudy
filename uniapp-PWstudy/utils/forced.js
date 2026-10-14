@@ -76,6 +76,21 @@ export function maxEscapes() {
   return MAX_ESCAPE;
 }
 
+/**
+ * 自检快照（转发原生）。
+ *
+ * 为什么要有：这条链十几环（前台服务 → 看门狗 → 探测前台 → 判定跑偏 → 拉回 → 遮罩），
+ * 任何一环断掉都长成同一个"没反应"。与其每轮猜一次再打个包，不如把每一环的
+ * 实测值一次摊开 —— 用户截个图就能说出断在哪。
+ */
+export function diag() {
+  try {
+    return fgsvc.watchDiag();
+  } catch (e) {
+    return null;
+  }
+}
+
 /** 监视器当前是否在工作（界面提示 + 测试用） */
 export function armed() {
   return on;
@@ -94,14 +109,22 @@ export function canPull() {
  * 强制模式的能力盘点 —— 界面拿它决定"该提示用户去开哪一项"。
  *
  * 四层能力，可靠性从高到低：
- *   a11y    无障碍护卫：既能拿到"后台启动 Activity"的官方豁免（拉得动），
- *           又由系统事件直推前台包名（不用「使用情况访问」）——最强的一层
- *   overlay 「显示在其他应用上层」：拉不动时盖一层遮罩挡住那个 App（事后兜底，观感差）
- *   usage   「使用情况访问」：没有无障碍时的"眼睛"（轮询，慢且要单独授权）
+ *   overlay 「显示在其他应用上层」—— **唯一的"手"**，也是强制模式的准入条件。
+ *           两条理由：① 它自己就能盖住那个 App（用户点不到）；
+ *           ② 拿了它才命中官方豁免清单里"有 SYSTEM_ALERT_WINDOW"那一条，
+ *              startActivity / moveTaskToFront 这一串才真的被放行。
+ *           没它 → 其余全废（见下面"纠正"那段）。
+ *   a11y    无障碍护卫 —— **只有"眼睛"**：窗口事件由系统直推前台包名，
+ *           比 UsageStats 快且准，还不用额外授权。
+ *           ⚠️ 它**不能**拿来拉人：无障碍服务是我们自己的组件，
+ *              不属于官方豁免里"被另一个可见应用绑定"那一类，
+ *              它内部 startActivity 在安卓 10+ 一样被 AMS 静默拦掉。
+ *   usage   「使用情况访问」：没有无障碍时的备用"眼睛"（轮询，慢且要单独授权）
  *   native  原生桥在不在（标准基座 = false，其余全免谈）
  *
- * 判"能不能拦住"看的是 native && (a11y || overlay || usage)：
- * 有原生能力 + 至少一条"看得见/挡得住"的路子，才不算是空喊。
+ * ⚠️ 2026-10-14 纠正：旧判据是 `(a11y || overlay)`，等于说"开了无障碍就不用悬浮窗"，
+ *    于是界面显示"已就绪"而实际上一条都拉不动 —— 强制模式连着好几轮
+ *    "完全没反应"就是这么来的。现在 overlay 是**必需**，不是"或"。
  *
  * @param {{a11y?:boolean, overlay?:boolean}} ext 页面实测到的两个运行时权限
  */
@@ -120,6 +143,14 @@ export function capability(ext) {
   let svcAllowed = false; // 设置层让不让它起（「后台保活」/「通知提醒」任一关掉 = false）
   try { svcAllowed = !!fgsvc.serviceAllowed(); } catch (err) { svcAllowed = false; }
 
+  const canDetect = a11y || usage;
+  // 缺哪一项（按"该先补哪个"排序，界面直接照着这个顺序引导）
+  const missing = [];
+  if (!native) missing.push('native');
+  if (!svcAllowed) missing.push('svcAllowed');
+  if (!overlay) missing.push('overlay');
+  if (!canDetect) missing.push('detect');
+
   return {
     native: native,
     a11y: a11y,
@@ -127,13 +158,26 @@ export function capability(ext) {
     usage: usage,
     svc: svc,
     svcAllowed: svcAllowed,
-    // 有能力把界面在我们不在前台时拉回来（无障碍是官方豁免；遮罩是自建的一层）
-    canPullBack: native && (a11y || overlay),
+    // 有能力把界面在我们不在前台时拉回来 —— **只有悬浮窗这一条**
+    canPullBack: native && overlay,
     // 有能力判断"你现在在不在学习 App 里"
-    canDetect: a11y || usage,
-    // 真正能拦住的条件：载体在 + 既看得见、又拉得动
-    effective: native && svcAllowed && (a11y || overlay) && (a11y || usage)
+    canDetect: canDetect,
+    // 真正能拦住的条件：载体在 + 看得见 + **有悬浮窗**（没它安卓 10+ 拉不动）
+    effective: native && svcAllowed && overlay && canDetect,
+    // 缺啥补啥：界面按这个顺序挑最要紧的一条说
+    missing: missing
   };
+}
+
+/** 缺的那一项的引导文案（界面别自己写，两处写必然分叉） */
+export function missingHint(cap) {
+  const c = cap || {};
+  const m = c.missing || [];
+  if (m.indexOf('native') >= 0) return '当前是标准基座，强制模式需要自定义基座（打 APK 后才有效）';
+  if (m.indexOf('svcAllowed') >= 0) return '要先打开「后台保活」和「通知提醒」—— 看门狗长在前台服务里';
+  if (m.indexOf('overlay') >= 0) return '还差「显示在其他应用上层」—— 安卓 10 起不给这个权限就拉不回来';
+  if (m.indexOf('detect') >= 0) return '还差「无障碍」或「使用情况访问」—— 不然不知道你现在在哪个 App';
+  return '';
 }
 
 /**

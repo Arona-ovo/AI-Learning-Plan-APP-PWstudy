@@ -404,7 +404,16 @@ export default {
       else if (!c.native) s = '当前包没有原生拉回能力，只能提醒'
       else if (!c.svcAllowed) s = '「后台保活」或「通知提醒」关着，拉回起不来'
       else if (!c.canDetect) s = '看不出你在哪个 App —— 要开「无障碍」或「使用情况访问」'
-      else if (!c.canPullBack) s = '看得出你切走了，但拉不回来 —— 去开「无障碍」'
+      // ⚠️ 这里原来是"去开「无障碍」"—— 错的，而且它让用户把力气花在没用的地方。
+      //    无障碍服务是我们自己的组件，不在官方豁免里"被另一个可见应用绑定"那一类，
+      //    它内部 startActivity 一样被拦。真正能让 startActivity 放行的只有
+      //    「显示在其他应用上层」（官方豁免清单里明列的一条）。
+      else if (!c.canPullBack) s = '看得出你切走了，但拉不回来 —— 去开「显示在其他应用上层」'
+      // 「全都配好了、也确实发现你切走了，却一次都没拉回来」——
+      // 这比"没配好"更该说破：它意味着原生那几条 startActivity 全被系统**静默**拦掉了
+      // （不抛异常，所以 pullSelf 一直返回成功，界面也一直以为自己得手）。
+      // 以前这里直接落到"已就绪"，于是界面永远说好话、真机永远没反应。
+      else if (this.forcedEscapes > 0 && this.forcedPulls === 0) s = '已经发现你切走了，但一次都没拉回来 —— 点右侧自检'
       else s = '已就绪 · 离开立刻拉回'
       if (this.forcedOn) {
         if (this.forcedPulls > 0) s += ' · 已拉回 ' + this.forcedPulls + ' 次'
@@ -412,14 +421,33 @@ export default {
       }
       return s
     },
-    /** 状态条右侧的行动：没就绪时给一条最短的路，就绪了就什么都不给 */
+    /** 状态条右侧的行动：没就绪时给一条最短的路，就绪了就给自检 */
     forceAct() {
       if (!this.forcedOn) return '开启'
       const c = this.forceCap
       if (!c.native) return ''
       if (!c.svcAllowed) return '去开'
       if (!c.canDetect || !c.canPullBack) return '去授权'
-      return ''
+      // 全绿也给自检入口：这个链十几环，"界面说已就绪、真机一动不动"已经来回好几轮，
+      // 让用户能一键把每一环的实测值交出来，别再靠猜。
+      return '自检'
+    },
+    /**
+     * 自检读数串。
+     *
+     * 刻意写成 key=value 的英文短串而不是一行行中文：① 不占 i18n 额度（阈值已经卡满）；
+     * ② 它就是给排查用的原始读数，中文包装反而会漏信息。
+     */
+    diagLine() {
+      const d = forced.diag()
+      if (!d) return 'watchdog unavailable'
+      const y = (v) => (v ? 'Y' : 'N')
+      return 'svc=' + y(d.svc) + ' watch=' + y(d.watch) +
+        '\nsrc=' + (d.src || '-') + ' fg=' + (d.fg || '-') +
+        '\nepisode=' + y(d.episode) + ' tries=' + d.tries + ' blind=' + d.blind +
+        '\npulls=' + d.pulls + ' escapes=' + d.escapes + ' allow=' + d.allowN +
+        '\novGrant=' + y(d.ovGrant) + ' ovWanted=' + y(d.ovWanted) + ' ovOn=' + y(d.ovOn) +
+        '\na11y=' + y(d.a11y) + ' ev=' + d.a11yEv + ' tripped=' + y(d.tripped)
     }
   },
   onLoad(query) {
@@ -873,7 +901,10 @@ export default {
       if (!this.forcedOn) { this.askForced(); return }
       if (!c.native) return
       if (!c.svcAllowed) { this.ensureServiceSetting(); return }
-      if (!c.canDetect || !c.canPullBack) this.guideNextStep()
+      if (!c.canDetect || !c.canPullBack) { this.guideNextStep(); return }
+      // 走到这儿 = 配置全绿 → 点它就是自检（哪怕真没问题，也该能自证）
+      this.refreshForce()
+      this.ask({ title: '', content: this.diagLine, action: '' })
     },
 
     /**
@@ -886,11 +917,21 @@ export default {
         uni.showToast({ title: '当前包没有原生拉回能力，只能提醒', icon: 'none' })
         return
       }
-      if (c.a11y) {
+      // ⚠️ "已就绪"必须看 effective（四层全中），原来只看 c.a11y ——
+      //    于是"开了无障碍、没开悬浮窗"时这里照样报"已就绪"，
+      //    而实际上一条都拉不动。这是"界面说好了、真机没反应"的直接来源。
+      if (c.effective) {
         uni.showToast({ title: '已就绪 · 切走会立刻拉回来', icon: 'none' })
         return
       }
       if (!c.svcAllowed) { this.ensureServiceSetting(); return }
+      // 悬浮窗是**准入条件**而不是"可选兜底"：没有它，安卓 10+ 三条拉回路
+      // 全被 AMS 静默拦掉（不抛异常，所以界面一直以为自己成功）。先补它。
+      if (!c.overlay) {
+        uni.showToast({ title: '还差「显示在其他应用上层」，不开拉不回来', icon: 'none' })
+        setTimeout(() => this.openOverlay(), 900)
+        return
+      }
       if (!this.a11ySafe) {
         uni.showToast({ title: '这台手机的无障碍起不来，改用使用情况访问', icon: 'none' })
         if (!this.usageOk) setTimeout(() => this.openUsage(), 1000)
@@ -1007,16 +1048,21 @@ export default {
         // 提示只挑最要紧的一条说，并**直接给路**：无障碍 > 使用情况访问 > 学习 App > 遮罩
         //（保险丝跳了就不提无障碍了 —— 那是这台机子起不来，不是用户没开）
         if (!changed) {
-          if (!this.a11ySafe) {
+          // ⚠️ 顺序改过：悬浮窗从最后一位（"可选兜底"）提到第一位。
+          //    它是强制模式的**准入条件** —— 没有它，安卓 10+ 三条拉回路全被静默拦掉，
+          //    而界面还会因为"没抛异常"显示已就绪。以前把它排最后，用户看到的是
+          //    "一句可有可无的建议"，于是从来没开过，于是永远拉不动。
+          if (!this.overlayOk) {
+            uni.showToast({ title: '还差「显示在其他应用上层」，不开拉不回来', icon: 'none' })
+            setTimeout(() => this.openOverlay(), 900)
+          } else if (!this.a11ySafe) {
             uni.showToast({ title: '这台手机的无障碍起不来，已改用使用情况访问', icon: 'none' })
-          } else if (!this.a11yOk) {
-            // 原来这里只 toast 一句"建议开无障碍"，用户看完还是不知道去哪开 ——
+          } else if (!this.a11yOk && !this.usageOk) {
+            // 只 toast 一句"建议开无障碍"没用，用户不知道去哪开 ——
             // 改成弹窗把路径说清并直接跳过去，这才是闭环。
             this.guideNextStep()
           } else if (!this.learnApps.length) {
             uni.showToast({ title: '还没登记学习 App，切哪都算离开', icon: 'none' })
-          } else if (!this.overlayOk) {
-            uni.showToast({ title: '可选：再开「显示在其他应用上层」做兜底', icon: 'none' })
           }
         }
       }

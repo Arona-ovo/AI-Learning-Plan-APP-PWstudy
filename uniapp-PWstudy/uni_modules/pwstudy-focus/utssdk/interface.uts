@@ -61,14 +61,42 @@ export function bringToFrontSupported(): boolean
  */
 export function serviceAlive(): boolean
 
+/** 原生侧实测的「显示在其他应用上层」（悬浮窗）权限 */
+export function overlayGranted(): boolean
+
+/** 强制模式自检快照（JSON 字符串）：把链路上每一环的实测值一次交出来 */
+export function watchDiag(): string
+
 /* ==================== 无障碍护卫（强制模式的能力前提） ====================
  *
- * 为什么强制模式离不开它：
- *   ① 安卓 10 起限制"后台启动 Activity"。官方豁免清单里列了
- *      "由系统绑定的服务（无障碍 / 通知监听 / VPN / 输入法）"这一类 ——
- *      无障碍服务一旦被系统挂上，moveTaskToFront / startActivity 才真的拉得动；
- *   ② 前台是谁：窗口事件是系统直接推过来的，比轮询 UsageStats 更快更准，
- *      而且**不需要**用户额外去授「使用情况访问」。
+ * ⚠️⚠️ 这里有一条 2026-10-14 纠正掉的**错误结论**，别再照着它改回去 ⚠️⚠️
+ *
+ *   旧版注释写的是"官方豁免清单里列了'由系统绑定的服务（无障碍…）'这一类，
+ *   所以无障碍服务 startActivity 才拉得动"。这是**错的**，而且它正是强制模式
+ *   连着好几轮"看着完全没反应"的根源（每一次都基于它去加固，越加固越错）。
+ *
+ *   官方《Activity security》里后台启动的豁免是这几条：
+ *     · 有可见窗口（在前台）/ 是输入法
+ *     · **有 SYSTEM_ALERT_WINDOW 权限**      ← 唯一对我们有用的那条
+ *     · 有 START_ACTIVITIES_FROM_BACKGROUND 特权（系统应用）
+ *     · **被"另一个可见应用"的服务绑定**      ← 注意是"别的 App"，不是自己的服务
+ *     · 系统发的 PendingIntent（通知点击 / fullScreenIntent）
+ *   无障碍服务是我们**自己这个 App** 的组件，不构成"被另一个可见应用绑定"，
+ *   所以 PFGuardService.startActivity() 在安卓 10+ 一样被 AMS 静默拦掉
+ *   （logcat 里只有一行 "Background activity start ... blocked"，**不抛异常**）。
+ *
+ *   纠正后的能力定位：
+ *     ・**悬浮窗（SYSTEM_ALERT_WINDOW）是唯一可靠的一层**：
+ *         ① 它自己就能盖住那个 App（用户点不到）；
+ *         ② 更关键的是——拿到它之后，上面豁免清单里的第二条成立，
+ *            startActivity / moveTaskToFront 这一串才真的被放行。
+ *         所以它是强制模式的**准入条件**，不是"可选兜底"
+ *         （同类开源项目 focus-lock 的 README 写的正是同一句："悬浮窗必需，
+ *           安卓 10 以后禁止应用在后台自己弹界面，没有这个权限到点不会自动全屏弹出"）。
+ *     ・无障碍服务的真正价值只剩一条：**它是"眼睛"** ——
+ *         窗口事件由系统直推，比轮询 UsageStats 更快更准，且不用额外授权。
+ *     ・fullScreenIntent 只在**锁屏 / 息屏**时才全屏；用户亮屏刷别的 App 时
+ *         它只会弹一条横幅，拉不回来。
  *
  * 两个服务同进程，共享同一份白名单与逃逸计数（判定只在 PWFocusService.seen() 里做一次）。
  */

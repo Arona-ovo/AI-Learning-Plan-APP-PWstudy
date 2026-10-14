@@ -102,6 +102,34 @@ const GUARD_FRESH_SEC: Int = 90;
 const A11Y_NOTIFY_MS: Int = 100;
 
 /**
+ * 一律放行的"中性界面"包名（逗号分隔）。这些窗口**绝不能**被当成跑偏 ——
+ * 遮罩是盖全屏的，盖上去就是死锁，比"拉不回来"严重得多。
+ *
+ * ① 系统设置 / 权限授权页：用户正要去开「显示在其他应用上层」（强制模式的命门），
+ *    遮罩一盖他就再也点不到授权开关 —— 从此强制模式永远不可能生效。
+ *    这是 2026-10-14 补的：修"拉不回"之前先保证"别把人锁在门外"。
+ * ② 来电 / 通话界面：接电话时挡人是要挨骂的（早期设计说明里就写了"不吞按键"）。
+ * ③ 系统界面（状态栏 / 最近任务 / 分屏）：切任务那一瞬间的前台是它，
+ *    当成跑偏的话，用户每次按最近任务都会被拽回来。
+ */
+const NEUTRAL_CSV =
+  'com.android.settings,' +
+  'com.android.permissioncontroller,' +
+  'com.google.android.permissioncontroller,' +
+  'com.android.packageinstaller,' +
+  'com.android.systemui,' +
+  'com.android.phone,' +
+  'com.android.incallui,' +
+  'com.android.server.telecom,' +
+  'com.android.dialer,' +
+  'com.android.mms,' +
+  'com.coloros.safecenter,' +
+  'com.miui.securitycenter,' +
+  'com.huawei.systemmanager,' +
+  'com.samsung.android.permissioncontroller,' +
+  'com.android.intentresolver';
+
+/**
  * 当前时间（秒）。
  *
  * 为什么不直接存 System.currentTimeMillis()：那是 Java 的 long，塞进 UTS 的
@@ -226,11 +254,14 @@ class PWFocusService extends Service {
   // ---- 看门狗状态（强制模式；默认关） ----
   watchOn = false;
   private watchUntilSec: Int = 0;  // 0 = 不限时；否则到点自动收手（纪元秒）
-  private allowCsv = '';           // 白名单包名，英文逗号分隔
+  // ⚠️ 下面这几个不写 private：watchDiag() 是**顶层函数**，而 Kotlin 的 private 是
+  //    类私有 —— 顶层函数访问 s.allowCsv 会直接编不过（cannot access ... it is private）。
+  //    同文件里 isAllowed / loopStopped 不写 private 也是同一个道理。
+  allowCsv = '';                   // 白名单包名，英文逗号分隔
   private escTicks: Int = 0;       // 连续跑偏的 tick 数
-  private blindTicks: Int = 0;     // 连续"查不出前台是谁"的 tick 数（探测失灵 ≠ 合规）
-  private inEpisode = false;       // 当前处在一次"逃逸"里（防止同一次离开被重复计数）
-  private pullTries: Int = 0;      // 本次逃逸已经尝试拉回几次（第 2 次起升级为遮罩）
+  blindTicks: Int = 0;             // 连续"查不出前台是谁"的 tick 数（探测失灵 ≠ 合规）
+  inEpisode = false;               // 当前处在一次"逃逸"里（防止同一次离开被重复计数）
+  pullTries: Int = 0;              // 本次逃逸已经尝试拉回几次（第 2 次起升级为遮罩）
   private lastPullSec: Int = 0;
   private stopped = false;
   private loop: WatchLoop | null = null;
@@ -300,6 +331,28 @@ class PWFocusService extends Service {
     if (svcRef === this) svcRef = null;
   }
 
+  /**
+   * 用户从"最近任务"里把 PWstudy 划掉了。
+   *
+   * ⚠️ 这里**第一件事必须是撤遮罩**，没有之一：
+   *    遮罩是盖在**别的 App**上面的全屏窗口，它的宿主窗口管理者是**系统**而不是
+   *    我们的 Activity。用户划掉卡片只杀掉了任务，那个窗口还挂在屏幕上 ——
+   *    于是用户切到微信，发现自己被一层黑布锁着，而这个 App 他已经"关掉"了。
+   *    这是"划一下就再也点不动"的真凶，比拉不回来严重得多。
+   *
+   * 复活服务这件事这里不做：MIUI / ColorOS 划卡片走的是 force-stop，
+   * 任何自启动都会被 ROM 拦（见 BlackHat Asia-24 对 removeTask 的分析），
+   * 硬救只会换来一轮"进程反复重启 → 保险丝跳闸"。如实让 JS 侧提示用户即可。
+   */
+  override onTaskRemoved(rootIntent: Intent): void {
+    try {
+      postOverlay(false);
+      cancelPullNotify(UTSAndroid.getAppContext());
+      this.stopLoop();
+    } catch (e) {}
+    try { super.onTaskRemoved(rootIntent) } catch (e) {}
+  }
+
   /** 看门狗线程查询用：是否还该继续跑 */
   loopStopped(): boolean {
     return this.stopped || !this.watchOn;
@@ -322,6 +375,14 @@ class PWFocusService extends Service {
       let imes = imePackages(UTSAndroid.getAppContext());
       for (let i = 0; i < imes.length; i++) {
         let p = imes[i];
+        if (p.length > 0 && allow.indexOf(p) < 0) {
+          allow = allow.length > 0 ? allow + ',' + p : p;
+        }
+      }
+      // 中性界面（设置 / 授权页 / 来电 / 系统界面）：盖上去就是死锁，见 NEUTRAL_CSV 的注释
+      let neutrals = NEUTRAL_CSV.split(',');
+      for (let i = 0; i < neutrals.length; i++) {
+        let p = neutrals[i];
         if (p.length > 0 && allow.indexOf(p) < 0) {
           allow = allow.length > 0 ? allow + ',' + p : p;
         }
@@ -487,13 +548,17 @@ class PWFocusService extends Service {
    *
    * 为什么不无条件盖：拉回其实已经成功、而我们下一跳还没看到新前台的那一瞬间，
    * 遮罩会盖在自己 App 上再被撤掉 —— 用户看到的就是自己的界面闪一下黑，很掉价。
-   * 查不到前台（失明）时不盖，宁可少盖一次也别盖错地方。
+   *
+   * ⚠️ 失明（查不出前台是谁）时必须**延续**已有状态，不能一律不盖：
+   *    这与 tick() 里"查不到 ≠ 合规"是同一个口径。原来这里返回 false，
+   *    于是人已经切走、探测那一路正好瞎了一下 → 不拉也不盖 →
+   *    用户看到的就是"强制模式完全没反应"（2026-10-14 修复）。
    */
   needOverlay(): boolean {
     let ctx = UTSAndroid.getAppContext();
     if (ctx == null) return false;
     let fg = queryForeground(ctx!);
-    if (fg.length == 0) return false;
+    if (fg.length == 0) return this.inEpisode;
     return !this.isAllowed(fg);
   }
 }
@@ -767,14 +832,25 @@ class PFGuardService extends AccessibilityService {
   /**
    * 用**服务自己**的 context 把 PWstudy 拉回前台。
    *
-   * ⚠️ 这是"开了无障碍还是拉不回"的根因所在，务必看清楚再改：
-   *    安卓 10（Q）起限制后台启动 Activity。豁免清单里给的是"由系统绑定的服务"
-   *    —— 无障碍服务正属此类，但**豁免依附于服务实例**：只有从服务内部
-   *    （this.startActivity）发起才生效。应用进程里拿 appContext.startActivity()，
-   *    权限判定走的是应用进程，一样被拦。
-   *    以前只有应用进程那两条路（moveTaskToFront / launch intent），
-   *    所以无障碍开关怎么开都拉不动，而 pullSelf 的返回值只看"有没有抛异常"，
-   *    于是界面一直显示"已就绪"。
+   * ⚠️⚠️ 2026-10-14 纠正掉一条**错误结论**，别再照它改回去 ⚠️⚠️
+   *
+   *   旧注释（以及 interface.uts / utils/fgsvc.js 里的同款说法）写的是：
+   *   "安卓 10 起限制后台启动 Activity，官方豁免给'由系统绑定的服务'，无障碍服务正属此类，
+   *    所以从服务内部 this.startActivity 才拉得动。" —— **这是错的**。
+   *
+   *   官方《Activity security》里后台启动的豁免是这几条：
+   *     有可见窗口 / 是输入法 / **有 SYSTEM_ALERT_WINDOW** / 有系统特权 /
+   *     **被"另一个可见应用"的服务绑定** / 系统发的 PendingIntent。
+   *   无障碍服务是**我们自己这个 App** 的组件，不是"另一个可见应用" ——
+   *   它内部 startActivity 与 appContext.startActivity 在 AMS 那里是**同一个 uid、
+   *   同一个后台状态**，一样被静默拦掉（logcat 只有 "Background activity start ...
+   *   blocked"，**不抛异常**，所以 pullSelf 永远返回 true、界面永远说已就绪）。
+   *   这正是强制模式连着好几轮"开了无障碍也毫无反应"的根源。
+   *
+   *   那它为什么还留着？两点：① 调用链最短，不经过 PackageManager 之外的任何东西，
+   *   拿到悬浮窗权限之后它同样被放行（豁免是**按 app** 判的，与用哪个 Context 无关），
+   *   留着不亏；② 万一将来某个 ROM 对服务进程更宽容，它是现成的通路。
+   *   **但它不是"拉回来"的保证** —— 保证来自 SYSTEM_ALERT_WINDOW。
    */
   pullFromGuard(): boolean {
     try {
@@ -1299,6 +1375,62 @@ export function a11yPullReady(): boolean {
  */
 export function serviceAlive(): boolean {
   return svcRef != null;
+}
+
+/** 原生侧实测的悬浮窗权限（JS 侧 utils/apptime.js 也有一份，两个都要有 ——
+ *  遮罩是原生挂的，判定必须以原生这一份为准） */
+export function overlayGranted(): boolean {
+  return canDrawOverlays(UTSAndroid.getAppContext());
+}
+
+/**
+ * 强制模式的**自检快照**（JSON 字符串）。
+ *
+ * 为什么要有这个：强制模式"看着完全没反应"已经来回好几轮了，而这条链有十几环
+ * （前台服务 → 看门狗 → 探测前台 → 判定跑偏 → 拉回 → 遮罩），任何一环断掉都表现成
+ * 同一个"没反应"。与其每轮猜一次，不如让界面能把每一环的实测值直接列出来。
+ *
+ * 为什么返回字符串而不是对象：UTS 的对象类型在跨语言边界上很容易踩坑
+ * （字段被裁剪 / 类型推断成 Number），拼 JSON 串是唯一稳的写法。
+ */
+export function watchDiag(): string {
+  let s = svcRef;
+  let watch = '0';
+  let episode = '0';
+  let tries = '0';
+  let blind = '0';
+  let allowN = '0';
+  if (s != null) {
+    try { watch = s.watchOn ? '1' : '0' } catch (e) {}
+    try { episode = s.inEpisode ? '1' : '0' } catch (e) {}
+    try { tries = '' + s.pullTries } catch (e) {}
+    try { blind = '' + s.blindTicks } catch (e) {}
+    try { allowN = '' + s.allowCsv.split(',').length } catch (e) {}
+  }
+  let ctx = UTSAndroid.getAppContext();
+  let fg = '';
+  if (ctx != null) {
+    try { fg = queryForeground(ctx!) } catch (e) {}
+  }
+  // 探测来源：护卫刚报过 = 无障碍事件；否则 = UsageStats；都拿不到 = 失明
+  let src = 'blind';
+  if (fg.length > 0) src = (guardFresh() && !guardStale()) ? 'a11y' : 'usage';
+  return '{"svc":' + (svcRef != null ? '1' : '0') +
+    ',"watch":' + watch +
+    ',"fg":"' + fg + '"' +
+    ',"src":"' + src + '"' +
+    ',"episode":' + episode +
+    ',"tries":' + tries +
+    ',"blind":' + blind +
+    ',"allowN":' + allowN +
+    ',"pulls":' + watchPullCount +
+    ',"escapes":' + watchEscapeCount +
+    ',"ovGrant":' + (canDrawOverlays(ctx) ? '1' : '0') +
+    ',"ovWanted":' + (overlayWanted ? '1' : '0') +
+    ',"ovOn":' + (overlayView != null ? '1' : '0') +
+    ',"a11y":' + (guardOn ? '1' : '0') +
+    ',"a11yEv":' + guardEvents +
+    ',"tripped":' + (a11yTripped ? '1' : '0') + '}';
 }
 
 /* ==================== 无障碍护卫：对外 API ==================== */
