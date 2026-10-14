@@ -1,13 +1,15 @@
 // _tools/check-updater.js - wgt 热更新（启动自检 → 比对 → 下载 → 安装 → 重启）校验
 // 运行：node _tools/check-updater.js
 //
-// 守的是五件事：
+// 守的是六件事：
 //  1) 版本能比出新旧（'1.10' > '1.9' 这种字符串比较会翻车的地方）
 //  2) 资产名的约定**两头一致** —— 发布脚本打出来的名字，客户端必须认得出来
 //     （这是最容易悄悄断掉的一环：改了脚本没改解析，发出去的包没人认领）
 //  3) 基座太老**绝不装 wgt**（老基座装新资源包 = 白屏，只能引导整包）
 //  4) 启动自检失败必须静默、一天只查一次；用户手动点才允许报错
 //  5) 每一步失败都有"去下载完整包"的出口，不能卡在"更新失败"上
+//  6) **更新包只在 Wi-Fi 下走流量**：Wi-Fi 提前把包备好（不装），用户点头就能
+//     立刻装完；蜂窝网络一律不下、且不许把他推去下 20MB 整包（那也一样吃流量）。
 //
 // plus / uni 全是假替身：这里是 node，装不了真包。
 const fs = require('fs');
@@ -53,11 +55,15 @@ global.uni = {
     o.success({ statusCode: 200, tempFilePath: '/tmp/x.wgt' });
     return { onProgressUpdate: (cb) => { cb({ progress: 42 }); cb({ progress: 100 }); } };
   },
-  saveFile: (o) => { (o && o.success ? o.success({ savedFilePath: '/doc/x.wgt' }) : null); }
+  saveFile: (o) => { (o && o.success ? o.success({ savedFilePath: '/doc/x.wgt' }) : null); },
+  getNetworkType: (o) => { o && o.success && o.success({ networkType: typeof net.type === 'string' ? net.type : 'wifi' }); },
+  onNetworkStatusChange: (cb) => { (net.watchers = net.watchers || []).push(cb); }
 };
 
 // App 端那几个原生调用。versionCode 可以随时改，用来造"基座太老"的场景
 const plus = {
+  __net: 'wifi',        // 'wifi' | '4g' | 'none' | 'unknown' | 'ethernet'
+  __fileGone: false,    // true = 之前下好的本地包已经不在了（被清缓存 / 系统回收）
   runtime: {
     appid: '__UNI__53285BF',
     version: '1.0.1',
@@ -70,7 +76,25 @@ const plus = {
     },
     restart() { log.restarted++; },
     openURL(u) { log.opened.push(u); }
-  }
+  },
+  // 本地文件在不在 —— 只有一个用途：验"之前下好的包还在不在"
+  io: {
+    resolveLocalFileSystemURL(p, onOk, onErr) {
+      if (plus.__fileGone) { onErr({ code: 1 }); return; }
+      onOk({});
+    }
+  },
+  networkinfo: (() => {
+    const C = {
+      CONNECTION_UNKNOW: 0, CONNECTION_NONE: 1, CONNECTION_ETHERNET: 2,
+      CONNECTION_WIFI: 3, CONNECTION_CELL2G: 4, CONNECTION_CELL3G: 5,
+      CONNECTION_CELL4G: 6, CONNECTION_CELL5G: 7
+    };
+    const map = { unknown: 0, none: 1, ethernet: 2, wifi: 3, '2g': 4, '3g': 5, '4g': 6, '5g': 7 };
+    return Object.assign({}, C, {
+      getCurrentType() { return map[plus.__net] === undefined ? C.CONNECTION_WIFI : map[plus.__net]; }
+    });
+  })()
 };
 
 const settings = load('utils/settings.js');
@@ -412,6 +436,160 @@ function main() {
       .then((v) => eq(v, false, '红点灭了（全程没记过「看过了」这笔账）'));
   });
 
+  /* ---------- 6.8 预下载：只在 Wi-Fi 下；用户点确认时最好已经备好 ---------- */
+  const cleanPending = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '' };
+  const resetUpdate = (patch) => settings.set({ update: Object.assign({ pending: cleanPending, skip: '', lastCheckAt: '' }, patch || {}) });
+
+  steps.push(() => {
+    console.log('== 6.8 Wi-Fi 下先把包准备好（不安装） ==');
+    plus.__net = 'wifi';
+    plus.__fileGone = false;
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.0.4-n101.wgt']);
+    resetUpdate();
+    log.downloaded.length = 0;
+    log.installed.length = 0;
+    return updater.manualCheck().then(() => {
+      eq(log.downloaded.length, 0, '查清单这一步什么都不下');
+      eq(log.installed.length, 0, '也不偷偷装');
+      return updater.prefetch();
+    }).then((p) => {
+      assert(!!p && !!p.downloadPath, 'Wi-Fi 下把包拉到本地了（' + (p && p.downloadPath) + '）');
+      eq(log.downloaded.length, 1, '下载只发生了一次');
+      return updater.prefetch();
+    }).then(() => {
+      eq(log.downloaded.length, 1, '已经下好了 → 不再重复下一遍');
+      return updater.pending();
+    }).then((p) => {
+      assert(!!p && !!p.downloadPath, '路径写进了 pending —— 弹窗文案就照它写');
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.8b 已经下好 → 点一下直接装，不再走流量 ==');
+    return updater.pending().then((p) => {
+      log.downloaded.length = 0;
+      log.installed.length = 0;
+      const before = log.restarted;
+      return updater.runUpdate({ state: 'update', remote: p, notes: '' }).then((v) => {
+        eq(v, true, '装上去了');
+        eq(log.downloaded.length, 0, '★ 一次网都没上（用的就是本地那份）');
+        eq(log.installed[log.installed.length - 1], '/doc/x.wgt', '装的是那份本地包');
+        assert(log.restarted > before, '装完重启了（wgt 不重启不生效）');
+      });
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.8c 本地包被回收 → 不硬装，重新下 ==');
+    plus.__fileGone = true;
+    return updater.pending().then((p) => {
+      assert(!!p && !p.downloadPath, '失效的路径被清掉了（不许拿空路径说"已经下好了"）');
+      plus.__fileGone = false;
+      log.downloaded.length = 0;
+      return updater.prefetch();
+    }).then((p) => {
+      assert(!!p && !!p.downloadPath, '重新下好了');
+      eq(log.downloaded.length, 1, '补下载发生了一次');
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.8d 移动网络：不预下载，点了也不动他的流量 ==');
+    plus.__net = '4g';
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.0.5-n101.wgt']);
+    resetUpdate();
+    log.downloaded.length = 0;
+    log.opened.length = 0;
+    log.modal.length = 0;
+    return updater.manualCheck().then(() => updater.prefetch()).then(() => {
+      eq(log.downloaded.length, 0, '移动网络下一次网都不上');
+      return updater.pending();
+    }).then((p) => {
+      assert(!!p && !p.downloadPath, '没有本地包');
+      return updater.runUpdate({ state: 'update', remote: p, notes: '' });
+    }).then((v) => {
+      eq(v, false, '没装成');
+      eq(log.downloaded.length, 0, '★ 他的移动流量一分没花');
+      const m = log.modal[log.modal.length - 1];
+      assert(!!m && /Wi-Fi/.test(m.title), '弹的是"请在 Wi-Fi 下更新"（' + (m && m.title) + '）');
+      eq(log.opened.length, 0, '★ 没把他推去下 20MB 的整包（那等于同一个坑再跳一次）');
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.8e 网络类型判定 ==');
+    eq(updater.canDownloadNetwork('wifi').ok, true, 'wifi → 放行');
+    eq(updater.canDownloadNetwork('ethernet').ok, true, '有线网 → 放行');
+    eq(updater.canDownloadNetwork('4g').ok, false, '4g → 拦下');
+    eq(updater.canDownloadNetwork('5g').why, 'cellular', '5g 也归属蜂窝');
+    eq(updater.canDownloadNetwork('2g').why, 'cellular', '2g 同上');
+    eq(updater.canDownloadNetwork('none').why, 'none', '没网单独一个标记');
+    // unknown 必须放行：读不出网络类型的机型上，一拦就等于永远不许更新
+    eq(updater.canDownloadNetwork('unknown').ok, true, 'unknown → 放行（不许把更新锁死）');
+    return Promise.resolve();
+  });
+
+  steps.push(() => {
+    console.log('== 6.8f 弹窗文案跟着"下好没 / 能不能下"变 ==');
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.0.6-n101.wgt']);
+    resetUpdate();
+    // ① 移动网络、包还没下 —— 点之前就该知道一会儿要 Wi-Fi
+    plus.__net = '4g';
+    log.modal.length = 0;
+    return updater.manualCheck().then((r) => {
+      updater.showResult(r);
+      const m1 = log.modal[log.modal.length - 1];
+      assert(!!m1 && /移动网络/.test(m1.content), '当场说明是移动网络、只 Wi-Fi 能下');
+      eq(m1.confirmText, '下载并安装', '没下好 → 按钮写「下载并安装」');
+      // ② 连上 Wi-Fi 下好之后 → 同一张卡该说"点一下就装完"
+      plus.__net = 'wifi';
+      return updater.prefetch();
+    }).then((p) => {
+      log.modal.length = 0;
+      updater.askUpdate({ state: 'update', remote: p, notes: '' });
+      const m2 = log.modal[log.modal.length - 1];
+      eq(m2.confirmText, '立即更新', '已经下好 → 按钮写「立即更新」');
+      assert(/已经下好了/.test(m2.content), '文案说清不用再下载');
+      return Promise.resolve();
+    });
+  });
+
+  steps.push(() => {
+    console.log('== 6.8g 挂一次监听，别重复挂 ==');
+    const before = (net.watchers || []).length;
+    const first = updater.watchWifi();
+    const second = updater.watchWifi();
+    eq(first, true, '第一次挂上了');
+    eq(second, false, '第二次是空操作（幂等）');
+    eq((net.watchers || []).length, before + 1, '监听器只多了一个');
+    // 连上 Wi-Fi → 自动补下载；连上蜂窝网 → 什么都不做
+    const push = net.watchers[net.watchers.length - 1];
+    plus.__net = '4g';
+    log.downloaded.length = 0;
+    push({ isConnected: true, networkType: '4g' });
+    plus.__net = 'wifi';
+    plus.runtime.version = '1.0.1';
+    net.release = release(['PWstudy-1.0.7-n101.wgt']);
+    resetUpdate();
+    return updater.manualCheck().then(() => {
+      log.downloaded.length = 0;
+      push({ isConnected: true, networkType: 'wifi' });
+      return new Promise((res) => setTimeout(res, 0));
+    }).then(() => {
+      eq(log.downloaded.length, 1, '连上 Wi-Fi 那一刻把包补下来了');
+    });
+  });
+
+  steps.push(() => {
+    resetUpdate();
+    plus.__net = 'wifi';
+    plus.__fileGone = false;
+    return Promise.resolve();
+  });
+
   steps.push(() => {
     // 有别的事在场 → 不抢（必须在"已经弹过"之前测：promptOnce 一次进程只弹一回）
     plus.runtime.version = '1.0.1';
@@ -575,6 +753,95 @@ assert(/Release 里可能挂着别的 APK/.test(upRaw), '为什么必须挑名�
 assert(updater.RELEASE_TAG === 'PWstudy', '有固定 tag 常量');
 assert(updater.REPO_API.indexOf('/releases/tags/' + updater.RELEASE_TAG) > 0,
   '清单接口按 tag 精确取（不是 /releases/latest）');
+
+/* ---------- 11. 源码：更新包只在 Wi-Fi 下走流量 ---------- */
+console.log('== 11. 预下载与网络门禁（源码） ==');
+// `up` 已在第 10 节剥掉行内注释，这里直接用
+const upCode = up;
+
+/**
+ * 抠出一个顶层函数的函数体 —— **按花括号配平**，不靠字符数凑（第 15·22 条）。
+ *
+ * ⚠️ 四种形态：export async / export / async / 裸 function。顺序必须长在前，
+ *    否则 `function prefetch(` 会先命中 `export async function prefetch(` 里的子串。
+ * ⚠️ 仓库是 CRLF：这里的匹配不跨行，但凡是写到 \n 的一律要 \r?\n（第 17 条）。
+ */
+function fnBody(src, name) {
+  const heads = [
+    'export async function ' + name + '(',
+    'export function ' + name + '(',
+    'async function ' + name + '(',
+    'function ' + name + '('
+  ];
+  let open = -1;
+  for (let k = 0; k < heads.length; k++) {
+    const at = src.indexOf(heads[k]);
+    if (at < 0) continue;
+    open = src.indexOf('{', at + heads[k].length);
+    break;
+  }
+  if (open < 0) return '';
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src.charAt(i);
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return src.slice(open, i + 1); }
+  }
+  return src.slice(open);
+}
+
+// ① EMPTY_PENDING 必须**显式**带 downloadPath。settings.set 是 deepMerge，
+//    漏了它的话 clearPending() 清不掉旧路径 —— 下一次会拿着一个指向旧包（
+//    甚至已经被系统回收）的路径去安装。
+const emptyBlk = (upCode.match(/const EMPTY_PENDING = \{([\s\S]*?)\}/) || [])[1] || '';
+assert(/downloadPath:\s*''/.test(emptyBlk),
+  'EMPTY_PENDING 里显式写了 downloadPath（deepMerge 下不写就清不掉）');
+
+// ② 网络判定必须**同步**。异步会让 askUpdate/showResult 的调用契约变成 await，
+//    页面上一堆 showResult(r) 就地取值的地方全得改 —— 而这个信息 Plus 端本来就有同步接口。
+const netFn = fnBody(upCode, 'netTypeSync');
+assert(!!netFn && /getCurrentType\(\)/.test(netFn), 'netTypeSync 走 plus.networkinfo 的同步接口');
+assert(!/getNetworkType\(/.test(upCode), '不许再用异步的 uni.getNetworkType 决定弹窗文案');
+
+// ③ 蜂窝网络必须拦，unknown 必须放行（一拦就是永久不许更新）
+const judge = fnBody(upCode, 'canDownloadNetwork');
+assert(!!judge && /none/.test(judge) && /why:\s*'cellular'/.test(judge), '判定里区分了没网与蜂窝');
+assert(/cellular'\]\[\s\S]*indexOf|CELLULAR\.indexOf/.test(upCode) || /CELLULAR/.test(upCode),
+  '蜂窝网络走 CELLULAR 名单');
+
+// ④ prefetch 只下载、绝不安装（合规红线是"不许静默安装"）
+const pre = fnBody(upCode, 'prefetch');
+assert(!!pre && !/install\(/.test(pre), 'prefetch 里没有 install（下载 ≠ 安装）');
+assert(!!pre && !/restart\(/.test(pre), 'prefetch 里也没有 restart');
+assert(!!pre && /state !== 'update'/.test(pre), '只预下载热更包（整包不去后台偷着拉）');
+
+// ⑤ applyUpdate 必须先认缓存，再谈下载
+const apd = fnBody(upCode, 'applyUpdate');
+assert(!!apd && apd.indexOf('downloadPath') < apd.indexOf('await download('),
+  'applyUpdate 先查本地缓存的包，命中就直接装');
+assert(!!apd && /e\.why = net\.why/.test(apd), '拦下来那个错误带 why 标记');
+
+// ⑥ runUpdate 要把"网络不允许"和"包坏了"分开处理
+const run = fnBody(upCode, 'runUpdate');
+assert(!!run && /netHint\(why\)/.test(run), '网络类失败走 netHint，不是 failDialog');
+assert(!!run && /failDialog/.test(run), '其它失败仍然给"去下载完整包"的出口');
+
+// ⑦ netHint 不许给下载按钮 —— 那时给"去下整包"等于把他推回同一个坑
+const hint = fnBody(upCode, 'netHint');
+assert(!!hint && /showCancel:\s*false/.test(hint), 'netHint 只留一个「知道了」');
+assert(!!hint && !/openRelease/.test(hint), 'netHint 不给下载入口（整包更大，一样吃流量）');
+
+// ⑧ watchWifi 幂等（挂在 launch 上会被反复调用）
+const wf = fnBody(upCode, 'watchWifi');
+assert(!!wf && /if \(wifiWatched\) return false/.test(wf), 'watchWifi 幂等');
+
+// ⑨ pending() 里要顺手校验本地文件还在不在
+const pd = fnBody(upCode, 'pending');
+assert(!!pd && /fileUsable\(/.test(pd), 'pending() 会验一遍本地包还在不在');
+assert(!!pd && /clearDownloadPath/.test(pd), '失效的路径被清掉，不是硬装');
+
+// ⑩ App.vue 得把监听挂上 —— 自检一天只有一次，连上 Wi-Fi 才是最该下包的时刻
+assert(/updater\.watchWifi\(\)/.test(R('App.vue')), 'App.vue 挂了 watchWifi');
 
 main().then(() => {
   console.log(fail === 0 ? '\n热更新校验全部通过' : '\n失败 ' + fail + ' 项 ✗');

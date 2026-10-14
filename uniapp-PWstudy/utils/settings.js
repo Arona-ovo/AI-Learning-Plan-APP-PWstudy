@@ -159,7 +159,8 @@ function defaults() {
       // 红点怎么消失：**不靠"记一笔看过了"**，而是每次读的时候拿它跟本机版本比 ——
       // 装完新版，记的版本号自然就不再比本机新，红点自己没了。零维护，
       // 也不会有"标记漏清"这种脏数据。
-      pending: { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '' }
+      // downloadPath = Wi-Fi 下预先下好的更新包路径（没有就是还没下）
+      pending: { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '' }
     },
     // AI 服务配置（统一服务层读取）
     ai: {

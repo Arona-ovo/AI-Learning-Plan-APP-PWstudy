@@ -243,20 +243,42 @@ function markSkip(v) {
 
 /* ---------------- 待更新状态（红点 / 首页弹窗） ---------------- */
 
-const EMPTY_PENDING = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '' };
+/**
+ * 待更新状态。
+ *
+ * `downloadPath` = 已经下到本地、等待安装的包路径（Wi-Fi 下提前下好的那种）。
+ * 它必须写在 EMPTY_PENDING **里面**：settings.set 是 deepMerge，清 pending 时
+ * 漏了这个字段，旧路径就会残留下来 —— 下一次比对会拿着一个指向旧包（甚至已被
+ * 系统回收）的路径去安装，白屏或装回旧版本。
+ */
+const EMPTY_PENDING = { version: '', code: 0, minNative: 0, url: '', size: 0, notes: '', state: '', downloadPath: '' };
 
 /** 记一笔"有个新版本等着装" */
 function savePending(r) {
   try {
     const v = r.remote || {};
+    // 同一个版本之前已经下好了，别把它丢掉 —— 重查一次就把几百 KB 作废太浪费，
+    // 而且用户已经看过一次更新弹窗，再让他等一遍下载会更不想更。
+    const old = (settings.get().update || {}).pending || {};
+    const keep = (old.code && old.code === (v.code || 0) && old.downloadPath) ? old.downloadPath : '';
     settings.set({
       update: {
         pending: {
           version: v.version || '', code: v.code || 0, minNative: v.minNative || 0,
-          url: v.url || '', size: v.size || 0, notes: r.notes || '', state: r.state || ''
+          url: v.url || '', size: v.size || 0, notes: r.notes || '', state: r.state || '',
+          downloadPath: keep
         }
       }
     });
+  } catch (e) {}
+}
+
+/** 记下"这个版本的包已经下好了"（只对当前 pending 的版本生效，别串台） */
+function markDownloaded(code, path) {
+  try {
+    const p = (settings.get().update || {}).pending;
+    if (!p || !p.code || p.code !== code) return;
+    settings.set({ update: { pending: Object.assign({}, p, { downloadPath: path }) } });
   } catch (e) {}
 }
 
@@ -271,13 +293,30 @@ export function clearPending() {
  * 顺手清掉。这就是红点"自动消失"的全部机制，不需要额外记"看过了"。
  */
 export function pending() {
-  return localVersion().then((local) => {
+  return localVersion().then(async (local) => {
     let p = null;
     try { p = (settings.get().update || {}).pending; } catch (e) {}
     if (!p || !p.version || !p.code) return null;
     if (local && local.code >= p.code) { clearPending(); return null; }
+    // 记下的本地包路径不一定还在（清缓存 / 换机恢复 / 系统回收）。**在这里统一验一遍**
+    // 是唯一合适的时机：pending() 是红点、首页弹窗、预下载共同的入口，过这一道之后
+    // 后面所有地方拿到 downloadPath 都可以当"文件真的在"，不用各自再异步查一遍
+    // —— 那会让 askUpdate 变成异步，调用它的页面全都要跟着 await。
+    if (p.downloadPath && !(await fileUsable(p.downloadPath))) {
+      clearDownloadPath(p.code);
+      p = Object.assign({}, p, { downloadPath: '' });
+    }
     return Object.assign({}, p, { local: local });
   }).catch(() => null);
+}
+
+/** 本地包没了：只清路径，pending 其余字段留着（"有新版本"这件事还是要继续盯着） */
+function clearDownloadPath(code) {
+  try {
+    const p = (settings.get().update || {}).pending;
+    if (!p || !p.code || p.code !== code) return;
+    settings.set({ update: { pending: Object.assign({}, p, { downloadPath: '' }) } });
+  } catch (e) {}
 }
 
 /** 红点要不要亮：有新版本 **且** 用户没对这个版本说过"不再提示" */
@@ -329,9 +368,16 @@ export async function autoCheck() {
   try {
     const u = settings.get().update || {};
     if (u.auto === false) return null;
-    if (u.lastCheckAt === todayStr()) return null;    // 今天查过了
+    if (u.lastCheckAt === todayStr()) {
+      // 今天查过了：那次可能不在 Wi-Fi、包没下成 —— 趁这次启动补一下。
+      // ⚠️ 节流只挡**联网查版本**，不挡"用已有信息把包准备好"。
+      try { await prefetch() } catch (e) {}
+      return null;
+    }
     const r = await check();
     markChecked();
+    // 清单拿到了就把包备好，等用户点头时装得上（prefetch 内部只在 Wi-Fi 动，失败也静默）
+    try { await prefetch() } catch (e) {}
     // **这里不弹窗**：启动瞬间糊一张卡片容易打断首屏，而且此刻判断不了
     // "页面上有没有别的事在办"。弹窗统一交给首页 onShow 的
     // updater.promptOnce() —— 那儿才看得见当前在忙什么，也才好排队。
@@ -351,6 +397,79 @@ export async function manualCheck() {
 }
 
 /* ---------------- 下载 / 安装 ---------------- */
+
+/* ---------- 网络：更新包只在 Wi-Fi 下走流量 ---------- */
+
+const CELLULAR = ['2g', '3g', '4g', '5g', 'cellular'];
+
+/**
+ * 这个网络能不能用来下更新包。
+ *
+ * ⚠️ 蜂窝网络一律不许。更新包是用户**没主动要**的东西，拿他的流量去下，
+ *   下完还只是告诉他"可以更新了" —— 这笔流量花得不值，账单是他在付。
+ *   所以只要不是 Wi-Fi（有线网也算有保证），就拦下来让他连 Wi-Fi。
+ *
+ * ⚠️ unknown 必须放行：部分机型 / 模拟器 / 没给网络权限时会返回 unknown，
+ *   这时候**不能把更新永久锁死** —— 一拦他就再也更不了了。放过去走正常下载，
+ *   真下不动自然会落到既有的"去下载完整包"兜底上。
+ *
+ * @param {string} type 'wifi' | 'cellular' | 'none' | 'unknown'
+ */
+export function canDownloadNetwork(type) {
+  if (type === 'wifi' || type === 'ethernet' || type === 'wired') return { ok: true, type: type, why: '' };
+  if (type === 'none') return { ok: false, type: 'none', why: 'none' };
+  if (type === 'cellular' || CELLULAR.indexOf(type) >= 0) return { ok: false, type: type, why: 'cellular' };
+  return { ok: true, type: type || 'unknown', why: '' };
+}
+
+/**
+ * 当前网络类型。**同步** —— 弹窗的按钮文案要用它，一旦异步，
+ * askUpdate / showResult 的调用契约就得跟着改成 await，
+ * 页面上一堆 `showResult(r)` 就地取值的地方全要动，不值。
+ *
+ * App 端 `plus.networkinfo.getCurrentType()` 本来就是同步的，直接用它；
+ * 读不出来按 unknown 处理（放行，不做无限等待）。
+ */
+function netTypeSync() {
+  // #ifdef APP-PLUS
+  try {
+    const P = plus.networkinfo;
+    const t = P.getCurrentType();
+    if (t === P.CONNECTION_WIFI || t === P.CONNECTION_ETHERNET) return 'wifi';
+    if (t === P.CONNECTION_NONE) return 'none';
+    if (t === P.CONNECTION_UNKNOW) return 'unknown';
+    return 'cellular';                 // CELL2G / CELL3G / CELL4G / CELL5G
+  } catch (e) {}
+  // #endif
+  return 'unknown';
+}
+
+/** 当前网络能不能下更新包（同步） */
+export function network() {
+  return canDownloadNetwork(netTypeSync());
+}
+
+/* ---------- 本地包还在不在 ---------- */
+
+/**
+ * 之前下好的包还在不在。
+ *
+ * 为什么非要验一遍：`uni.saveFile` 存的是持久路径，但用户清缓存 / 换机恢复 /
+ * 系统回收都可能让它失效。不验就直接 install，拿到的是"安装失败"，
+ * 而真正的问题是"那个文件已经没了" —— 走一遍补下载才是对的解法。
+ */
+function fileUsable(path) {
+  return new Promise((resolve) => {
+    if (!path) { resolve(false); return; }
+    // #ifdef APP-PLUS
+    try {
+      plus.io.resolveLocalFileSystemURL(path, () => resolve(true), () => resolve(false));
+      return;
+    } catch (e) { resolve(false); return; }
+    // #endif
+    resolve(false);
+  });
+}
 
 function persist(tempPath) {
   return new Promise((resolve) => {
@@ -411,10 +530,80 @@ export function restart() {
  * 下载 → 安装 → 重启。任何一步失败都抛出，由调用方引导"去下载完整包"。
  */
 export async function applyUpdate(r, onProgress) {
-  const path = await download(r.remote.url, onProgress);
+  const rm = r.remote || {};
+  // ① 已经下好了 → 直接装，不再走一遍流量
+  if (rm.downloadPath && (await fileUsable(rm.downloadPath))) {
+    if (onProgress) onProgress(100);
+    await install(rm.downloadPath);
+    restart();
+    return true;
+  }
+  // ② 没下好 → 先看网络允不允许下
+  const net = await network();
+  if (!net.ok) {
+    const msg = net.why === 'none'
+      ? '当前没有联网，连上 Wi-Fi 后再更新'
+      : '你现在用的是移动网络，为了不占流量，更新包只在 Wi-Fi 下下载';
+    const e = new Error(msg);
+    e.why = net.why;                     // 带标记：这条不走"更新失败→去下载整包"那条兜底
+    throw e;
+  }
+  const path = await download(rm.url, onProgress);
+  if (rm.code) markDownloaded(rm.code, path);   // 装不上又没重启时，下次还能直接命中
   await install(path);
   restart();
   return true;
+}
+
+/* ---------------- Wi-Fi 下先把包准备好 ---------------- */
+
+/**
+ * Wi-Fi 下把更新包先拉到本地，**不安装**。
+ *
+ * 为什么"静默下载"不等于"静默安装"：省掉的只是用户盯着进度条那几秒，
+ * 装不装依然要他点头（弹窗在 askUpdate）。这两件事是分开的，缺一个都不成立。
+ *
+ * ⚠️ 只预下载热更包（state === 'update'）：整包本来就要带用户去浏览器下，
+ *    后台偷偷拉个 20MB 的 APK 只会白占空间。
+ * ⚠️ 非 Wi-Fi / 下载失败都静默返回 —— 纪律 1：用户没主动点更新，就没资格打扰他。
+ */
+export async function prefetch() {
+  const p = await pending();
+  if (!p || p.state !== 'update') return null;
+  if (p.downloadPath && (await fileUsable(p.downloadPath))) return p;
+  const net = await network();
+  if (!net.ok) return null;              // 移动网络或没网：什么都不做，等 Wi-Fi 再说
+  try {
+    const path = await download(p.url);
+    markDownloaded(p.code, path);
+    return Object.assign({}, p, { downloadPath: path });
+  } catch (e) {
+    return null;                         // 预下载失败也静默（纪律 1）
+  }
+}
+
+let wifiWatched = false;
+
+/**
+ * 连上 Wi-Fi 时自动补一次预下载。
+ *
+ * 为什么单独要它：自检是一天一次、手动检查要用户点 —— 都不是"刚连上 Wi-Fi"
+ * 这个最该下包的时刻。挂在 launch 上一次就够（内部幂等）。
+ */
+export function watchWifi() {
+  // #ifdef APP-PLUS
+  if (wifiWatched) return false;
+  wifiWatched = true;
+  try {
+    uni.onNetworkStatusChange((r) => {
+      if (!r || !r.isConnected) return;
+      const t = r.networkType;
+      if (t === 'wifi' || t === 'ethernet') { try { prefetch() } catch (e) {} }
+    });
+    return true;
+  } catch (e) { return false; }
+  // #endif
+  return false;
 }
 
 /* ---------------- 出口：去下载完整包 ---------------- */
@@ -466,6 +655,25 @@ export function failDialog(msg) {
   });
 }
 
+/**
+ * 网络不允许下载时的提示。
+ *
+ * ⚠️ **不许落到 failDialog**：那条路会劝用户"去下载完整包"，而整包 20MB，
+ *    在移动网络下等于把他往同一个坑里再推一次。他的问题不是包坏了，
+ *    是当下这个网络不能下 —— 所以出口只有"连上 Wi-Fi 再来"，不给下载按钮。
+ */
+export function netHint(why) {
+  const noNet = why === 'none';
+  uni.showModal({
+    title: noNet ? '没有联网' : '请在 Wi-Fi 下更新',
+    content: noNet
+      ? '当前没有联网。连上 Wi-Fi 后回到这里，点一下就能更新。'
+      : '你现在用的是移动网络。为了不占你的流量，更新包只在 Wi-Fi 下下载 —— 连上 Wi-Fi 后回到这里就行。',
+    confirmText: '知道了',
+    showCancel: false
+  });
+}
+
 /* ---------------- 交互 ---------------- */
 
 function toast(title) {
@@ -473,33 +681,73 @@ function toast(title) {
 }
 
 /**
- * 有更新时的确认弹窗：明示版本、大小、更新说明，用户确认后才下载。
- * （合规要求：不许静默下载安装；wgt 虽小也一样。）
+ * 有更新时的确认弹窗：明示版本、大小、更新说明，用户确认后才装。
+ *
+ * 合规那条红线是**不许静默安装**：包可以在 Wi-Fi 下提前下好，但装不装必须他点头。
+ * 下载和授权是两件事，弹窗要说的也就是这两件事。
  */
 export function askUpdate(r) {
+  showAsk(r, prepareAsk(r));
+  return r;
+}
+
+/** 这个包的本地缓存路径 —— 可能是调用方带来的（pending），也可能要自己去 pending 里查 */
+function cachedPath(rm) {
+  try {
+    const p = (settings.get().update || {}).pending;
+    if (!p || !p.code || p.code !== (rm && rm.code)) return '';
+    return p.downloadPath || '';
+  } catch (e) { return ''; }
+}
+
+/**
+ * 弹窗要说的两件事：① 包下好了没（决定按钮写「立即更新」还是「下载并安装」）；
+ * ② 现在这个网络能不能下（决定要不要提前警告他"。
+ *
+ * 两个判定都必须是**同步**的：downloadPath 由 pending() 校验过（见那里），
+ * 网络走 plus.networkinfo 的同步接口 —— 这样 askUpdate 的返回值还是 r，
+ * 页面上一堆 `showResult(r)` 不用改成 await。
+ */
+function prepareAsk(r) {
+  const rm = r.remote || {};
+  const cached = !!((rm && rm.downloadPath) || cachedPath(rm));
+  const net = cached ? null : network();
+  return { cached: cached, why: net ? net.why : '' };
+}
+
+function showAsk(r, info) {
   const v = r.remote || {};
   const size = sizeText(v.size);
   const lines = [];
   lines.push('新版本 ' + v.version + (size ? '（' + size + '）' : ''));
   if (r.notes) lines.push('', r.notes);
-  lines.push('', '装完会自动重启一次，你的学习数据不受影响。');
+  lines.push('');
+  // 三种情况给的说法不一样：能不能当场装完，用户点之前就该知道
+  if (info.cached) {
+    lines.push('更新包已经下好了，点一下就装完，不用再下载。装完会自动重启一次，学习数据不受影响。');
+  } else if (info.why === 'cellular') {
+    lines.push('当前是移动网络。为了不占你的流量，更新包只在 Wi-Fi 下下载 —— 连上 Wi-Fi 回到这里就行。');
+  } else if (info.why === 'none') {
+    lines.push('当前没有联网，连上网络后回到这里就能更新。');
+  } else {
+    lines.push('需要下载更新包，建议在 Wi-Fi 下进行。装完会自动重启一次，学习数据不受影响。');
+  }
   uni.showModal({
     title: '有新版本',
     content: lines.join('\n').slice(0, 480),
-    confirmText: '立即更新',
+    confirmText: info.cached ? '立即更新' : '下载并安装',
     cancelText: '不再提示',
     success: (res) => {
       if (!res || !res.confirm) { markSkip(v.version); return; }
       runUpdate(r);
     }
   });
-  return r;
 }
 
 /** 带进度的安装流程（弹窗/loading 都在这里，页面不用各写一份） */
 export function runUpdate(r) {
   const dlg = { last: -1 };
-  try { uni.showLoading({ title: '下载更新 0%', mask: true }); } catch (e) {}
+  try { uni.showLoading({ title: '正在准备更新', mask: true }); } catch (e) {}
   const tick = (p) => {
     const n = Math.max(0, Math.min(100, Math.round(p || 0)));
     if (n === dlg.last) return;
@@ -513,6 +761,9 @@ export function runUpdate(r) {
     return true;
   }).catch((e) => {
     try { uni.hideLoading(); } catch (e) {}
+    const why = e && e.why;
+    // 网络不让下 ≠ 包坏了：这时给"去下载完整包"是害他（整包更大，一样吃流量）
+    if (why === 'cellular' || why === 'none') { netHint(why); return false; }
     failDialog((e && e.message) || '');
     return false;
   });
