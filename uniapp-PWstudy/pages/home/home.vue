@@ -167,10 +167,13 @@
                 @tap="startFor(item)"
               >
                 <!-- 勾选圈：做完就地勾掉，不用非得进 ⋯ 菜单找「标记完成」。
-                     点行仍然是"开始专注"（快路径），两者互不干扰 -->
+                     点行仍然是"开始专注"（快路径），两者互不干扰。
+                     tk-check-full = 番茄已做满但还没勾（2026-10-14 真机反馈：
+                     紧迫度按番茄算"没活了"，任务列表按勾没勾算"还有 3 条"，
+                     两边口径打架 —— 把"就差你点一下"摆到明处） -->
                 <view
                   class="tk-check"
-                  :class="{ 'tk-check-on': item.task.status === 'done' }"
+                  :class="{ 'tk-check-on': item.task.status === 'done', 'tk-check-full': fullOf(item) }"
                   @tap.stop="toggleTaskDone(item)"
                 >
                   <text v-if="item.task.status === 'done'" class="tk-tick">✓</text>
@@ -181,6 +184,7 @@
                   <view class="tk-sub">
                     {{ item.goal.title }} · 第 {{ item.task.day }} 天 · {{ item.task.donePomos }}/{{ item.task.pomos }} 番茄 · 剩 ≈ {{ item.estMin }} 分
                     <text v-if="item.overdue" class="tk-late">已超期</text>
+                    <text v-else-if="fullOf(item)" class="tk-full" @tap.stop="toggleTaskDone(item)">{{ $t('番茄已满') }}</text>
                   </view>
                 </view>
                 <!-- 点行 = 直接开始（快路径）；点这个 ⋯ = 弹出操作对话框 -->
@@ -1338,6 +1342,18 @@ export default {
         item: item
       })
     },
+    /**
+     * 番茄已做满但还没勾：列表里显示「番茄已满」待勾徽标。
+     * 为什么要有：紧迫度按番茄算（做满 = 今天没活了 → 从容），任务列表按勾没勾算
+     * （没勾 = 还挂着 3 条没完成）—— 两边口径打架，真机上用户看着"一堆活没干
+     * 却显示不急"。把"就差你点一下"摆到明处；点徽标 = 走勾选链（同勾选圈）。
+     */
+    fullOf(item) {
+      const t = item && item.task
+      if (!t || t.status !== 'todo') return false
+      const total = Number(t.pomos) || 0
+      return total > 0 && (Number(t.donePomos) || 0) >= total
+    },
     /** 就地勾选 / 取消完成：与日程表卡、日历页同一个 schedule.toggleDone 口径 */
     toggleTaskDone(item) {
       const r = schedule.toggleDone({
@@ -1966,6 +1982,18 @@ export default {
 .tk-late {
   margin-left: 10rpx;
   color: #e5484d;
+}
+/* 番茄做满还没勾：勾选圈换成绿色描边（"就差你点一下"），徽标同色系淡底 */
+.tk-check-full {
+  border-color: #3b6d11;
+  border-width: 3rpx;
+}
+.tk-full {
+  margin-left: 10rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(59, 109, 17, 0.12);
+  color: #3b6d11;
 }
 .tk-play { font-size: 26rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
 

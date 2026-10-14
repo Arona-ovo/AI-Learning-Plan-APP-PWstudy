@@ -43,7 +43,7 @@
           <text class="card-more">阶段 {{ gi + 1 }}</text>
         </view>
         <view v-for="t in group.tasks" :key="t.id" class="task" @tap="toggle(t)">
-          <view class="tk-check" :class="{ 'tk-check-on': t.status === 'done', 'tk-check-drop': t.status === 'dropped' }">
+          <view class="tk-check" :class="{ 'tk-check-on': t.status === 'done', 'tk-check-drop': t.status === 'dropped', 'tk-check-full': fullOf(t) }">
             {{ t.status === 'done' ? '✓' : '' }}
           </view>
           <view class="tk-main">
@@ -53,6 +53,9 @@
               <text v-if="slotOf(t)" class="tk-slot">{{ slotOf(t) }}</text>
               <text v-if="t.status === 'dropped'" class="tk-drop">已砍掉</text>
               <text v-else-if="t.status === 'done'" class="tk-done">已完成</text>
+              <!-- 番茄做满还没勾：与首页同一套待勾提示（点徽标 = 勾掉，走同一条完成链）。
+                   ⚠️ 这里必须用 $t 不能用 t()：v-for 的循环变量就叫 t，会遮掉 i18n 的 t -->
+              <text v-else-if="fullOf(t)" class="tk-full" @tap.stop="toggle(t)">{{ $t('番茄已满') }}</text>
             </view>
             <view v-if="t.res && t.res.length" class="tk-res">
               <text v-for="(r, ri) in t.res" :key="ri" class="tk-res-chip">📖 {{ r }}</text>
@@ -202,6 +205,15 @@ export default {
       //    （daily.vue 里四处 $forceUpdate 治的就是它）。真机上表现同样是
       //    "点了没反应，退出重进才变"。
       this.$forceUpdate && this.$forceUpdate()
+    },
+    /**
+     * 番茄已做满但还没勾（与首页 home.vue 的 fullOf 同一口径）：
+     * 紧迫度按番茄算"没活了"，这里按勾没勾算"还没完成" —— 把"就差你点一下"摆到明处。
+     */
+    fullOf(t) {
+      if (!t || t.status !== 'todo') return false
+      const total = Number(t.pomos) || 0
+      return total > 0 && (Number(t.donePomos) || 0) >= total
     },
     /** 改提醒时间（传空 = 关掉）。改完立刻重读，界面跟着变 */
     pickRemind(t) {
@@ -391,6 +403,12 @@ export default {
 }
 .tk-drop { color: #e5484d; margin-left: 8rpx; }
 .tk-done { color: #3b6d11; margin-left: 8rpx; }
+/* 番茄做满还没勾：勾选圈绿色描边 + 待勾徽标（与首页同一套） */
+.tk-check-full { border-color: #3b6d11; border-width: 3rpx; }
+.tk-full {
+  margin-left: 10rpx; padding: 2rpx 12rpx; border-radius: 999rpx;
+  background: rgba(59, 109, 17, 0.12); color: #3b6d11;
+}
 /* AI 附的学习资料建议：小字灰底胶囊，一行放不下自动换行 */
 .tk-res { margin-top: 8rpx; display: flex; flex-wrap: wrap; }
 .tk-res-chip {

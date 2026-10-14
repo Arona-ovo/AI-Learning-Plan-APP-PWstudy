@@ -953,6 +953,29 @@ function ok(cond, msg) {
     ok(/this\.remindAt = \(g && g\.remindAt\) \|\| ''/.test(gd), 'refresh 时独立字段跟库里同步');
   }
 
+  // ---- 待勾徽标「番茄已满」（2026-10-14 真机反馈）----
+  // 紧迫度按番茄算（做满 = 没活了 → 从容），任务列表按勾没勾算（没勾 = 还挂着），
+  // 两边口径打架：用户看着"一堆活没干却显示不急"。番茄做满但没勾的任务要显示待勾徽标。
+  {
+    const hm = require('fs').readFileSync(path.join(ROOT, 'pages', 'home', 'home.vue'), 'utf8');
+    const s = require('fs').readFileSync(
+      path.join(ROOT, 'pkgPlan', 'pages', 'goal-detail', 'goal-detail.vue'), 'utf8');
+    const judge = /donePomos\) \|\| 0\) >= total/.source;
+    ok(new RegExp('fullOf\\(item\\) \\{[\\s\\S]*?' + judge).test(hm),
+      '首页 fullOf 判据是 donePomos >= pomos（且仅限 todo）');
+    ok(/'tk-check-full': fullOf\(item\)/.test(hm), '首页勾选圈有 tk-check-full 待勾态');
+    ok(/fullOf\(item\)[^>]*@tap\.stop="toggleTaskDone\(item\)">\{\{ \$t\('番茄已满'\) \}\}/.test(hm.replace(/\n\s*/g, ' ')),
+      '首页徽标点了走勾选链（不是摆设）');
+    // ⚠️ 模板在 <script> 之前，两处分开断言、不要求先后顺序
+    ok(/'tk-check-full': fullOf\(t\)/.test(s), '目标详情页勾选圈同款（同一口径，别只改首页）');
+    ok(/fullOf\(t\) \{[\s\S]*?'番茄已满'[\s\S]*?$/.test(s) ||
+      (new RegExp('fullOf\\(t\\) \\{[\\s\\S]*?' + judge).test(s) && /\$t\('番茄已满'\)/.test(s)),
+      '目标详情页 fullOf 判据与徽标齐备');
+    ok(/\$t\('番茄已满'\)/.test(s), '目标详情页徽标用 $t（v-for 的 t 会遮掉 i18n 的 t）');
+    const en = require('fs').readFileSync(path.join(ROOT, 'utils', 'i18n-en.js'), 'utf8');
+    ok(/'番茄已满':/.test(en), '「番茄已满」有英文译文');
+  }
+
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('测试脚本异常:', e); process.exit(1); });

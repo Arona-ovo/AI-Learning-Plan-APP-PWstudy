@@ -884,6 +884,7 @@ export default {
   // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '番茄专注': 'Pomodoro',
+  '番茄已满': 'Pomos done',
   '今日紧迫程度': "Today's urgency",
   '今日任务': "Today's tasks",
   '进行中的目标': 'Active goal',
