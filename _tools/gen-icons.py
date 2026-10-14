@@ -19,8 +19,12 @@ sq = img.crop((left, top, left + side, top + side))
 
 ICONS_DIR = os.path.join(STATIC, 'icons')
 os.makedirs(ICONS_DIR, exist_ok=True)
-for size in (48, 72, 96, 144, 192, 1024):
+# ⚠️ static/ 整目录会原样打进安装包，而 manifest 的打包图标只要 5 档（48~192）——
+#    1024 那张 835KB 在包里是纯死重（上次 APK 实测背了它）。它只作为源图存档，
+#    输出到 assets/（uni-app 不打包该目录）。
+for size in (48, 72, 96, 144, 192):
     sq.resize((size, size), Image.LANCZOS).save(os.path.join(ICONS_DIR, 'icon-%d.png' % size))
+sq.resize((1024, 1024), Image.LANCZOS).save(os.path.join(APP, 'assets', 'icon-1024.png'))
 
 # 封面 / 头像用的吉祥物图（沿用旧文件名，cover 与 profile 无需改引用）
 mascot = sq.resize((512, 512), Image.LANCZOS)
