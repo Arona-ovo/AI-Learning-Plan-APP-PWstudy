@@ -211,14 +211,20 @@
 
     <app-dialog
       :show="dlg.show"
+      :mode="dlg.mode"
       :title="dlg.title"
       :content="dlg.content"
       :confirm-text="dlg.confirmText"
       :cancel-text="dlg.cancelText"
       :danger="dlg.danger"
+      :value="dlg.value"
+      :placeholder="dlg.placeholder"
+      :error="dlg.error"
+      :items="dlg.items"
       :seq="dlg.seq"
       @confirm="onDlgYes"
       @cancel="onDlgCancel"
+      @input="onDlgInput"
     />
   </view>
 </template>
@@ -232,6 +238,7 @@ import * as forced from '../../../utils/forced.js'
 import * as apptime from '../../../utils/apptime.js'
 import * as settings from '../../../utils/settings.js'
 import { safeNav } from '../../../utils/nav.js'
+import { t } from '../../../utils/i18n.js'
 import * as notify from '../../../utils/notify.js'
 import * as ambient from '../../../utils/ambient.js'
 import * as audio from '../../../utils/audio.js'
@@ -273,7 +280,10 @@ export default {
       // 状态条和首次引导都读它，不各算一套 —— 两边算法不一致就会出现
       // "状态条说已就绪、实际上根本拉不动"这种骗人的界面。
       forceCap: { native: false, a11y: false, overlay: false, usage: false, svc: false, svcAllowed: true, canPullBack: false, canDetect: false, effective: false },
-      dlg: { show: false, title: '', content: '', confirmText: '确定', cancelText: '取消', danger: false, seq: 0, action: '' },
+      // 统一弹窗的一份状态：confirm = 确认框，input = 带输入框（自定义时长）。
+      // 页面里所有"要先问一句"的动作都走它 —— 不再有第二套（系统 showModal 样式管不到）
+      // 「确定 / 取消」走 t()：这两个词字典里早就有译文，别再各写一份中文
+      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', items: [], seq: 0, action: '' },
       opts: { notify: true, sound: true, vibe: true, fgservice: true },
       optRows: [
         { key: 'notify', title: '通知提醒', sub: '结束后发通知，专注中在状态栏显示剩余时间' },
@@ -393,18 +403,14 @@ export default {
     }
     const cfg = pw.get().pomoCfg || {}
     if (cfg.focus && this.minutesOptions.indexOf(cfg.focus) >= 0) this.minutes = cfg.focus
-    // 从首页"开始"进来：带 auto=1 就直接起表，不用再点一次"开始"。
-    // 只认第一次进页面（onLoad），onShow 里起表会导致每次回前台都重置计时。
-    this.__auto = !!(query && (query.auto === '1' || query.auto === 1))
+    // ⚠️ 这里**没有**"带 auto=1 就直接起表"的分支（曾经有过，已删）：
+    // 从首页 / 目标详情 / 通知点进来，一律停在准备态，
+    // 让人先确认"这一轮几分钟、绑的哪个任务、开了哪些模式"，再自己按下确认。
     // 绑定了任务就用任务剩余量推荐时长（放最后：覆盖前面的默认值链）
     this.applySuggest()
   },
   onShow() {
     this.refreshToday()
-    if (this.__auto) {
-      this.__auto = false
-      if (!focus.current()) this.beginFocus()
-    }
     this.cur = focus.current()
     this.refreshRound()
     if (this.cur && this.cur.phase === 'rest') {
@@ -525,21 +531,14 @@ export default {
       strict.sync()
       forced.sync()
     },
+    /** 放弃当前番茄：走统一弹窗（以前是系统 showModal，样式跟 App 对不上） */
     confirmGiveUp() {
-      uni.showModal({
+      this.ask({
         title: '放弃这个番茄？',
         content: '满 1 分钟会按实际时长记录，但不算完成任务量。',
         confirmText: '放弃',
-        confirmColor: '#E5484D',
-        success: (r) => {
-          if (r.confirm) {
-            focus.giveUp()
-            this.cur = null
-            this.refreshToday()
-            strict.sync()
-            forced.sync()
-          }
-        }
+        danger: true,
+        action: 'give-up'
       })
     },
     startRestNow() {
@@ -585,39 +584,34 @@ export default {
       }
       this.minutes = sug
     },
-    /** 自由专注的任意时长：10-120 分钟 */
+    /**
+     * 自由专注的任意时长：10-120 分钟，走统一弹窗的 input 模式。
+     *
+     * 以前这里是 uni.showModal({ editable: true }) —— 系统原生弹窗，
+     * 圆角 / 间距 / 字号 / 按钮 / 配色 / 暗色 / 屏宽全由系统决定，CSS 一律管不到，
+     * 所以它在 App 里怎么看都像"另一个 App 的框"。换成统一弹窗后，
+     * 视觉自动跟 App.vue 里那一份 .pop-card / .dlg-input / .dlg-btn 对齐，
+     * 深浅色与安全区也跟着令牌走。
+     */
     customMinutes() {
-      uni.showModal({
+      this.ask({
+        mode: 'input',
         title: '自定义专注时长',
-        editable: true,
-        placeholderText: '输入 10-120 的分钟数',
-        success: (r) => {
-          if (!r.confirm) return
-          const n = Math.round(Number(r.content))
-          if (!(n >= 10 && n <= 120)) {
-            uni.showToast({ title: '请输入 10-120 的整数', icon: 'none' })
-            return
-          }
-          if (this.minutesOptions.indexOf(n) < 0) {
-            this.minutesOptions.push(n)
-            this.minutesOptions.sort((a, b) => a - b)
-          }
-          this.minutes = n
-        }
+        placeholder: '输入 10-120 的分钟数',
+        value: String(this.minutes || ''),
+        action: 'custom-min'
       })
     },
-    /** 运行态切音色：立即生效（空闲态走 pickNoise 只存偏好） */
+    /**
+     * 运行态切音色：立即生效（空闲态走 pickNoise 只存偏好）。
+     * 走统一菜单弹窗 —— 以前是 uni.showActionSheet，系统底部弹层的
+     * 字号 / 圆角 / 选中色 / 暗色全由系统决定，跟这套玻璃卡片对不上。
+     */
     cycleNoise() {
-      uni.showActionSheet({
-        itemList: this.noiseKinds.map(k => k.t),
-        success: (r) => {
-          const k = this.noiseKinds[r.tapIndex]
-          if (!k) return
-          this.noiseKind = k.k
-          // 走 pickNoise → syncAmbient：它自己会判断"现在是不是正在专注"，
-          // 不在专注（比如休息中）就只是存偏好、不出声（白噪音只陪专注）
-          if (this.noiseOn) this.pickNoise(k.k)
-        }
+      this.ask({
+        mode: 'sheet',
+        items: this.noiseKinds.map(k => k.t),
+        action: 'noise'
       })
     },
     /**
@@ -708,23 +702,77 @@ export default {
       this.askForced()
     },
 
-    askForced() {
+    /**
+     * 弹统一弹窗：页面里所有"要先问一句"的动作都经过它，
+     * 保证 mode / value / placeholder / error 这几个字段不会漏（漏了就是输入框不显示）。
+     * seq 每次 +1：组件用 v-if 挂载，从"确认框"切到"输入框"时不会重新挂载，靠它兜底同步。
+     */
+    ask(o) {
       this.dlg = {
         show: true,
+        mode: o.mode || 'confirm',
+        title: o.title || '',
+        content: o.content || '',
+        confirmText: o.confirmText || t('确定'),
+        cancelText: o.cancelText || t('取消'),
+        danger: !!o.danger,
+        value: o.value || '',
+        placeholder: o.placeholder || '',
+        error: '',
+        items: o.items || [],
+        seq: ((this.dlg && this.dlg.seq) || 0) + 1,
+        action: o.action || ''
+      }
+    },
+
+    askForced() {
+      this.ask({
         title: '要不要开启「离开就拉回」？',
         content: '开启后，在这个番茄跑完之前切到别的 App，PWstudy 会立刻把你拉回来；连续强行离开 3 次，本次番茄作废。它需要你再授权「无障碍」—— 安卓 10 起系统默认禁止应用从后台跳回前台，官方只给无障碍这类"由系统绑定的服务"开口子。',
         confirmText: '开启并去授权',
         cancelText: '这次不用',
-        danger: false,
-        seq: (this.dlg && this.dlg.seq || 0) + 1,
         action: 'forced-on'
-      }
+      })
     },
 
-    onDlgYes() {
+    /**
+     * 确认。载荷随 mode 变化：input → 文本，其余 → true。
+     * ⚠️ input 校验不通过时**不关弹窗**：把错误写到 dlg.error 就地提示，
+     * 让用户接着改 —— 关掉再 toast 等于让人重填一遍。
+     */
+    onDlgYes(v) {
       const act = this.dlg.action
+      if (act === 'custom-min') {
+        const n = Math.round(Number(String(v == null ? '' : v).trim()))
+        if (!(n >= 10 && n <= 120)) {
+          this.dlg.error = '请输入 10-120 的整数'
+          return
+        }
+        this.dlg.show = false
+        this.dlg.error = ''
+        if (this.minutesOptions.indexOf(n) < 0) {
+          this.minutesOptions.push(n)
+          this.minutesOptions.sort((a, b) => a - b)
+        }
+        this.minutes = n
+        return
+      }
       this.dlg.show = false
-      if (act === 'forced-on') {
+      if (act === 'give-up') {
+        focus.giveUp()
+        this.cur = null
+        this.refreshToday()
+        strict.sync()
+        forced.sync()
+      } else if (act === 'noise') {
+        // sheet 的载荷是选中项下标
+        const k = this.noiseKinds[Number(v)]
+        if (!k) return
+        this.noiseKind = k.k
+        // 走 pickNoise → syncAmbient：它自己会判断"现在是不是正在专注"，
+        // 不在专注（比如休息中）就只是存偏好、不出声（白噪音只陪专注）
+        if (this.noiseOn) this.pickNoise(k.k)
+      } else if (act === 'forced-on') {
         this.markForcedAsked()
         if (!this.forcedOn) this.toggleForced()
         else this.guideNextStep()
@@ -736,8 +784,15 @@ export default {
     onDlgCancel() {
       const act = this.dlg.action
       this.dlg.show = false
+      this.dlg.error = ''
       // 选了"这次不用"也算问过了 —— 不记住的话下一轮番茄又会弹
       if (act === 'forced-on') this.markForcedAsked()
+    },
+
+    /** 输入中：清掉上一次的报错，不然红字会一直挂着 */
+    onDlgInput(v) {
+      if (this.dlg.error) this.dlg.error = ''
+      this.dlg.value = String(v == null ? '' : v)
     },
 
     /** 记下"问过了"（选什么都记） */

@@ -313,6 +313,12 @@ uni-toast .uni-sample-toast {
 .pop-mask {
   position: fixed;
   left: 0; top: 0; right: 0; bottom: 0;
+  /* 四周留白写在**遮罩**上，不写在卡片上：屏宽/横竖屏一变，卡片不用跟着改一遍。
+     纵向额外叠安全区 —— env(safe-area-inset-bottom) 在安卓 WebView 上常常是 0，
+     所以再叠一份逻辑层算好的 --safe-bottom（utils/insets.js → theme.rootStyle() 下发），
+     否则手势条那一条会压住弹窗底部（横屏时尤其明显）。 */
+  padding: 24rpx 24rpx calc(24rpx + var(--safe-bottom, 0px) + constant(safe-area-inset-bottom));
+  padding: 24rpx 24rpx calc(24rpx + var(--safe-bottom, 0px) + env(safe-area-inset-bottom));
   background: rgba(23, 32, 26, 0.38);
   background: rgba(var(--neutral-rgb, 23, 32, 26), 0.38);
   display: flex;
@@ -323,6 +329,14 @@ uni-toast .uni-sample-toast {
 
 .pop-card {
   width: 76%;
+  /* 上限：横屏 / 分屏 / 平板上 76% 会被拉成一条横幅（rpx 只跟宽度挂钩，
+     横屏时"屏宽"变成长边，卡片相对屏高就过大了）。高度再夹一道，
+     内容顶出屏幕时自己滚 —— 以前没有这道夹，矮屏上确认按钮会被挤到屏幕外。 */
+  max-width: 640rpx;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   background: rgba(255, 255, 255, 0.82);
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
   -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));

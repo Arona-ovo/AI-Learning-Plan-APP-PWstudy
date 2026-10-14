@@ -313,7 +313,10 @@ const comp = loadCode(wizBody, {
   TEMPLATES: [],
   seedOf: () => ({ title: '', spanDays: 90, dailyMin: 60, level: '' }),
   aiGateReason: () => null,
-  FloatNavbar: {}
+  FloatNavbar: {},
+  // 依赖袋按标识符注入：wizard 页现在注册了统一弹窗组件、按钮缺省文案走 t()
+  AppDialog: {},
+  t: (s) => s
 }).default;
 const st = Object.assign({}, comp.data.call({}));
 Object.keys(comp.computed || {}).forEach(k =>

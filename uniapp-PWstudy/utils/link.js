@@ -116,8 +116,9 @@ export function handle(url) {
   }
   if (link.kind === 'goal' && link.goalId) {
     if (link.taskId) {
+      // 不带 auto=1：进准备页让人确认时长（起表只由准备页那颗确认按钮负责）
       uni.navigateTo({
-        url: '/pkgPlan/pages/focus/focus?auto=1&taskId=' + link.taskId +
+        url: '/pkgPlan/pages/focus/focus?taskId=' + link.taskId +
              '&goalId=' + link.goalId + '&title=' + enc(link.params.title || '任务')
       });
     } else {
@@ -127,7 +128,7 @@ export function handle(url) {
   }
   if (link.kind === 'focus' && link.taskId) {
     uni.navigateTo({
-      url: '/pkgPlan/pages/focus/focus?auto=1&taskId=' + link.taskId +
+      url: '/pkgPlan/pages/focus/focus?taskId=' + link.taskId +
            '&goalId=' + link.goalId + '&title=' + enc(link.params.title || '任务')
     });
     return true;

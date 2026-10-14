@@ -148,7 +148,7 @@ function eq(a, b, label) {
     '点番茄卡只进专注页（卡片本身不带 auto=1）');
   assert(/class="fc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(tpl),
     '「开始」按钮是独立入口，且 stop 掉冒泡（不会顺带触发卡片跳转）');
-  assert(/点「开始」直接专注/.test(tpl), '副标题点明"要开始就点「开始」"');
+  assert(/点「开始」先确认时长/.test(tpl), '副标题点明"「开始」是去确认时长，不是直接起表"');
 
   assert(/<urgency-meter/.test(tpl), '紧迫度卡渲染 urgency-meter 组件');
   assert(/@help="explainUrgency"/.test(tpl), '紧迫度卡：? 按钮接出说明弹窗');
@@ -190,20 +190,27 @@ function eq(a, b, label) {
   // 计时驱动与生命周期：onShow 起、onHide 停（切页不空转）
   ['refresh', 'goFocus', 'togglePause', 'confirmGiveUp', 'startTick', 'stopTick', 'syncLayout']
     .forEach(m => assert(new RegExp('\\b' + m + '\\s*\\(').test(sc), 'method ' + m));
-  // 起表入口收窄：auto=1 只能由 quickStart 下发。
+  // 起表入口收窄（2026-10-14 再收一级）：**任何入口都不许直接起表**。
+  // 以前 goFocus 不带 auto、quickStart 带 auto=1 —— 后者让人"一点开始就进倒计时"，
+  // 连"这轮几分钟、绑的哪个任务"都没看清。现在两个入口同一落点：进准备页，
+  // 由准备页那颗确认按钮起表。所以这里守的是"链接里不许出现起表标记"。
   // 先切出函数体再匹配（无界的 /key[\s\S]*?x/ 会跨到后面别的方法里命中同名代码 → 假绿）
   const body = (sig) => {
     const i = sc.indexOf(sig);
     return i < 0 ? '' : sc.slice(i, sc.indexOf('\n    }', i));
   };
-  const bUrl = body('focusUrl(auto) {');
+  const bUrl = body('focusUrl() {');
   const bGo = body('goFocus() {');
   const bQuick = body('quickStart() {');
-  assert(bUrl && /if \(auto\) q\.push\('auto=1'\)/.test(bUrl), 'auto=1 只在 focusUrl(true) 时拼上');
-  assert(/focusUrl\(false\)/.test(bGo), 'goFocus 不带 auto（点卡片不开始）');
-  assert(/focusUrl\(true\)/.test(bQuick), 'quickStart 才带 auto（点「开始」直接起表）');
-  assert(/if \(this\.cur\)[\s\S]{0,60}goFocus\(\)/.test(bQuick),
-    '已有番茄在跑时，「开始」不重复起表（只进页面）');
+  assert(bUrl && !/auto/.test(bUrl), 'focusUrl 不带任何 auto 起表参数');
+  assert(bGo && /navigateTo\(\{ url: this\.focusUrl\(\) \}\)/.test(bGo),
+    'goFocus 只进准备页（不带起表参数）');
+  assert(bQuick && /this\.goFocus\(\)/.test(bQuick) && !/auto/.test(bQuick),
+    'quickStart 与点卡片同一落点（进准备页，不直接起表）');
+  // 全页不许再出现 auto=1：目标详情 / 通知深链（utils/link.js）也都得走准备页。
+  // 先剥注释再扫 —— 注释里要写清楚"为什么没有 auto=1"，不剥会被自己的注释命中。
+  assert(!/auto=1/.test(sc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')),
+    'home.vue 里没有任何 auto=1 跳转');
 
   assert(/onShow\s*\(\)\s*\{[\s\S]*?this\.refresh\(\)/.test(sc), 'onShow 刷新');
   assert(/onHide\s*\(\)\s*\{[\s\S]*?stopTick\(\)/.test(sc), 'onHide 停掉每秒轮询');

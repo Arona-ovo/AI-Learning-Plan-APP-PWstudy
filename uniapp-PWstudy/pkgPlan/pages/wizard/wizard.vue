@@ -287,6 +287,22 @@
         <button class="btn-ghost pv-btn" :disabled="task.running" @tap="doRegenerate">{{ task.running ? '生成中…' : '不补充，原样重新生成' }}</button>
       </view>
     </view>
+
+    <app-dialog
+      :show="dlg.show"
+      :mode="dlg.mode"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :cancel-text="dlg.cancelText"
+      :danger="dlg.danger"
+      :value="dlg.value"
+      :placeholder="dlg.placeholder"
+      :error="dlg.error"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="onDlgCancel"
+    />
   </view>
 </template>
 
@@ -299,10 +315,12 @@ import * as holiday from '../../../utils/holiday.js'
 import * as reminder from '../../../utils/reminder.js'
 import * as timeslot from '../../../utils/timeslot.js'
 import { aiGateReason } from '../../../services/config.js'
+import { t } from '../../../utils/i18n.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       stage: 'form',                 // form | chat | result
@@ -333,7 +351,9 @@ export default {
       picked: {},
       fold: {},          // 结果页阶段卡的折叠状态（见 folded()：默认只展开第一个阶段）
       error: '',
-      aiReady: true
+      aiReady: true,
+      // 统一弹窗（确认框）：页面里"要先问一句"的动作都走它，不再调系统 showModal
+      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', seq: 0, action: '' }
     }
   },
   computed: {
@@ -702,21 +722,46 @@ export default {
      * 以前没有这个出口：问到一半改主意、或者生成失败卡在对话页，只能杀进程重进。
      */
     doAbandon() {
-      uni.showModal({
+      this.ask({
         title: '放弃这次规划？',
         content: '这段对话会清掉，回到最开始重新填目标（已填的内容还在）。',
         confirmText: '放弃',
-        confirmColor: '#E5484D',
-        success: (r) => {
-          if (!r.confirm) return
-          planTask.abandon()
-          this.plan = null
-          this.picked = {}
-          this.messages = []
-          this.error = ''
-          this.stage = 'form'
-        }
+        danger: true,
+        action: 'abandon'
       })
+    },
+
+    /** 弹统一弹窗：页面里"要先问一句"的动作都走它，不再调系统 showModal */
+    ask(o) {
+      this.dlg = {
+        show: true,
+        mode: o.mode || 'confirm',
+        title: o.title || '',
+        content: o.content || '',
+        confirmText: o.confirmText || t('确定'),
+        cancelText: o.cancelText || t('取消'),
+        danger: !!o.danger,
+        value: o.value || '',
+        placeholder: o.placeholder || '',
+        error: '',
+        seq: ((this.dlg && this.dlg.seq) || 0) + 1,
+        action: o.action || ''
+      }
+    },
+    onDlgYes() {
+      const act = this.dlg.action
+      this.dlg.show = false
+      if (act === 'abandon') {
+        planTask.abandon()
+        this.plan = null
+        this.picked = {}
+        this.messages = []
+        this.error = ''
+        this.stage = 'form'
+      }
+    },
+    onDlgCancel() {
+      this.dlg.show = false
     },
 
     // ---------- 落地 ----------

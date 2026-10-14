@@ -10,8 +10,10 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', 'uniapp-PWstudy');
-// 主包 + 两个分包的页面目录（页面物理位置随 pages.json 的 subPackages）
-const PAGES_DIRS = ['pages', 'pkgStudy/pages', 'pkgManage/pages'].map(d => path.join(ROOT, d));
+// 主包 + 三个分包的页面目录（页面物理位置随 pages.json 的 subPackages）。
+// ⚠️ pkgPlan 以前漏在这儿 —— 番茄专注 / 目标详情 / 规划向导三页的
+//    uni.showModal 因此长期没被守到（2026-10-14「自定义时长那个框没适配」就是漏网的）。
+const PAGES_DIRS = ['pages', 'pkgPlan/pages', 'pkgStudy/pages', 'pkgManage/pages'].map(d => path.join(ROOT, d));
 const PAGES = PAGES_DIRS[0]; // 兼容下方少量单文件拼接（book-switch 在 pkgManage）
 function walkPages(ext) {
   const out = [];
@@ -144,6 +146,60 @@ archived.length = 0;
 comp.methods.confirmArchive.call(vm, { id: 'g-2', title: '另一个目标' });
 vm.dlg.show = false;
 eq(archived.length, 0, '取消 → 不归档');
+
+console.log('== 10. 尺寸 / 安全区适配 ==');
+// 弹窗是唯一"浮在页面之上"的窗体，屏宽 / 横竖屏 / 手势条都得自己兜住：
+// 竖屏看着没事的代码，横屏（rpx 跟着长边走）和平板上会把卡片拉成横幅、把按钮顶出屏幕。
+const block = (src, sel) => (new RegExp('\\' + sel + ' \\{[\\s\\S]*?\\}').exec(src) || [])[0] || '';
+const cardCss = block(app, '.pop-card');
+const maskCss = block(app, '.pop-mask');
+const sheetCss = block(dlg, '.dlg-sheet');
+assert(/max-width:/.test(cardCss), '.pop-card 有宽度上限（横屏/平板不被拉成横幅）');
+assert(/max-height:/.test(cardCss), '.pop-card 有高度上限（矮屏/横屏内容不顶出屏幕）');
+assert(/overflow-y:\s*auto/.test(cardCss), '.pop-card 超高时自己滚');
+assert(/safe-area-inset-bottom/.test(maskCss), '.pop-mask 留了底部安全区（手势条）');
+assert(/var\(--safe-bottom/.test(maskCss),
+  '.pop-mask 叠了 --safe-bottom（安卓 WebView 的 env 常为 0，只写 env 等于没写）');
+assert(/max-height:/.test(sheetCss), '.dlg-sheet 有高度上限（菜单项多了不顶出屏幕）');
+assert(/overflow-y:\s*auto/.test(sheetCss), '.dlg-sheet 项多了自己滚');
+
+console.log('== 11. 番茄页「自定义时长」走统一弹窗（真实执行） ==');
+// 以前这是 uni.showModal({ editable: true })：系统原生弹窗，CSS 一律管不到，
+// 所以圆角 / 字号 / 按钮 / 暗色 / 屏宽全都跟 App 对不上。现在必须是 input 模式。
+// ⚠️ focus.vue 只 import utils / components。utils 那批只有真正被调用的方法才需要，
+//    这里只跑 customMinutes / onDlgYes / onDlgInput，碰不到 pw / focus / audio…；
+//    components 是对象字面量里直接引用的标识符，不注入会 ReferenceError。
+const fRaw = read(path.join(ROOT, 'pkgPlan', 'pages', 'focus', 'focus.vue'));
+const fScript = (/<script[^>]*>([\s\S]*?)<\/script>/.exec(fRaw) || [])[1] || '';
+const fComp = loadCode(fScript, {
+  FloatNavbar: { name: 'FloatNavbar' },
+  AppDialog: { name: 'AppDialog' },
+  // 弹窗按钮的缺省文案走 t('确定') / t('取消')，ask() 里要真调它
+  t: (s) => s
+}, 'focus.vue').default;
+const fvm = Object.assign({}, fComp.data ? fComp.data() : {}, fComp.methods || {});
+
+assert(typeof fComp.methods.customMinutes === 'function', 'customMinutes 存在');
+fComp.methods.customMinutes.call(fvm);
+eq(fvm.dlg.show, true, '点「自定义」弹出统一弹窗');
+eq(fvm.dlg.mode, 'input', '是 input 模式（不是系统原生 showModal）');
+eq(fvm.dlg.placeholder, '输入 10-120 的分钟数', '占位文案沿用原文案');
+
+// 越界：不关弹窗、不落值、就地报错 —— 关掉再 toast 等于让人重填一遍
+fComp.methods.onDlgYes.call(fvm, '7');
+eq(fvm.dlg.show, true, '7 分钟越界 → 弹窗不关');
+assert(/10-120/.test(fvm.dlg.error), '越界时 dlg.error 就地提示');
+eq(fvm.minutes, 25, '越界不改 minutes');
+
+// 重新输入要把红字清掉，不然报错会一直挂着
+fComp.methods.onDlgInput.call(fvm, '50');
+eq(fvm.dlg.error, '', '重新输入时清掉报错');
+
+// 合法：落时长、进选项
+fComp.methods.onDlgYes.call(fvm, '50');
+eq(fvm.dlg.show, false, '50 分钟 → 弹窗关闭');
+eq(fvm.minutes, 50, 'minutes = 50');
+assert(fvm.minutesOptions.indexOf(50) >= 0, '50 进了时长选项（下次能直接选）');
 
 console.log('');
 console.log(fail === 0 ? '统一弹窗校验全部通过 ✓' : '失败 ' + fail + ' 项 ✗');

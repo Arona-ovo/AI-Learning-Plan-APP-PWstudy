@@ -209,8 +209,12 @@ export default {
 /* 操作菜单 */
 .dlg-sheet {
   margin-top: 26rpx;
+  /* 菜单项多了（或横屏屏高不够）不许把整张卡顶出屏幕：夹到 5 项多一点的高度，
+     超出的自己滚。overflow 同时负责圆角裁剪，所以是 hidden + auto 成对写。 */
+  max-height: 540rpx;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: 20rpx;
-  overflow: hidden;
   border: 2rpx solid rgba(23, 32, 26, 0.07);
   border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.07));
 }

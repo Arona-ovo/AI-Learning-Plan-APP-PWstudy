@@ -96,6 +96,22 @@
         </view>
       </view>
     </view>
+
+    <app-dialog
+      :show="dlg.show"
+      :mode="dlg.mode"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :cancel-text="dlg.cancelText"
+      :danger="dlg.danger"
+      :value="dlg.value"
+      :placeholder="dlg.placeholder"
+      :error="dlg.error"
+      :seq="dlg.seq"
+      @confirm="onDlgYes"
+      @cancel="onDlgCancel"
+    />
   </view>
 </template>
 
@@ -106,17 +122,22 @@ import * as link from '../../../utils/link.js'
 import * as pacing from '../../../utils/pacing.js'
 import * as reminder from '../../../utils/reminder.js'
 import * as timeslot from '../../../utils/timeslot.js'
+import { t } from '../../../utils/i18n.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       id: '', g: null,
       remindTimes: reminder.TIMES,
       slotOn: timeslot.enabled(),
       guideOpen: false, guideLoading: false, guideError: '',
-      guideTask: null, guide: null, guideFromCache: false
+      guideTask: null, guide: null, guideFromCache: false,
+      // 统一弹窗（确认框）：页面里"要先问一句"的动作都走它，不再调系统 showModal
+      dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', seq: 0, action: '' },
+      dropTarget: null
     }
   },
   computed: {
@@ -217,19 +238,49 @@ export default {
       }
       this.guideOpen = false
     },
+    /** 砍掉任务：走统一弹窗（以前是系统 showModal，样式跟 App 对不上） */
     askDrop(t) {
-      uni.showModal({
+      this.dropTarget = t
+      this.ask({
         title: '砍掉这个任务？',
         content: t.title,
         confirmText: '砍掉',
-        confirmColor: '#E5484D',
-        success: (r) => {
-          if (r.confirm) {
-            pw.setTaskStatus(this.id, t.id, 'dropped')
-            this.refresh()
-          }
-        }
+        danger: true,
+        action: 'drop'
       })
+    },
+
+    /** 弹统一弹窗：所有确认动作的唯一入口（seq 每次 +1，切模式时也能同步） */
+    ask(o) {
+      this.dlg = {
+        show: true,
+        mode: o.mode || 'confirm',
+        title: o.title || '',
+        content: o.content || '',
+        confirmText: o.confirmText || t('确定'),
+        cancelText: o.cancelText || t('取消'),
+        danger: !!o.danger,
+        value: o.value || '',
+        placeholder: o.placeholder || '',
+        error: '',
+        seq: ((this.dlg && this.dlg.seq) || 0) + 1,
+        action: o.action || ''
+      }
+    },
+    onDlgYes() {
+      const act = this.dlg.action
+      this.dlg.show = false
+      if (act === 'drop') {
+        const t = this.dropTarget
+        this.dropTarget = null
+        if (!t) return
+        pw.setTaskStatus(this.id, t.id, 'dropped')
+        this.refresh()
+      }
+    },
+    onDlgCancel() {
+      this.dlg.show = false
+      this.dropTarget = null
     },
     goReplan() {
       uni.navigateTo({ url: '/pkgPlan/pages/replan/replan?id=' + this.id })
@@ -238,12 +289,12 @@ export default {
       const q = pw.todayQueue(99).filter(x => x.goal.id === this.id)
       if (q.length) {
         uni.navigateTo({
-          url: '/pkgPlan/pages/focus/focus?auto=1&taskId=' + q[0].task.id +
+          url: '/pkgPlan/pages/focus/focus?taskId=' + q[0].task.id +
                '&goalId=' + this.id +
                '&title=' + encodeURIComponent(q[0].task.title)
         })
       } else {
-        uni.navigateTo({ url: '/pkgPlan/pages/focus/focus?auto=1' })
+        uni.navigateTo({ url: '/pkgPlan/pages/focus/focus' })
       }
     }
   },

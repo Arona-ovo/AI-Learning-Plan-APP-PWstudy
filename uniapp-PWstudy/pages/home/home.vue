@@ -102,8 +102,10 @@
           </view>
 
           <!-- 番茄钟状态卡：和其它卡一样按注册表显隐（以前这张是硬写的，收纳不生效） -->
-          <!-- 点卡片 = 进专注页（**不**自动开始，先看看 / 调设置 / 改时长）；
-               要马上开始就点右边的「开始」—— 只有那一个入口会直接起表。 -->
+          <!-- 点卡片 = 进专注页的准备态（**不**自动开始，先看看 / 调设置 / 改时长）；
+               点右边的「开始」也是同一个落点 —— 起表前必须先让人看清
+               "这一轮是几分钟、绑的哪个任务、开了哪些模式"，再自己按下确认。
+               以前「开始」会直接起表，用户等于被拽进倒计时，连改时长的机会都没有。 -->
           <view v-if="id === 'focus'" class="card focus-card" @tap="goFocus()">
             <view class="fc-main">
               <view class="fc-ring" :class="{ 'fc-ring-run': running }">
@@ -111,7 +113,7 @@
               </view>
               <view class="fc-info">
                 <view class="fc-title">{{ running ? (cur.phase === 'rest' ? '休息中' : '专注中') : '今日专注' }}</view>
-                <view class="fc-sub">{{ running ? cur.taskTitle : (todayPomo + ' 个番茄 · 点「开始」直接专注') }}</view>
+                <view class="fc-sub">{{ running ? cur.taskTitle : (todayPomo + ' 个番茄 · 点「开始」先确认时长') }}</view>
               </view>
               <view class="fc-go" @tap.stop="quickStart()">{{ running ? '继续' : '开始' }}</view>
             </view>
@@ -1251,7 +1253,7 @@ export default {
         return
       }
       uni.navigateTo({
-        url: '/pkgPlan/pages/focus/focus?auto=1&taskId=' + item.task.id +
+        url: '/pkgPlan/pages/focus/focus?taskId=' + item.task.id +
              '&goalId=' + item.goal.id +
              '&title=' + encodeURIComponent(item.task.title)
       })
@@ -1261,11 +1263,13 @@ export default {
      * 默认绑当天第一个没做完的任务：首页的"开始"应该接着计划走，
      * 而不是每次都是游离于计划之外的自由专注（想自由去专注页自己选）。
      * 推荐时长由专注页按任务剩余量算（见 focus.applySuggest）。
-     * @param {boolean} auto true = 进页面就直接起表（否则只打开页面，不动）
+     *
+     * ⚠️ 这里**不拼任何"进页面就起表"的标记**（以前有个 auto=1）。
+     * 起表是有成本的动作：首页立刻被硬控、严格模式开始记账、强制模式开始拦截。
+     * 让人先在准备态看清时长与配置、自己按下确认，才谈得上"这一轮是我决定的"。
      */
-    focusUrl(auto) {
+    focusUrl() {
       const q = []
-      if (auto) q.push('auto=1')
       try {
         const first = pw.todayQueue(1)[0]
         if (first) {
@@ -1277,18 +1281,20 @@ export default {
       return '/pkgPlan/pages/focus/focus' + (q.length ? '?' + q.join('&') : '')
     },
     /**
-     * 点番茄卡 / 计时环 = 进专注页，**不自动开始**。
+     * 点番茄卡 / 计时环 = 进专注页的准备态，**不自动开始**。
      * 计时是件有成本的事（起表后首页被硬控、严格模式开始记账），
      * 不能因为手指落在卡片空白处就莫名其妙开始一轮。
      */
     goFocus() {
-      uni.navigateTo({ url: this.focusUrl(false) })
+      uni.navigateTo({ url: this.focusUrl() })
     },
-    /** 卡片上的「开始」按钮：唯一一个直接起表的入口 */
+    /**
+     * 卡片上的「开始」按钮：与点卡片同一个落点 —— 进准备页，**不直接起表**。
+     *（2026-10-14 真机反馈："一点开始就直接倒计时了，我还没看清是几分钟"。）
+     * 计时逻辑本身没动，收窄的只是入口：起表仍然只有准备页那颗确认按钮。
+     */
     quickStart() {
-      // 已经有番茄在跑：进页面接着看，不能又起一个
-      if (this.cur) { this.goFocus(); return }
-      uni.navigateTo({ url: this.focusUrl(true) })
+      this.goFocus()
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
     taskMenu(item) {
