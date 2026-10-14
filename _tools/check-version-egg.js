@@ -33,12 +33,14 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
   assert(!!info && typeof info.version === 'string', 'data/build-info.js 导出了 BUILD_INFO.version');
   // 别写死具体版本号 —— 发一次版就要改一次脚本（1.0 Beta → 1.0.1 时就踩了）。
   // 格式才是要盯的：utils/updater.js 靠 x.y.z 算 code 来比新旧，写成别的新旧就判不出来。
-  // 允许 beta / rc 之类的后缀：updater 的 parseVersion 只取前两段数字算 code，
-  // '1.1beta' 照样比得出新旧（= 10100），硬卡 x.y.z 是把能用的版本号判成违规。
-  // 代价：publish-wgt --bump 抬不动带后缀的版本，得用 --ver 手填 —— 那是发布
-  // 脚本的约定，不在这里拦。
-  assert(/^\d+\.\d+(\.\d+)?([ .-]?[A-Za-z][A-Za-z0-9]*)?$/.test(String(info.version || '')),
-    '版本号以 x.y[.z] 开头（' + info.version + '）—— updater 靠它算大小比新旧');
+  //
+  // ★ 2026-10-14 起**不再允许 beta / rc 后缀**：updater 的 parseVersion 确实吃得下
+  //   '1.1beta'（只取前两段算 10100），但 publish-wgt --bump 抬不动它 —— 会被当成
+  //   x.y.0 抬成 x.y.1，然后**写回** manifest / build-info / _vocab 三处，
+  //   把填在云打包界面上的名字顶掉。后缀是"版本号被偷偷全改"的入口，所以在这里
+  //   直接判违规。我们的版本号从 1.3.1 起一律 x.y.z。
+  assert(/^\d+\.\d+\.\d+$/.test(String(info.version || '')),
+    '版本号是严格三段式 x.y.z（' + info.version + '）—— 带 beta/rc 后缀会被 publish-wgt 抬错');
 
   // manifest 是严格 JSON（HBuilderX 会重写它），别加注释
   const mf = JSON.parse(R('manifest.json'));
@@ -171,6 +173,36 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
     for (let i = 0; i < taps * 2; i++) tap(win + 100);
     eq(ctx.opened, 0, '每下都超出窗口时不会误开奖');
   }
+
+  console.log('== 9. 发布脚本不许替版本号做主 ==');
+  // 这段守的是 2026-10-14 那次事故：`--bump` 认不出 `1.3beta`，用宽松解析当成
+  // `1.3.0` 抬成 `1.3.1`，再写回 manifest / build-info / _vocab 三处 ——
+  // 用户在云打包界面填的名字就此失联，而脚本一路绿着跑完，日志上看不出任何异常。
+  // 认不出来就该 fail 让人明确输入，松一次就够把版本号整个改掉。
+  const PWREL = path.join(__dirname, 'publish-wgt.js');
+  const pwRaw = fs.readFileSync(PWREL, 'utf8');
+  const pw = pwRaw.replace(/^\s*\/\/.*$/gm, '');   // 先剥整行注释，注释里的话不算数
+  // ⚠️ 仓库是 CRLF，正则里的换行**必须**写成 \r?\n —— 光写 \n 一条都抽不到（第 17 条硬约束）
+  const bumpBody = (pw.match(/if \(has\('--bump'\)\) \{\r?\n([\s\S]*?)\r?\n\}/) || [])[1];
+  assert(!!bumpBody, '抽得到 publish-wgt.js 的 --bump 分支');
+  if (bumpBody) {
+    // looseVer 出现在报错润色里是允许的（猜个值把话说清楚）；被禁的是**拿它算版本号**
+    assert(/const cur = parseVer\(from\);/.test(bumpBody), '--bump 的版本来源只有严格的 parseVer');
+    assert(!/const cur = [^;]*looseVer/.test(bumpBody), '不拿 looseVer 猜出来的数当当前版本');
+    assert(/fail\(/.test(bumpBody), '认不出来就 fail，不替用户猜');
+    assert(!/ver = strVer\([^)]*looseVer/.test(bumpBody), 'looseVer 的结果不会写进目标版本号');
+  }
+  // looseVer 只能拿去润色报错文案，绝不许参与算版本号
+  assert(!/looseVer\([^)]*\)[\s\S]{0,120}?strVer/.test(pw),
+    '不会拿 looseVer 的结果去拼版本号');
+  assert(!/parseVer\([^)]*\)\s*\|\|\s*looseVer/.test(pw),
+    '没有 parseVer(...) || looseVer(...) 这种静默回退');
+  // 改版本号的写回目标得还在（少改一处，下次生成语料就把版本退回去了）
+  assert(/MANIFEST/.test(pw) && /BUILD_INFO/.test(pw) && /VOCAB_BUILD/.test(pw),
+    '三处同步的写回目标都还在（manifest / build-info / _vocab）');
+  // 产物命名规则没被顺手改掉：客户端只认 PWstudy-<版本>-n<基线>.wgt
+  assert(/'PWstudy-' \+ ver \+ '-n' \+ nativeCode \+ '\.wgt'/.test(pw),
+    'wgt 文件名仍是 PWstudy-<版本>-n<基线>.wgt');
 
   console.log(fail ? '\n失败 ' + fail + ' 项 ✗' : '\n版本号与彩蛋全部通过 ✓');
   process.exit(fail ? 1 : 0);

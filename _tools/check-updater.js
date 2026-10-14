@@ -528,14 +528,20 @@ assert(/RELEASE_URL/.test(pub), '打完打印上传指引');
 // 断言**调用点**（只断言函数存在的话，把调用删了照样绿）
 assert(/alignInnerVersion\(entries, ver, nativeCode\)/.test(pub), '打 wgt 时对齐包内版本');
 assert(/readZipEntry\(outPath, 'manifest\.json'\)/.test(pub), '打完把包内 manifest.json 读回来自验');
-// --no-sync：整包与热更包不在同一条编号线上时（整包叫 1.1beta、热更走 1.1.1），
-// 脚本不许顺手把源码版本抬走 —— 抬了 manifest 就跟云打包界面填的对不上
+// --no-sync：整包与热更包不在同一条编号线上时，脚本不许顺手把源码版本抬走
+// —— 抬了 manifest 就跟你在云打包界面填的对不上
 assert(/--no-sync/.test(pub), '支持 --no-sync（整包与 wgt 不同号时用）');
 assert(/!has\('--no-sync'\)/.test(pub), '同步源码版本那段真的被 --no-sync 挡住');
-// --bump 的坑：manifest 里写 `1.1beta` 时严格解析返回 null。**静默回退到 1.0.0**
-// 就会打出 1.0.1 这种比当前还旧的包 —— 客户端判定"已是最新"，用户永远收不到更新，
-// 而且日志上一切正常（最难查的那类 bug）。断言**调用点**，只断言函数存在会被绕过
-assert(/parseVer\(from\) \|\| looseVer\(from\)/.test(pub), '--bump 拿宽松解析兜底（1.1beta 也认）');
+// --bump 的两代坑（都在同一个位置上，别再改回去）：
+//   ① 早期怕它**静默回退到 1.0.0**，打出 1.0.1 这种比当前还旧的包 —— 客户端判定
+//      "已是最新"，用户永远收不到更新，日志还一切正常。
+//   ② 2026-10-14：改成用宽松解析兜底之后，`1.3beta` 被当成 `1.3.0` 抬成 `1.3.1`，
+//      再**写回** manifest / build-info / _vocab 三处 —— 填在云打包界面的名字被顶掉。
+//      结论：版本号只能认严格的 x.y.z，认不出就 fail 让人明确输入，绝不替他猜。
+// 断言**调用点**，只断言函数存在会被绕过
+assert(/const cur = parseVer\(from\);/.test(pub), '--bump 的版本来源是严格的 parseVer');
+assert(!/parseVer\(from\) \|\| looseVer\(from\)/.test(pub), '--bump 不拿宽松解析兜底（会把版本写成另一个）');
+assert(!/const cur = [^;]*looseVer/.test(pub), '--bump 不拿 looseVer 的猜测当当前版本');
 assert(!/\{ a: 1, b: 0, c: 0 \}/.test(pub), '--bump 不许静默回退到 1.0.0（会打出更旧的包）');
 assert(/if \(!cur\)[\s\S]{0,120}fail\(/.test(pub), '--bump 认不出版本号就报错，不自己猜');
 

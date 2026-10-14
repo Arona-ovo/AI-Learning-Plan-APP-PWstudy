@@ -89,11 +89,14 @@ const cases = [
   ['--no-sync 挡不住同步（wgt 一号把源码版本抬走，跟打包界面填的对不上）', PUB,
     s => s.replace("if (!has('--no-sync') && (has('--bump') || val('--ver'))) {",
       "if (has('--bump') || val('--ver')) {")],
-  ['--bump 认不出 1.1beta（退回 1.0.1，打出比当前还旧的包）', PUB,
-    s => s.replace('const cur = parseVer(from) || looseVer(from);', 'const cur = parseVer(from);')],
+  // 2026-10-14 起 --bump 只认严格的 x.y.z：宽松兜底会把 `1.3beta` 当成 `1.3.0`
+  // 抬成 `1.3.1`，再写回源码三处，把云打包界面填的名字顶掉。所以"改回兜底"现在是坏的。
+  ['--bump 又用宽松解析兜底（带后缀的版本会被写成另一个）', PUB,
+    s => s.replace('const cur = parseVer(from);', 'const cur = parseVer(from) || looseVer(from);')],
+  ['--bump 直接拿 looseVer 的猜测当当前版本', PUB,
+    s => s.replace('const cur = parseVer(from);', 'const cur = looseVer(from);')],
   ['--bump 认不出版本号时自己猜一个（不报错）', PUB,
-    s => s.replace("fail('认不出版本号「' + from + '」，--bump 没法往下抬 —— 请显式给 --ver 1.1.1');",
-      "cur = { a: 1, b: 0, c: 0 };")],
+    s => s.replace("fail('版本号「' + from + '」不是 x.y.z", "cur = { a: 1, b: 0, c: 0 }; //")],
   ['下载失败被吞掉（静默）', 'utils/updater.js',
     s => s.replace('fail: (e) => reject(new Error((e && e.errMsg) || \'下载失败\'))', "fail: (e) => resolve('/tmp/x.wgt')")],
   ['默认不自检（功能等于没有）', 'utils/settings.js',
