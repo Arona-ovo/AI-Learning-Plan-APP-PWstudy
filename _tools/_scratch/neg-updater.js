@@ -15,6 +15,7 @@ const CHECK = path.join(ROOT, '_tools', 'check-updater.js');
 const FILES = [
   'utils/updater.js',
   'utils/settings.js',
+  'manifest.json',
   'App.vue',
   'pkgManage/pages/settings/settings.vue',
   'pages/home/home.vue',
@@ -139,6 +140,12 @@ const cases = [
       'if (false) {')],
   ['App.vue 不挂 watchWifi（连上 Wi-Fi 也不会补下载）', 'App.vue',
     s => s.replace(/try \{ updater\.watchWifi\(\) \} catch \(e\) \{\}/, '')],
+  // 没有这条权限，plus.networkinfo 只能返回 unknown，而 unknown 是放行的
+  // —— 移动网络照样下，功能等于没做，而且日志上一片安静
+  ['manifest 没有 ACCESS_NETWORK_STATE（门禁读不出蜂窝网，形同虚设）', 'manifest.json',
+    // 要连开头的引号一起删 —— 只删半截会在数组里留下一个未闭合的字符串，
+    // check-updater 会在 JSON.parse 处**崩掉**而不是报红（那就成了假绿：看着"被抓到"了）
+    s => s.replace('"<uses-permission android:name=\\"android.permission.ACCESS_NETWORK_STATE\\"/>",', '')],
 
   ['下载失败被吞掉（静默）', 'utils/updater.js',
     s => s.replace('fail: (e) => reject(new Error((e && e.errMsg) || \'下载失败\'))', "fail: (e) => resolve('/tmp/x.wgt')")],

@@ -843,6 +843,15 @@ assert(!!pd && /clearDownloadPath/.test(pd), '失效的路径被清掉，不是�
 // ⑩ App.vue 得把监听挂上 —— 自检一天只有一次，连上 Wi-Fi 才是最该下包的时刻
 assert(/updater\.watchWifi\(\)/.test(R('App.vue')), 'App.vue 挂了 watchWifi');
 
+// ⑪ 门禁的**前提权限**：没有 ACCESS_NETWORK_STATE，plus.networkinfo 只能读出
+//    unknown，而 unknown 是放行的 —— 移动网络照样下，整个功能等于没做，
+//    而且日志上一片安静，最难查的那类 bug。
+const mf = JSON.parse(R('manifest.json'));
+const perms = ((((mf['app-plus'] || {}).distribute || {}).android || {}).permissions) || [];
+assert(perms.some(p => /ACCESS_NETWORK_STATE/.test(String(p))),
+  'manifest 声明了 ACCESS_NETWORK_STATE（没有它网络类型只能读出 unknown）');
+assert(perms.some(p => /android\.permission\.INTERNET/.test(String(p))), '有联网权限');
+
 main().then(() => {
   console.log(fail === 0 ? '\n热更新校验全部通过' : '\n失败 ' + fail + ' 项 ✗');
   process.exit(fail ? 1 : 0);

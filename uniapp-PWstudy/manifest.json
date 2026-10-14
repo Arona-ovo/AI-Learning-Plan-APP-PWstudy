@@ -31,6 +31,7 @@
             "android" : {
                 "permissions" : [
                     "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.PACKAGE_USAGE_STATS\"/>",
                     "<uses-permission android:name=\"android.permission.QUERY_ALL_PACKAGES\"/>",
                     "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
