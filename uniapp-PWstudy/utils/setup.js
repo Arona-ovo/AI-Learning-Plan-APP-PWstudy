@@ -13,8 +13,14 @@
 // 第 ⑤ 项（自启动 / 后台运行）各厂商入口不统一，只能跳到本应用详情页让用户自己开，
 // 所以它是"建议"而不是"必须" —— 不完成也算过。
 //
-// 这里只做两件事：给出每项当前是否满足（check），以及点一下去哪修（fix）。
-// 真正的"有没有提醒过"记在 settings.setup，避免每次进 App 都弹。
+//   ⑥ 悬浮窗 / 显示在其他应用上层（强制模式）—— 安卓 10 起禁止 App 在后台自己弹界面，
+//      只有拿到这个权限才命中官方那条豁免。**它是强制模式唯一的"手"，准入条件，
+//      不是可选兜底**：没有它，切走之后三条拉回路全被系统静默拦掉（不抛异常，
+//      所以界面会一直显示"已就绪"，实际一动不动）。同样只在开了强制模式时才必办。
+//
+// 这里只做三件事：给出每项当前是否满足（check）、点一下去哪修（fix）、
+// 以及"哪些引导已经问过"（appsAsked）。真正的"有没有提醒过"记在 settings.setup，
+// 避免每次进 App 都弹。
 
 import * as settings from './settings.js';
 import * as apptime from './apptime.js';
@@ -50,6 +56,17 @@ export const ITEMS = [
       return false;
     },
     fix: () => apptime.openBatterySettings()
+  },
+  {
+    key: 'overlay',
+    title: '显示在其他应用上层（强制模式：拉你回来）',
+    why: '强制模式的**准入条件**，不是可选兜底：安卓 10 起禁止 App 在后台自己弹界面，' +
+      '拿到这个权限才命中官方那条豁免，切走之后才真的拉得回来；拉不回来时也能靠它盖一层' +
+      '遮罩把那个 App 挡住。不开强制模式完全用不到，所以平时不会拿它来烦你。',
+    // 跟「无障碍」同理：只有开了强制模式的人才必办
+    must: () => forcedOn(),
+    check: () => apptime.canDrawOverlays(),
+    fix: () => apptime.openOverlaySettings()
   },
   {
     key: 'a11y',
@@ -176,6 +193,22 @@ export function skip() {
   } catch (e) {}
 }
 
+/**
+ * 标题的简写：去掉括号里的补充说明。
+ * 「无障碍（强制模式：把你拉回来）」整句塞进 toast / 弹窗太长。
+ *
+ * 放在这里而不是页面里：弹窗文案、toast、待办计数三处都要用它，
+ * 各写一份必然分叉（硬约束：界面文案的唯一出处）。
+ */
+export function shortTitle(t) {
+  return String(t || '').split('（')[0].trim() || '权限';
+}
+
+/** 还没办好的必办项的名字（弹窗文案用，按实际缺项生成而不是写死一份名单） */
+export function pendingNames() {
+  try { return pending().map(x => shortTitle(x.title)); } catch (e) { return []; }
+}
+
 /** 还没有提醒过？一天最多弹一次，全部办好之后不再弹 */
 export function shouldPrompt() {
   try {
@@ -196,6 +229,30 @@ export function markPrompted() {
     const s = settings.get();
     s.setup = Object.assign({ done: false, promptAt: 0 }, s.setup || {});
     s.setup.promptAt = Date.now();
+    settings.save();
+  } catch (e) {}
+}
+
+/**
+ * 「新建完目标 → 顺便去加学习 App」这个引导问过了没。
+ *
+ * 为什么只问一次：它是**锦上添花**，入口在首页 / 统计 / 我的 / 专注页都有，
+ * 问过一次就够了。连着问（每建一个目标问一次）只会让人觉得这 App 话多。
+ */
+export function appsAsked() {
+  try {
+    const s = settings.get();
+    return !!(s && s.setup && s.setup.appsAsked);
+  } catch (e) {
+    return true;               // 读不出来就当问过了：宁可不弹，也不能每次都弹
+  }
+}
+
+export function markAppsAsked() {
+  try {
+    const s = settings.get();
+    s.setup = Object.assign({ done: false, promptAt: 0 }, s.setup || {});
+    s.setup.appsAsked = true;
     settings.save();
   } catch (e) {}
 }

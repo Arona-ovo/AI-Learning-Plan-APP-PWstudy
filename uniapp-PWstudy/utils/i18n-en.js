@@ -8,6 +8,11 @@
 export default {
   // ---------- 通用 ----------
   '确定': 'Confirm',
+  '去添加': 'Add',
+  '先不用': 'Not now',
+  '顺便把学习 App 加上？': 'Add your study apps now?',
+  '把背单词、刷题、看课用的 App 登记进来 —— 首页能一键直达，用时也会算进今天的统计。现在就去添加吗？':
+    'Add the apps you study with — vocab drills, problem sets, lecture videos. They get a one-tap shortcut on the home screen, and time spent in them counts toward today. Add them now?',
   '其他': 'Other',
   '取消': 'Cancel',
   '保存': 'Save',

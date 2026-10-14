@@ -3,7 +3,7 @@
     <float-navbar title="权限与后台保活" :back="true" />
 
     <view class="card lead">
-      <text class="lead-title">先让系统放行这三件事</text>
+      <text class="lead-title">先让系统放行这几件事</text>
       <text class="lead-txt">
         PWstudy 要在后台跑计时、要读你在用哪个 App —— 这些都是 Android 需要你点头才给的能力。
         缺哪一项，对应的功能就会"看起来像坏了"：点了开始没动静、应用列表空白、锁屏后计时断掉。
@@ -37,11 +37,11 @@
     </view>
 
     <view class="card">
-      <text class="card-title">为什么没有"无障碍"？</text>
+      <text class="card-title">有的项我这边看不到？</text>
       <text class="lead-txt">
-        无障碍服务（AccessibilityService）能拿到更强的能力，但它要求用户在一个全屏警示页里
-        手动授权，且会被系统当成"辅助工具"长期展示 —— 代价太大，而这里要的三件事它一样都解决不了。
-        所以 PWstudy 只申请真正用得上的权限，不碰无障碍。
+        「无障碍」和「显示在其他应用上层」要等你开了强制模式才会出现 —— 不开强制模式
+        完全用不到它们，所以平时不拿这两项来烦你。开了之后它们一个负责"看得出你现在在
+        用哪个 App"，一个负责"把你拉回来"，缺一个强制模式就只是摆设。
       </text>
     </view>
 
@@ -54,10 +54,9 @@
 import * as setup from '../../../utils/setup.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
-// 「无障碍（强制模式：把你拉回来）」整句塞进 toast 太长，去掉括号里的补充说明
-function shortTitle(t) {
-  return String(t || '').split('（')[0].replace(/（|\）/g, '').trim() || '权限'
-}
+// 标题简写走 setup.shortTitle（去掉括号里的补充说明）—— 三处都要用它，
+// 各写一份必然分叉，所以放在 utils/setup.js 里当唯一出处
+const shortTitle = setup.shortTitle
 
 export default {
   components: { FloatNavbar },

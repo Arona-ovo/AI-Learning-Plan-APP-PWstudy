@@ -1061,9 +1061,15 @@ export default {
       try { need = setup.shouldPrompt() } catch (e) { need = false }
       if (!need) return
       setup.markPrompted()
+      // 文案按**实际缺哪几项**生成，不写死一份名单：开了强制模式会多出「显示在其他
+      // 应用上层」和「无障碍」，写死的话加一项就漏一条 —— 用户照着弹窗开完还是缺，
+      // 于是永远拉不回来，还查不出为什么。
+      const names = setup.pendingNames()
       this.ask({
         title: '先开几个权限',
-        content: '通知、使用情况访问（开了无障碍就不必）、电池优化白名单 —— 不开的话专注锁屏会被系统回收、学习 App 列表读不出来；开了强制模式还多一项无障碍，否则切走拉不回来。现在去设置吗？',
+        // names 一定非空（pending 为空时 shouldPrompt 就返回 false 了），不必再兜底
+        content: names.join('、') +
+          ' —— 不开的话专注锁屏会被系统回收、学习 App 列表读不出来。现在去设置吗？',
         confirmText: '去设置',
         action: 'setup'
       })

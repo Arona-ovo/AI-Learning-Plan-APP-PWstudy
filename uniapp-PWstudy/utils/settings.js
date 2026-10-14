@@ -37,9 +37,10 @@ function defaults() {
     // 通知
     notifications: { daily: false, time: '20:00' },
     // 权限与后台保活向导（见 utils/setup.js / pkgManage/pages/setup/setup.vue）
-    //   done    四项都过了（或用户主动跳过）→ 首页不再提醒
-    //   promptAt 上次弹首次提醒的时间戳，避免每次进 App 都弹
-    setup: { done: false, promptAt: 0 },
+    //   done      必办项都过了（或用户主动跳过）→ 首页不再提醒
+    //   promptAt  上次弹首次提醒的时间戳，避免每次进 App 都弹
+    //   appsAsked 「新建完目标 → 顺便加学习 App」这个引导问过了没（全局只问一次）
+    setup: { done: false, promptAt: 0, appsAsked: false },
     // 彩蛋：连点设置 › 关于 › 版本 触发。found 只是"被发现过几次"的计数，
     // 纯粹为了让第 N 次打开时的台词不一样，不影响任何功能。
     egg: { found: 0 },

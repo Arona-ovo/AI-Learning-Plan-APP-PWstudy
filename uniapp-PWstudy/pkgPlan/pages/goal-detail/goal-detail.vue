@@ -125,6 +125,8 @@ import * as link from '../../../utils/link.js'
 import * as pacing from '../../../utils/pacing.js'
 import * as reminder from '../../../utils/reminder.js'
 import * as timeslot from '../../../utils/timeslot.js'
+import * as setup from '../../../utils/setup.js'
+import { safeNav } from '../../../utils/nav.js'
 import { t } from '../../../utils/i18n.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
@@ -145,7 +147,10 @@ export default {
       guideTask: null, guide: null, guideFromCache: false,
       // 统一弹窗（确认框）：页面里"要先问一句"的动作都走它，不再调系统 showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', seq: 0, action: '' },
-      dropTarget: null
+      dropTarget: null,
+      // 这个目标是**刚建好**跳进来的（wizard 传 new=1）→ 放一次「顺便加学习 App」
+      justCreated: false,
+      __appsLater: 0
     }
   },
   computed: {
@@ -180,6 +185,13 @@ export default {
   onShow() {
     this.slotOn = timeslot.enabled()
     this.refresh()
+    this.maybeAskApps()
+  },
+  onHide() {
+    if (this.__appsLater) { clearTimeout(this.__appsLater); this.__appsLater = 0 }
+  },
+  onUnload() {
+    if (this.__appsLater) { clearTimeout(this.__appsLater); this.__appsLater = 0 }
   },
   methods: {
     refresh() {
@@ -277,6 +289,35 @@ export default {
       })
     },
 
+    /**
+     * 刚建完目标 → 顺便问一句要不要把学习 App 登记进来。
+     *
+     * 为什么放在这个时刻：刚定完"多久之内学完什么"，正是想到背单词/刷题那几个 App
+     * 的时候；再晚一点就被别的事冲掉了，回头想加还得自己找到入口。
+     *
+     * ⚠️ 全局只问一次（setup.appsAsked）：它是锦上添花，入口在首页 / 统计 / 我的 /
+     *    专注页都有，每建一个目标都问一遍只会显得话多。
+     * ⚠️ 晚 900ms 再弹：wizard 那边刚 toast 完"目标已落地"，两个叠在一起谁都看不清。
+     */
+    maybeAskApps() {
+      if (!this.justCreated) return
+      this.justCreated = false              // 本次进程只放一次
+      if (setup.appsAsked()) return
+      setup.markAppsAsked()                 // 先记账：不管他点哪个，这一轮都算问过了
+      if (this.__appsLater) clearTimeout(this.__appsLater)
+      this.__appsLater = setTimeout(() => {
+        this.__appsLater = 0
+        // ⚠️ 一律套 t()：i18n 余量只剩一两条，裸中文会顶爆 check-i18n 的阈值
+        this.ask({
+          title: t('顺便把学习 App 加上？'),
+          content: t('把背单词、刷题、看课用的 App 登记进来 —— 首页能一键直达，用时也会算进今天的统计。现在就去添加吗？'),
+          confirmText: t('去添加'),
+          cancelText: t('先不用'),
+          action: 'apps'
+        })
+      }, 900)
+    },
+
     /** 弹统一弹窗：所有确认动作的唯一入口（seq 每次 +1，切模式时也能同步） */
     ask(o) {
       this.dlg = {
@@ -303,7 +344,10 @@ export default {
         if (!t) return
         pw.setTaskStatus(this.id, t.id, 'dropped')
         this.refresh()
+        return
       }
+      // 刚建完目标那次「顺便加学习 App」：跳管理页。用 safeNav 防分包页连点重复跳
+      if (act === 'apps') safeNav('/pkgPlan/pages/apps/apps')
     },
     onDlgCancel() {
       this.dlg.show = false
@@ -327,6 +371,7 @@ export default {
   },
   onLoad(query) {
     this.id = (query && query.id) || ''
+    this.justCreated = !!(query && (query.new === '1' || query.new === 1))
   }
 }
 </script>
