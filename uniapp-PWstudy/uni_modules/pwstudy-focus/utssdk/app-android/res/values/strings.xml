@@ -6,4 +6,6 @@
 <resources>
     <string name="pw_a11y_label">PWstudy 专注护卫</string>
     <string name="pw_a11y_desc">强制模式需要它：只读取"当前前台是哪个应用"，判断你是否还在学习类应用里；一旦离开，立刻把 PWstudy 拉回前台。不读取屏幕内容、不模拟点击、不上传任何数据。</string>
+    <string name="pw_notif_label">PWstudy 专注通知拦截</string>
+    <string name="pw_notif_desc">专注期间需要它：把别的应用弹出来的通知先收起来（下拉通知栏也看不到），专注结束再把攒下的汇总发给你。只读取通知的标题与正文并暂时收起，不修改内容、不上传任何数据。</string>
 </resources>

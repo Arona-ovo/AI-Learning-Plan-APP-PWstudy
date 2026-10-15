@@ -406,6 +406,91 @@ export function recordPomo(session) {
   touch();
 }
 
+/* ---------- 严格 / 强制模式的「退出配额」 ---------- */
+
+// 每月允许中途退出几次。参考番茄ToDo 严格模式（视频里"本月已退出 1 次，还可退出 1 次"
+// = 每月 2 次）。配额是给"真有急事"留的门：一次都不给，人只能划掉 App 或干脆关掉
+// 强制模式；给太多，强制模式又等于没有。要调松紧改这一个常量。
+const EXIT_QUOTA_MAX = 2;
+
+function monthOf(ts) {
+  const d = new Date(ts || Date.now());
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+}
+
+/** 本月还剩几次中途退出的额度 */
+export function exitQuotaLeft() {
+  const q = get().exitQuota;
+  if (!q || q.month !== monthOf(Date.now())) return EXIT_QUOTA_MAX;
+  return Math.max(0, EXIT_QUOTA_MAX - (Number(q.used) || 0));
+}
+
+/** 本月已经用掉几次 */
+export function exitQuotaUsed() {
+  const q = get().exitQuota;
+  if (!q || q.month !== monthOf(Date.now())) return 0;
+  return Math.max(0, Number(q.used) || 0);
+}
+
+export function exitQuotaMax() { return EXIT_QUOTA_MAX; }
+
+/**
+ * 用掉一次配额。没额度了返回 false —— 调用方据此把「放弃」这条路堵上
+ * （番茄ToDo 的做法：严格模式下"放弃当前计时"是灰的）。
+ * 跨月自动重置：只认 month 字段等于当前月的那条记录。
+ */
+export function useExitQuota() {
+  const st = get();
+  const m = monthOf(Date.now());
+  if (!st.exitQuota || st.exitQuota.month !== m) st.exitQuota = { month: m, used: 0 };
+  if (st.exitQuota.used >= EXIT_QUOTA_MAX) return false;
+  st.exitQuota.used += 1;
+  touch();
+  return true;
+}
+
+/**
+ * 给刚落账的那段专注补一句心得（休息页上填的）。
+ * 存会话本身而不是另开一份"心得表"：它本来就是这一段专注的附属信息，
+ * 跟着 session 走才不会出现"休息页显示的心得和统计对不上号"。
+ */
+export function setPomoNote(id, note) {
+  if (!id) return false;
+  const s = (get().sessions || []).filter(x => x.id === id)[0];
+  if (!s) return false;
+  s.note = String(note == null ? '' : note).slice(0, 200);
+  touch();
+  return true;
+}
+
+/** 某天的心得（休息页回填显示用） */
+export function pomoNote(id) {
+  if (!id) return '';
+  const s = (get().sessions || []).filter(x => x.id === id)[0];
+  return s ? (s.note || '') : '';
+}
+
+/**
+ * 连续专注天数：连着几天有"跑完的专注"（pomo >= 1）。
+ * 今天还没跑就从昨天往前数 —— 今天没结束，不能算人家断了。
+ */
+export function focusStreak() {
+  const daily = get().daily || {};
+  let n = 0;
+  let d = today();
+  if (!(daily[d] && (daily[d].pomo || 0) > 0)) d = addDays(d, -1);
+  while (daily[d] && (daily[d].pomo || 0) > 0) { n += 1; d = addDays(d, -1); }
+  return n;
+}
+
+/** 累计有专注的天数（"共专注 N 天"） */
+export function focusDays() {
+  const daily = get().daily || {};
+  let n = 0;
+  Object.keys(daily).forEach(k => { if ((daily[k].pomo || 0) > 0) n += 1; });
+  return n;
+}
+
 /** 一段专注算多少分钟：补记时按设置里的专注时长折算 */
 function focusLen() {
   const c = get().pomoCfg || {};

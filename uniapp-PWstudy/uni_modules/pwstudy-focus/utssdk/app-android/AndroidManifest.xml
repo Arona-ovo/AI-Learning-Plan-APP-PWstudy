@@ -16,6 +16,11 @@
     <!-- 兜底遮罩：后台启动 Activity 被 ROM 拦掉时，用悬浮窗盖住那个 App -->
     <!-- 这一条不是装机即得，要在设置里手动授「显示在其他应用上层」 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 专注期间挡住别家 App 的通知（番茄ToDo 同款）：
+         捕获 + 当场撤下 + 结束时汇总，走系统的「通知使用权」。
+         ⚠️ BIND_* 是**服务声明级**权限（不是 uses-permission）：
+         真正的开关在「设置 → 通知使用权」，用户亲手给（装机即不得）。
+         没授权时 interceptStart() 如实返回 false，我们不会假称已经挡住了。 -->
 
     <application>
         <!-- ⚠️⚠️ 别给这个 Service 加 android:foregroundServiceType="specialUse" ⚠️⚠️
@@ -69,5 +74,19 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- 通知监听服务（专注期"拦截通知"）：捕获别家 App 的通知并当场撤下，
+             专注结束把攒到的汇总发出来。权限由用户在「通知使用权」设置页亲手给，
+             属运行时授权，不是装机即得。只读标题/正文并暂时收起，
+             不改别家通知的内容、不回发、不上传。 -->
+        <service
+            android:name="uts.sdk.modules.pwstudyFocus.PWNotifListener"
+            android:exported="true"
+            android:label="@string/pw_notif_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

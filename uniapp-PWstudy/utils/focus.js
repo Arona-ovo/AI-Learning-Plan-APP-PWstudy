@@ -8,6 +8,7 @@ import * as notify from './notify.js';
 import * as settings from './settings.js';
 import * as fgsvc from './fgsvc.js';
 import * as ambient from './ambient.js';
+import { t } from './i18n.js';
 
 // phase: idle | focus | rest | paused（paused 只在 focus/rest 上叠加）
 // state: null = 空闲
@@ -35,6 +36,40 @@ let lastNotifyAt = 0;
 // 中间那段时间首页还显示"专注中"。这里起一个模块级定时器，到点自己结算。
 // 模块级 = 切页不销毁（JS 上下文活着），App 真被杀则由 restoreIfNeeded 兜底。
 let watchdog = 0;
+
+/* ---------- 专注期拦截通知（通知使用权，番茄ToDo 同款） ----------
+ *
+ * 专注期间把别家 App 的通知**捕获并当场撤下**（下拉通知栏也看不到），
+ * 专注结束把攒下的汇总成一条"已拦截 N 条"的通知发出来（用户截图同款）。
+ *
+ * notifHeld 是"我们真的开始拦了"的记账 —— 只有它为 true 时结束才发汇总。
+ * 没拦过却发"已拦截 0 条"是打扰，所以这个标记不能省。
+ * 原生侧的捕获 + 当场撤下在 UTS 插件的 PWNotifListener 里，JS 一律走 fgsvc。
+ */
+let notifHeld = false;
+
+/** 专注开始 / 恢复：要不要开始拦截（设置开了 + 用户已授权，两者缺一都不碰系统） */
+function notifEnter() {
+  try {
+    if (!fcfg().blockNotif) return;
+    if (fgsvc.interceptStart()) notifHeld = true;
+  } catch (e) {}
+}
+
+/**
+ * 所有收摊 / 暂停路径都要调：停止拦截，把攒下的汇总发出去。
+ * @param {boolean} announce 专注真的完成时才发汇总通知；放弃 / 暂停只默默收兵
+ */
+function notifLeave(announce) {
+  if (!notifHeld) return;
+  notifHeld = false;
+  let list = [];
+  try { list = fgsvc.interceptEnd(); } catch (e) { list = []; }
+  if (!announce || !list.length) return;
+  // 汇总一条：标题报总数，正文把每条"应用：标题"串起来（用户截图同款的信息量）
+  const lines = list.map(x => ((x && x.app) || '?') + '：' + ((x && x.title) || ''));
+  notify.alert(t('已拦截 {n} 条通知', { n: list.length }), lines.join('\n'));
+}
 
 function clearWatchdog() {
   if (watchdog) { clearTimeout(watchdog); watchdog = 0; }
@@ -65,10 +100,10 @@ function isMissed(s) {
 
 function fcfg() {
   try {
-    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '' },
+    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true },
       (settings.get() && settings.get().focus) || {});
   } catch (e) {
-    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '' };
+    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true };
   }
 }
 
@@ -227,7 +262,9 @@ export function stopOverrun() {
   notify.releaseWake();
   if (s.phase !== 'focus') return null;
   bumpRound();
-  return settle(s, true, Date.now());
+  const r = settle(s, true, Date.now());
+  notifLeave(true);
+  return r;
 }
 
 /** 到点了但没人驱动 tick（在别的页面 / 刚回前台 / 看门狗触发）时的结算 */
@@ -241,6 +278,7 @@ function finishExpired(missed) {
   state = null;
   persist();
   lastNotifyText = '';
+  notifLeave(kind === 'focus');
   notify.releaseWake();
   fgsvc.stop();
   ambient.stop();
@@ -299,6 +337,7 @@ export function startFocus(opt) {
   if (fcfg().wakeLock) notify.acquireWake(min);
   startOngoing();
   if (fcfg().noise) ambient.start(fcfg().noise);
+  notifEnter();
   armWatchdog();
   return snapshot();
 }
@@ -410,6 +449,8 @@ export function pause() {
   persist();
   clearWatchdog();                 // 暂停期间不该结算，恢复时再排
   ambient.pause();
+  // 暂停是"我主动想歇会儿"，这时候还替人挡着通知就没道理了
+  notifLeave(false);
   pushOngoing();
   // 强制模式看门狗也要跟着停：暂停是"我主动想歇会儿"，这时候还把人从别的 App
   // 拽回来就太不讲道理了。恢复时 resume() 会再打开。
@@ -426,6 +467,8 @@ export function resume() {
   persist();
   armWatchdog();
   ambient.resume();
+  // 免打扰只陪专注：休息阶段本来就该让人看到通知
+  if (state.phase === 'focus') notifEnter();
   pushOngoing();
   fgsvc.resumeWatch();
 }
@@ -447,9 +490,42 @@ export function giveUp() {
   //（记成中断的话，任务专注进度与今日专注数都会少一个，而人明明坐满了）。
   if (s.overrun) {
     bumpRound();
-    return settle(s, true, Date.now());
+    const r = settle(s, true, Date.now());
+    notifLeave(true);
+    return r;
   }
-  return settle(s, false);
+  const r = settle(s, false);
+  notifLeave(false);
+  return r;
+}
+
+/**
+ * 「提前完成计时」：没跑满预设时长，但按**已学时长正常落账**（done = true）。
+ *
+ * 与 giveUp() 的区别正是番茄ToDo 那个二选一要表达的东西：
+ *   giveUp    = "这次不算完成任务量"（done=false）—— 分钟照记，任务进度不记
+ *   提前完成  = "这一段我确实学完了"（done=true）—— 时长按实际，任务进度照记
+ * 严格/强制模式下「放弃」要被配额挡住，但「提前完成」始终留着：
+ *   真有事要走也该让人保住已经坐出来的时间，否则强制模式就是在惩罚诚实。
+ */
+export function finishEarly() {
+  if (!state) return null;
+  const s = state;
+  state = null;
+  persist();
+  clearWatchdog();
+  lastNotifyText = '';
+  fgsvc.stop();
+  ambient.stop();
+  notify.cancelOngoing();
+  notify.releaseWake();
+  if (s.phase !== 'focus') return null;
+  // 先落账再计数：不足 1 分钟 settle 会返回 null（规则同其它路径），
+  // 这时候不该算"完成了一段"，否则本轮计数与长休节奏会凭空多一格
+  const r = settle(s, true, Date.now());
+  if (r) bumpRound();
+  notifLeave(true);
+  return r;
 }
 
 /**
@@ -467,6 +543,7 @@ export function abort() {
   ambient.stop();
   notify.cancelOngoing();
   notify.releaseWake();
+  notifLeave(false);
   return had;
 }
 
@@ -489,6 +566,7 @@ export function tick() {
     const s = state;
     state = null;
     persist();
+    notifLeave(false);
     notify.releaseWake();
     finishAlert(kind, false);
     try { uni.$emit(FINISH_EVENT, { kind: kind }); } catch (e) {}
@@ -509,6 +587,25 @@ function finishFocus(s, endAtOverride) {
   return settle(s, true, endAtOverride);
 }
 
+// 刚落账的那段专注的 id：休息页要靠它把「心得」挂回这一段。
+// 为什么不留在 state 里：专注一结束 state 就被清空，而心得是**结束之后**才写的。
+let lastSessionId = '';
+
+/** 刚落账的那段专注（没有则返回 null）。休息页拿它显示 / 回填心得。 */
+export function lastSession() {
+  if (!lastSessionId) return null;
+  const list = (pw.get().sessions || []);
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i] && list[i].id === lastSessionId) return list[i];
+  }
+  return null;
+}
+
+/** 给刚落账的那段专注写一句心得 */
+export function setNote(text) {
+  return pw.setPomoNote(lastSessionId, text);
+}
+
 /** 落账一段专注（完整或提前放弃满 1 分钟） */
 function settle(s, completed, endAtOverride) {
   const endAt = endAtOverride || (completed ? s.endAt : Date.now());
@@ -527,6 +624,7 @@ function settle(s, completed, endAtOverride) {
     done: !!completed
   };
   pw.recordPomo(session);
+  lastSessionId = session.id;      // 休息页的心得要挂回这一段
   // 只有真跑完才记任务专注：中途放弃的不算完成任务量（与弹窗文案一致），
   // 否则"只剩 1 颗的任务，专注满 1 分钟点放弃"会被 pwstore 判定成已完成
   if (completed && s.taskId && s.goalId) pw.addPomoToTask(s.goalId, s.taskId);
@@ -561,6 +659,7 @@ function restoreIfNeeded() {
     // 把"离开的那几个小时"算进专注时长就是造假 —— 正计时的补记只有人亲自按「退出」才算数。
     finishFocus(rt, rt.endAt);
     state = null;
+    notifLeave(true);
     finishAlert('focus', true);
     try { uni.$emit(FINISH_EVENT, { kind: 'focus', missed: true }); } catch (e) {}
   } else {
@@ -576,6 +675,9 @@ function restoreIfNeeded() {
     if (state.phase === 'focus' && !state.paused && fcfg().noise) {
       ambient.start(fcfg().noise);
     }
+    // 进程被杀时免打扰可能还挂着：专注还在跑就接着挡（它只切一次，不会重复记档位），
+    // 已经在休息就让它随上面的 dndLeave 自然还原
+    if (state.phase === 'focus' && !state.paused) notifEnter();
     armWatchdog();      // 恢复现场后接着看时间
   }
 }

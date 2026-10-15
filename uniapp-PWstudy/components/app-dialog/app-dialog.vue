@@ -47,12 +47,12 @@
         >{{ cancelText }}</view>
         <view
           class="dlg-btn"
-          :class="danger ? 'danger' : 'primary'"
+          :class="[danger ? 'danger' : 'primary', confirmLocked ? 'locked' : '']"
           :style="btnMode === 'alert' ? 'flex:1;' : ''"
           hover-class="dlg-btn-solid-hover"
           :hover-stay-time="60"
           @tap="onConfirm"
-        >{{ confirmText }}</view>
+        >{{ confirmLabel }}</view>
       </view>
 
       <!-- 菜单模式的取消（multi 走上面的按钮行，不重复显示） -->
@@ -116,16 +116,24 @@ export default {
     maskClosable: { type: Boolean, default: false },
     // 每次打开 +1：组件用 v-if 挂载，从"菜单"直接切到"输入框"时不会重新挂载，
     // 光靠 show / value 的 watch 可能同步不到（值恰好没变时），用它兜底。
-    seq: { type: Number, default: 0 }
+    seq: { type: Number, default: 0 },
+    // 确定按钮的强制等待秒数（0 = 不等待）。
+    // 用于"退出严格模式"这类不该冲动确认的动作：按钮先显示「确定(3)」且点不动，
+    // 数到 0 才变成可点的「确定」（番茄ToDo 严格模式同款）。
+    confirmCountdown: { type: Number, default: 0 }
   },
   data() {
-    return { draft: '', picked: {} }
+    return { draft: '', picked: {}, left: 0 }
   },
   computed: {
     normItems() {
       return (this.items || []).map(it =>
         typeof it === 'string' ? { label: it, danger: false } : { label: it.label, danger: !!it.danger }
       )
+    },
+    confirmLocked() { return this.left > 0 },
+    confirmLabel() {
+      return this.confirmLocked ? (this.confirmText + '(' + this.left + ')') : this.confirmText
     }
   },
   watch: {
@@ -135,6 +143,9 @@ export default {
       if (v) {
         this.draft = String(this.value || '')
         this.syncPicked()
+        this.startCountdown()
+      } else {
+        this.clearCountdown()
       }
     },
     value(v) {
@@ -143,10 +154,28 @@ export default {
     seq() {
       this.draft = String(this.value || '')
       this.syncPicked()
+      this.startCountdown()
     }
+  },
+  beforeDestroy() {
+    this.clearCountdown()
   },
   methods: {
     noop() {},
+    /** 每次弹出重新起倒计时（seq 变了 = 换成另一个弹窗，也要重新数） */
+    startCountdown() {
+      this.clearCountdown()
+      const n = Math.floor(Number(this.confirmCountdown) || 0)
+      if (n <= 0) { this.left = 0; return }
+      this.left = n
+      this.cdTimer = setInterval(() => {
+        if (this.left <= 1) { this.clearCountdown(); this.left = 0; return }
+        this.left = this.left - 1
+      }, 1000)
+    },
+    clearCountdown() {
+      if (this.cdTimer) { clearInterval(this.cdTimer); this.cdTimer = 0 }
+    },
     syncPicked() {
       if (!this.multi) return
       const p = {}
@@ -173,6 +202,8 @@ export default {
       this.$emit('confirm', i)
     },
     onConfirm() {
+      // 强制等待还没数完：点了也不算 —— 这一下就是"冲动确认"要挡的那一下
+      if (this.confirmLocked) return
       if (this.mode === 'sheet' && !this.multi) return
       if (this.multi) {
         const sel = []
@@ -306,4 +337,9 @@ export default {
 
 .dlg-btn-ghost-hover { opacity: 0.7; }
 .dlg-btn-solid-hover { opacity: 0.85; }
+
+/* 强制等待中的确定按钮：灰掉 + 不接点击（点不动本身就是要让人看见"还得等"） */
+.dlg-btn.locked {
+  opacity: 0.45;
+}
 </style>

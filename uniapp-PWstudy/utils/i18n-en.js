@@ -1063,5 +1063,36 @@ export default {
   //（'退出' → 'Exit' 通用段里早就有，别重复加 —— 对象字面量里后者会静默覆盖前者）
   '预设时长已跑完，继续计时中': 'Target time reached — still counting',
   '专注时间到': "Focus time's up",
-  '已跑满预设时长，不再拉回': 'Target reached — no more pull-back'
+  '已跑满预设时长，不再拉回': 'Target reached — no more pull-back',
+
+  // ---------- 受控退出（2026-10-15 参照番茄ToDo 严格模式：配额 + 强制等待 + 二选一） ----------
+  '结束': 'Finish',
+  '心得': 'Note',
+  '写一句刚才的收获…': 'What did you get out of it?',
+  '连续专注 {n} 天': '{n}-day streak',
+  '本月的退出额度用完了': 'Out of exits this month',
+  '严格模式下「放弃」会作废这次专注，所以本月不能再放弃了。提前完成仍然可以 —— 已经坐出来的时间照记，任务进度也算。':
+    'In strict mode giving up voids this session, so you cannot give up again this month. Finishing early still works — the time you already sat is kept and counts toward the task.',
+  // （'知道了' → 'Got it' 通用段里早就有，别重复加：对象字面量里后者会静默覆盖前者）
+  '严格模式开启中，确定要中途退出？': 'Strict mode is on — exit early anyway?',
+  '本月已退出 {a} 次，还可退出 {b} 次。建议仅在必要情况下使用 —— 退出后已坐的时长仍然会记下来。':
+    'You have exited {a} time(s) this month, {b} left. Only use it when you really need to — the time you already sat still gets recorded.',
+  '确定退出': 'Exit anyway',
+  '继续专注': 'Keep focusing',
+  '请选择你的操作': 'What do you want to do?',
+  '放弃这段专注（不算完成任务量）': 'Give up (does not count toward the task)',
+  '提前完成（按已学时长记账）': 'Finish early (keep the time)',
+  '放弃 = 分钟照记但不算完成任务量；提前完成 = 坐了多久记多久，任务进度照算。':
+    'Give up = minutes are kept but the task does not advance; finish early = you get credit for exactly how long you sat.',
+  '只剩这一种退出方式了。': 'This is the only way out now.',
+  '写一句心得': 'Write a note',
+  '刚才这段专注的收获…': 'What came out of that session…',
+  '计算器': 'Calculator',
+  '已拦截 {n} 条通知': '{n} notification(s) blocked',
+  '拦截通知': 'Block notifications',
+  '专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。':
+    'While focusing, notifications from other apps are tucked away (not even visible in the shade) and summarized for you when the focus ends. Needs the notification-access permission.',
+  '通知使用权没开启，点这里去开启': 'Notification access is off — tap here to enable it',
+  '自动进休息': 'Auto-break',
+  '专注跑完后直接开始休息，不再停在完成面板上': 'Start the break right after a focus ends, instead of waiting on the finish panel'
 };

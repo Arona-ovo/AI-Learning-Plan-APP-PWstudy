@@ -377,6 +377,90 @@ export function watchRunning() {
   return watchPushed;
 }
 
+/* ==================== 专注期拦截通知（通知使用权） ====================
+ *
+ * 番茄ToDo 的做法（2026-10-15 视频 + 用户截图实测）：
+ *   专注期间把别家 App 的通知**捕获并当场撤下**（下拉通知栏也看不到），
+ *   专注结束再把攒下的汇总成一条"已拦截(应用)的通知"发出来。
+ *
+ * 为什么不用免打扰（setInterruptionFilter）：它只能压掉通知，**拿不到内容**，
+ * 结束时想汇总就做不了 —— 所以必须走 NotificationListenerService（通知使用权）。
+ *
+ * 开关与授权：
+ *   · 必须有开关，而且默认关 —— 替用户收起通知这种事不能默认就做；
+ *   · 权限是运行时授权：用户在「设置 → 通知使用权」里亲手给；
+ *   · 没授权就如实返回 false，绝不假称"已经帮你挡住了"。
+ *
+ * 为什么仍然放在本文件：插件只能有这一个调用方（见文件头），
+ * 通知监听不是前台服务，但它是同一个 UTS 插件导出的能力。
+ */
+
+/** 用户有没有把「通知使用权」给 PWstudy */
+export function notifGranted() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.notifGranted === 'function') return !!fgs.notifGranted();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 跳系统「通知使用权」设置页；失败返回 false，调用方退到应用详情页 */
+export function openNotifSettings() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.openNotifSettings === 'function') return !!fgs.openNotifSettings();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/**
+ * 开始拦截（此后别家通知：记内容 + 当场撤下，下拉通知栏看不到）。
+ * 返回 true 才表示"真的开始了" —— 没授权 / 插件不在都是 false，
+ * 调用方据此决定结束时能不能说"已拦截 N 条"。
+ */
+export function interceptStart() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.interceptStart === 'function') return !!fgs.interceptStart();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/**
+ * 结束拦截：返回拦截到的列表 [{ app, title, text }]（最多 30 条，单条截断 60 字）。
+ * JS 层拿它拼"已拦截"汇总通知（用户截图同款）。没拦到就返回 []。
+ */
+export function interceptEnd() {
+  if (!available()) return [];
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.interceptEnd === 'function') {
+      const raw = String(fgs.interceptEnd() || '[]');
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.filter(x => x && typeof x === 'object') : [];
+    }
+  } catch (e) {}
+  // #endif
+  return [];
+}
+
+/** 这段专注已经拦了几条（实时显示用） */
+export function interceptCount() {
+  if (!available()) return 0;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.interceptCount === 'function') return Number(fgs.interceptCount()) || 0;
+  } catch (e) {}
+  // #endif
+  return 0;
+}
+
 function pushWatch() {
   // 服务没在跑就别去推：随便 startService 会把它又拽起来（放弃专注后重启前台服务，
   // 用户会看到一条莫名其妙的常驻通知）

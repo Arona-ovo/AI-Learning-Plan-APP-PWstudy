@@ -174,6 +174,7 @@ const fScript = (/<script[^>]*>([\s\S]*?)<\/script>/.exec(fRaw) || [])[1] || '';
 const fComp = loadCode(fScript, {
   FloatNavbar: { name: 'FloatNavbar' },
   AppDialog: { name: 'AppDialog' },
+  FocusCalc: { name: 'FocusCalc' },
   // 弹窗按钮的缺省文案走 t('确定') / t('取消')，ask() 里要真调它
   t: (s) => s
 }, 'focus.vue').default;

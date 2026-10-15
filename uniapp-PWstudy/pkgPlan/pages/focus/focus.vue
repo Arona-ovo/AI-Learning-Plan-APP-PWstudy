@@ -162,7 +162,7 @@
       <!-- 运行态 / 暂停态 -->
       <view v-else-if="active" class="ctrl">
         <button class="ctrl-btn ctrl-main" @tap="togglePause">{{ paused ? '继续' : '暂停' }}</button>
-        <button class="ctrl-btn ctrl-ghost" @tap="confirmGiveUp">放弃</button>
+        <button class="ctrl-btn ctrl-ghost" @tap="confirmStop">{{ $t('结束') }}</button>
       </view>
       <text v-if="overrun" class="over-hint">{{ $t('预设时长已跑完，继续计时中') }}</text>
 
@@ -173,6 +173,13 @@
         <view class="sr-switch" :class="{ 'sr-switch-on': noiseOn }" @tap="toggleNoise">
           <view class="sr-knob" :class="{ 'sr-knob-on': noiseOn }"></view>
         </view>
+      </view>
+
+      <!-- 运行态工具条：内置计算器。
+           学数学要按计算器是正当需求，切出去用系统计算器会被强制模式当成逃逸拉回来 ——
+           与其给计算器开白名单（等于开一个"随便切"的口子），不如把它搬进来。 -->
+      <view v-if="active" class="tool-row">
+        <text class="tr-btn" @tap="calcOpen = true">{{ $t('计算器') }}</text>
       </view>
 
       <!-- 刚完成一个专注：引导休息 -->
@@ -219,9 +226,18 @@
         <text v-else class="ld-note">从这儿跳过去，回来会自动记下这段用时</text>
       </view>
 
+      <!-- 休息中：顺手记一句心得。番茄ToDo 在休息页放"点击此处填写心得"，
+           我们放进台账（挂在刚落账的那段专注上），日后复盘看得到当时在想什么。 -->
+      <view v-if="active && isRest" class="note-row" @tap="editNote">
+        <text class="nr-label">{{ $t('心得') }}</text>
+        <text class="nr-body" :class="{ 'nr-ph': !noteText }">{{ noteText || $t('写一句刚才的收获…') }}</text>
+        <text class="nr-go">›</text>
+      </view>
+
       <view class="today-strip">
         <text v-if="taskProg" class="ts-prog">{{ taskProg }}</text>
         <text>今日 {{ todayMin }} 分钟 · {{ todayPomo }} 段专注</text>
+        <text v-if="streakDays > 1" class="ts-streak">{{ streakText }}</text>
       </view>
 
     </view>
@@ -237,12 +253,17 @@
       :value="dlg.value"
       :placeholder="dlg.placeholder"
       :error="dlg.error"
+      :maxlength="dlg.maxlength"
       :items="dlg.items"
       :seq="dlg.seq"
+      :btn-mode="dlg.btnMode"
+      :confirm-countdown="dlg.countdown"
       @confirm="onDlgYes"
       @cancel="onDlgCancel"
       @input="onDlgInput"
     />
+
+    <focus-calc :show="calcOpen" @close="calcOpen = false" />
   </view>
 </template>
 
@@ -261,9 +282,10 @@ import * as ambient from '../../../utils/ambient.js'
 import * as audio from '../../../utils/audio.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
+import FocusCalc from '../../../components/focus-calc/focus-calc.vue'
 
 export default {
-  components: { FloatNavbar, AppDialog },
+  components: { FloatNavbar, AppDialog, FocusCalc },
   data() {
     return {
       minutesOptions: [15, 20, 25, 30, 45, 60],
@@ -280,6 +302,11 @@ export default {
       restMin: 5,
       todayMin: 0,
       todayPomo: 0,
+      streakDays: 0,     // 连续专注天数（番茄ToDo 那个"连续专注 N 天"）
+      noteText: '',      // 休息页的心得（挂在刚落账的那段专注上）
+      quotaOk: false,    // 已通过退出配额确认（紧接着的二选一才作数）
+      exitKinds: [],     // 二选一菜单项对应的动作（giveup / early），与 items 一一对应
+      calcOpen: false,   // 内置计算器（学数学不用切走 —— 切走会被强制模式当成逃逸）
       strictOn: false,
       forcedOn: false,    // 强制模式：离开学习 App 就当场拉回来
       usageOk: false,
@@ -302,10 +329,13 @@ export default {
       // 页面里所有"要先问一句"的动作都走它 —— 不再有第二套（系统 showModal 样式管不到）
       // 「确定 / 取消」走 t()：这两个词字典里早就有译文，别再各写一份中文
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', items: [], seq: 0, action: '' },
-      opts: { notify: true, sound: true, vibe: true, fgservice: true },
+      opts: { notify: true, sound: true, vibe: true, fgservice: true, blockNotif: false, autoRest: true },
       optRows: [
         { key: 'notify', title: '通知提醒', sub: '结束后发通知，专注中在状态栏显示剩余时间' },
         { key: 'fgservice', title: '后台保活', sub: '计时期间常驻前台服务，息屏也不中断（需正式打包/自定义基座生效）' },
+        // 番茄ToDo 同款（2026-10-15 视频）：专注期间把别家通知收起来，结束汇总发还
+        { key: 'blockNotif', title: '拦截通知', sub: '专注期间收起别家 App 的通知，结束汇总发给你（需「通知使用权」）' },
+        { key: 'autoRest', title: '自动进休息', sub: '专注跑完后直接开始休息，不再停在完成面板上' },
         { key: 'sound', title: '结束响铃', sub: '专注结束时响一声' },
         { key: 'vibe', title: '震动', sub: '专注结束时震一下' }
       ],
@@ -335,6 +365,11 @@ export default {
     },
     isRest() {
       return !!(this.cur && this.cur.phase === 'rest')
+    },
+    /** 连续专注天数（>1 才显示）。带占位符的文案走 t()，不新增静态中文 */
+    streakText() {
+      void this.__lang      // 建立语言依赖，切语言要跟着重算
+      return t('连续专注 {n} 天', { n: this.streakDays })
     },
     phaseText() {
       // 正计时与"完成面板"共用这一档：专注本身跑满了，区别只在于人还在继续
@@ -498,7 +533,9 @@ export default {
         notify: f.notify !== false,
         fgservice: f.fgservice !== false,
         sound: f.sound !== false,
-        vibe: f.vibe !== false
+        vibe: f.vibe !== false,
+        blockNotif: !!f.blockNotif,
+        autoRest: f.autoRest !== false
       }
       this.noiseKind = f.noise || 'rain'
       this.noiseOn = !!f.noise
@@ -526,6 +563,10 @@ export default {
       const ov = pw.overview()
       this.todayMin = ov.todayMin
       this.todayPomo = ov.pomo
+      this.streakDays = pw.focusStreak()
+      // 休息中的心得：挂在当前这段刚落账的专注上（没有就显示占位文案）
+      const s = focus.lastSession()
+      this.noteText = (s && s.note) || ''
     },
     /**
      * 本轮第几段专注 / 下一段是不是长休。
@@ -603,14 +644,111 @@ export default {
       strict.sync()
       forced.sync()
     },
-    /** 放弃当前专注：走统一弹窗（以前是系统 showModal，样式跟 App 对不上） */
-    confirmGiveUp() {
+    /**
+     * 结束当前专注：先决定"要不要受配额管"，再让人二选一。
+     *
+     * 为什么拆成两步（番茄ToDo 严格模式同款，视频里逐帧看到的就是这套）：
+     *   ① 强制/严格模式开着时，"中途退出"是有额度的（每月 2 次），而且
+     *      「确定」按钮要强制等 3 秒 —— 挡的是"一烦就点掉"那一下冲动；
+     *   ② 过了配额才让选：放弃（零记录）还是提前完成（保住已坐的时间）。
+     * 没开强制/严格模式就没有这道闸，直接给二选一 —— 不该拿额度去烦没开的人。
+     */
+    confirmStop() {
+      this.quotaOk = false
+      if (!this.exitGuarded()) { this.askExitChoice(); return }
+      const left = pw.exitQuotaLeft()
+      if (left <= 0) {
+        this.ask({
+          title: t('本月的退出额度用完了'),
+          content: t('严格模式下「放弃」会作废这次专注，所以本月不能再放弃了。提前完成仍然可以 —— 已经坐出来的时间照记，任务进度也算。'),
+          btnMode: 'alert',
+          confirmText: t('知道了'),
+          action: 'quota-out'
+        })
+        return
+      }
       this.ask({
-        title: '放弃这段专注？',
-        content: '满 1 分钟会按实际时长记录，但不算完成任务量。',
-        confirmText: '放弃',
+        title: t('严格模式开启中，确定要中途退出？'),
+        // 带两个占位符：拼字符串会多出静态中文，走 t() 的 {a}/{b} 才不占额度
+        content: t('本月已退出 {a} 次，还可退出 {b} 次。建议仅在必要情况下使用 —— 退出后已坐的时长仍然会记下来。',
+          { a: pw.exitQuotaUsed(), b: left }),
+        confirmText: t('确定退出'),
+        cancelText: t('继续专注'),
+        countdown: 3,
         danger: true,
-        action: 'give-up'
+        action: 'exit-quota'
+      })
+    },
+
+    /** 强制模式或严格模式开着 = 中途退出要受管制 */
+    exitGuarded() {
+      return !!(this.forcedOn || this.strictOn)
+    },
+
+    /** 二选一：放弃 / 提前完成。配额用完时只给"提前完成"（放弃那项整个不出现） */
+    askExitChoice() {
+      const items = []
+      // ⚠️ 记下一一对应的 kind，别靠 label 文本判断：label 走 t() 之后，
+      //    英文态是 "Give up (...)" —— 拿中文去 indexOf 会永远判成"提前完成"
+      const kinds = []
+      if (!this.exitGuarded() || pw.exitQuotaLeft() > 0) {
+        items.push({ label: t('放弃这段专注（不算完成任务量）'), danger: true })
+        kinds.push('giveup')
+      }
+      items.push({ label: t('提前完成（按已学时长记账）') })
+      kinds.push('early')
+      this.exitKinds = kinds
+      this.ask({
+        mode: 'sheet',
+        title: t('请选择你的操作'),
+        content: items.length > 1
+          ? t('放弃 = 分钟照记但不算完成任务量；提前完成 = 坐了多久记多久，任务进度照算。')
+          : t('只剩这一种退出方式了。'),
+        items: items,
+        action: 'exit-choice'
+      })
+    },
+
+    /**
+     * 真结束。⚠️ 按 label 判断而不是按下标：配额用完时「放弃」那一项不存在，
+     * 下标会整体错位（照下标写就是"选了提前完成实际执行放弃"）。
+     */
+    doExit(idx) {
+      // 按 kind 而不是下标硬编码：配额用完时「放弃」那一项不存在，下标会整体错位
+      const isGiveUp = (this.exitKinds || [])[idx] === 'giveup'
+      if (isGiveUp && this.quotaOk) pw.useExitQuota()
+      const s = isGiveUp ? focus.giveUp() : focus.finishEarly()
+      this.cur = null
+      this.quotaOk = false
+      this.refreshToday()
+      this.refreshRound()
+      strict.sync()
+      forced.sync()
+      if (isGiveUp || !s) return          // 放弃 / 不足 1 分钟没落账 → 不做"完成"引导
+      this.lastMin = s.min
+      this.restDone = false
+      if (this.autoRestOn()) this.startRestNow()
+      else this.finished = true
+    },
+
+    /** 设置里的"专注跑完自动进休息"（默认开，番茄ToDo 就是这个节奏） */
+    autoRestOn() {
+      try {
+        const st = settings.get()
+        if (st && st.focus && typeof st.focus.autoRest === 'boolean') return st.focus.autoRest
+      } catch (e) {}
+      return true
+    },
+
+    /** 休息页写一句心得（挂在刚落账的那段专注上） */
+    editNote() {
+      this.ask({
+        mode: 'input',
+        title: t('写一句心得'),
+        placeholder: t('刚才这段专注的收获…'),
+        value: this.noteText,
+        maxlength: 60,
+        action: 'note'
       })
     },
     /**
@@ -622,12 +760,14 @@ export default {
       this.cur = null
       this.titleOpen = false
       this.lastMin = s ? s.min : (this.minutes || 25)
-      this.finished = true
       this.restDone = false
       this.refreshToday()
       this.refreshRound()
       strict.sync()
       forced.sync()
+      // 设了"跑完自动进休息"就直接接上休息，不再停在"完成"面板上让人再点一次
+      if (this.autoRestOn()) this.startRestNow()
+      else this.finished = true
     },
     startRestNow() {
       this.finished = false
@@ -812,6 +952,10 @@ export default {
         placeholder: o.placeholder || '',
         error: '',
         items: o.items || [],
+        // 确定按钮的强制等待秒数（退出严格模式这类动作挡的就是"一烦就点掉"）
+        countdown: Math.max(0, Math.floor(Number(o.countdown) || 0)),
+        btnMode: o.btnMode || 'confirm',
+        maxlength: Math.max(1, Math.floor(Number(o.maxlength) || 24)),
         seq: ((this.dlg && this.dlg.seq) || 0) + 1,
         action: o.action || ''
       }
@@ -850,6 +994,30 @@ export default {
         return
       }
       this.dlg.show = false
+      if (act === 'note') {
+        const txt = String(v == null ? '' : v)
+        focus.setNote(txt)
+        this.noteText = txt
+        return
+      }
+      if (act === 'goto-notif') {
+        // 跳系统「通知使用权」设置页；跳不出去（插件不在/标准基座）就只能如实算了
+        try { fgsvc.openNotifSettings() } catch (e) {}
+        return
+      }
+      if (act === 'exit-quota') {
+        this.quotaOk = true            // 过了配额这一关，紧接着的二选一才作数
+        this.askExitChoice()
+        return
+      }
+      if (act === 'quota-out') {
+        this.askExitChoice()           // 额度用完：只剩"提前完成"那一项
+        return
+      }
+      if (act === 'exit-choice') {
+        this.doExit(Number(v))
+        return
+      }
       if (act === 'give-up') {
         focus.giveUp()
         this.cur = null
@@ -1072,11 +1240,24 @@ export default {
     },
     goApps() { safeNav('/pkgPlan/pages/apps/apps') },
     toggleOpt(key) {
+      // 拦截通知要「通知使用权」：没授权就不落开关，先带人去开 ——
+      // 开关显示"开着"却一条也拦不住，是骗人的界面
+      if (key === 'blockNotif' && !this.opts.blockNotif) {
+        if (!fgsvc.notifGranted()) {
+          this.ask({
+            title: t('拦截通知'),
+            content: t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。'),
+            confirmText: t('通知使用权没开启，点这里去开启'),
+            action: 'goto-notif'
+          })
+          return
+        }
+      }
       const next = !this.opts[key]
       this.opts[key] = next
       try {
         const st = settings.get()
-        st.focus = Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, fgservice: true, noise: '' }, st.focus || {})
+        st.focus = Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, fgservice: true, noise: '', blockNotif: false, autoRest: true }, st.focus || {})
         st.focus[key] = next
         settings.save()
       } catch (e) {}
@@ -1580,5 +1761,72 @@ export default {
   color: var(--ink-3, #98a19b);
   display: flex; flex-direction: column; align-items: center; gap: 8rpx;
   padding-bottom: calc(60rpx + env(safe-area-inset-bottom));
+}
+
+/* 连续专注天数：跟"今日"那条并列，用主色点一下存在感（激励项，不是数据项） */
+.ts-streak {
+  color: #e4173d;
+  color: var(--brand, #e4173d);
+  font-weight: 600;
+}
+
+/* 运行态工具条：计算器入口（跟白噪音那行同一档视觉，别做成主按钮抢走注意力） */
+.tool-row {
+  margin-top: 22rpx;
+  display: flex; justify-content: center;
+}
+
+.tr-btn {
+  padding: 14rpx 34rpx;
+  border-radius: 999rpx;
+  font-size: 25rpx;
+  font-weight: 500;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+}
+
+.tr-btn:active { opacity: 0.7; }
+
+/* 休息页的心得一行：点开就能写，写完就地显示 */
+.note-row {
+  margin-top: 40rpx;
+  padding: 26rpx 30rpx;
+  border-radius: 22rpx;
+  border: 2rpx solid rgba(23, 32, 26, 0.07);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.07));
+  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.5);
+  display: flex; align-items: center; gap: 16rpx;
+}
+
+.nr-label {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+
+.nr-body {
+  flex: 1; min-width: 0;
+  font-size: 25rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+
+/* 还没写：占位文案再淡一档，让人看出这是"可以点"而不是已有内容 */
+.nr-ph {
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+
+.nr-go {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
 }
 </style>

@@ -56,6 +56,8 @@ import AccessibilityManager from 'android.view.accessibility.AccessibilityManage
 import AccessibilityServiceInfo from 'android.accessibilityservice.AccessibilityServiceInfo';
 import InputMethodManager from 'android.view.inputmethod.InputMethodManager';
 import SharedPreferences from 'android.content.SharedPreferences';
+import NotificationListenerService from 'android.service.notification.NotificationListenerService';
+import StatusBarNotification from 'android.service.notification.StatusBarNotification';
 
 // 必须与 uniapp-PWstudy/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
@@ -1712,4 +1714,110 @@ export function openA11ySettings(): boolean {
   } catch (e) {
     return false;
   }
+}
+
+/* ==================== 专注期拦截通知（通知使用权） ====================
+ *
+ * 番茄ToDo 的做法（2026-10-15 视频 + 用户截图实测）：
+ *   专注期间把别家 App 的通知**捕获并当场撤下**（下拉通知栏也看不到），
+ *   专注结束再把攒下的汇总成一条"已拦截(应用)的通知"发出来（用户截图同款）。
+ *
+ * 这条路只有一个入口 —— NotificationListenerService（系统的「通知使用权」）。
+ * ⚠️ 为什么不用免打扰（setInterruptionFilter）：它只能压掉通知，
+ *    **拿不到内容**，结束时想汇总就做不了 —— 方案必须是监听服务。
+ *
+ * 与无障碍护卫同款的三件事：
+ *   · 权限是运行时授权：用户要在「设置 → 通知使用权」里亲手给（装机即不得）
+ *   · 服务由系统创建：生成 Kotlin 会剪掉"没人引用"的类，靠 keepNotifClass() 钉住
+ *   · 只读标题/正文并暂时收起，不改内容、不回发、不上传
+ */
+
+const NOTIF_MAX: Int = 30;          // 最多记多少条：再多就是刷屏轰炸，汇总失去意义
+const NOTIF_TEXT_MAX: Int = 60;     // 单条截断：通知正文经常超长，汇总里只留个开头
+
+let notifOn: boolean = false;
+let notifList: Array<string> = [];
+
+/** 用户有没有把「通知使用权」给 PWstudy */
+export function notifGranted(): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return false;
+  try {
+    let raw = Settings.Secure.getString(ctx!.getContentResolver(), 'enabled_notification_listeners');
+    if (raw == null || raw == '') return false;
+    return raw.indexOf(ctx!.getPackageName()) >= 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 跳系统的「通知使用权」设置页 */
+export function openNotifSettings(): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return false;
+  try {
+    let it = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    ctx!.startActivity(it);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 开始拦截。没授权返回 false —— JS 层据此绝不承诺"已经帮你挡住了" */
+export function interceptStart(): boolean {
+  if (!notifGranted()) return false;
+  notifList = [];
+  notifOn = true;
+  return true;
+}
+
+/** 已经拦了几条（界面显示"这段专注挡住了多少"用） */
+export function interceptCount(): Int {
+  return notifList.length;
+}
+
+/** 结束拦截：返回攒到的列表 JSON（[{app,title,text}]），标记一并收掉 */
+export function interceptEnd(): string {
+  notifOn = false;
+  let out = JSON.stringify(notifList);
+  notifList = [];
+  return out;
+}
+
+class PWNotifListener extends NotificationListenerService {
+  constructor() {
+    super();
+  }
+
+  override onNotificationPosted(sbn: StatusBarNotification | null): void {
+    super.onNotificationPosted(sbn);
+    if (sbn == null) return;
+    if (!notifOn) return;
+    // 自己发的通知不拦：常驻倒计时本来就该看得见
+    if (sbn.getPackageName() == this.getPackageName()) return;
+    let app = sbn.getPackageName();
+    let title = '';
+    let text = '';
+    try {
+      let ex = sbn.getNotification().extras;
+      let t1 = ex.getCharSequence(Notification.EXTRA_TITLE);
+      let t2 = ex.getCharSequence(Notification.EXTRA_TEXT);
+      if (t1 != null) title = t1.toString();
+      if (t2 != null) text = t2.toString();
+    } catch (e) {}
+    if (title.length > NOTIF_TEXT_MAX) title = title.substring(0, NOTIF_TEXT_MAX);
+    if (text.length > NOTIF_TEXT_MAX) text = text.substring(0, NOTIF_TEXT_MAX);
+    if (notifList.length < NOTIF_MAX) {
+      notifList.push(JSON.stringify({ app: app, title: title, text: text }));
+    }
+    // 当场撤下 = 下拉通知栏也看不到（这就是"屏蔽通知"的实际机制）
+    try { this.cancelNotification(sbn.getKey()); } catch (e) {}
+  }
+}
+
+/** 钉住监听类：UTS 会剪掉"没人引用"的声明，系统创建的类靠这里的 new 保住 */
+export function keepNotifClass(): boolean {
+  return (new PWNotifListener()) != null;
 }

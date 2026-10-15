@@ -113,6 +113,24 @@ function ok(cond, msg) {
   g2 = pw.goalOf(g.id);
   ok(g2.tasks[0].status === 'done', '专注做满自动完成');
 
+  // ---------- 退出配额 / 心得 / 连续天数（2026-10-15 番茄ToDo 对齐） ----------
+  // 配额：每月 2 次（视频里"已退出 1 次，还可退出 1 次"）。跨月重置靠 month 字段。
+  const QMAX = pw.exitQuotaMax();
+  ok(QMAX === 2, '退出配额默认每月 2 次（对齐番茄ToDo）');
+  let used0 = pw.exitQuotaUsed();
+  let left0 = pw.exitQuotaLeft();
+  ok(left0 + used0 === QMAX, '剩余 + 已用 = 总配额');
+  ok(pw.useExitQuota() === true && pw.exitQuotaUsed() === used0 + 1, '用掉一次 → used +1');
+  while (pw.exitQuotaLeft() > 0) pw.useExitQuota();
+  ok(pw.exitQuotaLeft() === 0 && pw.useExitQuota() === false, '额度用完 → useExitQuota 返回 false（「放弃」据此被挡）');
+  ok(pw.exitQuotaUsed() === used0 + (QMAX - left0) || pw.exitQuotaUsed() === QMAX, '已用数封顶在总配额');
+  // 心得：挂在会话本身上，找不到 id 要如实返回 false
+  ok(pw.setPomoNote('s1', '今天的启发：先做最小验证') === true, 'setPomoNote 落到会话');
+  ok(pw.pomoNote('s1').indexOf('最小验证') >= 0, 'pomoNote 读回心得');
+  ok(pw.setPomoNote('no-such-id', 'x') === false && pw.setPomoNote('', 'x') === false, '空/不存在的 id 返回 false');
+  // 连续天数：按"每天是否有跑完的专注（pomo>=1）"数，今天没跑从昨天起算
+  ok(pw.focusStreak() >= 1 && pw.focusDays() >= 1, '有落账 → streak/days >= 1');
+
   focus.startFocus({ minutes: 5, taskTitle: 'x' });
   focus.pause();
   ok(focus.current().paused === true, 'pause 生效');
@@ -270,7 +288,7 @@ function ok(cond, msg) {
 
   console.log('\n[12] 权限与后台保活清单');
   const setup = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/setup.js');
-  ok(setup.ITEMS.length === 5, '五项设置清单（含"无障碍"）');
+  ok(setup.ITEMS.length === 6, '六项设置清单（通知/使用情况/电池/悬浮窗/无障碍/自启动）');
   ok(setup.ITEMS.some(x => x.key === 'a11y'), '清单里有 a11y —— 强制模式的能力前提');
   // must 允许写成函数（随设置变化）：求值只在 setup 内部做，对外一律是布尔
   const su = setup.status();
