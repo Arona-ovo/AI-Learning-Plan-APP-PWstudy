@@ -8,7 +8,7 @@
 #   white  白噪：均匀随机 —— "嗡"的宽带底噪，屏蔽人声最有效
 #   pink   粉噪：白噪过 Paul Kellet 滤波器，能量往低频倾 —— 听感比白噪柔，公认更好听
 #   brown  棕噪：白噪积分（布朗运动），只有低频轰隆 —— 像远处的海浪/飞机舱
-#   rain   雨声：带通雨幕（沙沙）+ 泊松雨滴瞬态（嗒嗒）+ 慢速雨势起伏（见下面的三层说明）
+#   rain   雨声：物理化模型 —— 共振雨滴"嗒" + 44.1k 自然雨幕 + 阵风起伏（见 gen_rain）
 #
 # 循环无缝：loop 播放在接缝处最容易露馅 —— 生成后把结尾 X 毫秒与开头做等功率交叉淡化，
 # 保证首尾样本连续，听不出接缝。
@@ -20,9 +20,14 @@ import random
 import struct
 import wave
 
-RATE = 16000          # 采样率：噪声没有高频细节，16k 足够且省一半体积
+RATE = 16000          # 白/粉/棕噪采样率：噪声没有高频细节，16k 足够且省一半体积
 SECONDS = 8           # 循环长度：太短听得出规律，太长费体积；8s 是甜点
 XFADE_MS = 120        # 首尾交叉淡化宽度
+# ⚠️ 雨声单独用更高采样率 + 更长循环：
+#   雨声的细密沙沙在 8k 以上还有能量，16k 会发闷、像电话线；44.1k 才"润"。
+#   更长循环（20s）让雨势/雨滴的随机性更不容易听出循环点。
+RAIN_RATE = 44100
+RAIN_SECONDS = 20
 PEAK = 0.55           # 峰值归一化目标（见下：响度交给 App 内 volume，素材只管不削波）
 OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp-PWstudy', 'static', 'noise')
 
@@ -34,17 +39,18 @@ OUT = os.path.join(os.path.dirname(__file__), '..', 'uniapp-PWstudy', 'static', 
 #   white  压到 3.2k：原本最刺的一个，柔化后是"远处的风声"
 #   pink   压到 4.5k：本身已往低频倾，少压一点，保留掩蔽人声的能力
 #   brown  不压：它只有低频，压了反而更闷
-#   rain   不压：2026-10-15 重写后雨声**自己**做了带通（800Hz~5kHz 雨幕
-#          + 2.2k~6k 雨滴），再压一刀就会把雨滴的"嗒"一起抹掉、变回闷响。
+#   rain   不额外压：2026-10-16 改成物理化雨声模型（共振雨滴"嗒" + 44.1k 雨幕）。
+#          雨幕自己已在 11k 做一阶自然滚降（正是真实雨声的高频倾斜），不再叠低通；
+#          旧版"刺耳"来自带限噪声雨滴，新版改共振正弦"嗒"后那一层已无，无需再压。
 # 掩蔽效果（挡住外界说话声）主要由中低频贡献，压高频几乎不损失这个功能。
 SOFTEN = {'white': 3200, 'pink': 4500, 'brown': 0, 'rain': 0}
 
 
-def gen_white(n):
+def gen_white(n, rate=None):
     return [random.uniform(-1.0, 1.0) for _ in range(n)]
 
 
-def gen_pink(n):
+def gen_pink(n, rate=None):
     # Paul Kellet 的经典经济型粉噪滤波器
     b0 = b1 = b2 = b3 = b4 = b5 = b6 = 0.0
     out = []
@@ -61,7 +67,7 @@ def gen_pink(n):
     return out
 
 
-def gen_brown(n):
+def gen_brown(n, rate=None):
     out = []
     acc = 0.0
     for _ in range(n):
@@ -72,91 +78,88 @@ def gen_brown(n):
     return out
 
 
-# ⚠️ 雨声三层参数（2026-10-15 重写）
+# ⚠️ 雨声：物理化模型（2026-10-16 重写，解决"像雨但不是雨 / 刺耳"）
 #
-# 旧版为什么"不像雨"：白噪 → 两级一阶低通，截止压到 560Hz 附近。
-# 那个频谱是**低频为主** —— 听感是"呼呼"的风声/闷响，跟雨没关系。
-# 真实雨声两个缺一不可的特征：
-#   ① 雨幕的"沙沙"能量集中在 **1~6kHz**（不是低频）；
-#   ② **一颗颗雨滴打下来的瞬态** —— 缺了它，再怎么滤波都只是"滤过的噪声"，
-#      有沙沙但没有"在下雨"的下落感。旧版只有 ① 的残缺形态、完全没有 ②。
-RAIN_HP_HZ = 800          # 雨幕高通：切掉 800Hz 以下（那一段正是"风声"的来源）
-RAIN_LP_HZ = 3800         # 雨幕低通：切掉 3.8k 以上，去毛刺
-RAIN_DROP_HP_HZ = 1800    # 雨滴瞬态的高通：让每颗"嗒"落在更亮的频段
-RAIN_DROP_LP_HZ = 4200    # 雨滴瞬态的低通（采样率 16k，Nyquist 8k，留出余量）
-RAIN_BODY_HZ = 320        # 雨幕低频"厚度"：只给一点点（见下，多了就变回风声）
-RAIN_BODY_GAIN = 0.14
-RAIN_DROP_RATE = 150      # 雨滴密度（颗/秒）：中等雨势。太稀像滴水，太密糊成一片
-RAIN_DROP_TAU_MS = 3.0    # 单颗雨滴的衰减时间常数（毫秒）：决定"嗒"有多干脆
+# 旧版为什么一听就是假的：雨滴用的是**带限噪声咔哒**（1800~4200Hz 的噪声小爆发），
+# 那听感是"咔哒咔哒"的静电，不是水滴打在东西上的"嗒"。真实雨滴是一个个**有共振的
+# 衰减音**（打在叶面/地面/棚顶各有不同音高），缺了这个，再怎么滤波都只是"滤过的噪声"。
 #
-# ⚠️ 密度与衰减是**一对**：190 颗/秒 × 4ms 时重叠度 0.76，一颗颗全糊在一起，
-#   实测包络起伏只比平滑噪声高一点点（0.245 vs 0.211）——听上去还是"一片沙沙"，
-#   没有雨打在棚顶那种颗粒感。降到 150 × 3ms（重叠度 0.45）后瞬态才立得起来。
-#
-# ⚠️ 低通为什么要**两级级联**（2026-10-15 实测）：
-#   单极点只有 -6dB/oct，在 16k 采样率下几乎压不住 6~8kHz —— 实测单级时
-#   >6kHz 占了 26.5% 的能量、频谱重心冲到 4267Hz，听感偏"嘶"，正好踩回
-#   "白噪音刺耳"那个坑。两级级联是 -12dB/oct，才能把重心压回 2~3kHz 的雨声区。
+# 新版四层（采样率提到 44.1k：雨幕的细沙在 8k 以上还有能量，16k 会发闷）：
+#   ① 雨幕 hiss：白噪 → 去低频(>350Hz，去掉"风感") → 一阶低通(~6.5k) 做自然高频滚降
+#      （真实雨声能量随频率约 -6dB/oct 衰减，不是"全高频刺耳"也不是"低频风声"）
+#   ② 雨滴瞬态：泊松过程触发的一颗颗"嗒"——每颗 = 指数衰减的**共振正弦**(随机音高/衰减)
+#      + 极短噪声冲击(砸到表面的"啪")。共振正弦才有"打在东西上"的颗粒感，这是关键。
+#   ③ 雨势起伏：周期**恰好整除循环长度**的慢正弦叠加 → 整体强度像阵风一样缓慢呼吸，
+#      且在循环接缝处连续（不会"咕咚"一下）。
+#   ④ 极低频"厚度"：一点点 <150Hz 棕噪垫底，避免发飘。
+def gen_rain(n, rate):
+    TWO_PI = 2.0 * math.pi
+    a_hp = math.exp(-TWO_PI * 350.0 / rate)       # 去低频风感（一阶高通 = DC 阻断器，截止 350Hz）
+    a_lp = 1.0 - math.exp(-TWO_PI * 8500.0 / rate)    # 雨幕自然高频滚降（~8.5k 一阶 = 雨声真实的高频倾斜，重心落到自然区间）
+    a_body = 1.0 - math.exp(-TWO_PI * 150.0 / rate)   # 极低频厚度
 
+    DROP_RATE = 170.0                  # 雨滴密度（颗/秒，与采样率无关）
+    p_drop = DROP_RATE / rate
 
-def gen_rain(n):
-    # ① 雨幕 hiss：白噪 → 高通(去风感) → 低通(去毛刺) → 800Hz~5kHz 的沙沙
-    # ② 雨滴 patter：泊松过程触发的一颗颗"嗒"，每颗 = 指数衰减 × 更亮频段的带限噪声
-    # ③ 雨势起伏：慢速调制整体强度**和雨滴密度**（忽大忽小才像真的在下，不是循环贴片）
-    a_hp = 1.0 - math.exp(-2.0 * math.pi * RAIN_HP_HZ / RATE)
-    a_lp = 1.0 - math.exp(-2.0 * math.pi * RAIN_LP_HZ / RATE)
-    a_dhp = 1.0 - math.exp(-2.0 * math.pi * RAIN_DROP_HP_HZ / RATE)
-    a_dlp = 1.0 - math.exp(-2.0 * math.pi * RAIN_DROP_LP_HZ / RATE)
-    # 单颗雨滴的每样本衰减系数：tau 毫秒换算成样本数后取 e^(-1/n)
-    tau_n = RAIN_DROP_TAU_MS * RATE / 1000.0
-    decay = math.exp(-1.0 / max(1.0, tau_n))
-    p_drop = RAIN_DROP_RATE / RATE      # 每个样本触发一颗雨滴的概率
+    loop_s = float(n) / rate           # 循环时长（秒）：起伏周期整除它 → 接缝连续
 
-    a_body = 1.0 - math.exp(-2.0 * math.pi * RAIN_BODY_HZ / RATE)
-
-    hp1 = lp1 = lp2 = body = 0.0
-    dhp = dlp1 = dlp2 = 0.0
-    env = 0.0                            # 雨滴包络：累加各颗的冲激，按 decay 衰减
-    out = []
+    # ① 雨幕 + ④ 厚度：逐样本滤波（标准一阶高通 → 两级级联一阶低通，状态跨样本累积）
+    hiss = [0.0] * n
+    hp = 0.0
+    w_prev = 0.0
+    lp1 = 0.0
+    lp2 = 0.0
+    body = 0.0
     for i in range(n):
-        t = i / RATE
         w = random.uniform(-1.0, 1.0)
-
-        # ① 雨幕：带通白噪（高通 → 两级低通，见上面的级联说明）
-        hp1 += a_hp * (w - hp1)
-        lp1 += a_lp * ((w - hp1) - lp1)
-        lp2 += a_lp * (lp1 - lp2)
-        hiss = lp2
-
-        # 雨幕的"厚度"：一点点低频，纯高频会显得单薄。
-        # ⚠️ 只给 0.10 —— 旧版就是因为这一层占了一半能量才变成风声
+        hp = a_hp * hp + (w - w_prev)        # 一阶高通（去风感，保留 350Hz 以上）
+        w_prev = w
+        lp1 += a_lp * (hp - lp1)             # 一阶低通①
+        lp2 += a_lp * (lp1 - lp2)            # 一阶低通②（级联 → -12dB/oct，高频滚降更自然，雨声不是全高频）
+        hiss[i] = lp2
         body += a_body * (w - body)
 
-        # ③ 雨势起伏：两个错开周期的慢正弦（周期互质，8 秒内不重复）
-        mod = 1.0 + 0.18 * (
-            0.6 * math.sin(2 * math.pi * t / 5.3)
-            + 0.4 * math.sin(2 * math.pi * t / 2.9 + 1.7)
+    # ② 雨滴：泊松触发，每颗直接写进 drops 缓冲（共振衰减正弦 + 起点噪声冲击）
+    drops = [0.0] * n
+    for i in range(n):
+        if random.random() < p_drop:
+            size = random.random()                  # 0=小滴 1=大滴
+            f0 = 700.0 + size * 2600.0              # 大滴低频、小滴高频：700~3300 Hz
+            amp = 0.25 + (1.0 - size) * 0.85       # 大滴更响
+            tau = 0.004 + (1.0 - size) * 0.022      # 衰减 4~26 ms（大滴"嗒"更拖）
+            phase = random.uniform(0.0, TWO_PI)
+            L = int(6.0 * tau * rate) + 1
+            for j in range(L):
+                k = i + j
+                if k >= n:
+                    break
+                age = j / rate
+                env = math.exp(-age / tau)
+                # 指数衰减的共振正弦：随机相位让起点有突兀的"嗒"，不需要叠白噪爆破
+                # （白噪冲击是全带宽的，会抬高重心、显得刺，真实雨滴是共振体感不是噪声）
+                s = amp * env * math.sin(TWO_PI * f0 * age + phase)
+                drops[k] += s
+
+    # ③ 合成 + 慢起伏调制（周期整除 loop_s → 循环点连续）
+    out = [0.0] * n
+    for i in range(n):
+        t = i / rate
+        gust = 1.0 + 0.18 * (
+            0.5 * math.sin(TWO_PI * t / loop_s)
+            + 0.3 * math.sin(TWO_PI * t / (loop_s / 2.0) + 1.1)
+            + 0.2 * math.sin(TWO_PI * t / (loop_s / 3.0) + 2.3)
         )
-
-        # ② 雨滴：密度也跟着雨势走（雨大 = 滴更密，不只是更响）
-        if random.random() < p_drop * mod:
-            env += random.uniform(0.35, 1.0)
-        env *= decay
-        dhp += a_dhp * (w - dhp)
-        dlp1 += a_dlp * ((w - dhp) - dlp1)
-        dlp2 += a_dlp * (dlp1 - dlp2)
-        patter = env * dlp2
-
-        out.append(0.62 * hiss + 0.85 * patter + RAIN_BODY_GAIN * body)
+        # 雨幕为主（铺满 1~11k 的"雨床"），雨滴是叠在上面的颗粒纹理，低频厚度垫底
+        out[i] = (1.00 * hiss[i] + 0.40 * drops[i] + 0.05 * body) * gust
     return out
 
 
-def soften(samples, cutoff_hz):
+def soften(samples, cutoff_hz, rate=RATE):
     """一阶低通：压掉最刺耳的高频段（cutoff_hz <= 0 表示不处理）"""
     if cutoff_hz <= 0:
         return samples
     # 一阶 RC：系数由截止频率与采样率推出
-    a = 1.0 - math.exp(-2.0 * math.pi * cutoff_hz / RATE)
+    a = 1.0 - math.exp(-2.0 * math.pi * cutoff_hz / rate)
     out = []
     acc = 0.0
     for x in samples:
@@ -182,9 +185,9 @@ def normalize(samples, rms=RMS_TARGET, peak_cap=PEAK):
     return out
 
 
-def crossfade_loop(samples):
+def crossfade_loop(samples, rate=RATE):
     """结尾 XFADE_MS 与开头等功率交叉淡化 → loop 接缝连续，听不出循环点"""
-    f = int(RATE * XFADE_MS / 1000)
+    f = int(rate * XFADE_MS / 1000)
     n = len(samples)
     out = list(samples)
     for i in range(f):
@@ -196,23 +199,24 @@ def crossfade_loop(samples):
     return out
 
 
-def write_wav(name, samples):
+def write_wav(name, samples, rate=RATE):
     path = os.path.join(OUT, name + '.wav')
     with wave.open(path, 'wb') as f:
         f.setnchannels(1)          # 单声道：白噪音没有声场信息，立体声纯属翻倍体积
         f.setsampwidth(2)          # 16-bit
-        f.setframerate(RATE)
+        f.setframerate(rate)
         frames = b''.join(struct.pack('<h', max(-32768, min(32767, int(x * 32767)))) for x in samples)
         f.writeframes(frames)
     kb = os.path.getsize(path) / 1024
-    print('  %-6s %6.1f KB  (%d s @ %d Hz)' % (name, kb, SECONDS, RATE))
+    dur = len(samples) / rate
+    print('  %-6s %6.1f KB  (%d s @ %d Hz)' % (name, kb, int(dur), rate))
 
 
-def build(name, gen):
+def build(name, gen, rate=RATE, seconds=SECONDS):
     """合成 → 柔化高频 → 峰值归一化 → 首尾交叉淡化"""
-    raw = gen(RATE * SECONDS)
-    soft = soften(raw, SOFTEN.get(name, 0))
-    return crossfade_loop(normalize(soft))
+    raw = gen(int(rate * seconds), rate)
+    soft = soften(raw, SOFTEN.get(name, 0), rate)
+    return crossfade_loop(normalize(soft), rate)
 
 
 def main():
@@ -221,8 +225,8 @@ def main():
     write_wav('white', build('white', gen_white))
     write_wav('pink', build('pink', gen_pink))
     write_wav('brown', build('brown', gen_brown))
-    write_wav('rain', build('rain', gen_rain))
-    print('完成：4 种音色，全部无缝循环（高频已按 SOFTEN 柔化）。')
+    write_wav('rain', build('rain', gen_rain, RAIN_RATE, RAIN_SECONDS), RAIN_RATE)
+    print('完成：4 种音色，全部无缝循环（高频已按 SOFTEN 柔化；雨声为 44.1k 物理化模型）。')
 
 
 if __name__ == '__main__':
