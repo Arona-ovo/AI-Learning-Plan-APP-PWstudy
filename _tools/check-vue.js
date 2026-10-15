@@ -51,11 +51,48 @@ for (const line of out.split('\n')) {
 try { fs.unlinkSync(manifest); } catch (e) {}
 
 // ---------- style 块的括号 / 花括号平衡 ----------
+// ---------- template 的 view 标签配对 ----------
+// 为什么要有这个：check-vue 原来只查 <script> 和 <style>，**template 的标签配对没人查**
+// —— 2026-10-15 一个提交把 focus.vue 改出了 `</view>          </view>`（多留一个旧结束
+// 标签），本地护栏全绿，云打包在 vite 编译阶段才炸（Invalid end tag），白排 20 分钟队。
+// 前提已全仓验证过：<view 从不自闭合（<view .../> 零出现），所以"开闭数量相等"是安全的。
+function checkTemplateTags() {
+  const files = [];
+  (function collect(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === 'unpackage' || e.name.startsWith('.')) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) collect(p);
+      else if (e.name.endsWith('.vue') || e.name.endsWith('.nvue')) files.push(p);
+    }
+  })(ROOT);
+  let n = 0;
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
+    // ⚠️ 不能用非贪婪 match：页面里有嵌套 <template v-if>（settings/apps 各 3 处），
+    //    非贪婪会截到第一个 </template> 就停，把好文件误判成失衡（实测 194/194 的
+    //    settings.vue 被报成 75/72）。顶层 template 的结尾是**最后一个** </template>。
+    const t0 = src.indexOf('<template>');
+    const t1 = src.lastIndexOf('</template>');
+    if (t0 < 0 || t1 <= t0) continue;
+    const tpl = src.slice(t0 + 10, t1).replace(/<!--[\s\S]*?-->/g, '');   // 注释里的标签不计
+    const open = (tpl.match(/<view[\s>]/g) || []).length;
+    const close = (tpl.match(/<\/view>/g) || []).length;
+    if (open !== close) {
+      n++;
+      console.error('✗ ' + path.relative(ROOT, f) + ' 的 template');
+      console.error('  <view> 开闭不配对：开 ' + open + ' / 闭 ' + close +
+        ' —— 多半是改模板时把旧的结束标签留在了同一行（vite 会报 Invalid end tag，云打包直接失败）');
+    }
+  }
+  return n;
+}
+const tagBad = checkTemplateTags();
 const cssBad = checkStyleBlocks();
-console.log(bad || cssBad
-  ? ('\n' + bad + ' 个 script 语法错误 · ' + cssBad + ' 个 style 括号失衡')
-  : ('\n' + list.length + ' 个页面 script 语法全部通过 · style 括号平衡'));
-process.exit(bad || cssBad ? 1 : 0);
+console.log(bad || cssBad || tagBad
+  ? ('\n' + bad + ' 个 script 语法错误 · ' + tagBad + ' 个 template 标签失衡 · ' + cssBad + ' 个 style 括号失衡')
+  : ('\n' + list.length + ' 个页面 script 语法全部通过 · template 标签配对 · style 括号平衡'));
+process.exit(bad || cssBad || tagBad ? 1 : 0);
 
 function checkStyleBlocks() {
   const files = [];
