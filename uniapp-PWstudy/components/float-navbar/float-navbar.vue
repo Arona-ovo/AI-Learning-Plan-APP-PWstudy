@@ -37,6 +37,19 @@
         <text v-if="search && value" class="fnb-clear">×</text>
       </view>
 
+      <!-- 首页专属：拦截通知开关。放在胶囊右侧、常驻（非搜索态才显示）。
+           点一下 = 在首页直接开关"专注期间收起别家 App 通知"，
+           未授权时由父页面带去开「通知使用权」，绝不假称已挡住。 -->
+      <view
+        v-if="notifToggle && !search"
+        class="fnb-side fnb-side-notif"
+        @tap="onNotifTap"
+      >
+        <view class="fnb-notif" :class="{ 'fnb-notif-on': notifOn }">
+          <view class="fnb-shield"></view>
+        </view>
+      </view>
+
       <!-- 模式切换键：自动判定再准也有看走眼的时候，留一颗手动开关兜底。
            点一下就在「搜 / AI」之间切换并锁定，清空输入才回到自动判定。
            常驻（不挂 fnb-side-flat，跟着一起收起会有两个麻烦）：
@@ -84,7 +97,11 @@ export default {
     // 是否显示右侧的模式切换键（只有"搜索 + 指令"双模式的页面才需要）
     switchable: { type: Boolean, default: false },
     // 执行中：左槽换成转圈
-    busy: { type: Boolean, default: false }
+    busy: { type: Boolean, default: false },
+    // 首页专属：是否显示"拦截通知"开关（常驻在胶囊右侧，让首页就能开关）
+    notifToggle: { type: Boolean, default: false },
+    // 拦截通知当前是否开启（开启时图标染品牌色）
+    notifOn: { type: Boolean, default: false }
   },
   data() {
     return { barH: 0, focused: false }
@@ -185,6 +202,10 @@ export default {
     onClear() {
       this.$emit('input', '')
       this.$emit('clear')
+    },
+    // 首页"拦截通知"开关：只发事件，落盘 / 授权引导由父页面（home.vue）决定
+    onNotifTap() {
+      this.$emit('toggle-notif')
     },
     // 模式键：只发事件，切到哪个模式由父页面决定（它才知道当前输入该怎么判）
     onModeTap() {
@@ -376,6 +397,51 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* 首页"拦截通知"开关：盾牌图标（"挡住别家通知"的直觉符号）。
+   未开启是中性灰，开启染品牌色 —— 一眼能看出这段会不会帮你收通知。 */
+.fnb-side-notif { margin-left: 4rpx; }
+.fnb-notif {
+  width: 42rpx;
+  height: 42rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  transition: color 160ms ease, opacity 160ms ease;
+}
+.fnb-notif:active { opacity: 0.6; }
+.fnb-notif-on { color: #e4173d; color: var(--brand, #e4173d); }
+.fnb-shield {
+  position: relative;
+  width: 28rpx;
+  height: 32rpx;
+  border: 4rpx solid currentColor;
+  border-top: none;
+  border-radius: 7rpx 7rpx 16rpx 16rpx;
+  box-sizing: border-box;
+}
+.fnb-shield::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6rpx;
+  width: 4rpx;
+  height: 13rpx;
+  background: currentColor;
+  transform: translateX(-50%) rotate(45deg);
+}
+.fnb-shield::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 13rpx;
+  width: 11rpx;
+  height: 4rpx;
+  background: currentColor;
+  transform: translateX(-50%) rotate(45deg);
 }
 
 /* 搜索模式的左右槽：展开态 76rpx，收起态 0（输入框随之铺满 / 收缩） */

@@ -8,7 +8,7 @@
     @touchend="onSlideEnd"
     @touchcancel="onSlideEnd"
   >
-    <float-navbar title="PWstudy" />
+    <float-navbar title="PWstudy" :notif-toggle="!locked" :notif-on="blockNotifOn" @toggle-notif="onNotifToggle" />
 
     <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
 
@@ -354,6 +354,52 @@
       @close="doneDlgOn = false"
     />
 
+    <!-- 首页底部专注胶囊（学番茄 ToDo 的底部胶囊）：
+         把「强制模式 / 拦截通知 / 自动进休息」这些专注设置收进一个常驻在底栏上方的胶囊，
+         不挤在卡片流里、也不藏在三层深的设置页。点胶囊才展开面板，再逐项开关。
+         专注进行中（locked）与编辑首页（editing）时不显示：前者整屏只剩倒计时，
+         后者要让出位置给编辑按钮。 -->
+    <view v-if="!locked && !editing" class="focus-cap" :class="{ 'focus-cap-open': focusSheet }">
+      <view v-if="focusSheet" class="fc-panel">
+        <view class="fc-row">
+          <view class="fc-info">
+            <text class="fc-title">{{ $t('强制模式') }}</text>
+            <text class="fc-sub">{{ $t('离开学习 App 立刻拉回') }}</text>
+          </view>
+          <view class="fc-switch" :class="{ 'fc-on': forcedOn }" @tap="tapForced">
+            <view class="fc-knob" :class="{ 'fc-knob-on': forcedOn }"></view>
+          </view>
+        </view>
+        <view v-if="forcedOn && !overlayOk" class="fc-warn" @tap="openOverlayHome">{{ $t('强制模式需开启「显示在其他应用上层」') }}</view>
+
+        <view class="fc-row">
+          <view class="fc-info">
+            <text class="fc-title">{{ $t('拦截通知') }}</text>
+            <text class="fc-sub">{{ $t('专注时收起别家通知') }}</text>
+          </view>
+          <view class="fc-switch" :class="{ 'fc-on': blockNotifOn }" @tap="tapBlockNotif">
+            <view class="fc-knob" :class="{ 'fc-knob-on': blockNotifOn }"></view>
+          </view>
+        </view>
+
+        <view class="fc-row">
+          <view class="fc-info">
+            <text class="fc-title">{{ $t('自动进休息') }}</text>
+            <text class="fc-sub">{{ $t('专注结束自动休息') }}</text>
+          </view>
+          <view class="fc-switch" :class="{ 'fc-on': autoRestOn }" @tap="tapAutoRest">
+            <view class="fc-knob" :class="{ 'fc-knob-on': autoRestOn }"></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="fc-pill" @tap="toggleFocusSheet">
+        <view class="fc-pill-icon"><view class="fc-shield"></view></view>
+        <text class="fc-pill-label">{{ $t('专注设置') }}</text>
+        <view class="fc-chevron" :class="{ 'fc-chevron-up': focusSheet }"></view>
+      </view>
+    </view>
+
     <float-tabbar ref="tabbar" current="home" />
 
     <!-- 新手引导遮罩（fixed 层，必须放在 .page-slide 之外 —— 记忆约束 3）。
@@ -379,6 +425,8 @@ import * as planTask from '../../utils/plan-task.js'
 import * as strict from '../../utils/strict.js'
 import * as forced from '../../utils/forced.js'
 import * as setup from '../../utils/setup.js'
+import * as settings from '../../utils/settings.js'
+import * as fgsvc from '../../utils/fgsvc.js'
 import * as dailylog from '../../utils/dailylog.js'
 import * as pacing from '../../utils/pacing.js'
 import * as coach from '../../utils/coach.js'
@@ -434,6 +482,10 @@ export default {
       forcedOn: false,    // 强制模式：离开就立刻把 PWstudy 拉回前台
       usageOk: false,     // 「使用情况访问」权限：判断前台是谁的老路子
       a11yOk: false,      // 无障碍护卫：判断前台是谁的新路子（且能拿到后台启动豁免）
+      blockNotifOn: false,   // 首页底部胶囊：专注期间收起别家 App 通知
+      autoRestOn: false,     // 首页底部胶囊：专注跑完自动进休息
+      focusSheet: false,     // 首页底部「专注设置」胶囊是否展开面板
+      overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
       // ---------- 首页编辑（顺序 / 收纳 / 拖拽）----------
@@ -686,6 +738,7 @@ export default {
   onHide() {
     // 离开首页一律退出编辑态，保证回来时界面是简洁的
     this.finishEdit()
+    this.focusSheet = false
     this.stopTick()
   },
   onUnload() {
@@ -736,6 +789,11 @@ export default {
       this.forcedOn = !!forced.enabled()
       this.usageOk = apptime.hasUsagePermission()
       this.a11yOk = apptime.hasA11yPermission()
+      // 底部"专注设置"胶囊的三项开关：直接读 settings，保证离开设置页回来同步
+      const f = (settings.get().focus) || {}
+      this.blockNotifOn = !!f.blockNotif
+      this.autoRestOn = !!f.autoRest
+      this.overlayOk = apptime.canDrawOverlays()
     },
     // ---------- 首页模块显隐 ----------
     // 出厂默认只放三张；用户可在「首页自定义」里加回来。layout 为空时
@@ -1147,6 +1205,93 @@ export default {
       strict.sync()
       forced.sync()
     },
+
+    /* ==================== 首页底部「专注设置」胶囊 ====================
+       把强制模式 / 拦截通知 / 自动进休息三项收进底部胶囊，仿番茄 ToDo 的底部胶囊：
+       默认只露一个"专注设置"药丸，点开才展开面板逐项开关。逻辑与专注页同口径
+       （未授权就引导去开，绝不假称已生效），只是入口前置到首页，少跳一层。 */
+
+    /** 顶栏"拦截通知"开关（首页胶囊右侧那个盾牌） */
+    onNotifToggle() {
+      // 开拦截通知要「通知使用权」：没授权先带人去开，开关不谎称已挡住
+      if (!this.blockNotifOn && !fgsvc.notifGranted()) {
+        this.ask({
+          title: this.$t('拦截通知'),
+          content: this.$t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。'),
+          confirmText: this.$t('通知使用权没开启，点这里去开启'),
+          action: 'goto-notif'
+        })
+        return
+      }
+      const next = !this.blockNotifOn
+      this.blockNotifOn = next
+      this.saveFocus('blockNotif', next)
+    },
+    /** 展开 / 收起底部面板（编辑态与硬控态不响应，免得盖住编辑按钮或倒计时） */
+    toggleFocusSheet() {
+      if (this.editing || this.locked) return
+      this.focusSheet = !this.focusSheet
+    },
+    /** 面板里的"强制模式"开关：与专注页 toggleForced 同口径（记录意图 + 缺权限引导）。
+       真正的拉回能力在专注开始时随前台服务一起起来，这里只管"开了没、权限齐不齐"。 */
+    tapForced() {
+      const next = !this.forcedOn
+      this.forcedOn = next
+      this.saveFocus('forced', next)
+      if (next) {
+        apptime.refreshA11y && apptime.refreshA11y()
+        this.usageOk = apptime.hasUsagePermission()
+        this.overlayOk = apptime.canDrawOverlays()
+        this.a11yOk = apptime.hasA11yPermission()
+        // 悬浮窗是强制模式的准入条件（不是兜底）：没有它安卓 10+ 拉回路全被静默拦掉。
+        // 先报这条最要紧的，并直接给路；其余权限交给「设置」页统一引导。
+        if (!this.overlayOk) {
+          uni.showToast({ title: this.$t('强制模式需开启「显示在其他应用上层」'), icon: 'none' })
+          setTimeout(() => this.openOverlayHome(), 900)
+        } else if (!this.a11yOk && !this.usageOk) {
+          this.goSetup()
+        }
+      }
+      forced.sync()
+    },
+    /** 面板里的"拦截通知"开关：未授权先引导去开「通知使用权」 */
+    tapBlockNotif() {
+      if (!this.blockNotifOn && !fgsvc.notifGranted()) {
+        this.ask({
+          title: this.$t('拦截通知'),
+          content: this.$t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。'),
+          confirmText: this.$t('通知使用权没开启，点这里去开启'),
+          action: 'goto-notif'
+        })
+        return
+      }
+      const next = !this.blockNotifOn
+      this.blockNotifOn = next
+      this.saveFocus('blockNotif', next)
+    },
+    /** 面板里的"自动进休息"开关 */
+    tapAutoRest() {
+      const next = !this.autoRestOn
+      this.autoRestOn = next
+      this.saveFocus('autoRest', next)
+    },
+    /** 把单项专注开关落盘（浅合并，绝不丢别的字段） */
+    saveFocus(key, val) {
+      try {
+        const st = settings.get()
+        st.focus = Object.assign(
+          { notify: true, sound: true, vibe: true, fgservice: true, blockNotif: false, autoRest: true, forced: false },
+          st.focus || {},
+          { [key]: val }
+        )
+        settings.save()
+      } catch (e) {}
+    },
+    /** 跳系统「显示在其他应用上层」设置页；跳回来再补一次实测 */
+    openOverlayHome() {
+      try { apptime.openOverlaySettings() } catch (e) {}
+      setTimeout(() => { this.overlayOk = apptime.canDrawOverlays() }, 1200)
+    },
     // ---------- 统一弹窗 ----------
     // 全 App 只有一套弹窗（components/app-dialog）：系统弹窗在 App 端样式管不到，
     // 跟这套毛玻璃卡片不是一个画风。ask() 只负责描述，动作在 onDlgYes 里按 action 分派。
@@ -1175,6 +1320,11 @@ export default {
       const act = this.dlg.action
       const item = this.dlg.item
       this.dlg.show = false
+      if (act === 'goto-notif') {
+        // 跳系统「通知使用权」设置页；跳不出去（插件不在 / 标准基座）就只能如实算了
+        try { fgsvc.openNotifSettings() } catch (e) {}
+        return
+      }
       if (act === 'task') {
         if (payload === 0) this.startFor(item)
         else if (payload === 1) this.markDone(item)
@@ -1917,6 +2067,164 @@ export default {
   border-radius: 999rpx;
   padding: 14rpx 32rpx;
 }
+
+/* ===== 首页底部「专注设置」胶囊（仿番茄 ToDo 底部胶囊） =====
+   常驻在底栏上方的浮动玻璃胶囊：默认只露一个"专注设置"药丸，点开才向上展开面板。
+   外层 pointer-events:none，只让胶囊本体可点，不挡住它周围的内容。 */
+.focus-cap {
+  position: fixed;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: calc(148rpx + env(safe-area-inset-bottom));
+  bottom: calc(148rpx + constant(safe-area-inset-bottom));
+  z-index: 550;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  pointer-events: none;
+}
+/* 展开时面板在药丸上方（DOM 顺序面板在前、药丸在后；flex 列方向天然如此） */
+
+/* 展开面板：磨砂玻璃卡，行与行之间留缝 */
+.fc-panel {
+  pointer-events: auto;
+  margin-bottom: 14rpx;
+  padding: 8rpx 26rpx 14rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.78);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.78);
+  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  border: 2rpx solid rgba(255, 255, 255, 0.7);
+  border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.7));
+  box-shadow: 0 12rpx 40rpx rgba(23, 32, 26, 0.14), 0 2rpx 8rpx rgba(23, 32, 26, 0.06);
+  box-shadow: 0 12rpx 40rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.14), 0 2rpx 8rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.06);
+}
+.fc-row {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 0;
+  border-bottom: 2rpx solid rgba(23, 32, 26, 0.07);
+  border-bottom: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.07));
+}
+.fc-row:last-child { border-bottom: none; }
+.fc-info { flex: 1; min-width: 0; margin-right: 18rpx; }
+.fc-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.fc-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+/* 强制模式缺悬浮窗：给一条可点的路（与顶栏引导同一句文案） */
+.fc-warn {
+  margin: 4rpx 0 12rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 14rpx;
+  background: rgba(247, 144, 9, 0.14);
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #b25e00;
+  text-align: center;
+}
+.fc-warn:active { opacity: 0.8; }
+
+/* iOS 风开关（与专注页 .sr-switch 同语言） */
+.fc-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 84rpx;
+  height: 48rpx;
+  border-radius: 999rpx;
+  background: rgba(23, 32, 26, 0.16);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.16);
+  transition: background 200ms ease;
+}
+.fc-switch-on {
+  background: rgba(228, 23, 61, 0.9);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.9);
+}
+.fc-knob {
+  position: absolute;
+  top: 4rpx;
+  left: 4rpx;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2rpx 6rpx rgba(23, 32, 26, 0.2);
+  transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.fc-knob-on { transform: translateX(36rpx); }
+
+/* 收起态药丸 */
+.fc-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  height: 84rpx;
+  padding: 0 30rpx;
+  border-radius: 44rpx;
+  background: rgba(255, 255, 255, 0.82);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
+  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  border: 2rpx solid rgba(255, 255, 255, 0.7);
+  border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.7));
+  box-shadow: 0 10rpx 30rpx rgba(23, 32, 26, 0.12), 0 2rpx 6rpx rgba(23, 32, 26, 0.04);
+  box-shadow: 0 10rpx 30rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.12), 0 2rpx 6rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.04);
+  transition: transform 160ms ease;
+}
+.fc-pill:active { transform: scale(0.98); }
+.fc-pill-icon {
+  width: 40rpx;
+  height: 40rpx;
+  margin-right: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e4173d;
+  color: var(--brand, #e4173d);
+}
+/* 药丸里的盾牌（呼应顶栏拦截开关的图标） */
+.fc-shield {
+  position: relative;
+  width: 28rpx;
+  height: 32rpx;
+  border: 4rpx solid currentColor;
+  border-top: none;
+  border-radius: 7rpx 7rpx 16rpx 16rpx;
+  box-sizing: border-box;
+}
+.fc-pill-label {
+  flex: 1;
+  font-size: 27rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+/* 展开指示小箭头（收起朝下、展开朝上） */
+.fc-chevron {
+  width: 16rpx;
+  height: 16rpx;
+  margin-left: 12rpx;
+  border-right: 4rpx solid #98a19b;
+  border-right: 4rpx solid var(--ink-3, #98a19b);
+  border-bottom: 4rpx solid #98a19b;
+  border-bottom: 4rpx solid var(--ink-3, #98a19b);
+  transform: rotate(45deg);
+  transition: transform 200ms ease;
+}
+.fc-chevron-up { transform: rotate(225deg); }
 
 /* ===== 卡片头 ===== */
 .card-head {

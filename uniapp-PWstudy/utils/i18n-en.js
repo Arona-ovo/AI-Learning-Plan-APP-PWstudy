@@ -1094,5 +1094,11 @@ export default {
     'While focusing, notifications from other apps are tucked away (not even visible in the shade) and summarized for you when the focus ends. Needs the notification-access permission.',
   '通知使用权没开启，点这里去开启': 'Notification access is off — tap here to enable it',
   '自动进休息': 'Auto-break',
-  '专注跑完后直接开始休息，不再停在完成面板上': 'Start the break right after a focus ends, instead of waiting on the finish panel'
+  '专注跑完后直接开始休息，不再停在完成面板上': 'Start the break right after a focus ends, instead of waiting on the finish panel',
+  '专注设置': 'Focus settings',
+  '强制模式': 'Forced mode',
+  '离开学习 App 立刻拉回': 'Pull PWstudy back to front the moment you leave a study app',
+  '专注时收起别家通知': "Tuck away other apps' notifications while focusing",
+  '专注结束自动休息': 'Rest automatically when a focus ends',
+  '强制模式需开启「显示在其他应用上层」': 'Forced mode needs "Display over other apps"'
 };
