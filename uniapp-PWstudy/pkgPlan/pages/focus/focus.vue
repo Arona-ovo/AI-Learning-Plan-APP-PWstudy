@@ -144,10 +144,11 @@
           <view v-else-if="forcedOn && !usageOk" class="sr-warn" @tap="openUsage">
             无障碍没开时，得靠「使用情况访问」判断你在用哪个 App（点这里去开）
           </view>
-          <view v-else-if="forcedOn && !overlayOk" class="sr-warn" @tap="openOverlay">
-            再授一个「显示在其他应用上层」：极少数 ROM 连无障碍也拦得住后台跳转，那时用一层遮罩
-            把那个 App 盖住（点这里去开）
-          </view>
+          <view v-else-if="forcedOn && !overlayOk" class="sr-warn sw-block" @tap="openOverlay">
+            <text class="sw-head">不开「显示在其他应用上层」，强制模式就是摆设</text>
+            <text class="sw-body">安卓 10 起系统禁止应用从后台自己弹界面 —— 无障碍服务也一样会被拦，而且不报错：界面一直显示"已就绪"，实际一动不动。唯一能解开这道限制的是这个权限（官方豁免）。给了它，切走时会弹出拦截页把你带回计时页；没它，拉回和遮罩两条都使不上。小米/红米还要再开一次「后台弹出界面」（设置 → 应用设置 → 应用管理 → PWstudy）。</text>
+            <text class="sw-go">点这里去开 · 在列表里找 PWstudy 打开开关 ›</text>
+          </view>          </view>
         </view>
       </view>
 
