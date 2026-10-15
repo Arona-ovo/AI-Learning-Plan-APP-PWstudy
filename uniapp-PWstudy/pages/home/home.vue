@@ -75,12 +75,118 @@
         </view>
       </view>
 
+      <!-- ===== 第一屏：今日聚焦 =====
+           打开首页第一眼只看一件事 —— "现在该做哪一个"。
+           完整卡片一律不进第一屏（那要往下翻，见下面的折叠区）：
+           首页是"要开始专注"的地方，不是信息看板，堆一屏卡片只会让人
+           站在门口挑半天，最后什么都没开始。 -->
+      <view class="hero">
+        <view class="hero-top">
+          <text class="hero-kicker">{{ $t('今天先做这个') }}</text>
+          <text class="hero-count">{{ taskStat.done }}/{{ taskStat.total }}</text>
+        </view>
+
+        <!-- 主任务：超期的排最前，其次挑"剩下要做的专注最多"那条 ——
+             它才是今天真正的大头。没有安排就给一句说明 + 去定目标。 -->
+        <text class="hero-title">{{ focusTask ? focusTask.task.title : $t('今天还没有安排') }}</text>
+        <!-- 副标题只拼变量，不拼中文句子（check-i18n 第 5 节盯着 home.vue 的裸拼接）。
+             拆成两个 text 而不是在 text 里嵌 block —— 部分端 text 内只认文本节点。 -->
+        <text v-if="focusTask" class="hero-sub">{{ focusTask.goal.title }} · {{ $t('剩 {n} 分钟', { n: focusTask.estMin }) }}</text>
+        <text v-else class="hero-sub">{{ $t('到「目标」里定一个，AI 会帮你拆成每天的任务') }}</text>
+
+        <!-- 今日进度：一条到底，不写百分比之外的废话 -->
+        <view class="hero-bar">
+          <view class="hero-fill" :style="{ width: taskStat.pct + '%' }"></view>
+        </view>
+
+        <!-- 三个读数：今天做了多少。全都是数字，不重复卡片里那些说明 -->
+        <view class="hero-stats">
+          <view class="hs-item">
+            <text class="hs-num">{{ todayMin }}</text>
+            <text class="hs-unit">{{ $t('分钟') }}</text>
+          </view>
+          <view class="hs-sep"></view>
+          <view class="hs-item">
+            <text class="hs-num">{{ todayPomo }}</text>
+            <text class="hs-unit">{{ $t('段专注') }}</text>
+          </view>
+          <view class="hs-sep"></view>
+          <view class="hs-item">
+            <text class="hs-num">{{ taskStat.total - taskStat.done }}</text>
+            <text class="hs-unit">{{ $t('项待办') }}</text>
+          </view>
+        </view>
+
+        <!-- 只留一颗按钮：第一屏是"开始"的地方，不摆第二个选择让人挑 -->
+        <view class="hero-acts">
+          <view class="hero-main" @tap="startFocusTask">{{ $t('开始专注') }}</view>
+        </view>
+      </view>
+
+      <!-- ===== 其余模块：简化成图形 / 进度条 =====
+           完整卡片要往下翻才看得到（下面那道折叠），但"今天各项到哪一步"
+           不该非得翻页才知道 —— 这里一行图形把读数亮出来：
+           进度条 = 完成度，方块 = 还剩几块，数字 = 累计数。
+           点任意一个 = 展开下面的列表并滚到那张卡。 -->
+      <view v-if="miniList.length" class="mini-row">
+        <view
+          v-for="m in miniList"
+          :key="m.id"
+          class="mini"
+          hover-class="mini-press"
+          @tap="jumpModule(m.id)"
+        >
+          <!-- 图形槽：进度条 = 完成度，点阵 = 还剩几块。
+               纯数字型（学习 App / AI 对话）没有可画的量，槽留空只显示读数，
+               但高度保持一致，一排格子才不会高低不齐。 -->
+          <view class="mg-slot">
+            <view v-if="m.kind === 'bar'" class="mg-bar">
+              <view class="mg-fill" :style="{ width: m.pct + '%', background: m.color }"></view>
+            </view>
+            <view v-else-if="m.kind === 'dots'" class="mg-dots">
+              <view
+                v-for="(d, di) in m.dots"
+                :key="di"
+                class="mg-dot"
+                :class="{ 'mg-dot-on': d }"
+              ></view>
+            </view>
+          </view>
+
+          <text class="mini-val">{{ m.num }}</text>
+          <text class="mini-name">{{ $t(m.name) }}</text>
+        </view>
+      </view>
+
+      <!-- ===== 折叠区：往上滑才展开完整卡片列表 =====
+           默认收起 —— 第一屏只留"聚焦 + 图形读数"，往下翻才见到那一摞卡片；
+           编辑入口压在列表最底下，所以"改首页"是往下翻两次才够得着的动作，
+           平时根本不会误触。 -->
+      <view
+        v-if="!modsOpen"
+        class="mods-peek"
+        @touchstart="peekStart"
+        @touchmove="peekMove"
+        @touchend="peekEnd"
+        @touchcancel="peekEnd"
+        @tap="openMods"
+      >
+        <text class="peek-arrow">︿</text>
+        <text class="peek-txt">{{ $t('往上滑看全部 {n} 个组件', { n: cardOrder.length }) }}</text>
+      </view>
+      <block v-else>
+      <view class="mods-head">
+        <text class="mh-title">{{ $t('全部组件') }}</text>
+        <text class="mh-fold" @tap="closeMods">{{ $t('收起') }}</text>
+      </view>
+
       <!-- 注册表卡片：顺序 = 用户排的。编辑态可拖动排序、可收纳。 -->
       <view class="mod-list" @touchmove="dragMove" @touchend="dragEnd" @touchcancel="dragEnd">
         <view
           v-for="(id, i) in cardOrder"
           :key="id"
           class="mod-wrap"
+          :data-id="id"
           :class="{ 'is-drag': dragIndex === i, 'is-editing': editing }"
           :style="wrapStyle(i)"
         >
@@ -277,6 +383,7 @@
           </view>
         </view>
       </view>
+      </block>
 
       <!-- 首页的核心操作：收工。
            原来它缩在「今日任务」卡右上角当一个小链接，而"今天做了什么"其实是
@@ -448,6 +555,10 @@ import AppDialog from '../../components/app-dialog/app-dialog.vue'
 import OnboardingMask from '../../components/onboarding-mask/onboarding-mask.vue'
 import TaskDoneDialog from '../../components/task-done-dialog/task-done-dialog.vue'
 
+// 图形摘要条的进度条色：跟着 accent 主题走。写死 #e4173d 的话，
+// 换成蓝色 / 绿色主题时这一条会显得像另一套设计留下的。
+const BRAND = 'var(--brand, #e4173d)'
+
 export default {
   components: {
     FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList,
@@ -486,6 +597,12 @@ export default {
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
+      // ---------- 首页分层：聚焦区（常驻）+ 完整组件列表（默认收起）----------
+      // 首页默认只有「今天先做这个」和一行图形读数；那一摞完整卡片要往上滑才展开，
+      // 编辑入口压在列表最底下。收起状态只活在本次会话（切 tab 回来保持），
+      // 不写进设置 —— 每次进首页都强制收起的话，刚展开看两眼又被收回去很烦。
+      modsOpen: false,
+      peekY: 0,           // 折叠把手上的手势起点（往上滑过阈值就展开）
       // ---------- 首页编辑（顺序 / 收纳 / 拖拽）----------
       // editing 是唯一开关：进编辑态才显示把手、遮罩、底部两个按钮
       editing: false,
@@ -577,6 +694,81 @@ export default {
       const late = this.queue.filter(i => i.overdue)
       if (!late.length) return null
       return { n: late.length, goalId: late[0].goal.id }
+    },
+    /**
+     * 第一屏「今天先做这个」挑哪一条。
+     * 超期的最优先（它已经欠着了），其次挑"剩下要做的专注最多"那条 —— 那才是今天的大头。
+     * 全部做完就返回 null，聚焦区转成"去定个目标"，不会显示一条已经打勾的任务。
+     */
+    focusTask() {
+      const q = (this.queue || []).filter(i => i.task && i.task.status !== 'done')
+      if (!q.length) return null
+      const late = q.filter(i => i.overdue)
+      if (late.length) return late[0]
+      const left = i => Math.max(0, (Number(i.task.pomos) || 0) - (Number(i.task.donePomos) || 0))
+      return q.slice().sort((a, b) => left(b) - left(a))[0] || q[0]
+    },
+    /** 今日任务完成度：聚焦区那条进度条 + 右上角 x/y 都读它 */
+    taskStat() {
+      const q = this.queue || []
+      const total = q.length
+      const done = q.filter(i => i.task && i.task.status === 'done').length
+      return { done: done, total: total, pct: total ? Math.round(done * 100 / total) : 0 }
+    },
+    /**
+     * 图形摘要条：把"没进第一屏"的模块压成一个图形 + 一个数。
+     * 只列当前首页真在用的模块（cardOrder 已按显隐过滤过）；
+     * focus 不给格 —— 它要说的话（今天做了多少、开始专注）聚焦区已经说完了。
+     */
+    miniList() {
+      const out = []
+      ;(this.cardOrder || []).forEach(id => {
+        if (id === 'focus') return
+        if (id === 'urgency') {
+          // 今天没排任务时紧迫度是个空环，没有读数可给 → 整格不出现
+          if (this.u && !this.u.empty) {
+            out.push({
+              id: id, name: this.moduleName(id), kind: 'bar',
+              pct: this.u.score || 0, num: String(this.u.score || 0),
+              color: this.u.color || '#e4173d'
+            })
+          }
+          return
+        }
+        if (id === 'task') {
+          const s = this.taskStat
+          out.push({ id: id, name: this.moduleName(id), kind: 'bar', pct: s.pct, num: s.done + '/' + s.total, color: BRAND })
+          return
+        }
+        if (id === 'goal') {
+          // 多个目标时给进度最高的那个（它最接近"今天在推的事"）
+          let pct = 0
+          ;(this.goals || []).forEach(g => {
+            const p = this.progressOf(g).pct || 0
+            if (p > pct) pct = p
+          })
+          out.push({ id: id, name: this.moduleName(id), kind: 'bar', pct: pct, num: pct + '%', color: BRAND })
+          return
+        }
+        if (id === 'schedule') {
+          const rows = this.schedRows || []
+          const done = rows.filter(r => r.status === 'done').length
+          out.push({
+            id: id, name: this.moduleName(id), kind: 'dots',
+            dots: rows.slice(0, 8).map(r => r.status === 'done'),
+            num: done + '/' + rows.length
+          })
+          return
+        }
+        if (id === 'dock') {
+          out.push({ id: id, name: this.moduleName(id), kind: 'num', num: (this.appTodayMin || 0) + this.$t('分钟') })
+          return
+        }
+        if (id === 'coach') {
+          out.push({ id: id, name: this.moduleName(id), kind: 'num', num: this.$t('说一句') })
+        }
+      })
+      return out
     },
     schedToday() {
       return pw.today()
@@ -835,9 +1027,53 @@ export default {
       const m = layout.moduleOf(id)
       return m ? m.name : id
     },
+    // ---------- 首页分层：折叠区（完整卡片列表）----------
+    openMods() {
+      this.modsOpen = true
+    },
+    closeMods() {
+      // 编辑态不许收起：收起来就没得拖、没得收纳了
+      if (this.editing) return
+      this.modsOpen = false
+    },
+    /** 折叠把手上的手势：往上滑过 32px 就展开（点一下同样展开，见模板 @tap） */
+    peekStart(e) {
+      this.peekY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
+    },
+    peekMove(e) {
+      if (!this.peekY) return
+      const y = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
+      // 往上滑 = clientY 变小；展开后立刻清起点，避免继续滑重复触发
+      if (this.peekY - y > 32) { this.peekY = 0; this.openMods() }
+    },
+    peekEnd() {
+      this.peekY = 0
+    },
+    /**
+     * 点图形摘要条 = 展开组件列表并滚到那张卡。
+     * 滚不动（端不支持 selector 定位）也至少已经展开，不会"点了没反应"。
+     */
+    jumpModule(id) {
+      this.modsOpen = true
+      this.$nextTick(() => {
+        setTimeout(() => {
+          try {
+            uni.pageScrollTo({ selector: '.mod-wrap[data-id="' + id + '"]', duration: 200 })
+          } catch (e) { /* 不支持定位就只展开 */ }
+        }, 80)
+      })
+    },
+    /** 聚焦区主按钮：带着主任务进准备页；今天没安排就走自由专注 */
+    startFocusTask() {
+      if (this.focusTask) { this.startFor(this.focusTask); return }
+      this.goFocus()
+    },
     // ---------- 首页编辑 ----------
     toggleEdit() {
       this.editing = !this.editing
+      // 进编辑态必须先把组件列表展开：把手、收纳、排序全在那一摞卡片上，
+      // 收着的时候点「编辑首页」等于进了一个什么都看不见的编辑态。
+      if (this.editing) this.modsOpen = true
       if (!this.editing) this.sheetShow = false
       this.dragIndex = -1
       this.dragDy = 0
@@ -1022,6 +1258,9 @@ export default {
       this.gdOn = true
       this.gdIndex = 0
       this.gdBox = null
+      // 引导要挖洞的是 .focus-card / .task-card，而它们住在折叠区里 ——
+      // 收着的时候量不到矩形，那两步会被当"目标不存在"跳过，引导讲一半。
+      this.modsOpen = true
       // 等卡片渲染完再量：首帧 layout 还没落地，量到的矩形是空的
       this.$nextTick(() => { setTimeout(() => { this.measureStep() }, 320) })
       return true
@@ -1580,6 +1819,225 @@ export default {
    之前只有带专属 class 的几张卡有 margin，剩下的今日任务/目标/AppDock 是贴着的。 */
 .home-slide > .card { margin-bottom: 20rpx; }
 .home-slide > .card:last-child { margin-bottom: 0; }
+
+/* ===== 第一屏：今日聚焦 =====
+   首页默认只显示这一块 + 下面那行图形读数，完整卡片要往上滑才展开（见 .mods-peek）。
+   这块只回答一件事 —— "现在该做哪一个"，所以只留任务名、一条进度、三个读数、一颗按钮；
+   任务清单、目标、日程这些"可以慢慢看"的一律不进第一屏：
+   站在门口挑半天，最后往往什么都没开始。 */
+.hero {
+  background: #ffffff;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.72);
+  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  border-radius: 28rpx;
+  padding: 34rpx 32rpx 30rpx;
+  border: 2rpx solid rgba(23, 32, 26, 0.08);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.08));
+  box-shadow: 0 12rpx 36rpx rgba(23, 32, 26, 0.1), 0 2rpx 8rpx rgba(23, 32, 26, 0.05);
+  box-shadow: 0 12rpx 36rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1), 0 2rpx 8rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.05);
+  box-sizing: border-box;
+}
+.hero-top { display: flex; align-items: center; justify-content: space-between; }
+.hero-kicker {
+  font-size: 24rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+}
+.hero-count {
+  font-size: 24rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+/* 任务名最多两行：名字长的任务撑到三行，下面的按钮就被顶出第一屏了 */
+.hero-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 14rpx;
+  font-size: 40rpx;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.hero-sub {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* 今日进度：一条到底。实心色只用在进度条上（项目令牌：实心色不给按钮） */
+.hero-bar {
+  height: 10rpx;
+  margin: 26rpx 0 22rpx;
+  border-radius: 999rpx;
+  background: rgba(23, 32, 26, 0.08);
+  overflow: hidden;
+}
+.hero-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: #e4173d;
+  background: var(--brand, #e4173d);
+  transition: width 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.hero-stats { display: flex; align-items: center; }
+.hs-item { flex: 1; display: flex; align-items: baseline; justify-content: center; }
+.hs-num {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.hs-unit {
+  margin-left: 6rpx;
+  font-size: 22rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+.hs-sep { width: 2rpx; height: 28rpx; background: rgba(23, 32, 26, 0.1); }
+.hero-acts { display: flex; align-items: center; margin-top: 26rpx; }
+/* 主按钮走 tint 令牌（淡底 + 深字 + 发丝描边），不做大块实心红 */
+.hero-main {
+  flex: 1;
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 29rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  border-radius: 999rpx;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.4);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
+}
+.hero-main:active { opacity: 0.86; }
+
+/* ===== 图形摘要条：其它模块压成一个图形 + 一个读数 =====
+   完整卡片要往上翻才看得到，但"各项到哪一步"不该非翻页才知道。
+   进度条 = 完成度，方块 = 还剩几块（实心 = 已完成），纯数字 = 累计数。
+   点任意一格 = 展开列表并滚到那张卡（jumpModule）。 */
+.mini-row {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 20rpx;
+}
+.mini {
+  flex: 0 0 25%;
+  box-sizing: border-box;
+  padding: 18rpx 8rpx 16rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 20rpx;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.5);
+  border: 2rpx solid rgba(23, 32, 26, 0.06);
+  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.06));
+}
+.mini-press { opacity: 0.72; }
+/* 图形槽定高：纯数字型没有可画的量，槽留空也不会让这一排高低不齐 */
+.mg-slot {
+  width: 100%;
+  height: 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mg-bar {
+  width: 84%;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: rgba(23, 32, 26, 0.1);
+  overflow: hidden;
+}
+.mg-fill { height: 100%; border-radius: 999rpx; }
+.mg-dots { display: flex; align-items: center; }
+.mg-dot {
+  width: 10rpx;
+  height: 10rpx;
+  margin: 0 3rpx;
+  border-radius: 3rpx;
+  background: rgba(23, 32, 26, 0.14);
+}
+.mg-dot-on { background: var(--brand, #e4173d); }
+.mini-val {
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.mini-name {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ===== 折叠把手：往上滑才展开那一摞卡片 =====
+   默认收着 —— 第一屏只有聚焦区 + 图形条；编辑入口压在列表最底下，
+   所以"改首页"是往下翻两次才够得着的动作，平时不会误触。 */
+.mods-peek {
+  margin-top: 20rpx;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.5);
+  border: 2rpx dashed rgba(23, 32, 26, 0.14);
+  border: 2rpx dashed var(--hairline, rgba(23, 32, 26, 0.14));
+}
+.mods-peek:active { opacity: 0.72; }
+.peek-arrow {
+  font-size: 26rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+.peek-txt {
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+/* 展开后的列表头：左边说明这是"全部组件"，右边收起 */
+.mods-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 28rpx 8rpx 12rpx;
+}
+.mh-title {
+  font-size: 24rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+.mh-fold {
+  padding: 8rpx 20rpx;
+  font-size: 24rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+.mh-fold:active { opacity: 0.7; }
 
 /* ===== 首页模块编辑（拖拽排序 / 收纳 / 加回） =====
    交互从 AWword 移植：落点算法是纯函数 utils/home-layout.ts 的 dropIndex()，

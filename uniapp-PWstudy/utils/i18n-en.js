@@ -886,6 +886,18 @@ export default {
   '收起来': 'Put it away',
   '发现次数': 'Found',
   '构建日期': 'Built on',
+  // 首页第一屏「今日聚焦」+ 折叠区（2026-10-16）：第一屏只挑一件主任务，
+  // 其余模块压成图形摘要条，完整卡片要往上滑才展开，编辑压在列表最底下。
+  '今天先做这个': 'Start with this',
+  '今天还没有安排': 'Nothing planned today',
+  '到「目标」里定一个，AI 会帮你拆成每天的任务': 'Set a goal under Goals — AI breaks it into daily tasks',
+  '剩 {n} 分钟': '{n} min left',
+  '段专注': 'sessions',
+  '项待办': 'left',
+  '开始专注': 'Start focus',
+  '往上滑看全部 {n} 个组件': 'Swipe up for all {n} widgets',
+  '全部组件': 'All widgets',
+  '说一句': 'Say something',
   // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '专注': 'Focus',
