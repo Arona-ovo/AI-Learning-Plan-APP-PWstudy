@@ -37,15 +37,16 @@
         <text v-if="search && value" class="fnb-clear">×</text>
       </view>
 
-      <!-- 首页专属：拦截通知开关。放在胶囊右侧、常驻（非搜索态才显示）。
-           点一下 = 在首页直接开关"专注期间收起别家 App 通知"，
-           未授权时由父页面带去开「通知使用权」，绝不假称已挡住。 -->
+      <!-- 首页专属：专注设置入口。放在胶囊右侧、常驻（非搜索态才显示）。
+           点一下 = 弹出「专注设置」卡片（强制模式 / 拦截通知 / 自动进休息 都在里面），
+           与番茄 ToDo 把同类设置收进同一处的思路一致。focusOn 为真时图标染品牌色，
+           一眼看出"有专注相关开关开着"。 -->
       <view
-        v-if="notifToggle && !search"
-        class="fnb-side fnb-side-notif"
-        @tap="onNotifTap"
+        v-if="focusBtn && !search"
+        class="fnb-side fnb-side-focus"
+        @tap="onFocusTap"
       >
-        <view class="fnb-notif" :class="{ 'fnb-notif-on': notifOn }">
+        <view class="fnb-focus" :class="{ 'fnb-focus-on': focusOn }">
           <view class="fnb-shield"></view>
         </view>
       </view>
@@ -98,10 +99,10 @@ export default {
     switchable: { type: Boolean, default: false },
     // 执行中：左槽换成转圈
     busy: { type: Boolean, default: false },
-    // 首页专属：是否显示"拦截通知"开关（常驻在胶囊右侧，让首页就能开关）
-    notifToggle: { type: Boolean, default: false },
-    // 拦截通知当前是否开启（开启时图标染品牌色）
-    notifOn: { type: Boolean, default: false }
+    // 首页专属：是否显示"专注设置"入口（常驻在胶囊右侧，点开弹出设置卡片）
+    focusBtn: { type: Boolean, default: false },
+    // 有任意专注开关开着时图标染品牌色（强制模式 / 拦截通知 / 自动进休息）
+    focusOn: { type: Boolean, default: false }
   },
   data() {
     return { barH: 0, focused: false }
@@ -203,9 +204,9 @@ export default {
       this.$emit('input', '')
       this.$emit('clear')
     },
-    // 首页"拦截通知"开关：只发事件，落盘 / 授权引导由父页面（home.vue）决定
-    onNotifTap() {
-      this.$emit('toggle-notif')
+    // 首页"专注设置"入口：只发事件，卡片的渲染与开关落盘由父页面（home.vue）决定
+    onFocusTap() {
+      this.$emit('open-focus')
     },
     // 模式键：只发事件，切到哪个模式由父页面决定（它才知道当前输入该怎么判）
     onModeTap() {
@@ -399,10 +400,10 @@ export default {
   justify-content: center;
 }
 
-/* 首页"拦截通知"开关：盾牌图标（"挡住别家通知"的直觉符号）。
-   未开启是中性灰，开启染品牌色 —— 一眼能看出这段会不会帮你收通知。 */
-.fnb-side-notif { margin-left: 4rpx; }
-.fnb-notif {
+/* 首页"专注设置"入口：盾牌图标（"专注 / 防护"的直觉符号）。
+   未开启是中性灰，有任意专注开关开着时染品牌色 —— 一眼看出"有专注设置开着"。 */
+.fnb-side-focus { margin-left: 4rpx; }
+.fnb-focus {
   width: 42rpx;
   height: 42rpx;
   display: flex;
@@ -412,8 +413,8 @@ export default {
   color: var(--ink-3, #98a19b);
   transition: color 160ms ease, opacity 160ms ease;
 }
-.fnb-notif:active { opacity: 0.6; }
-.fnb-notif-on { color: #e4173d; color: var(--brand, #e4173d); }
+.fnb-focus:active { opacity: 0.6; }
+.fnb-focus-on { color: #e4173d; color: var(--brand, #e4173d); }
 .fnb-shield {
   position: relative;
   width: 28rpx;

@@ -8,7 +8,7 @@
     @touchend="onSlideEnd"
     @touchcancel="onSlideEnd"
   >
-    <float-navbar title="PWstudy" :notif-toggle="!locked" :notif-on="blockNotifOn" @toggle-notif="onNotifToggle" />
+    <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="forcedOn || blockNotifOn || autoRestOn" @open-focus="toggleFocusSheet" />
 
     <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
 
@@ -354,13 +354,17 @@
       @close="doneDlgOn = false"
     />
 
-    <!-- 首页底部专注胶囊（学番茄 ToDo 的底部胶囊）：
-         把「强制模式 / 拦截通知 / 自动进休息」这些专注设置收进一个常驻在底栏上方的胶囊，
-         不挤在卡片流里、也不藏在三层深的设置页。点胶囊才展开面板，再逐项开关。
-         专注进行中（locked）与编辑首页（editing）时不显示：前者整屏只剩倒计时，
-         后者要让出位置给编辑按钮。 -->
-    <view v-if="!locked && !editing" class="focus-cap" :class="{ 'focus-cap-open': focusSheet }">
-      <view v-if="focusSheet" class="fc-panel">
+    <!-- 首页「专注设置」卡片（顶栏右上角胶囊点开弹出）：
+         把「强制模式 / 拦截通知 / 自动进休息」三项收进同一张卡片，仿番茄 ToDo 把同类设置
+         收进一处。专注进行中（locked）与编辑首页（editing）时入口不显示；卡片用遮罩弹层，
+         点遮罩或 × 收起。 -->
+    <view v-if="focusSheet" class="fs-mask" @tap="toggleFocusSheet">
+      <view class="fs-card" @tap.stop>
+        <view class="fs-head">
+          <text class="fs-title">{{ $t('专注设置') }}</text>
+          <view class="fs-close" @tap="toggleFocusSheet">×</view>
+        </view>
+
         <view class="fc-row">
           <view class="fc-info">
             <text class="fc-title">{{ $t('强制模式') }}</text>
@@ -391,12 +395,6 @@
             <view class="fc-knob" :class="{ 'fc-knob-on': autoRestOn }"></view>
           </view>
         </view>
-      </view>
-
-      <view class="fc-pill" @tap="toggleFocusSheet">
-        <view class="fc-pill-icon"><view class="fc-shield"></view></view>
-        <text class="fc-pill-label">{{ $t('专注设置') }}</text>
-        <view class="fc-chevron" :class="{ 'fc-chevron-up': focusSheet }"></view>
       </view>
     </view>
 
@@ -482,9 +480,9 @@ export default {
       forcedOn: false,    // 强制模式：离开就立刻把 PWstudy 拉回前台
       usageOk: false,     // 「使用情况访问」权限：判断前台是谁的老路子
       a11yOk: false,      // 无障碍护卫：判断前台是谁的新路子（且能拿到后台启动豁免）
-      blockNotifOn: false,   // 首页底部胶囊：专注期间收起别家 App 通知
-      autoRestOn: false,     // 首页底部胶囊：专注跑完自动进休息
-      focusSheet: false,     // 首页底部「专注设置」胶囊是否展开面板
+      blockNotifOn: false,   // 首页「专注设置」卡片：专注期间收起别家 App 通知
+      autoRestOn: false,     // 首页「专注设置」卡片：专注跑完自动进休息
+      focusSheet: false,     // 首页「专注设置」卡片是否弹出
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
@@ -789,11 +787,12 @@ export default {
       this.forcedOn = !!forced.enabled()
       this.usageOk = apptime.hasUsagePermission()
       this.a11yOk = apptime.hasA11yPermission()
-      // 底部"专注设置"胶囊的三项开关：直接读 settings，保证离开设置页回来同步
+      // 「专注设置」卡片的三项开关：直接读 settings，保证离开设置页回来同步
       const f = (settings.get().focus) || {}
       this.blockNotifOn = !!f.blockNotif
       this.autoRestOn = !!f.autoRest
       this.overlayOk = apptime.canDrawOverlays()
+      if (this.locked) this.focusSheet = false
     },
     // ---------- 首页模块显隐 ----------
     // 出厂默认只放三张；用户可在「首页自定义」里加回来。layout 为空时
@@ -1206,28 +1205,11 @@ export default {
       forced.sync()
     },
 
-    /* ==================== 首页底部「专注设置」胶囊 ====================
-       把强制模式 / 拦截通知 / 自动进休息三项收进底部胶囊，仿番茄 ToDo 的底部胶囊：
-       默认只露一个"专注设置"药丸，点开才展开面板逐项开关。逻辑与专注页同口径
-       （未授权就引导去开，绝不假称已生效），只是入口前置到首页，少跳一层。 */
+    /* ==================== 首页「专注设置」卡片（顶栏右上角胶囊点开） ====================
+       把强制模式 / 拦截通知 / 自动进休息三项收进同一张卡片，仿番茄 ToDo 把同类设置收进一处。
+       逻辑与专注页同口径（未授权就引导去开，绝不假称已生效），只是入口前置到首页，少跳一层。 */
 
-    /** 顶栏"拦截通知"开关（首页胶囊右侧那个盾牌） */
-    onNotifToggle() {
-      // 开拦截通知要「通知使用权」：没授权先带人去开，开关不谎称已挡住
-      if (!this.blockNotifOn && !fgsvc.notifGranted()) {
-        this.ask({
-          title: this.$t('拦截通知'),
-          content: this.$t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。'),
-          confirmText: this.$t('通知使用权没开启，点这里去开启'),
-          action: 'goto-notif'
-        })
-        return
-      }
-      const next = !this.blockNotifOn
-      this.blockNotifOn = next
-      this.saveFocus('blockNotif', next)
-    },
-    /** 展开 / 收起底部面板（编辑态与硬控态不响应，免得盖住编辑按钮或倒计时） */
+    /** 展开 / 收起「专注设置」卡片（编辑态与硬控态不响应，免得盖住编辑按钮或倒计时） */
     toggleFocusSheet() {
       if (this.editing || this.locked) return
       this.focusSheet = !this.focusSheet
@@ -2068,38 +2050,66 @@ export default {
   padding: 14rpx 32rpx;
 }
 
-/* ===== 首页底部「专注设置」胶囊（仿番茄 ToDo 底部胶囊） =====
-   常驻在底栏上方的浮动玻璃胶囊：默认只露一个"专注设置"药丸，点开才向上展开面板。
-   外层 pointer-events:none，只让胶囊本体可点，不挡住它周围的内容。 */
-.focus-cap {
+/* ===== 首页「专注设置」卡片（顶栏右上角胶囊点开弹出） =====
+   遮罩弹层：半透明压暗背景，卡片居中浮起；与 app-dialog 同一套玻璃语言。 */
+.fs-mask {
   position: fixed;
-  left: 24rpx;
-  right: 24rpx;
-  bottom: calc(148rpx + env(safe-area-inset-bottom));
-  bottom: calc(148rpx + constant(safe-area-inset-bottom));
-  z-index: 550;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 600;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  pointer-events: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(23, 32, 26, 0.32);
+  background: rgba(var(--shadow-rgb, 23, 32, 26), 0.32);
+  padding: 48rpx;
+  box-sizing: border-box;
 }
-/* 展开时面板在药丸上方（DOM 顺序面板在前、药丸在后；flex 列方向天然如此） */
-
-/* 展开面板：磨砂玻璃卡，行与行之间留缝 */
-.fc-panel {
-  pointer-events: auto;
-  margin-bottom: 14rpx;
-  padding: 8rpx 26rpx 14rpx;
-  border-radius: 24rpx;
-  background: rgba(255, 255, 255, 0.78);
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.78);
-  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+.fs-card {
+  width: 100%;
+  max-width: 620rpx;
+  padding: 12rpx 30rpx 18rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.86);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.86);
+  -webkit-backdrop-filter: var(--glass-lg, blur(16px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(16px) saturate(180%));
   border: 2rpx solid rgba(255, 255, 255, 0.7);
   border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.7));
-  box-shadow: 0 12rpx 40rpx rgba(23, 32, 26, 0.14), 0 2rpx 8rpx rgba(23, 32, 26, 0.06);
-  box-shadow: 0 12rpx 40rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.14), 0 2rpx 8rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.06);
+  box-shadow: 0 20rpx 60rpx rgba(23, 32, 26, 0.18), 0 4rpx 12rpx rgba(23, 32, 26, 0.08);
+  box-shadow: 0 20rpx 60rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.18), 0 4rpx 12rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.08);
 }
+.fs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 2rpx 14rpx;
+}
+.fs-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.fs-close {
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  line-height: 1;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  border-radius: 50%;
+  transition: opacity 160ms ease;
+}
+.fs-close:active { opacity: 0.6; }
+
+/* 卡片内每行开关（与底部胶囊时期共用，原样保留） */
 .fc-row {
   display: flex;
   align-items: center;
@@ -2164,67 +2174,6 @@ export default {
   transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .fc-knob-on { transform: translateX(36rpx); }
-
-/* 收起态药丸 */
-.fc-pill {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  height: 84rpx;
-  padding: 0 30rpx;
-  border-radius: 44rpx;
-  background: rgba(255, 255, 255, 0.82);
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
-  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  border: 2rpx solid rgba(255, 255, 255, 0.7);
-  border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.7));
-  box-shadow: 0 10rpx 30rpx rgba(23, 32, 26, 0.12), 0 2rpx 6rpx rgba(23, 32, 26, 0.04);
-  box-shadow: 0 10rpx 30rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.12), 0 2rpx 6rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.04);
-  transition: transform 160ms ease;
-}
-.fc-pill:active { transform: scale(0.98); }
-.fc-pill-icon {
-  width: 40rpx;
-  height: 40rpx;
-  margin-right: 16rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #e4173d;
-  color: var(--brand, #e4173d);
-}
-/* 药丸里的盾牌（呼应顶栏拦截开关的图标） */
-.fc-shield {
-  position: relative;
-  width: 28rpx;
-  height: 32rpx;
-  border: 4rpx solid currentColor;
-  border-top: none;
-  border-radius: 7rpx 7rpx 16rpx 16rpx;
-  box-sizing: border-box;
-}
-.fc-pill-label {
-  flex: 1;
-  font-size: 27rpx;
-  font-weight: 600;
-  letter-spacing: 1rpx;
-  color: #17201a;
-  color: var(--ink-1, #17201a);
-}
-/* 展开指示小箭头（收起朝下、展开朝上） */
-.fc-chevron {
-  width: 16rpx;
-  height: 16rpx;
-  margin-left: 12rpx;
-  border-right: 4rpx solid #98a19b;
-  border-right: 4rpx solid var(--ink-3, #98a19b);
-  border-bottom: 4rpx solid #98a19b;
-  border-bottom: 4rpx solid var(--ink-3, #98a19b);
-  transform: rotate(45deg);
-  transition: transform 200ms ease;
-}
-.fc-chevron-up { transform: rotate(225deg); }
 
 /* ===== 卡片头 ===== */
 .card-head {
