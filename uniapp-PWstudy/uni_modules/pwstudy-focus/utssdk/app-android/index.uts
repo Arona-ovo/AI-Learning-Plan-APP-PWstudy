@@ -21,6 +21,7 @@
  *     走 HIGH 渠道才能带 fullScreenIntent 把 PWstudy 直接弹到最前。
  */
 import Service from 'android.app.Service';
+import Activity from 'android.app.Activity';
 import Intent from 'android.content.Intent';
 import IBinder from 'android.os.IBinder';
 import Build from 'android.os.Build';
@@ -29,6 +30,7 @@ import Thread from 'java.lang.Thread';
 import Runnable from 'java.lang.Runnable';
 import Handler from 'android.os.Handler';
 import Looper from 'android.os.Looper';
+import Bundle from 'android.os.Bundle';
 import Notification from 'android.app.Notification';
 import NotificationChannel from 'android.app.NotificationChannel';
 import NotificationManager from 'android.app.NotificationManager';
@@ -81,6 +83,7 @@ const WINDOW_TYPE_PHONE: Int = 2002;
 // 传给 Thread.sleep() 的延时不能走常量（sleep 收 Long，Int 常量不会自动放宽），
 // 所以那两处直接写字面量，见 WatchLoop.run()。
 const PULL_GAP_SEC: Int = 2;       // 两次"拉回"之间的最小间隔（秒），免得跟系统切前台打架
+const PULL_INTERCEPT_SEC: Int = 3; // 拦截页倒计时（秒）：给用户一个明确的"要被拉回"预期，到点自动跳回
 const ESC_TICKS: Int = 2;          // 连续几次判定为"非白名单前台"才算一次真逃逸（抗抖动）
 const FG_WINDOW_MS: Int = 5000;    // 事件配对那条的回溯窗口（毫秒）—— 只当**辅助**用，见 queryForeground
 const WATCH_MAX_SEC: Int = 43200;  // 看门狗自动收手上限：12 小时
@@ -694,6 +697,118 @@ function postOverlay(want: boolean) {
   uiPost(new OverlaySyncTask());
 }
 
+/* ==================== 拦截页（2026-10-15，参照番茄ToDo 严格模式实测录像） ====================
+ * 竞品实测（用户录屏）：按 HOME/切走 → 弹出一个**自己的全屏黑页**（"您已禁止访问桌面和
+ * 多任务，3 秒后跳转至计时"），倒计时结束自动跳回计时页。整个流程用户几乎看不到桌面。
+ *
+ * 为什么它弹得出来、我们此前弹不出来：拦截页是 startActivity。安卓 10+ 后台启动被
+ * AMS 静默拦，唯一的官方豁免是 **SYSTEM_ALERT_WINDOW 已授权**（悬浮窗权限）——
+ * 没授它，三条拉回路（guard 服务内 / moveTaskToFront / launch intent）在安卓 10+
+ * 上全是静默失败，这正是"强制模式毫无反应"的根因。授权之后拦截页就是四条路里
+ * 体验最好的一条：全屏、独立任务栈、倒计时自动跳回，不依赖用户点任何东西。
+ * MIUI 的「后台弹出界面」是另一道独立闸（开了悬浮窗也要开它），见 utils/setup.js 的引导。
+ *
+ * 设计要点（照抄竞品验证过的行为）：
+ *   · 黑底全屏 + 大字，除了倒计时什么都不放 —— 它的任务只有一个：把屏幕占住
+ *   · 3 秒倒计时自动跳回计时页（launch intent），用户点一下立即跳 —— 比遮罩"点了
+ *     再拉一次（可能被拦）"的确定性高得多：这时 Activity 在前台，启动自己 App
+ *     完全合法，不存在被拦的可能
+ *   · excludeFromRecents + noHistory：最近任务里不留痕，按 HOME 即销毁，下次逃逸
+ *     重新弹 —— 不留一个"能绕过的后门"页面
+ */
+class PWPullActivity extends Activity {
+  private ui: TextView | null = null;
+  private left: Int = PULL_INTERCEPT_SEC;
+  private h: Handler | null = null;
+
+  // ⚠️ 同 PFGuardService：extends 生成 `: Activity` 不带括号，缺显式构造
+  //    = kotlin 报 "must be initialized here"（check-uts 守着）
+  constructor() {
+    super();
+  }
+
+  override onCreate(savedInstanceState: Bundle | null): void {
+    super.onCreate(savedInstanceState);
+    let v = new TextView(this);
+    v.setText(this.text());
+    v.setTextSize(22.0.toFloat());
+    v.setTextColor(Color.WHITE);
+    v.setBackgroundColor(Color.argb(255, 23, 32, 26));
+    v.setGravity(Gravity.CENTER);
+    v.setPadding(60, 60, 60, 60);
+    setContentView(v);
+    this.ui = v;
+    this.left = PULL_INTERCEPT_SEC;
+    let h = new Handler(Looper.getMainLooper());
+    this.h = h;
+    this.schedule(h!);
+  }
+
+  private text(): string {
+    return '强制模式 · 这段专注还没结束\n\n' + this.left + ' 秒后自动回到计时\n点一下立即回';
+  }
+
+  private schedule(h: Handler): void {
+    h.postDelayed(new InterceptTick(this), 1000);
+  }
+
+  // 每秒一跳：先改本地剩余秒数，到 0 跳回；否则刷新文案再排下一秒
+  onTick(): void {
+    this.left = this.left - 1;
+    if (this.left <= 0) {
+      this.goBack();
+      return;
+    }
+    let u = this.ui;
+    if (u != null) {
+      try { u.setText(this.text()) } catch (e) {}
+    }
+    let h = this.h;
+    if (h != null) this.schedule(h!);
+  }
+
+  /** 用户点屏幕任意处 = 跳过倒计时立即回 */
+  override onTouchEvent(event: MotionEvent): boolean {
+    this.goBack();
+    return true;
+  }
+
+  /** 跳回计时页并销毁自己。此时本 Activity 在前台，startActivity 百分百合规。 */
+  goBack(): void {
+    try {
+      let launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());
+      if (launch != null) {
+        launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        this.startActivity(launch);
+      }
+    } catch (e) {}
+    try { this.finish() } catch (e) {}
+  }
+
+  override onDestroy(): void {
+    // 别把 Handler 的回调留到销毁之后（泄漏 + 对着死 Activity setText）
+    let h = this.h;
+    if (h != null) { try { h.removeCallbacksAndMessages(null) } catch (e) {} }
+    this.h = null;
+    this.ui = null;
+    super.onDestroy();
+  }
+}
+
+/** 倒计时的每一秒。UTS 的内部类要显式持有 owner（同 WatchLoop / A11yQueryThread）。 */
+class InterceptTick extends Runnable {
+  private owner: PWPullActivity;
+
+  constructor(o: PWPullActivity) {
+    super();
+    this.owner = o;
+  }
+
+  override run(): void {
+    this.owner.onTick();
+  }
+}
+
 /* ==================== 通知 ==================== */
 
 /** 建通知渠道（Android 8+；渠道已存在时重复创建无害） */
@@ -1163,6 +1278,13 @@ function queryForeground(ctx: Context): string {
  */
 @UTSAndroid.Suppress("DEPRECATION")
 function pullSelf(round: Int): boolean {
+  // ★ 拦截页（2026-10-15，番茄ToDo 同款）：奇数轮先试它 —— 授权过悬浮窗时它是
+  //    唯一真的弹得出来的 startActivity 通路（官方后台启动豁免），弹出后 3 秒倒计时
+  //    自动跳回计时页。没授权（或 MIUI 的「后台弹出界面」没开）时它会被**静默**拦掉、
+  //    返回 true 是假的 —— 所以只在奇数轮先走它，偶数轮照旧走下面两条老路，
+  //    假 true 不会把 moveTaskToFront / launch 永远堵死；遮罩由 needOverlay 兜底照盖。
+  if ((round % 2) == 1 && pullByIntercept()) return true;
+
   // ⓪ 无障碍豁免通路（2026-10-14 新增，且必须排第一）：
   //    护卫被系统绑定时，从服务内部启动 Activity 才拿得到后台启动豁免 ——
   //    这是四条路里唯一在安卓 10+ 上真的拉得动的。放到最后等于没有：
@@ -1188,6 +1310,26 @@ function pullSelf(round: Int): boolean {
   if (pullByTask(ctx!, pkg)) return true;
   if (pullByLaunch(ctx!, pkg)) return true;
   return false;
+}
+
+/**
+ * ⓪ 拦截页通路：启动自己的全屏黑页（PWPullActivity），它倒计时后自动跳回计时页。
+ * 返回 true 只表示"没抛异常"—— 跟 moveTaskToFront 一样拿不到真实成败，
+ * 真正的成败由下一次心跳看前台变没变（PWFocusService.needOverlay）。
+ */
+function pullByIntercept(): boolean {
+  try {
+    let ctx = UTSAndroid.getAppContext()
+    if (ctx == null) return false
+    // new 一次只为拿 javaClass —— UTS 会剪掉"没人引用"的声明，
+    // PWPullActivity 由系统创建、源码里没有第二个 new，这里就是那个钉住它的引用
+    let i = new Intent(ctx!, (new PWPullActivity()).javaClass)
+    i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    ctx!.startActivity(i)
+    return true
+  } catch (e) {
+    return false
+  }
 }
 
 /** ① 找自己还在跑的 task，提到前面 */

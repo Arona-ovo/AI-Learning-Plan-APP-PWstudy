@@ -39,6 +39,12 @@ const cases = [
     (s) => s.replace('  constructor() {\n    super();\n  }\n\n  override run(): void {', '  override run(): void {')],
   ['删掉 PFGuardService 的 constructor',
     (s) => s.replace('  constructor() {\n    super();\n    // 记下实例：拉回要从服务内部发起才拿得到豁免（见 pullFromGuard）\n    try { guardRef = this } catch (e) {}\n  }', '')],
+  ['删掉 PWPullActivity 的 constructor',
+    (s) => s.replace('  // ⚠️ 同 PFGuardService：extends 生成 `: Activity` 不带括号，缺显式构造\n  //    = kotlin 报 "must be initialized here"（check-uts 守着）\n  constructor() {\n    super();\n  }', '')],
+  ['删掉 pullSelf 里的拦截页调用',
+    (s) => s.replace('if ((round % 2) == 1 && pullByIntercept()) return true;', '')],
+  ['删掉拦截页的 goBack（弹出了却永远不跳回，把人锁在黑页上）',
+    (s) => s.replace('  goBack(): void {\n    try {\n      let launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());', '  goBackX(): void {\n    try {\n      let launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());')],
   ['去掉把 PFGuardService 钉住的 new',
     (s) => s.replace('let probe = new PFGuardService();', 'let probe: any = null;')],
   ['把 WatchLoop 的 super() 去掉',
@@ -100,6 +106,25 @@ for (const [name, mut] of homeCases) {
   if (!hit) bad++;
 }
 fs.writeFileSync(HOME, homeOrig);
+
+// ---- 6.5 拦截页清单声明：删掉声明 = startActivity 直接 ClassNotFoundException ----
+// check-uts 第 11.1 节守着；这条反向确认删声明真的会红（防"清单断了护栏不叫"）。
+const MF = path.join(ROOT, 'uniapp-PWstudy', 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android', 'AndroidManifest.xml');
+const mfOrig = fs.readFileSync(MF, 'utf8');
+const mfCases = [
+  ['拦截页的清单声明被删掉',
+    (s) => s.replace(/<activity[\s\S]*?PWPullActivity[\s\S]*?\/>/, '')],
+];
+for (const [name, mut] of mfCases) {
+  const next = mut(mfOrig);
+  if (next === mfOrig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
+  fs.writeFileSync(MF, next);
+  const r = runCheck();
+  const hit = r.code !== 0 && r.fails.length > 0;
+  console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0].trim() : ''));
+  if (!hit) bad++;
+}
+fs.writeFileSync(MF, mfOrig);
 
 const back = runCheck();
 console.log(back.code === 0 ? '还原后仍是绿 ✓' : '还原后不绿 ✗ ' + back.fails.join(' | '));

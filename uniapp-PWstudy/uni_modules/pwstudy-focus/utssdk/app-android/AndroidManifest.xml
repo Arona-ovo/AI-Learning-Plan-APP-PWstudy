@@ -56,5 +56,18 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/pw_accessibility_config" />
         </service>
+
+        <!-- 强制模式"拦截页"（2026-10-15）：逃逸时从看门狗 startActivity 弹出的全屏黑页，
+             3 秒倒计时自动跳回计时页（参照番茄ToDo 严格模式实测录像）。
+             · exported=false：只有本应用（含同 uid 的服务）能启动它
+             · excludeFromRecents + noHistory：最近任务不留痕、按 HOME 即销毁 ——
+               不留一个"能绕过强制模式的后门"页面
+             · 黑底全屏 theme：它出现的那一瞬就要把底下的 App 整个盖住 -->
+        <activity
+            android:name="uts.sdk.modules.pwstudyFocus.PWPullActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
     </application>
 </manifest>

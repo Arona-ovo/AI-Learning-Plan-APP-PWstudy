@@ -12,6 +12,7 @@ const MANIFEST = path.join(PLUGIN, 'AndroidManifest.xml');
 let fail = 0;
 function ok(m) { console.log('  ✓ ' + m); }
 function bad(m) { fail++; console.error('  ✗ ' + m); }
+function assert(c, m) { c ? ok(m) : bad(m); }
 function read(p) { return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; }
 
 /**
@@ -508,6 +509,52 @@ else bad('long 位置传了 Int 常量（不会自动放宽成 Long）：' + lon
 const flagHits = where(/\bFLAG_DEFAULT\b/);
 if (!flagHits.length) ok("没有 FLAG_DEFAULT（AccessibilityServiceInfo 里叫 DEFAULT）");
 else bad('FLAG_DEFAULT 不存在：' + flagHits.join(', ') + ' —— 写 AccessibilityServiceInfo.DEFAULT');
+
+/* ---------- 11. 拦截页（2026-10-15，番茄ToDo 严格模式同款） ----------
+ * 用户实测反馈"强制模式从 App 以外拉不回来，没有任何作用"——三条 startActivity
+ * 通路在安卓 10+ 全被 AMS 静默拦，悬浮窗授权后**拦截页是唯一真弹得出来的通路**
+ * （官方后台启动豁免）。参照竞品录像：逃逸 → 全屏黑页"3 秒后跳转至计时"→ 自动跳回。
+ * 这一节守四件事：清单声明、剪枝豁免、拉回链里真的在调、倒计时自动跳转。
+ */
+console.log('== 11. 拦截页 PWPullActivity ==');
+{
+  // 11.1 清单声明：exported=false / excludeFromRecents / noHistory（不留绕过后门）
+  const actRe = /<activity[\s\S]*?android:name="uts\.sdk\.modules\.pwstudyFocus\.PWPullActivity"[\s\S]*?\/>/;
+  const actMatch = mf.match(actRe);
+  assert(actMatch, '清单声明了拦截页 PWPullActivity（逃逸时弹出的全屏黑页）');
+  if (actMatch) {
+    assert(/android:excludeFromRecents="true"/.test(actMatch[0]),
+      '拦截页 excludeFromRecents（最近任务不留痕）');
+    assert(/android:noHistory="true"/.test(actMatch[0]),
+      '拦截页 noHistory（按 HOME 即销毁，不留后门）');
+    assert(!/android:exported="true"/.test(actMatch[0]), '拦截页不导出（exported=false）');
+  }
+
+  // 11.2 剪枝豁免：Activity 由系统创建，源码里必须有 new 钉住（同 PFGuardService）
+  if (/new\s+PWPullActivity\s*\(/.test(utsSrc)) ok('拦截页有 new 引用钉着（不会被 UTS 剪枝）');
+  else bad('源码里没有 new PWPullActivity( —— 类会被整块剪掉，拦截页启动即 ClassNotFoundException');
+
+  // 11.3 拉回链第一跳：pullSelf 必须真的在调 pullByIntercept
+  //      （写了几百行拦截页但 pullSelf 没接，等于没做）
+  const psBody = (() => {
+    const i = utsSrc.indexOf('function pullSelf(');
+    if (i < 0) return '';
+    return utsSrc.slice(i, utsSrc.indexOf('\nfunction ', i + 10) < 0 ? undefined : utsSrc.indexOf('\nfunction ', i + 10));
+  })();
+  assert(/pullByIntercept\(\)/.test(psBody), 'pullSelf 会调 pullByIntercept（拦截页在拉回链里）');
+
+  // 11.4 倒计时自动跳转：拦截页必须自己会走（不依赖用户点）——goBack 里 finish
+  const paBody = (() => {
+    const i = utsSrc.indexOf('class PWPullActivity');
+    const j = i < 0 ? -1 : utsSrc.indexOf('\nclass ', i + 10);
+    return i < 0 ? '' : utsSrc.slice(i, j < 0 ? undefined : j);
+  })();
+  assert(/postDelayed/.test(paBody), '拦截页倒计时走 postDelayed（每秒一跳）');
+  // ⚠️ 钉**定义**（goBack(): void {），光看调用（this.goBack()）抓不住"定义被改名"——
+  //    改名后调用处还在，断言照样绿（反向测试 MISS 实测）。定义 + 调用两边都要有。
+  assert(/goBack\(\): void \{/.test(paBody) && /this\.goBack\(\)/.test(paBody) && /finish\(\)/.test(paBody),
+    '拦截页有 goBack（launch intent + finish，倒计时到点自动跳回）');
+}
 
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;
