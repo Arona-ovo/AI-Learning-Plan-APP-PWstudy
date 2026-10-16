@@ -589,6 +589,35 @@
       </view>
     </view>
 
+    <!-- ===== 触感反馈（震动） ===== -->
+    <view class="sec" :class="{ open: openSec === 'haptic' }">
+      <view class="sec-head" data-k="haptic" @tap="toggleSec">
+        <text class="sec-name">{{ $t('触感反馈') }}</text>
+        <text v-if="openSec !== 'haptic'" class="sec-hint">{{ secHint('haptic') }}</text>
+        <text class="sec-arrow">›</text>
+      </view>
+      <view class="sec-body" v-if="openSec === 'haptic'">
+        <view class="row">
+          <view class="row-main">
+            <text class="row-title">{{ $t('震动反馈') }}</text>
+            <text class="row-desc">{{ $t('抽屉滑出、底部导航切换时轻轻震一下') }}</text>
+          </view>
+          <switch :checked="hapticOn" :color="brandMain" @change="e => setHapticOn(e.detail.value)" />
+        </view>
+        <view class="row" v-if="hapticOn" @tap="previewHaptic">
+          <view class="row-main">
+            <text class="row-title">{{ $t('试一下') }}</text>
+          </view>
+          <text class="row-arrow">›</text>
+        </view>
+        <view class="row" v-if="hapticOn && hapticFail">
+          <view class="row-main">
+            <text class="row-desc">{{ $t('这一下没震成：多半是现在这个包里没打进震动权限，云打包一次就有了；本来就不带马达的设备也不会震。') }}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <!-- ===== AI 缓存（整体清除，不做逐条删除） ===== -->
     <view class="sec" :class="{ open: openSec === 'cache' }">
       <view class="sec-head" data-k="cache" @tap="toggleSec">
@@ -861,6 +890,8 @@ import * as aiCache from '../../../utils/ai-cache.js'
 import * as apiUsage from '../../../utils/api-usage.js'
 import { speakSentence as aiSpeak } from '../../../services/voice.js'
 import * as sfx from '../../../utils/sfx.js'
+// 触感反馈（震动）：开关落盘 + 试一下（utils/haptic.js）
+import * as haptic from '../../../utils/haptic.js'
 // 只有几百字节的规模快照：设置页在分包里，不能为了显示几个数字去 import 语料本身
 import { BUILD_INFO } from '../../../data/build-info.js'
 import {
@@ -956,6 +987,10 @@ export default {
       engineStatus: null,
       notifications: {},
       privacy: {},
+      // 触感反馈：on = 总开关。hapticFail 只在"试过一次且没震成"时才亮 ——
+      // 不能一进来就断言设备不支持（老包没打震动权限时是真机才知道的事）
+      hapticOn: true,
+      hapticFail: false,
       // 伙伴 App（背单词）：可选关联。四个状态全靠 pn.state + pn.installed 组合出来
       //   installed=false        → 未安装
       //   undecided / declined   → 未决定 / 已关闭
@@ -1215,6 +1250,7 @@ export default {
       if (k === 'ai') return this.ai.enabled ? (this.aiReady ? t('已开启') : t('待配置')) : t('未开启')
       if (k === 'voice') return this.voice.useAI && this.aiReady ? t('AI 朗读') : t('本地发音')
       if (k === 'notify') return this.notifications.daily ? this.notifications.time : t('已关闭')
+      if (k === 'haptic') return this.hapticOn ? t('已开启') : t('已关闭')
       if (k === 'about') return 'v' + this.version
       if (k === 'cache') return this.cacheHint
       if (k === 'perf') return this.smooth ? t('已开启') : t('已关闭')
@@ -1470,6 +1506,8 @@ export default {
       this.voice = Object.assign({}, s.voice)
       this.notifications = Object.assign({}, s.notifications)
       this.privacy = Object.assign({}, s.privacy)
+      // 触感反馈（isEnabled 内部自带脏值兜底：读不到按"开"处理）
+      this.hapticOn = haptic.isEnabled()
       this.refreshPartner()
       this.cacheStats = aiCache.stats()
       this.apiUsageText = apiUsage.brief()
@@ -1629,6 +1667,22 @@ export default {
     setNotifications(key, value) {
       settings.set({ notifications: { [key]: value } })
       this.refresh()
+    },
+    // ---------- 触感反馈（utils/haptic.js）----------
+    // 改总开关并落盘；打开时顺手震一下，让用户立刻知道"这就是它"。
+    setHapticOn(on) {
+      haptic.setOn(on)
+      this.hapticOn = !!on
+      this.hapticFail = false
+      if (this.hapticOn) this.previewHaptic()
+    },
+    // 试一下：真的震一次；没震成就把提示露出来（多半是包里没打震动权限）。
+    // 有 API 又没报过错却没震成 → 多半是 MIN_GAP 连点窗口吃掉了，不算失败。
+    previewHaptic() {
+      let ok = false
+      try { ok = haptic.tick('switch') } catch (e) { ok = false }
+      if (ok) { this.hapticFail = false; return }
+      if (!haptic.hasApi() || haptic.lastError()) this.hapticFail = true
     },
     readVersion() {
       // 三端统一显示 data/build-info.js 里的版本号（manifest.json 的 versionName 同步维护）。

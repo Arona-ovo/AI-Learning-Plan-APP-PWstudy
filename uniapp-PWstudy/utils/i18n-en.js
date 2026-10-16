@@ -1122,5 +1122,12 @@ export default {
   '离开学习 App 立刻拉回': 'Pull PWstudy back to front the moment you leave a study app',
   '专注时收起别家通知': "Tuck away other apps' notifications while focusing",
   '专注结束自动休息': 'Rest automatically when a focus ends',
-  '强制模式需开启「显示在其他应用上层」': 'Forced mode needs "Display over other apps"'
+  '强制模式需开启「显示在其他应用上层」': 'Forced mode needs "Display over other apps"',
+  // 触感反馈（设置 › 触感反馈）
+  '触感反馈': 'Haptics',
+  '震动反馈': 'Vibration',
+  '抽屉滑出、底部导航切换时轻轻震一下': 'A light buzz when the drawer slides out or when you switch tabs',
+  '试一下': 'Try it',
+  '这一下没震成：多半是现在这个包里没打进震动权限，云打包一次就有了；本来就不带马达的设备也不会震。':
+    "That one didn't buzz: the installed build most likely lacks the VIBRATE permission — rebuild via cloud packaging and it will. Devices without a vibration motor never buzz."
 };

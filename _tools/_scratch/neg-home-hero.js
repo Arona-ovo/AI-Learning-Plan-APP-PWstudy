@@ -222,6 +222,22 @@ const cases = [
   // 三张主卡全被收纳时主页开天窗（只剩一张收工按钮）
   ['主卡全收纳时不兜底（主页中间一大片空白）',
     s => s.replace("return ids.length ? ids : ['focus']", "return ids")],
+
+  // ---- 8. 上滑一甩开抽屉 + 滑出震动（2026-10-16） ----
+  // ⚠️ 方向：dragVy 上滑为负，判定必须是 <= 负值；写反就成了"慢慢拖才开、一甩反而不开"
+  ['上滑一甩判定方向写反（>=）',
+    s => s.replace('this.dragVy <= -OPEN_FLICK_V', 'this.dragVy >= -OPEN_FLICK_V')],
+  ['删掉上滑一甩阈值常量（只认拖过一半）',
+    s => s.replace('const OPEN_FLICK_V = 0.45', 'const OPEN_FLICK_V_MISSING = 0.45')],
+  ['上滑起手不清速度残留（上一段手势污染第一帧）',
+    s => s.replace(/(homeSwipeStart\(e\)\s*\{[\s\S]{0,400}?)this\.dragVy = 0/, '$1/* no reset */')],
+  ['打开提交的松手瞬间不震（滑出没反馈）',
+    s => s.replace('if (commit) this.buzzDrawer()', '/* no buzz */')],
+  ['震动挪进收起路径（关抽屉也震，用户没要）',
+    s => s.replace(/closeDrawer\(\)\s*\{/, 'closeDrawer() { this.buzzDrawer()')],
+  ['buzzDrawer 丢了 catch（老包没权限时直接抛异常打断开抽屉）',
+    s => s.replace("try { haptic.tick('drawer') } catch (e) { console.warn('[home] haptic tick failed:', e) }",
+      "haptic.tick('drawer')")],
 ];
 
 let bad = 0;

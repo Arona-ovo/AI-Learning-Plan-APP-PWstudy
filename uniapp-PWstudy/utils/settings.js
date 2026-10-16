@@ -36,6 +36,9 @@ function defaults() {
     onboarding: { done: false, v: 0, at: 0 },
     // 通知
     notifications: { daily: false, time: '20:00' },
+    // 触感反馈（utils/haptic.js）：底部导航点击 / 首页抽屉滑出到位时震一下。
+    // 只有一个总开关 —— 强度不暴露给用户（场景时长在 haptic.js 里定死，免得设置页又多一层）。
+    haptic: { on: true },
     // 权限与后台保活向导（见 utils/setup.js / pkgManage/pages/setup/setup.vue）
     //   done      必办项都过了（或用户主动跳过）→ 首页不再提醒
     //   promptAt  上次弹首次提醒的时间戳，避免每次进 App 都弹

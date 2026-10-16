@@ -59,6 +59,8 @@
 //     高亮到别人身上（选中态与页面不同步）。
 
 import { TABS, tabIndex, markSwitch, tabText } from '../../utils/tab-slide.js';
+// 触感反馈：点 tab 震一下（跟着设置 › 触感反馈的总开关走，utils/haptic.js）
+import * as haptic from '../../utils/haptic.js';
 
 // 模块级：记住上一次停留的 tab 下标，实现跨页面的连续滑动
 let lastIndex = -1;
@@ -160,6 +162,9 @@ export default {
       if (this.__navLock) return;                      // 连点保护
       this.__navLock = true;
       setTimeout(() => { this.__navLock = false; }, 350);
+      // 震一下（tap 档，最轻）。⚠️ 必须在"点当前 tab / 连点"都拦掉之后 ——
+      // 那两种情况不该有反馈。震不动也要把页切了，所以包 catch。
+      try { haptic.tick('tap') } catch (err) { /* 忽略 */ }
       // 手指离开前先把高亮切过去（导航由系统接管，可能要一两帧才切页面）
       this.pending = t.key;
       // 记下方向，目标页据此决定从左还是从右滑入

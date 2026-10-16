@@ -87,6 +87,15 @@ assert(/if \(dy <= 12 \|\| dy <= dx\) return/.test(home), '上滑要"明显竖�
 // 开/关两条手势的提交方向各自独立断言 —— 之前笼统一条，方向写反照样是绿的
 const bOpenEnd = block(/homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
 assert(/const commit = this\.panelDrag < 50/.test(bOpenEnd), '上滑：拉过一半才提交开（轻拖弹回）');
+// ★ 上滑一甩也能开（跟收起的一甩对称，参考 AWword 的顺滑感）：只认"拖过一半"太死板
+assert(/const OPEN_FLICK_V = 0\.45/.test(home), '上滑一甩的速度阈值常量存在');
+assert(/this\.dragVy <= -OPEN_FLICK_V/.test(bOpenEnd),
+  '快速上滑一甩也算开（⚠️ 上滑速度为负，判定必须是 <= 负值）');
+const bOpenStart = block(/homeSwipeStart\(e\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.dragVy = 0/.test(bOpenStart) && /this\.dragT = /.test(bOpenStart),
+  '上滑起手清速度残留（旧手势的 lastMoveY/dragVy 会污染第一帧）');
+assert(/this\.trackVy\(t\.clientY\)/.test(block(/homeSwipeMove\(e\)\s*\{[\s\S]*?\n    \}/)),
+  '上滑拖动要记速度（否则一甩判定永远为 0）');
 const bGripEnd = block(/gripEnd\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/const commit = this\.panelDrag > CLOSE_COMMIT_PCT/.test(bGripEnd),
   '把手下拉：拖过阈值才收起（方向写成 < 会"轻碰就收、使劲拉反而弹回"）');
@@ -110,6 +119,13 @@ assert(/bodyEnd\(\)/.test(home) && /this\.gripEnd\(\)/.test(home),
   '内容区接管后走同一套收起判定（不另起一套）');
 assert(/if \(this\.panelDrag === null\) \{ this\.dragging = false; this\.gripY = 0; return \}/.test(home),
   '把手轻点（没拖出 6px）也要复位 dragging，否则过渡被永久关掉');
+// ★ 滑出要有震动（2026-10-16 反馈）：只在"打开提交"的松手瞬间震，收起不震。
+//   全套行为测试在 check-haptic.js；这里守接线位置。
+const bBuzz = block(/buzzDrawer\(\)\s*\{[\s\S]*?\n    \}/);
+assert(bBuzz !== '' && /haptic\.tick\('drawer'\)/.test(bBuzz) && /catch/.test(bBuzz),
+  'buzzDrawer 震 drawer 档且包 catch（震不动也要把抽屉拉开）');
+assert(/if \(commit\) this\.buzzDrawer\(\)/.test(bOpenEnd), '打开提交的松手瞬间才震（拖动中不震）');
+assert(/this\.drawerOn = true\s*\n\s*this\.buzzDrawer\(\)/.test(bOpenEnd), '兜底一甩开抽屉同样震');
 assert(!/class="dr-peek"/.test(home), '主页底部常驻把手（小横条）已移除：打开靠整屏上滑');
 
 console.log('== 3b. 主页整块上滑跟手拉抽屉（不只小把手）==');
@@ -189,6 +205,7 @@ const bToggle = block(/toggleEdit\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/if \(this\.editing\) this\.drawerOn = true/.test(bToggle), '进编辑态自动拉出抽屉');
 const bClose = block(/closeDrawer\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/if \(this\.editing\) return/.test(bClose), '编辑态不许收起抽屉');
+assert(!/buzzDrawer|haptic/.test(bClose), '收起不震（用户只要"滑出来"震）');
 // ⚠️ 这里不能用 /maybeGuide[\s\S]*?this\.drawerOn = true/ 这种跨段正则：
 //   它会一路吃到后面任意一个 drawerOn = true（比如 toggleEdit 里的），
 //   于是"引导前忘了拉抽屉"根本抓不到（假绿）。精确到 maybeGuide 方法体。

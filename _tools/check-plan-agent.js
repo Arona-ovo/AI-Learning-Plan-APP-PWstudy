@@ -85,7 +85,10 @@ const raw2 = {
 };
 const full = agent.normalizePlan(JSON.parse(JSON.stringify(raw2)), { deadline: inDays(30), slotOn: false });
 eq(full.tasks.map(t => t.day), [1, 15, 29], '排满 30 天里的 29 天（差 1 天 ≤ 缓冲）就不拉伸');
-eq(full.risks.length, 0, '没拉伸就不添风险提示');
+// ⚠️ 只断言"没有拉伸提示"，不能断言 risks 全空：本用例的 day 是写死的 1/15/29，
+//   随真实日期漂移，某天会正好落进周末 → 计划器"周末八折"正当给出工作量削减提示
+//   （2026-10-17 真踩：day29 落周六，risks 多出一条削减提示，误报红）。
+eq(full.risks.filter(r => /拉伸/.test(r)).length, 0, '没拉伸就不添拉伸风险提示（周末八折等其它提示不算）');
 
 // 长目标：100 天只给 60 天 → 拉到 100
 const raw3 = {

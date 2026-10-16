@@ -556,6 +556,8 @@ import * as reminder from '../../utils/reminder.js'
 import * as onboarding from '../../utils/onboarding.js'
 import * as harvest from '../../utils/harvest.js'
 import * as theme from '../../utils/theme.js'
+// 触感反馈：抽屉滑出到位震一下（跟着设置 › 触感反馈的总开关走，utils/haptic.js）
+import * as haptic from '../../utils/haptic.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
@@ -587,6 +589,10 @@ const HOME_DEPTH_SCALE = 0.07
 const CLOSE_COMMIT_PCT = 20
 // ★ 快速一甩也算收（px/ms 向下）：不想拖够距离时，甩一下就走
 const CLOSE_FLICK_V = 0.45
+// ★ 快速上滑一甩也能开（px/ms，向上滑速度取负号）：跟收起的一甩对称 ——
+//   参考视频（AWword）里"一甩就开"的顺滑感，只认"拖过一半"太死板。
+//   ⚠️ 方向：dragVy = (y - lastY)/dt，上滑 y 减小 → dragVy 为负，所以判定用 <= 负阈值。
+const OPEN_FLICK_V = 0.45
 // ★ 抽屉玻璃底板自己的视差：闭合时往下沉多少（面板高度的百分比）。
 //   比主页的位移小得多 —— 主页 26vh 大幅后退，底板只小幅上顶，两层错开。
 const PANEL_PARALLAX_PCT = 10
@@ -1172,11 +1178,17 @@ export default {
       const t = (e && e.touches && e.touches[0]) || null
       this.swipeX0 = t ? t.clientX : 0
       this.swipeY0 = t ? t.clientY : 0
+      // 速度采样从这一按开始：不清零的话上一段手势残留的 lastMoveY/dragVy
+      // 会污染第一帧速度，"一甩就开"会误判
+      this.lastMoveY = t ? t.clientY : 0
+      this.dragT = Date.now()
+      this.dragVy = 0
     },
     homeSwipeMove(e) {
       if (this.drawerOn || this.editing || this.locked || !this.restCount) return
       const t = (e && e.touches && e.touches[0]) || null
       if (!t) return
+      this.trackVy(t.clientY)   // 记手指速度：松手时"快速上滑一甩"也能开
       const dy = this.swipeY0 - t.clientY   // 上滑为正
       const dx = Math.abs(t.clientX - this.swipeX0)
       if (this.panelDrag === null) {
@@ -1195,12 +1207,14 @@ export default {
       if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; this.swipeX0 = 0; return }
       if (!this.restCount) { this.swipeY0 = 0; this.swipeX0 = 0; return }
       if (this.panelDrag !== null) {
-        // 跟手拖动中松手：拉过一半就开，否则弹回
-        const commit = this.panelDrag < 50
+        // 跟手拖动中松手：拖过一半、或者松手前是快速上滑的一甩，都算开
+        const commit = this.panelDrag < 50 || this.dragVy <= -OPEN_FLICK_V
         this.dragging = false
         this.panelDrag = null
+        this.dragVy = 0
         this.swipeY0 = 0; this.swipeX0 = 0
         this.drawerOn = commit
+        if (commit) this.buzzDrawer()   // 滑出 = 震一下（关闭不震）
         return
       }
       // 没进入拖动的兜底：快速一甩也开（阈值同前）
@@ -1214,6 +1228,7 @@ export default {
       this.swipeY0 = 0; this.swipeX0 = 0
       if (dy > 56 && dx < dy * 0.6 && startY > this.winH * 0.55) {
         this.drawerOn = true
+        this.buzzDrawer()
       }
     },
     /** 记一下手指竖向速度：收起抽屉支持"快速一甩"，不用非得拖够距离 */
@@ -1223,6 +1238,14 @@ export default {
       if (dt > 0 && this.lastMoveY) this.dragVy = (y - this.lastMoveY) / dt
       this.lastMoveY = y
       this.dragT = now
+    },
+    /**
+     * 抽屉滑出到位震一下（drawer 档，一次打开只响一声；关闭不震）。
+     * 只在"打开提交"的松手瞬间调，不在拖动中调 —— 拖动中每帧都会路过，会震成一窝蜂。
+     * 震不动也要把抽屉拉开，所以包 catch。
+     */
+    buzzDrawer() {
+      try { haptic.tick('drawer') } catch (e) { console.warn('[home] haptic tick failed:', e) }
     },
     /** 抽屉里那道把手：往下拉 = 收起，同样跟手 */
     gripStart(e) {
