@@ -30,7 +30,11 @@ function runCheck() {
 const cases = [
   // ---- 1. 主页只放三张卡 ----
   ['主页三卡容器改名（第一屏没了）',
-    s => s.replace('<view class="hcards">', '<view class="hcards2">')],
+    s => s.replace('<view class="hcards" :style="homeShift">', '<view class="hcards2" :style="homeShift">')],
+  ['主页整列不随抽屉上移（主卡不让位，割裂回来了）',
+    s => s.replace('class="hcards" :style="homeShift"', 'class="hcards"')],
+  ['收工那行不随整列上移（上滑时它和主卡脱节）',
+    s => s.replace('class="home-cta" :style="homeShift"', 'class="home-cta"')],
   ['主页不按 homeOrder 渲染（其余组件又挤回首页）',
     s => s.replace('v-for="id in homeOrder"', 'v-for="id in cardOrder"')],
   ['HOME_IDS 里多塞一个（首页不再只留"今天"）',
@@ -66,6 +70,17 @@ const cases = [
   // 把 .on class 去掉：抽屉永远停在"关"，上滑拉不起来
   ['抽屉无法切换开合（.on class 没了）',
     s => s.replace(' :class="{ on: drawerOn }"', '')],
+  // 遮罩又压暗整屏：实体抽屉的"两层感"回来了
+  // ⚠️ .vue 是 CRLF：替换串必须写 \r\n，写 \n 会静默匹配不上（假绿）
+  ['遮罩恢复压暗（实体抽屉的割裂感回来）',
+    s => s.replace('  background: transparent;\r\n  display: flex;\r\n  align-items: flex-end;',
+      '  background: rgba(23, 32, 26, 0.28);\r\n  display: flex;\r\n  align-items: flex-end;')],
+  // 面板又整体滑入：实体 sheet 回来了，卡片浮现被它盖住
+  ['面板恢复整体滑入（实体 sheet 回来了）',
+    s => s.replace('.dr-panel {\r\n  width: 100%;', '.dr-panel {\r\n  transform: translateY(100%);\r\n  width: 100%;')],
+  // 逐张错拍消失：所有卡一起淡入（没有"逐张浮现"的滚动感）
+  ['卡片错拍显现在（一起冒出来，没有逐张滚动感）',
+    s => s.replace('const p = Math.max(0, Math.min(1, (this.openProg - i * span) / 0.55))', 'const p = 1')],
   ['抽屉里遍历 cardOrder（卡片重复）',
     s => s.replace('v-for="(id, i) in restOrder"', 'v-for="(id, i) in cardOrder"')],
   ['抽屉内把手不能下拉收起',
@@ -105,7 +120,7 @@ const cases = [
   // 把 page-slide 的闭合 </view> 拿掉，抽屉层就变成它的子节点了
   // ⚠️ 仓库是 CRLF（记忆约束 17）：这里要写 \r\n，写 \n 会静默匹配不上（假绿）
   ['抽屉层塞回 page-slide 内（fixed 被切 tab 动画接管）',
-    s => s.replace('    </view>\r\n    <!-- ===== 底部抽屉', '    <!-- ===== 底部抽屉')],
+    s => s.replace('    </view>\r\n    <!-- ===== 底部"抽屉"', '    <!-- ===== 底部"抽屉"')],
   // ⚠️ 不能改名成 page-slide-x —— 'page-slide' 仍是它的子串，断言照样命中（假绿）
   ['主页三卡搬出 page-slide（不跟切 tab 动画了）',
     s => s.replace('class="page-slide home-slide"', 'class="pslide home-slide"')],

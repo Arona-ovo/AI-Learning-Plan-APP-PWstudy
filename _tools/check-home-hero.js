@@ -28,7 +28,7 @@ const at = (s) => home.indexOf(s);
 const block = (re) => { const m = home.match(re); return m ? m[0] : ''; };
 
 console.log('== 1. 主页只放今天要用的三张卡 ==');
-assert(/<view class="hcards">/.test(home), '有主页三卡容器 .hcards');
+assert(/<view class="hcards" :style="homeShift">/.test(home), '有主页三卡容器 .hcards（并绑定整列上移）');
 assert(/v-for="id in homeOrder"/.test(home), '主页按 homeOrder 渲染');
 assert(/const HOME_IDS = \['focus', 'task', 'urgency'\]/.test(home),
   'HOME_IDS = 专注 / 今日任务 / 紧迫度（其余一律进抽屉）');
@@ -50,11 +50,22 @@ assert(/class="hc-axis"/.test(home) && /hc-axis-now/.test(home), '③ 焦点：�
 
 console.log('== 3. 抽屉：常驻但收起时不挂载卡片（真抽屉 + 不掉帧）==');
 assert(/drawerOn: false/.test(home), 'data 里抽屉默认收起');
-// 关键：抽屉 DOM 常驻（不再整包 v-if 挂载），靠 .on class + transform 切换，
-// 这样"从下往上滑"只动 transform（GPU 合成），不会因为挂载整摞卡片掉帧。
+// 关键：抽屉 DOM 常驻（不再整包 v-if 挂载），只动 opacity/transform（GPU 合成），
+// 不会因为挂载整摞卡片掉帧。
 assert(/class="dr-mask"[^>]*:class="\{ on: drawerOn \}"/.test(home), '抽屉层常驻 + .on class 切换开合');
-assert(/:style="maskStyle"/.test(home), '遮罩透明度内联跟着手指');
-assert(/class="dr-panel"[^>]*ref="drPanel"[^>]*:style="panelStyle"/.test(home), '面板内联 transform 跟手');
+// "抽屉没有实体"：遮罩全透明，不压暗整屏（上滑时主页和卡片是同一列，不是两层）
+const drMaskCss = block(/\.dr-mask \{[\s\S]*?\n\}/);
+assert(/background:\s*transparent/.test(drMaskCss) && !/rgba\(/.test(drMaskCss),
+  '遮罩全透明：上滑不压暗整屏（没有实体抽屉）');
+// 面板不再整体平移：没有从屏下滑上来的实体 sheet，卡片各自按进度浮现
+const drPanelCss = block(/\.dr-panel \{[\s\S]*?\n\}/);
+assert(drPanelCss !== '' && !/translateY\(100%\)/.test(drPanelCss),
+  '面板不再整体滑入（卡片逐张浮现，替代实体 sheet）');
+assert(/class="dr-panel"[^>]*ref="drPanel"[^>]*:style="panelStyle"/.test(home), '面板内联 --open 进度跟手');
+// 逐张错拍：wrapStyle 里按 openProg 算每张卡的淡入/升起（scroll-linked stagger）
+const bWrap = block(/wrapStyle\(i\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.openProg/.test(bWrap) && /opacity/.test(bWrap) && /translateY/.test(bWrap),
+  '抽屉卡片随展开进度逐张淡入+升起（错拍 stagger）');
 assert(/v-for="\(id, i\) in restOrder"/.test(home), '抽屉里遍历其余组件');
 assert(/class="dr-grip"/.test(home) && /@touchmove="gripMove"/.test(home), '抽屉内把手可下拉收起');
 // 关闭改成"跟手拖动 + 过半才提交"，不再是固定 48px 阈值
@@ -69,6 +80,11 @@ console.log('== 3b. 主页整块上滑跟手拉抽屉（不只小把手）==');
 assert(/@touchstart="homeSwipeStart"/.test(home) && /@touchmove="homeSwipeMove"/.test(home) && /@touchend="homeSwipeEnd"/.test(home),
   '主页内容区绑了上滑手势（跟手升起）');
 assert(/homeSwipeMove\(e\)/.test(home) && /this\.panelDrag = 100/.test(home), '上滑进入拖动（panelDrag=100 起手、面板跟手升起）');
+// 首页与抽屉连贯：主页整列随同一进度上移让位（主卡升起、卡片从其下方浮现）
+assert(/class="hcards" :style="homeShift"/.test(home) && /class="home-cta" :style="homeShift"/.test(home),
+  '主页整列绑 homeShift（上滑时主卡上移让位）');
+const bShift = block(/homeShift\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/openProg/.test(bShift) && /translateY/.test(bShift), '上移量由展开进度驱动（跟手，非硬切）');
 assert(/drawerOn \|\| this\.editing \|\| this\.locked/.test(home), '抽屉已开 / 编辑 / 计时中时上滑不响应');
 assert(/if \(!this\.restCount\)/.test(home), '没有其余组件可展示时不空开抽屉');
 assert(/dy > 56 && dx < dy \* 0\.6 && startY > this\.winH \* 0\.55/.test(home), '兜底：下半屏起手 + 上滑够长才开');

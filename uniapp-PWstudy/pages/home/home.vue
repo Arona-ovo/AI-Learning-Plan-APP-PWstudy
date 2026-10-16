@@ -82,7 +82,10 @@
            每张只留一个焦点 —— 开始键 / 下一条要做 / 还剩多久。
            其余组件（目标、日程、学习 App、AI 对话）**平时完全不渲染**，
            它们住在底部抽屉里，要往上滑才拉得出来（见文件末尾 .dr-*）。 -->
-      <view class="hcards">
+      <!-- :style="homeShift"：整列随抽屉展开进度上移 —— 上滑时主卡往上让位，
+           抽屉卡片在其下方逐张浮现（对照分镜 reveal≈0.5：主卡已升起一半、
+           下一张卡刚探出头）。像滚动一列卡片，而不是掀一张面板。 -->
+      <view class="hcards" :style="homeShift">
         <block v-for="id in homeOrder" :key="id">
 
           <!-- ① 开始专注 —— 这一屏唯一的视觉中心：竖向居中（环 + 开始键 + 极简上下文），
@@ -161,19 +164,20 @@
            原来它缩在「今日任务」卡右上角当一个小链接，而"今天做了什么"其实是
            整个"动态安排"的输入口 —— 现在按主按钮的尺寸放在首页底部，
            填过就变成「改一下」，不重复催促。编辑首页时让位给编辑按钮。 -->
-      <view v-if="!editing" class="home-cta">
+      <view v-if="!editing" class="home-cta" :style="homeShift">
         <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
         <text class="cta-tip">{{ checked ? '今天已经记过了，想改随时点开' : '花十几秒说说今天，明天的安排才排得准' }}</text>
       </view>
       </block>
     </view>
-    <!-- ===== 底部抽屉：其余组件住在这儿 =====
-    像抽屉一样：不上滑，抽屉里的卡片**一个都不渲染**；
-    往上滑把手（或点一下）→ 抽屉升起，里面是完整卡片列表；
-    在抽屉里再往下滑到底 → 才够得着「编辑首页」。
+    <!-- ===== 底部"抽屉"：其余组件住在这儿 =====
+    它不是一张面板，也没有实体：上滑时主页整列上移让位，
+    这摞卡片按展开进度**逐张淡入 + 升起**（wrapStyle 错拍），
+    滑到最底 → 才够得着「编辑首页」。
+    这层只是透明的点击承接层（开着时点空白处 = 收起）。
     ⚠️ 必须放在 .page-slide 之外 —— fixed 参照不能受切 tab 的滑动动画影响，
     否则抽屉会跟着页面一起滑走（记忆约束 3）。 -->
-    <view class="dr-mask" :class="{ on: drawerOn }" :style="maskStyle" @tap="closeDrawer" @touchmove.stop.prevent="noop">
+    <view class="dr-mask" :class="{ on: drawerOn }" @tap="closeDrawer" @touchmove.stop.prevent="noop">
       <view class="dr-panel" ref="drPanel" :class="{ dragging: dragging }" :style="panelStyle" @tap.stop>
         <!-- 抽屉把手：往下拖 = 收起抽屉（去掉了装饰小横条，只留标题做抓手） -->
         <view
@@ -605,9 +609,8 @@ export default {
       // 它们住在底部抽屉里，往上滑才拉得出来。抽屉状态只活在本次会话（切 tab 回来保持），
       // 不写进设置 —— 每次进首页都强制收起的话，刚拉开看两眼又被收回去很烦。
       drawerOn: false,    // 抽屉是否拉出
-      // 抽屉拖动：panelDrag = 当前 translateY 百分比（0=全开，100=全关），null=未拖动、走 class
+      // 抽屉拖动：panelDrag = 展开进度的反向百分比（0=全开，100=全关），null=未拖动
       panelDrag: null,
-      maskAlpha: null,     // 拖动时跟着手指实时改的遮罩透明度，null=走 class
       dragging: false,
       gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
       // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
@@ -748,28 +751,28 @@ export default {
     restCount() {
       return this.restOrder.length
     },
-    // 拖动时跟着手指实时改遮罩透明度（关掉过渡，避免和手指打架）；
-    // 松手后交回 class（开=1 / 关=0 带过渡）
-    maskStyle() {
-      if (this.maskAlpha !== null) return { opacity: this.maskAlpha, transition: 'none' }
-      return {}
-    },
-    // 拖动中：内联 transform 跟手、关掉过渡；松手后交回 class 做弹性过渡。
-    // 同时把"展开进度" open 作为 CSS 变量传给面板，卡片靠它做淡入 + 升起。
+    // 把"展开进度" open 作为 CSS 变量传下去：抽屉把手 / 底部编辑区靠它淡入。
+    // 卡片本体不走这条（它们的逐张错拍显现在 wrapStyle 里按进度算）
     panelStyle() {
-      const s = { '--open': String(this.openProg) }
-      if (this.panelDrag !== null) {
-        s.transform = 'translateY(' + this.panelDrag + '%)'
-        s.transition = 'none'
-      }
-      return s
+      return { '--open': String(this.openProg) }
     },
-    // 抽屉"展开进度"：0=全关（卡片不可见、略下沉），1=全开（完全显现）。
+    // 抽屉"展开进度"：0=全关（卡片不可见），1=全开（完全显现）。
     // 拖动时跟手（由 panelDrag 实时换算），松手后由 drawerOn 决定终态，
-    // 让卡片的淡入与面板的升起被同一个进度串起来，首页上滑和抽屉不再割裂。
+    // 让"首页上移"和"卡片浮现"被同一个进度串起来，首页上滑和抽屉不再割裂。
     openProg() {
       if (this.panelDrag !== null) return Math.max(0, Math.min(1, 1 - this.panelDrag / 100))
       return this.drawerOn ? 1 : 0
+    },
+    // 主页整列随展开进度上移：上滑时主卡往上让位，抽屉卡片在其下方逐张浮现
+    // —— 像把一列卡片滚上去，而不是掀一张面板。拖动中关掉过渡跟手，
+    // 松手后由样式表里的 transition 补完。
+    homeShift() {
+      if (this.editing) return {}
+      const p = this.openProg
+      if (p <= 0) return {}
+      const s = { transform: 'translateY(-' + (p * 18).toFixed(2) + 'vh)' }
+      if (this.dragging) s.transition = 'none'
+      return s
     },
     /**
      * 主页任务卡只列最该做的三条 —— 第一行永远是主任务
@@ -1102,14 +1105,12 @@ export default {
         // 还没进入拖动：要"明显竖向上滑"才接管，否则交给页面正常滚动
         if (dy <= 12 || dy <= dx) return
         this.dragging = true
-        this.panelDrag = 100   // 从全关（屏下）开始跟手
-        this.maskAlpha = 0
+        this.panelDrag = 100   // 从全关（进度 0）开始跟手
       }
       const H = this.panelHpx()
       let pct = 100 - (dy / H * 100)
       pct = Math.max(0, Math.min(100, pct))
       this.panelDrag = pct
-      this.maskAlpha = 1 - pct / 100
       if (e && e.preventDefault) e.preventDefault()
     },
     homeSwipeEnd(e) {
@@ -1120,7 +1121,6 @@ export default {
         const commit = this.panelDrag < 50
         this.dragging = false
         this.panelDrag = null
-        this.maskAlpha = null
         this.swipeY0 = 0; this.swipeX0 = 0
         this.drawerOn = commit
         return
@@ -1151,20 +1151,17 @@ export default {
       if (this.panelDrag === null) {
         if (dy <= 6) return
         this.panelDrag = 0
-        this.maskAlpha = 1
       }
       const H = this.panelHpx()
       let pct = dy / H * 100
       pct = Math.max(0, Math.min(100, pct))
       this.panelDrag = pct
-      this.maskAlpha = 1 - pct / 100
     },
     gripEnd() {
       if (this.panelDrag === null) { this.gripY = 0; return }
       const commit = this.panelDrag < 50
       this.dragging = false
       this.panelDrag = null
-      this.maskAlpha = null
       this.gripY = 0
       if (!commit) return        // 没拉过半 → 维持打开
       this.closeDrawer()          // 拉过半 → 收起
@@ -1266,9 +1263,21 @@ export default {
         this.syncLayout()
       }
     },
+    // 抽屉卡片样式：
+    //  · 编辑态 → 只有被拖的那张跟手偏移（排序）；
+    //  · 展示态 → 按"展开进度"逐张错拍淡入 + 升起（scroll-linked stagger）：
+    //    第 i 张在 [i*span, i*span+0.55] 区间内渐显，span 按张数归一，
+    //    保证最后一张恰好在 openProg=1 时完全显现 —— 手指滑到哪，哪张卡出头。
     wrapStyle(i) {
-      if (this.dragIndex !== i) return ''
-      return 'transform: translateY(' + this.dragDy + 'px); z-index: 30;'
+      if (this.editing) {
+        if (this.dragIndex !== i) return ''
+        return 'transform: translateY(' + this.dragDy + 'px); z-index: 30;'
+      }
+      const n = this.restOrder.length
+      const span = n > 1 ? 0.45 / (n - 1) : 0
+      const p = Math.max(0, Math.min(1, (this.openProg - i * span) / 0.55))
+      if (p >= 1) return ''
+      return 'opacity: ' + p.toFixed(3) + '; transform: translateY(' + ((1 - p) * 26).toFixed(1) + 'px);'
     },
     noop() {},
     // ---------- 今日紧迫度 ----------
@@ -2873,10 +2882,10 @@ export default {
 }
 .hc-foot-row { display: flex; align-items: baseline; justify-content: space-between; }
 
-/* ===== 底部抽屉：其余组件住在这儿 =====
-   不上滑 → 抽屉里的卡片**一个都不渲染**（v-if 整包跳过）；
-   上滑把手 / 点一下 → 抽屉升起，里面是完整卡片列表；
-   在抽屉里滑到最底 → 才够得着「编辑首页」。 */
+/* ===== 底部"抽屉"：其余组件住在这儿 =====
+   它不是一张面板，也没有实体：上滑时主页整列上移让位，
+   这摞卡片按展开进度逐张淡入 + 升起（见 wrapStyle 的错拍）。
+   这层只是透明的点击承接层（开着时点空白处 = 收起），**不压暗整屏**。 */
 .dr-mask {
   position: fixed;
   left: 0;
@@ -2884,10 +2893,10 @@ export default {
   top: 0;
   bottom: 0;
   z-index: 620;
-  background: rgba(23, 32, 26, 0.28);
+  background: transparent;
   display: flex;
   align-items: flex-end;
-  /* 常驻但默认隐藏：关=透明且不挡触摸，开=淡入。只动 opacity/transform，不掉帧 */
+  /* 常驻但默认不挡触摸，开=承接点击。只动 opacity/pointer-events，不掉帧 */
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
@@ -2902,30 +2911,33 @@ export default {
   display: flex;
   flex-direction: column;
   padding: 0 24rpx;
-  /* 抽屉"没有实体"：去掉实心底色 / 圆角 / 阴影 / 毛玻璃 —— 它不再是一张白 sheet
-     突兀地滑上来，而是一层透明容器，里面那摞卡片各自带表面，直接浮在首页之上，
-     从底部淡入升起。只动 transform（GPU 合成），松手有弹性过渡 */
-  transform: translateY(100%);
+  /* 面板本身**不整体平移**：没有从屏下滑上来的实体 sheet，
+     卡片各自按展开进度浮现（wrapStyle 错拍），首页整列同时上移让位 */
+}
+/* 主页整列松手后的补完过渡：拖动中由 homeShift 内联关掉（跟手），
+   松手后交给这条，弹到终态 */
+.hcards,
+.home-cta {
   transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
-.dr-mask.on .dr-panel {
-  transform: translateY(0);
-}
-/* 抽屉内容随"展开进度" --open 淡入 + 升起：open=0 时不可见且略下沉，
-   open=1 时完全显现。--open 由手势进度实时驱动（拖动时跟手、松手由过渡补完），
-   把"首页上滑"和"抽屉展开"串成同一段动画，消除割裂感。
-   卡片用 :not(.is-editing) 排除编辑态，避免和排序拖动打架。 */
+/* 抽屉把手 / 底部编辑区：随展开进度 --open 淡入 + 升起
+   （--open 由 panelStyle 内联在 .dr-panel 上，子元素继承）。
+   卡片本体不在这一组：它们的显现走 wrapStyle 内联（逐张错拍）。 */
 .dr-grip,
-.mod-wrap:not(.is-editing),
 .home-foot {
   opacity: var(--open, 0);
   transform: translateY(calc((1 - var(--open, 0)) * 28rpx));
   transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* 抽屉卡片：松手后补完淡入/升起的过渡。拖动中关掉（跟手）；
+   编辑态（is-editing）例外：排序拖动不能带过渡，否则跟手发糊 */
+.mod-wrap:not(.is-editing) {
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
 .dr-panel.dragging .dr-grip,
-.dr-panel.dragging .mod-wrap:not(.is-editing),
-.dr-panel.dragging .home-foot {
+.dr-panel.dragging .home-foot,
+.dr-panel.dragging .mod-wrap:not(.is-editing) {
   transition: none;
 }
 /* 抽屉把手：往下拖 = 收起（touch-action 禁掉滚动手势，拖动时页面不跟着走） */

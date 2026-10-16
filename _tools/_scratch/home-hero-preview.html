@@ -63,24 +63,33 @@
   .cta-btn{background:var(--brand);color:#fff;border:none;border-radius:14px;padding:13px 26px;font-size:15px;font-weight:600}
   .cta-tip{display:block;font-size:11px;color:var(--ink3);margin-top:7px}
 
-  /* 抽屉（展开态）：抽屉"没有实体" —— 去掉实心底色 / 圆角 / 阴影，
-     只做一层透明容器，卡片各自带表面浮上来；卡片靠 emerge 淡入 + 升起 */
-  .drawer{position:absolute;left:0;right:0;bottom:0;height:80%;background:transparent;display:flex;flex-direction:column;padding:6px 14px 0;animation:up .3s cubic-bezier(.22,1,.36,1)}
-  @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
-  .dr-grip{display:flex;flex-direction:column;align-items:center;padding:6px 0 10px;opacity:0;transform:translateY(22px);animation:emerge .34s ease forwards}
+  /* "抽屉"（无实体）：不是一张滑上来的面板 —— 主页整列上移让位，
+     卡片各自按同一进度**逐张**淡入 + 升起（错拍 stagger） */
+  .drawer{position:absolute;left:0;right:0;bottom:0;height:80%;background:transparent;display:flex;flex-direction:column;padding:6px 14px 0}
+  .dr-grip{display:flex;flex-direction:column;align-items:center;padding:6px 0 10px;opacity:0;transform:translateY(22px);animation:emerge .3s ease forwards}
   .dr-title{font-size:13px;color:var(--ink2);margin-top:6px;font-weight:600}
   .dr-body{flex:1;overflow:auto}
-  .mod{background:var(--card);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 3px 10px rgba(120,90,60,.07);opacity:0;transform:translateY(22px);animation:emerge .34s cubic-bezier(.22,1,.36,1) .05s forwards}
+  .mod{background:var(--card);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 3px 10px rgba(120,90,60,.07);opacity:0;transform:translateY(22px);animation:emerge .3s cubic-bezier(.22,1,.36,1) forwards}
+  /* 逐张错拍：手指滑到哪，哪张卡出头 */
+  .mod:nth-child(2){animation-delay:.04s}.mod:nth-child(3){animation-delay:.08s}
+  .mod:nth-child(4){animation-delay:.12s}.mod:nth-child(5){animation-delay:.16s}
+  .mod:nth-child(6){animation-delay:.2s}.mod:nth-child(7){animation-delay:.24s}
   .mod .mh{font-size:14px;font-weight:600;margin-bottom:6px}
   .mod .mb{font-size:12px;color:var(--ink2);line-height:1.5}
   .mod.focus{outline:2px solid var(--brand)}
-  .home-foot{text-align:center;padding:14px 0 22px;opacity:0;transform:translateY(22px);animation:emerge .34s ease .14s forwards}
+  .home-foot{text-align:center;padding:14px 0 22px;opacity:0;transform:translateY(22px);animation:emerge .3s ease .28s forwards}
   .foot-btn{display:inline-block;background:var(--brand);color:#fff;border-radius:12px;padding:11px 28px;font-size:14px;font-weight:600}
   .foot-sub{display:block;font-size:11px;color:var(--ink3);margin-top:8px}
   @keyframes emerge{to{opacity:1;transform:translateY(0)}}
-  /* 上滑中（跟手态）：面板停在半路、卡片只淡入一半，演示"首页上滑与抽屉连贯" */
-  .drawer.mid{height:46%;animation:none;transform:translateY(40%)}
-  .drawer.mid .dr-grip,.drawer.mid .mod,.drawer.mid .home-foot{animation:none;opacity:.5;transform:translateY(10px)}
+  /* 主页整列：上滑时上移让位（跟手），主卡从正中升到顶部 */
+  .homecol{display:flex;flex-direction:column;flex:1;min-height:0;transition:transform .34s cubic-bezier(.22,1,.36,1)}
+  .homecol.mid{transform:translateY(-58px);transition:none}
+  .homecol.out{transform:translateY(-122px)}
+  /* 上滑中（跟手态）：错拍进行到一半 —— 第一张卡刚探出头，后面的还在等 */
+  .drawer.mid .dr-grip,.drawer.mid .mod,.drawer.mid .home-foot{animation:none}
+  .drawer.mid .dr-grip{opacity:.6;transform:translateY(8px)}
+  .drawer.mid .mod:nth-child(2){opacity:.55;transform:translateY(10px)}
+  .drawer.mid .mod:nth-child(n+3){opacity:0}
 
   .cap{width:300px;color:#3a2f22}
   .cap h2{font-size:18px;margin-bottom:6px}
@@ -100,8 +109,8 @@
     <p>主页常驻三张<strong>精简适配卡</strong>，每张只突出一个焦点；<strong>开始专注居中放大</strong>做整屏唯一视觉中心，任务 / 紧迫度两张<strong>淡化退到上下边缘</strong>；其余组件平时<strong>完全不渲染</strong>，上滑才拉出抽屉。</p>
     <ol>
       <li><b>主页三卡</b>：开始专注 / 今日任务 / 今日紧迫度，各一张、只一个焦点。</li>
-      <li><b>整屏上滑</b>：在主页内容区从下往上滑，抽屉面板<strong>跟手升起</strong>，拉过一半松手才开。</li>
-      <li><b>卡片淡入 + 升起</b>：上滑过程中抽屉里的卡片由消失态平滑转显现，与面板升起被<strong>同一进度串起来</strong>，不再割裂；抽屉无实心底色，是一层透明容器。</li>
+      <li><b>整屏上滑 = 把一列卡片滚出来</b>：主页整列<strong>跟手上移让位</strong>，抽屉里的卡片按同一进度<strong>逐张淡入 + 升起</strong>（错拍 stagger），全程只动 opacity/transform。</li>
+      <li><b>抽屉没有实体</b>：不压暗整屏、没有滑上来的面板 —— 主卡和抽屉卡片本来就是<strong>同一列</strong>，滑到哪、哪张卡出头。</li>
       <li><b>抽屉里再往下滑到底</b> → 今日收工 / 编辑首页入口。</li>
     </ol>
   </div>
@@ -152,7 +161,7 @@
     </div>
   </div>
 
-  <!-- ①b 上滑中：面板停在半路、卡片只淡入一半（演示"首页上滑与抽屉连贯"） -->
+  <!-- ①b 上滑中：主页整列上移让位，第一张抽屉卡刚探出头（错拍进行到一半） -->
   <div class="phone">
     <div class="screen">
       <div class="statusbar"><span>9:41</span><span>●●● 5G ▮100%</span></div>
@@ -160,8 +169,16 @@
         <span class="nav-title">今天</span>
         <span class="nav-capsule"><span class="dot"></span>专注设置</span>
       </div>
-      <div style="text-align:center;font-size:11px;color:#a99;padding:8px 0">（手指上滑中…）</div>
 
+      <!-- 主页整列：跟手上移让位（主卡从正中升起来） -->
+      <div class="homecol mid" style="opacity:.9">
+        <div class="hcard focus" style="padding:16px">
+          <div class="hc-ring" style="width:64px;height:64px"><span class="hc-ring-num" style="font-size:20px">75</span><span class="hc-ring-unit">分钟</span></div>
+          <button class="hc-go" style="margin:10px 0 2px;width:150px;height:44px;font-size:15px">开始</button>
+        </div>
+      </div>
+
+      <!-- 抽屉卡片：逐张错拍，第一张刚探出头、后面的还在等 -->
       <div class="drawer mid">
         <div class="dr-grip"><div class="dr-title">全部组件</div></div>
         <div class="dr-body">
@@ -178,7 +195,7 @@
     </div>
   </div>
 
-  <!-- ② 上滑拉出抽屉（展开态） -->
+  <!-- ② 拉到底：主页整列退到顶，抽屉卡片全部浮现（同一列，没有实体面板） -->
   <div class="phone">
     <div class="screen">
       <div class="statusbar"><span>9:41</span><span>●●● 5G ▮100%</span></div>
@@ -186,7 +203,13 @@
         <span class="nav-title">今天</span>
         <span class="nav-capsule"><span class="dot"></span>专注设置</span>
       </div>
-      <div style="text-align:center;font-size:11px;color:#a99;padding:10px 0">（主页三卡收起）</div>
+
+      <!-- 主页整列：让位到顶部（主卡缩小让位，仍在列里） -->
+      <div class="homecol out" style="flex:0 0 auto;opacity:.92">
+        <div class="hcard focus" style="padding:10px 16px;margin-bottom:10px">
+          <div class="hc-ring" style="width:44px;height:44px;border-width:4px;margin:0 0 8px"><span class="hc-ring-num" style="font-size:15px">75</span><span class="hc-ring-unit">分钟</span></div>
+        </div>
+      </div>
 
       <div class="drawer">
         <div class="dr-grip"><div class="dr-title">全部组件</div></div>
