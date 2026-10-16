@@ -88,8 +88,26 @@ assert(/if \(dy <= 12 \|\| dy <= dx\) return/.test(home), '上滑要"明显竖�
 const bOpenEnd = block(/homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
 assert(/const commit = this\.panelDrag < 50/.test(bOpenEnd), '上滑：拉过一半才提交开（轻拖弹回）');
 const bGripEnd = block(/gripEnd\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/const commit = this\.panelDrag > 50/.test(bGripEnd),
-  '把手下拉：必须拖过一半才收起（方向写成 < 会"轻碰就收、使劲拉反而弹回"）');
+assert(/const commit = this\.panelDrag > CLOSE_COMMIT_PCT/.test(bGripEnd),
+  '把手下拉：拖过阈值才收起（方向写成 < 会"轻碰就收、使劲拉反而弹回"）');
+// ★ 收起阈值必须比"一半"小得多：面板 76vh，一半就是 38vh，
+//   真机上要从上往下滑老长一段才收得回去（2026-10-16 反馈）
+assert(/const CLOSE_COMMIT_PCT = 20/.test(home), '收起阈值 20%（不是 50% —— 38vh 太远）');
+// 快速一甩也收：不想拖够距离时甩一下就走
+assert(/this\.dragVy >= CLOSE_FLICK_V/.test(bGripEnd), '收起支持"快速一甩"（不必拖够距离）');
+assert(/const CLOSE_FLICK_V = 0\.45/.test(home), '一甩的速度阈值常量存在');
+assert(/trackVy\(y\)/.test(home) && /this\.dragVy = /.test(home), '有手指速度记录（喂给一甩判定）');
+const bGripMove = block(/gripMove\(e\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.trackVy\(t\.clientY\)/.test(bGripMove), '把手拖动要记速度（否则一甩判定永远为 0）');
+// 内容区也能收：滚到顶之后再往下拉就接管，不必非够顶部那条把手
+assert(/@touchmove="bodyMove"/.test(home) && /@touchend="bodyEnd"/.test(home),
+  '抽屉内容区也接管收起手势');
+const bBodyMove = block(/bodyMove\(e\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.bodyTop > 2/.test(bBodyMove) && /return/.test(bBodyMove),
+  '列表没滚到顶时不抢手势（让它自己滚）');
+assert(/@scroll="bodyScroll"/.test(home) && /this\.bodyTop = /.test(home), '内容区滚动位置有记录');
+assert(/bodyEnd\(\)/.test(home) && /this\.gripEnd\(\)/.test(home),
+  '内容区接管后走同一套收起判定（不另起一套）');
 assert(/if \(this\.panelDrag === null\) \{ this\.dragging = false; this\.gripY = 0; return \}/.test(home),
   '把手轻点（没拖出 6px）也要复位 dragging，否则过渡被永久关掉');
 assert(!/class="dr-peek"/.test(home), '主页底部常驻把手（小横条）已移除：打开靠整屏上滑');

@@ -148,8 +148,8 @@ const cases = [
     s => s.replace(/  box-sizing: border-box;\r\n  width: 100%;\r\n  height: 76vh;/,
       '  width: 100%;\r\n  height: 76vh;')],
   // 把手提交方向写反：变成"轻碰就收、使劲拉反而弹回"
-  ['把手收起方向写反（panelDrag < 50）',
-    s => s.replace('const commit = this.panelDrag > 50', 'const commit = this.panelDrag < 50')],
+  ['把手收起方向写反（panelDrag < 阈值）',
+    s => s.replace('const commit = this.panelDrag > CLOSE_COMMIT_PCT', 'const commit = this.panelDrag < CLOSE_COMMIT_PCT')],
   // 轻点把手没拖够 6px 时不复位：dragging 永久为 true，所有过渡被关掉
   ['把手轻点不复位 dragging（过渡被永久关掉）',
     s => s.replace('if (this.panelDrag === null) { this.dragging = false; this.gripY = 0; return }',
@@ -198,6 +198,24 @@ const cases = [
   // 量错节点：缓存写不进去，等于没量
   ['measurePanel 量错节点',
     s => s.replace("q.select('.dr-panel').boundingClientRect()", "q.select('.dr-body').boundingClientRect()")],
+
+  // ---- 10. 收起太费劲（2026-10-16 反馈：要往下滑很长一段）----
+  // 阈值回到 50：面板 76vh 的一半 = 38vh，真机上得滑老长一段
+  ['收起阈值改回 50（又要滑很长一段）',
+    s => s.replace('const CLOSE_COMMIT_PCT = 20', 'const CLOSE_COMMIT_PCT = 60')],
+  // 去掉"快速一甩"：不想拖够距离就没辙了
+  ['收起不支持一甩（必须拖够距离）',
+    s => s.replace(' || this.dragVy >= CLOSE_FLICK_V', '')],
+  // 把手拖动不记速度：一甩判定永远是 0，等于没有一甩
+  ['把手拖动不记速度（一甩判定恒为 0）',
+    s => s.replace('      this.trackVy(t.clientY)\r\n      const dy = t.clientY - this.gripY',
+      '      const dy = t.clientY - this.gripY')],
+  // 内容区不接管：只能去够顶部那条把手，用户第一反应拉列表时"拉不动"
+  ['抽屉内容区不接管收起手势',
+    s => s.replace('@touchmove="bodyMove"', '@touchmove="noop"')],
+  // 列表没滚到顶就抢手势：往下拖会直接把抽屉收了，列表根本滚不动
+  ['列表没滚到顶也抢手势（列表滚不动）',
+    s => s.replace('if (this.bodyTop > 2) return', 'if (false) return')],
   // 方法被丢回顶层（methods 之外）：this.runReplanFlow is not a function
   ['runReplanFlow 掉回顶层（Vue 丢弃 → 不是一个函数）',
     s => s.replace('  onHide() {', '  async runReplanFlow() {}\r\n  onHide() {')],

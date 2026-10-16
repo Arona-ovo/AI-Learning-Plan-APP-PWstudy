@@ -189,7 +189,16 @@
         >
         <text class="dr-title">{{ $t('全部组件') }}</text>
       </view>
-      <scroll-view class="dr-body" scroll-y>
+      <!-- 内容区也接管收起：滚到顶之后再往下拉 = 收抽屉（不必非够那条把手） -->
+      <scroll-view
+      class="dr-body"
+      scroll-y
+      @scroll="bodyScroll"
+      @touchstart="bodyStart"
+      @touchmove="bodyMove"
+      @touchend="bodyEnd"
+      @touchcancel="bodyEnd"
+      >
         <view class="mod-list" @touchmove="dragMove" @touchend="dragEnd" @touchcancel="dragEnd">
           <view
           v-for="(id, i) in restOrder"
@@ -572,6 +581,12 @@ const HOME_PARALLAX_VH = 26
 // ★ 景深：抽屉上来时主页整列缩到多少（0.07 = 缩 7%），
 //   后退一层 = 抽屉那层玻璃底板往前，层次才立得住。
 const HOME_DEPTH_SCALE = 0.07
+// ★ 收起抽屉要拖多少（面板高度的百分比）就算数。
+//   ⚠️ 原来跟着"上滑过半才开"对称写成 50 —— 面板 76vh，一半就是 38vh，
+//   真机上得从上往下滑老长一段才收得回去（2026-10-16 反馈）。收起该比打开省力。
+const CLOSE_COMMIT_PCT = 20
+// ★ 快速一甩也算收（px/ms 向下）：不想拖够距离时，甩一下就走
+const CLOSE_FLICK_V = 0.45
 // ★ 抽屉玻璃底板自己的视差：闭合时往下沉多少（面板高度的百分比）。
 //   比主页的位移小得多 —— 主页 26vh 大幅后退，底板只小幅上顶，两层错开。
 const PANEL_PARALLAX_PCT = 10
@@ -623,6 +638,10 @@ export default {
       panelDrag: null,
       dragging: false,
       gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
+      bodyTop: 0,          // 抽屉内容区的滚动位置（滚到顶再往下拉 = 收抽屉）
+      dragVy: 0,           // 手指竖向速度 px/ms（收起支持"快速一甩"）
+      dragT: 0,
+      lastMoveY: 0,
       nodeMiss: 0,         // 诊断：面板高度算不出来的累计次数（见 panelHpx）
       panelH: 0,           // 抽屉面板实测高度 px（measurePanel 异步量好缓存，拖动时同步用）
       // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
@@ -1197,15 +1216,27 @@ export default {
         this.drawerOn = true
       }
     },
-    /** 抽屉里那道把手：往下拉 = 收起，同样跟手；拉过一半松手才关，否则弹回 */
+    /** 记一下手指竖向速度：收起抽屉支持"快速一甩"，不用非得拖够距离 */
+    trackVy(y) {
+      const now = Date.now()
+      const dt = now - (this.dragT || now)
+      if (dt > 0 && this.lastMoveY) this.dragVy = (y - this.lastMoveY) / dt
+      this.lastMoveY = y
+      this.dragT = now
+    },
+    /** 抽屉里那道把手：往下拉 = 收起，同样跟手 */
     gripStart(e) {
       this.gripY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
+      this.lastMoveY = this.gripY
+      this.dragT = Date.now()
+      this.dragVy = 0
       this.dragging = true
     },
     gripMove(e) {
       if (!this.drawerOn) return
       const t = (e && e.touches && e.touches[0]) || null
       if (!t) return
+      this.trackVy(t.clientY)
       const dy = t.clientY - this.gripY   // 下拉为正
       if (this.panelDrag === null) {
         if (dy <= 6) return
@@ -1220,15 +1251,53 @@ export default {
       // 没进入拖动也要复位 dragging —— 否则点一下标题（没拖出 6px）
       // dragging 永远是 true，所有过渡被关掉，界面看着像冻住了
       if (this.panelDrag === null) { this.dragging = false; this.gripY = 0; return }
-      // 下拉收起：往下拖过面板一半才算数（与上滑"过半才开"对称）。
-      // ⚠️ 方向别写反：panelDrag 是"离开的距离"，下拉收起时要 > 50 才提交；
-      //    写成 < 50 会变成"轻碰就收、使劲拉反而弹回"。
-      const commit = this.panelDrag > 50
+      // 下拉收起：拖过 CLOSE_COMMIT_PCT（面板高度的 20%）就算数，
+      // 或者"快速往下一甩"也算 —— 原来要求拖过一半（38vh），真机上要滑老长一段。
+      // ⚠️ 方向别写反：panelDrag 是"往下离开的距离"，必须是 > 才提交；
+      //    写成 < 会变成"轻碰就收、使劲拉反而弹回"。
+      const commit = this.panelDrag > CLOSE_COMMIT_PCT || this.dragVy >= CLOSE_FLICK_V
       this.dragging = false
       this.panelDrag = null
       this.gripY = 0
-      if (!commit) return        // 没拉过半 → 维持打开
-      this.closeDrawer()          // 拉过半 → 收起
+      this.dragVy = 0
+      if (!commit) return        // 没拉够 → 维持打开
+      this.closeDrawer()          // 拉够 / 甩了 → 收起
+    },
+    /** 抽屉内容区滚动位置：滚到顶之后再往下拉，才轮到"收抽屉" */
+    bodyScroll(e) {
+      const d = e && e.detail
+      this.bodyTop = d ? (d.scrollTop || 0) : 0
+    },
+    bodyStart(e) {
+      this.gripY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
+      this.lastMoveY = this.gripY
+      this.dragT = Date.now()
+      this.dragVy = 0
+    },
+    /**
+     * 内容区也能收抽屉：只要列表**已经滚到顶**，再往下拉就是收抽屉 ——
+     * 不必非得去够顶部那条把手（把手热区再大，用户第一反应也是拉列表）。
+     * 没滚到顶时一律交给列表自己滚，不抢手势。
+     */
+    bodyMove(e) {
+      if (!this.drawerOn || this.editing) return
+      const t = (e && e.touches && e.touches[0]) || null
+      if (!t) return
+      this.trackVy(t.clientY)
+      if (this.panelDrag === null) {
+        if (this.bodyTop > 2) return        // 列表还没滚到顶 → 让它自己滚
+        if (t.clientY - this.gripY <= 10) return   // 往下才接管（上滑是滚列表）
+        this.dragging = true
+        this.panelDrag = 0
+      }
+      const H = this.panelHpx()
+      let pct = (t.clientY - this.gripY) / H * 100
+      pct = Math.max(0, Math.min(100, pct))
+      this.panelDrag = pct
+    },
+    bodyEnd() {
+      if (this.panelDrag === null) return   // 没接管过（在滚列表）就别插手
+      this.gripEnd()                        // 接管了 → 走同一套收起判定
     },
     // ---------- 首页编辑 ----------
     toggleEdit() {
