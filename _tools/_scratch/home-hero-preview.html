@@ -52,16 +52,10 @@
   .cta-btn{background:var(--brand);color:#fff;border:none;border-radius:14px;padding:13px 26px;font-size:15px;font-weight:600}
   .cta-tip{display:block;font-size:11px;color:var(--ink3);margin-top:7px}
 
-  /* 抽屉把手 */
-  .peek{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0 14px;color:var(--ink3);cursor:pointer}
-  .peek .arr{font-size:13px;line-height:1}
-  .peek .txt{font-size:12px}
-
   /* 抽屉（展开态） */
   .drawer{position:absolute;left:0;right:0;bottom:0;height:78%;background:#f0e9de;border-radius:24px 24px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.16);display:flex;flex-direction:column;padding:6px 14px 0;animation:up .28s ease}
   @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
   .dr-grip{display:flex;flex-direction:column;align-items:center;padding:6px 0 10px}
-  .dr-bar{width:38px;height:4px;border-radius:2px;background:#cdbfa9}
   .dr-title{font-size:13px;color:var(--ink2);margin-top:6px;font-weight:600}
   .dr-body{flex:1;overflow:auto}
   .mod{background:var(--card);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 3px 10px rgba(120,90,60,.07)}
@@ -90,8 +84,7 @@
     <p>主页常驻三张<strong>精简适配卡</strong>，每张只突出一个焦点；其余组件平时<strong>完全不渲染</strong>，上滑才拉出抽屉。</p>
     <ol>
       <li><b>主页三卡</b>：开始专注 / 今日任务 / 今日紧迫度，各一张、只一个焦点。</li>
-      <li><b>更多组件把手</b>：不上滑时只有一个小把手露出。</li>
-      <li><b>上滑</b> → 抽屉拉出，完整卡片列表（目标/日程/学习App/AI 等）。</li>
+      <li><b>整屏上滑</b>：在主页内容区从下往上滑，抽屉面板<strong>跟手升起</strong>，拉过一半松手才开。</li>
       <li><b>抽屉里再往下滑到底</b> → 今日收工 / 编辑首页入口。</li>
     </ol>
   </div>
@@ -140,9 +133,7 @@
         <button class="cta-btn">今日收工</button>
         <span class="cta-tip">花十几秒说说今天，明天的安排才排得准</span>
       </div>
-
-      <!-- 把手（不上滑时唯一露出） -->
-      <div class="peek"><span class="arr">︿</span><span class="txt">更多组件</span></div>
+      <!-- 不再有常驻把手：打开靠整屏上滑（跟手），更干净 -->
     </div>
   </div>
 
@@ -157,7 +148,7 @@
       <div style="text-align:center;font-size:11px;color:#a99;padding:10px 0">（主页三卡收起）</div>
 
       <div class="drawer">
-        <div class="dr-grip"><div class="dr-bar"></div><div class="dr-title">全部组件</div></div>
+        <div class="dr-grip"><div class="dr-title">全部组件</div></div>
         <div class="dr-body">
           <div class="mod focus"><div class="mh">开始专注</div><div class="mb">今日累计 75 分钟 · 自由专注</div></div>
           <div class="mod"><div class="mh">今日任务</div><div class="mb">2/5 已完成 · 还有 3 项</div></div>

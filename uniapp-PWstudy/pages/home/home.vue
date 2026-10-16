@@ -11,7 +11,7 @@
     <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="forcedOn || blockNotifOn || autoRestOn" @open-focus="toggleFocusSheet" />
 
     <view class="page-slide home-slide" :class="slideCls" :style="slideStyle"
-      @touchstart="homeSwipeStart" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd">
+      @touchstart="homeSwipeStart" @touchmove="homeSwipeMove" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd">
 
       <!-- ===== 专注进行中：首页被"硬控"，只剩倒计时 =====
            计时一旦开始，首页不再显示任务列表 / 目标 / Dock 这些会让人分心的东西；
@@ -174,17 +174,16 @@
     在抽屉里再往下滑到底 → 才够得着「编辑首页」。
     ⚠️ 必须放在 .page-slide 之外 —— fixed 参照不能受切 tab 的滑动动画影响，
     否则抽屉会跟着页面一起滑走（记忆约束 3）。 -->
-    <view v-if="drawerOn" class="dr-mask" @tap="closeDrawer" @touchmove.stop.prevent="noop">
-      <view class="dr-panel" @tap.stop>
-        <!-- 抽屉把手：往下拖 = 收起抽屉 -->
+    <view class="dr-mask" :class="{ on: drawerOn }" :style="maskStyle" @tap="closeDrawer" @touchmove.stop.prevent="noop">
+      <view class="dr-panel" ref="drPanel" :style="panelStyle" @tap.stop>
+        <!-- 抽屉把手：往下拖 = 收起抽屉（去掉了装饰小横条，只留标题做抓手） -->
         <view
         class="dr-grip"
         @touchstart="gripStart"
         @touchmove="gripMove"
-        @touchend="peekEnd"
-        @touchcancel="peekEnd"
+        @touchend="gripEnd"
+        @touchcancel="gripEnd"
         >
-        <view class="dr-bar"></view>
         <text class="dr-title">{{ $t('全部组件') }}</text>
       </view>
       <scroll-view class="dr-body" scroll-y>
@@ -405,19 +404,6 @@
     </view>
     </view>
 
-    <!-- 抽屉把手：不上滑就只有这一条在，抽屉里的卡片一个都不渲染 -->
-    <view
-    v-if="!drawerOn && restCount"
-    class="dr-peek"
-    @touchstart="peekStart"
-    @touchmove="peekMove"
-    @touchend="peekEnd"
-    @touchcancel="peekEnd"
-    @tap="openDrawer"
-    >
-    <text class="peek-arrow">︿</text>
-    <text class="peek-txt">{{ $t('更多组件') }}</text>
-    </view>
 
 
     <!-- 「添加组件」抽屉：收纳区里的模块，点一下加回首页。
@@ -620,8 +606,11 @@ export default {
       // 它们住在底部抽屉里，往上滑才拉得出来。抽屉状态只活在本次会话（切 tab 回来保持），
       // 不写进设置 —— 每次进首页都强制收起的话，刚拉开看两眼又被收回去很烦。
       drawerOn: false,    // 抽屉是否拉出
-      peekY: 0,           // 把手上的手势起点（上滑开 / 下拉关）
-      gripY: 0,           // 抽屉内把手的手势起点（往下拉 = 收起）
+      // 抽屉拖动：panelDrag = 当前 translateY 百分比（0=全开，100=全关），null=未拖动、走 class
+      panelDrag: null,
+      maskAlpha: null,     // 拖动时跟着手指实时改的遮罩透明度，null=走 class
+      dragging: false,
+      gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
       // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
       // 只记起点，touchend 时再算位移，避免 touchmove 和页面滚动打架。
       swipeX0: 0,
@@ -759,6 +748,18 @@ export default {
     /** 抽屉里还有几张卡（0 张时连把手都不显示） */
     restCount() {
       return this.restOrder.length
+    },
+    // 拖动时跟着手指实时改遮罩透明度；null 时走 class（开=1 / 关=0 带过渡）
+    maskStyle() {
+      if (this.maskAlpha !== null) return { opacity: this.maskAlpha }
+      return {}
+    },
+    // 拖动中：内联 transform 跟手、关掉过渡；松手后交回 class 做弹性过渡
+    panelStyle() {
+      if (this.panelDrag !== null) {
+        return { transform: 'translateY(' + this.panelDrag + '%)', transition: 'none' }
+      }
+      return {}
     },
     /**
      * 主页任务卡只列最该做的三条 —— 第一行永远是主任务
@@ -1063,59 +1064,100 @@ export default {
       if (this.editing) return
       this.drawerOn = false
     },
-    /**
-     * 把手上的手势（开 / 关两个方向共用一套）：
-     *   收起状态下往上滑 → 拉开抽屉；
-     *   拉开状态下往下滑 → 收起抽屉。
-     * 触发后立刻清起点，避免同一次滑动重复响应。
-     */
-    peekStart(e) {
-      this.peekY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
-    },
-    peekMove(e) {
-      if (!this.peekY) return
-      const y = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
-      // 往上滑 = clientY 变小；阈值 32px，免得随便一碰就开
-      if (this.peekY - y > 32) { this.peekY = 0; this.openDrawer() }
-    },
-    peekEnd() {
-      this.peekY = 0
+    // 抽屉当前像素高度（拖动百分比要换算成 px）。优先量真实面板，量不到退回 76vh 估算。
+    panelHpx() {
+      const r = this.$refs.drPanel
+      const el = r && (r.offsetHeight ? r : (r && r.$el))
+      const h = el && (el.offsetHeight || (el.$el && el.$el.offsetHeight))
+      return h || Math.round(this.winH * 0.76)
     },
     /**
-     * 主页整块的上滑手势（不只小把手）：用户在主页内容区往上滑就该拉开抽屉。
-     * 只记起点，touchend 时再算位移 —— 这样不会和页面滚动抢 touchmove，也不会误触卡片的 tap。
-     * 判定"下半屏起手 + 明显竖向上滑"才开：顶部往下滚不算，卡片轻点（位移≈0）也不算。
+     * 主页整块上滑：不只是小把手。手指在内容区往上滑，抽屉面板跟着手指升起，
+     * 拉过一半松手就开、没过一半弹回。这样"从下往上滑"是跟手的，不再靠阈值硬切，
+     * 也不会因为整包 v-if 挂载而掉帧（抽屉 DOM 常驻，只动 transform）。
+     * 只有"下半屏起手 + 明显竖向"才接管，避免和顶部滚动 / 卡片轻点打架。
      */
     homeSwipeStart(e) {
       const t = (e && e.touches && e.touches[0]) || null
       this.swipeX0 = t ? t.clientX : 0
       this.swipeY0 = t ? t.clientY : 0
     },
+    homeSwipeMove(e) {
+      if (this.drawerOn || this.editing || this.locked || !this.restCount) return
+      const t = (e && e.touches && e.touches[0]) || null
+      if (!t) return
+      const dy = this.swipeY0 - t.clientY   // 上滑为正
+      const dx = Math.abs(t.clientX - this.swipeX0)
+      if (this.panelDrag === null) {
+        // 还没进入拖动：要"明显竖向上滑"才接管，否则交给页面正常滚动
+        if (dy <= 12 || dy <= dx) return
+        this.dragging = true
+        this.panelDrag = 100   // 从全关（屏下）开始跟手
+        this.maskAlpha = 0
+      }
+      const H = this.panelHpx()
+      let pct = 100 - (dy / H * 100)
+      pct = Math.max(0, Math.min(100, pct))
+      this.panelDrag = pct
+      this.maskAlpha = 1 - pct / 100
+      if (e && e.preventDefault) e.preventDefault()
+    },
     homeSwipeEnd(e) {
-      if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; return }
-      // 没有"其余组件"可展示时不开（开出来是空的，反而像坏了）
-      if (!this.restCount) { this.swipeY0 = 0; return }
+      if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; this.swipeX0 = 0; return }
+      if (!this.restCount) { this.swipeY0 = 0; this.swipeX0 = 0; return }
+      if (this.panelDrag !== null) {
+        // 跟手拖动中松手：拉过一半就开，否则弹回
+        const commit = this.panelDrag < 50
+        this.dragging = false
+        this.panelDrag = null
+        this.maskAlpha = null
+        this.swipeY0 = 0; this.swipeX0 = 0
+        this.drawerOn = commit
+        return
+      }
+      // 没进入拖动的兜底：快速一甩也开（阈值同前）
       const startY = this.swipeY0
-      if (!startY) return
+      if (!startY) { this.swipeY0 = 0; this.swipeX0 = 0; return }
       const t = (e && e.changedTouches && e.changedTouches[0]) ||
                 (e && e.touches && e.touches[0]) || null
-      if (!t) { this.swipeY0 = 0; return }
-      const dy = startY - t.clientY   // 上滑为正
+      if (!t) { this.swipeY0 = 0; this.swipeX0 = 0; return }
+      const dy = startY - t.clientY
       const dx = Math.abs((this.swipeX0 || 0) - t.clientX)
-      this.swipeY0 = 0
-      // 下半屏起手（startY > 视口 55%）+ 上滑够长（>56px）+ 明显竖向（横向 < 竖向 0.6 倍）
+      this.swipeY0 = 0; this.swipeX0 = 0
       if (dy > 56 && dx < dy * 0.6 && startY > this.winH * 0.55) {
-        this.openDrawer()
+        this.drawerOn = true
       }
     },
-    /** 抽屉里那道把手：往下拉 = 收起抽屉（阈值放宽到 48px，滚列表时不会误关） */
+    /** 抽屉里那道把手：往下拉 = 收起，同样跟手；拉过一半松手才关，否则弹回 */
     gripStart(e) {
       this.gripY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
+      this.dragging = true
     },
     gripMove(e) {
-      if (!this.gripY) return
-      const y = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
-      if (y - this.gripY > 48) { this.gripY = 0; this.closeDrawer() }
+      if (!this.drawerOn) return
+      const t = (e && e.touches && e.touches[0]) || null
+      if (!t) return
+      const dy = t.clientY - this.gripY   // 下拉为正
+      if (this.panelDrag === null) {
+        if (dy <= 6) return
+        this.panelDrag = 0
+        this.maskAlpha = 1
+      }
+      const H = this.panelHpx()
+      let pct = dy / H * 100
+      pct = Math.max(0, Math.min(100, pct))
+      this.panelDrag = pct
+      this.maskAlpha = 1 - pct / 100
+    },
+    gripEnd() {
+      if (this.panelDrag === null) { this.gripY = 0; return }
+      const commit = this.panelDrag < 50
+      this.dragging = false
+      this.panelDrag = null
+      this.maskAlpha = null
+      this.gripY = 0
+      if (!commit) return        // 没拉过半 → 维持打开
+      this.closeDrawer()          // 拉过半 → 收起
     },
     // ---------- 首页编辑 ----------
     toggleEdit() {
@@ -2791,6 +2833,14 @@ export default {
   background: rgba(23, 32, 26, 0.28);
   display: flex;
   align-items: flex-end;
+  /* 常驻但默认隐藏：关=透明且不挡触摸，开=淡入。只动 opacity/transform，不掉帧 */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.dr-mask.on {
+  opacity: 1;
+  pointer-events: auto;
 }
 .dr-panel {
   width: 100%;
@@ -2805,26 +2855,22 @@ export default {
   backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   box-shadow: 0 -12rpx 40rpx rgba(23, 32, 26, 0.18);
   box-shadow: 0 -12rpx 40rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.18);
-  animation: dr-up 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* 关=在屏幕下方；开=归位。只动 transform（GPU 合成），松手有弹性过渡 */
+  transform: translateY(100%);
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
-@keyframes dr-up {
-  from { transform: translateY(100%); }
-  to   { transform: translateY(0); }
+.dr-mask.on .dr-panel {
+  transform: translateY(0);
 }
 /* 抽屉把手：往下拖 = 收起（touch-action 禁掉滚动手势，拖动时页面不跟着走） */
 .dr-grip {
   flex: 0 0 auto;
-  padding: 18rpx 0 10rpx;
+  padding: 22rpx 0 14rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
   touch-action: none;
-}
-.dr-bar {
-  width: 76rpx;
-  height: 8rpx;
-  border-radius: 999rpx;
-  background: rgba(23, 32, 26, 0.18);
 }
 .dr-title {
   margin-top: 10rpx;
@@ -2838,37 +2884,5 @@ export default {
   flex: 1;
   min-height: 0;
   padding-bottom: calc(40rpx + var(--safe-bottom, 0px));
-}
-/* 主页底部那条把手：不上滑时只有它在，提示"下面还有" */
-.dr-peek {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(160rpx + var(--safe-bottom, 0px) + constant(safe-area-inset-bottom));
-  bottom: calc(160rpx + var(--safe-bottom, 0px) + env(safe-area-inset-bottom));
-  z-index: 400;
-  height: 60rpx;
-  padding: 0 28rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.6);
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.6);
-  border: 2rpx solid rgba(23, 32, 26, 0.1);
-  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.1));
-  box-shadow: 0 6rpx 18rpx rgba(23, 32, 26, 0.08);
-  box-shadow: 0 6rpx 18rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.08);
-}
-.peek-arrow {
-  font-size: 24rpx;
-  color: #98a19b;
-  color: var(--ink-3, #98a19b);
-}
-.peek-txt {
-  margin-left: 10rpx;
-  font-size: 22rpx;
-  color: #5a6560;
-  color: var(--ink-2, #5a6560);
 }
 </style>

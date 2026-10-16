@@ -60,25 +60,25 @@ const cases = [
   ['紧迫度卡不画时间轴（只有干巴巴一行字）',
     s => s.replace('class="hc-axis"', 'class="hc-axis2"')],
 
-  // ---- 3. 抽屉不上滑就完全不渲染 ----
+  // ---- 3. 抽屉常驻但收起不挂载/不开 + 跟手 ----
   ['抽屉默认就展开（不上滑也看见卡片）',
     s => s.replace('drawerOn: false', 'drawerOn: true')],
-  ['抽屉层不整包 v-if（收起只是藏起来，卡片照样渲染）',
-    s => s.replace('<view v-if="drawerOn" class="dr-mask"', '<view class="dr-mask"')],
+  // 把 .on class 去掉：抽屉永远停在"关"，上滑拉不起来
+  ['抽屉无法切换开合（.on class 没了）',
+    s => s.replace(' :class="{ on: drawerOn }"', '')],
   ['抽屉里遍历 cardOrder（卡片重复）',
     s => s.replace('v-for="(id, i) in restOrder"', 'v-for="(id, i) in cardOrder"')],
   ['抽屉内把手不能下拉收起',
     s => s.replace('@touchmove="gripMove"', '@touchmove="noop"')],
-  ['下拉阈值归零（滚列表就误关抽屉）',
-    s => s.replace('y - this.gripY > 48', 'y - this.gripY > -1')],
-  ['把手丢掉上滑手势（只能点）',
-    s => s.replace('@touchmove="peekMove"', '@touchmove="noop"')],
-  ['把手点不动（手势失灵就没退路）',
-    s => s.replace('@tap="openDrawer"', '@tap="noop"')],
-  ['上滑阈值归零（随便一碰就开抽屉）',
-    s => s.replace('this.peekY - y > 32', 'this.peekY - y > -1')],
-  ['抽屉开着时把手不隐藏（叠在面板上）',
-    s => s.replace('v-if="!drawerOn && restCount"', 'v-if="restCount"')],
+  // 把手下拉的"接管"门槛归零：列表里往下滚一点就把抽屉关了（误关）
+  ['把手下拉门槛归零（滚列表就误关抽屉）',
+    s => s.replace('if (dy <= 6) return', 'if (dy <= -50) return')],
+  // 主页上滑的"接管"门槛归零：顶部往下滚也把抽屉拉起来（误开）
+  ['上滑接管门槛归零（顶部滚动也拉抽屉）',
+    s => s.replace('if (dy <= 12 || dy <= dx) return', 'if (dy <= -50) return')],
+  // 过半判定归零：轻轻一拖就提交开/关（homeSwipeEnd 与 gripEnd 两处都有，要一起改）
+  ['过半判定归零（轻轻一拖就开/关）',
+    s => s.replace(/const commit = this\.panelDrag < 50/g, 'const commit = this.panelDrag < 100')],
 
   // ---- 4. 再往下滑才有编辑 ----
   ['编辑入口挪到列表之前（一开抽屉就看见）',
@@ -116,15 +116,16 @@ const cases = [
       "uni.navigateTo({ url: this.focusUrl() + '&auto=1' })")],
 
   // ---- 3b. 主页整块上滑拉抽屉 ----
-  // 把内容区的上滑绑定撤掉：用户又在主页上滑没反应（只靠那个小把手太难够）
+  // 把内容区的上滑绑定撤掉：用户又在主页上滑没反应
   ['主页上滑手势从内容区移除（用户上滑又没反应）',
     s => s.replace(
-      '@touchstart="homeSwipeStart" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd"',
-      '@touchstart="noop" @touchend="noop"')],
+      '@touchstart="homeSwipeStart" @touchmove="homeSwipeMove" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd"',
+      '@touchstart="noop" @touchmove="noop" @touchend="noop" @touchcancel="noop"')],
   // 守卫改成"永远不拦"：抽屉已开 / 编辑 / 计时中时上滑也会乱开
+  // ⚠️ 这个守卫在 homeSwipeMove 与 homeSwipeEnd 两处都写，要一起失效才行，
+  //    否则另一处还留着，断言照过 → 假绿。
   ['上滑手势守卫失效（抽屉开着还往上滑就重叠）',
-    s => s.replace('if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; return }',
-      'if (false) { this.swipeY0 = 0; return }')]
+    s => s.replace(/this\.drawerOn \|\| this\.editing \|\| this\.locked/g, 'false')],
 ];
 
 let bad = 0;

@@ -4,8 +4,8 @@
 //   这三张要做首页适配、突出焦点、简洁；其余卡片做成抽屉，
 //   不上滑就**完全不出现**，滑到抽屉底部才有编辑）：
 //  1) 主页常驻 = 三张精简卡（homeOrder / HOME_IDS），每张一个焦点
-//  2) 抽屉：drawerOn 默认 false，抽屉层整包 v-if 包住面板与卡片列表
-//  3) 抽屉把手：不上滑时只有把手在，支持上滑手势与点击两条路
+//  2) 抽屉：drawerOn 默认 false，抽屉层常驻但用 .on class + transform 切换（收起时不挂载 → 不掉帧）
+//  3) 抽屉把手（grip）跟手下拉收起；主页整屏上滑跟手拉起，过半才提交
 //  4) 编辑入口压在抽屉滚动区最底部（要再往下滑才够得着）
 //  5) 两处联动：进编辑态自动拉出抽屉、引导前自动拉出；计时一起就收起
 //  6) 抽屉层必须在 .page-slide 之外（记忆约束 3：fixed 参照不能被动画 transform 接管）
@@ -48,32 +48,30 @@ assert(/v-if="hasMoreTask"[\s\S]{0,120}openDrawer/.test(home), '② 其余的从
 assert(/class="card hcard urg-card"/.test(home), '③ 紧迫度卡');
 assert(/class="hc-axis"/.test(home) && /hc-axis-now/.test(home), '③ 焦点：一条 24 小时时间轴 + 现在位置');
 
-console.log('== 3. 抽屉：不上滑，卡片一个都不渲染 ==');
+console.log('== 3. 抽屉：常驻但收起时不挂载卡片（真抽屉 + 不掉帧）==');
 assert(/drawerOn: false/.test(home), 'data 里抽屉默认收起');
-assert(/<view v-if="drawerOn" class="dr-mask"/.test(home), '抽屉层整包 v-if（收起时不渲染卡片）');
+// 关键：抽屉 DOM 常驻（不再整包 v-if 挂载），靠 .on class + transform 切换，
+// 这样"从下往上滑"只动 transform（GPU 合成），不会因为挂载整摞卡片掉帧。
+assert(/class="dr-mask"[^>]*:class="\{ on: drawerOn \}"/.test(home), '抽屉层常驻 + .on class 切换开合');
+assert(/:style="maskStyle"/.test(home), '遮罩透明度内联跟着手指');
+assert(/class="dr-panel"[^>]*ref="drPanel"[^>]*:style="panelStyle"/.test(home), '面板内联 transform 跟手');
 assert(/v-for="\(id, i\) in restOrder"/.test(home), '抽屉里遍历其余组件');
 assert(/class="dr-grip"/.test(home) && /@touchmove="gripMove"/.test(home), '抽屉内把手可下拉收起');
-assert(/y - this\.gripY > 48/.test(home), '下拉收起阈值 48px（滚列表时不会误关）');
-// 把手本身要能"上滑开 / 点一下开"两条路 —— 只比"文件里有 peekMove"是假绿，
-// 得确认它确实挂在 .dr-peek 上（而不是别处恰好同名）。
-const bPeek = block(/v-if="!drawerOn && restCount"[\s\S]{0,420}?<\/view>/);
-assert(/class="dr-peek"/.test(bPeek), '找得到抽屉把手 .dr-peek');
-assert(/@touchmove="peekMove"/.test(bPeek), '把手支持上滑手势');
-assert(/@tap="openDrawer"/.test(bPeek), '把手也能点一下直接开（手势失灵时有退路）');
-// 阈值在 script 的 peekMove 里，不在模板上
-const bPeekMove = block(/peekMove\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.peekY - y > 32/.test(bPeekMove), '上滑开抽屉阈值 32px（免得随便一碰就开）');
-assert(/v-if="!drawerOn && restCount"/.test(home), '抽屉开着时把手让位（不叠在面板上）');
+// 关闭改成"跟手拖动 + 过半才提交"，不再是固定 48px 阈值
+assert(/gripMove\(e\)/.test(home) && /this\.panelDrag = 0/.test(home), '把手下拉进入拖动（panelDrag=0 起手）');
+assert(/gripEnd\(\)/.test(home) && /this\.closeDrawer\(\)/.test(home), '拉过半 → 收起，否则弹回');
+assert(/if \(dy <= 6\) return/.test(home), '把手下拉要超过 6px 才接管（滚列表不会误关）');
+assert(/if \(dy <= 12 \|\| dy <= dx\) return/.test(home), '上滑要"明显竖向"才接管（不和顶部滚动打架）');
+assert(/const commit = this\.panelDrag < 50/.test(home), '拖动过半才提交开/关（轻拖会弹回）');
+assert(!/class="dr-peek"/.test(home), '主页底部常驻把手（小横条）已移除：打开靠整屏上滑');
 
-console.log('== 3b. 主页整块也能上滑拉抽屉（不只小把手）==');
-assert(/@touchstart="homeSwipeStart"/.test(home) && /@touchend="homeSwipeEnd"/.test(home),
-  '主页内容区绑了上滑手势（用户在主页上滑就该拉开抽屉）');
-const bSwipe = block(/homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(this\.drawerOn \|\| this\.editing \|\| this\.locked\)/.test(bSwipe),
-  '抽屉已开 / 编辑 / 计时中时上滑不响应');
-assert(/if \(!this\.restCount\)/.test(bSwipe), '没有其余组件可展示时不空开抽屉');
-assert(/dy > 56/.test(bSwipe) && /startY > this\.winH \* 0\.55/.test(bSwipe),
-  '下半屏起手 + 上滑够长才开（不和顶部滚动 / 卡片轻点打架）');
+console.log('== 3b. 主页整块上滑跟手拉抽屉（不只小把手）==');
+assert(/@touchstart="homeSwipeStart"/.test(home) && /@touchmove="homeSwipeMove"/.test(home) && /@touchend="homeSwipeEnd"/.test(home),
+  '主页内容区绑了上滑手势（跟手升起）');
+assert(/homeSwipeMove\(e\)/.test(home) && /this\.panelDrag = 100/.test(home), '上滑进入拖动（panelDrag=100 起手、面板跟手升起）');
+assert(/drawerOn \|\| this\.editing \|\| this\.locked/.test(home), '抽屉已开 / 编辑 / 计时中时上滑不响应');
+assert(/if \(!this\.restCount\)/.test(home), '没有其余组件可展示时不空开抽屉');
+assert(/dy > 56 && dx < dy \* 0\.6 && startY > this\.winH \* 0\.55/.test(home), '兜底：下半屏起手 + 上滑够长才开');
 
 console.log('== 4. 再往下滑才有编辑 ==');
 assert(at('class="mod-list"') > 0 && at('class="home-foot"') > at('class="mod-list"'),
@@ -125,9 +123,6 @@ const ancDr = ancestorsOf('dr-mask');
 assert(ancDr !== null, '找得到抽屉层 .dr-mask');
 assert(ancDr !== null && ancDr.join(' | ').indexOf('page-slide') < 0,
   '抽屉层 (.dr-mask) 不在 .page-slide 内（fixed 不受切 tab 动画影响）');
-const ancPk = ancestorsOf('dr-peek');
-assert(ancPk !== null && ancPk.join(' | ').indexOf('page-slide') < 0,
-  '抽屉把手 (.dr-peek) 不在 .page-slide 内');
 const ancHc = ancestorsOf('hcards');
 assert(ancHc !== null && ancHc.join(' | ').indexOf('page-slide') >= 0,
   '主页三卡仍留在 .page-slide 内（跟着切 tab 动画走）');
