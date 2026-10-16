@@ -1,15 +1,15 @@
-// _tools/check-home-hero.js - 首页分层（第一屏聚焦 → 图形摘要 → 折叠组件列表）静态校验（只读）
+// _tools/check-home-hero.js - 首页分层（主页三卡 + 底部抽屉）静态校验（只读）
 //
-// 回归点（对应需求：默认首页只聚焦主要任务，其余卡片压成图形 / 进度条，
-//   完整卡片列表要往上滑才展开，编辑入口压在列表最底下）：
-//  1) 第一屏「今日聚焦」：主任务 + 一条进度 + 三个读数 + 一颗按钮，且排在折叠区之前
-//  2) 主任务怎么挑（focusTask）：排除已完成 → 超期优先 → 剩余专注最多
-//  3) 图形摘要条：其余模块压成进度条 / 点阵 / 数字，点一格 = 展开并滚到那张卡
-//  4) 折叠区默认收起：手势（往上滑）/ 点击两条路都能展开
-//  5) 顺序：折叠把手 → 列表头 → 卡片列表 → 收工 → 编辑入口（编辑要再往下滑才够得着）
-//  6) 两处联动：进编辑态自动展开（否则看不见卡片 / 拖不动）；引导前自动展开
-//     （引导要挖洞的 .focus-card / .task-card 住在折叠区，收着时量不到矩形会被跳过）
-//  7) 起表仍然只能从准备页进（startFocusTask 走 startFor / goFocus，不带任何 auto 参数）
+// 回归点（对应需求：主页只显示今天要用的东西 —— 开始专注 / 任务 / 紧迫度，
+//   这三张要做首页适配、突出焦点、简洁；其余卡片做成抽屉，
+//   不上滑就**完全不出现**，滑到抽屉底部才有编辑）：
+//  1) 主页常驻 = 三张精简卡（homeOrder / HOME_IDS），每张一个焦点
+//  2) 抽屉：drawerOn 默认 false，抽屉层整包 v-if 包住面板与卡片列表
+//  3) 抽屉把手：不上滑时只有把手在，支持上滑手势与点击两条路
+//  4) 编辑入口压在抽屉滚动区最底部（要再往下滑才够得着）
+//  5) 两处联动：进编辑态自动拉出抽屉、引导前自动拉出；计时一起就收起
+//  6) 抽屉层必须在 .page-slide 之外（记忆约束 3：fixed 参照不能被动画 transform 接管）
+//  7) 起表仍然只有准备页那颗确认键（首页不带任何 auto 参数）
 const fs = require('fs');
 const path = require('path');
 
@@ -23,84 +23,118 @@ let fail = 0;
 const ok = (m) => console.log('  ✓ ' + m);
 const bad = (m) => { fail++; console.error('  ✗ ' + m); };
 const assert = (c, m) => (c ? ok(m) : bad(m));
-// 模板里各块的先后：顺序本身就是这次需求（"再往下滑才有编辑"）
+// 模板先后关系：本需求里"顺序"本身就是验收项（把手 → 列表 → 收工 → 编辑）
 const at = (s) => home.indexOf(s);
 const block = (re) => { const m = home.match(re); return m ? m[0] : ''; };
 
-console.log('== 1. 第一屏：今日聚焦 ==');
-assert(/class="hero"/.test(home), '有聚焦区 .hero');
-assert(at('class="hero"') > 0 && at('class="hero"') < at('class="mods-peek"'),
-  '聚焦区排在折叠把手之前（默认第一眼先看到它）');
-assert(/class="hero-title"/.test(home) && /focusTask \? focusTask\.task\.title/.test(home),
-  '聚焦区标题显示主任务名');
-assert(/class="hero-bar"/.test(home) && /class="hero-fill"/.test(home), '一条今日进度条');
-assert(/class="hero-stats"/.test(home) && /hs-num/.test(home), '三个读数（分钟 / 段专注 / 项待办）');
-assert(/class="hero-main"/.test(home) && /@tap="startFocusTask"/.test(home), '主按钮接 startFocusTask');
-assert(!/hero-ghost/.test(home), '第一屏只留一颗按钮（不摆第二个选择让人挑）');
+console.log('== 1. 主页只放今天要用的三张卡 ==');
+assert(/<view class="hcards">/.test(home), '有主页三卡容器 .hcards');
+assert(/v-for="id in homeOrder"/.test(home), '主页按 homeOrder 渲染');
+assert(/const HOME_IDS = \['focus', 'task', 'urgency'\]/.test(home),
+  'HOME_IDS = 专注 / 今日任务 / 紧迫度（其余一律进抽屉）');
+const bHome = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/HOME_IDS\.indexOf\(id\) >= 0/.test(bHome), 'homeOrder 只留三件套');
+const bRest = block(/restOrder\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/HOME_IDS\.indexOf\(id\) < 0/.test(bRest), 'restOrder 是"其余组件"');
+assert(/if \(this\.editing\) return ids/.test(bRest), '编辑态抽屉列出全部卡片（收纳后捞得回来）');
 
-console.log('== 2. 主任务怎么挑（focusTask） ==');
-const bFocus = block(/focusTask\(\)\s*\{[\s\S]*?\n    \}/);
-assert(!!bFocus, 'computed focusTask');
-assert(/status !== 'done'/.test(bFocus), '排除已完成的任务（不显示一条已经打勾的）');
-assert(/const late = q\.filter\(i => i\.overdue\)/.test(bFocus) && /if \(late\.length\) return late\[0\]/.test(bFocus),
-  '超期的最优先（它已经欠着了）');
-assert(/left\(b\) - left\(a\)/.test(bFocus), '其次挑"剩余专注最多"那条（今天真正的大头）');
-const bStat = block(/taskStat\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/pct: total \? Math\.round\(done \* 100 \/ total\) : 0/.test(bStat), 'taskStat 算了完成百分比（空队列不除零）');
+console.log('== 2. 三张卡都是首页适配的精简版（每张一个焦点）==');
+assert(/class="card hcard focus-card"/.test(home), '① 专注卡（focus-card 保留，引导靠它定位）');
+assert(/class="hc-ring"/.test(home) && /hc-ring-num/.test(home), '① 焦点：今日累计读数（环）');
+assert(/class="hc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(home), '① 焦点：唯一落点是那颗开始键');
+assert(/class="card hcard task-card"/.test(home), '② 任务卡（task-card 保留，引导靠它定位）');
+assert(/v-for="\(item, ti\) in homeQueue"/.test(home), '② 焦点：只列最该做的三条');
+assert(/v-if="hasMoreTask"[\s\S]{0,120}openDrawer/.test(home), '② 其余的从抽屉里看');
+assert(/class="card hcard urg-card"/.test(home), '③ 紧迫度卡');
+assert(/class="hc-axis"/.test(home) && /hc-axis-now/.test(home), '③ 焦点：一条 24 小时时间轴 + 现在位置');
 
-console.log('== 3. 图形摘要条：其余模块压成图形 / 进度条 ==');
-assert(/class="mini-row"/.test(home) && /class="mini"/.test(home), '有图形摘要条 mini-row / mini');
-assert(/m\.kind === 'bar'/.test(home) && /m\.kind === 'dots'/.test(home), '两种图形：进度条 / 点阵');
-assert(/class="mg-slot"/.test(home), '图形槽定高（纯数字型没有可画的量，一排也不高低不齐）');
-assert(/@tap="jumpModule\(m\.id\)"/.test(home), '点一格 = jumpModule');
-// ⚠️ 结尾别写 `},\n`：仓库是 CRLF，`,` 后面是 \r 不是 \n，整条会静默匹配不到（假绿的经典坑）
-const bMini = block(/miniList\(\)\s*\{[\s\S]*?\n    \}/);
-assert(!!bMini, 'computed miniList');
-assert(/if \(id === 'focus'\) return/.test(bMini), 'focus 不给格（它要说的话聚焦区已经说完了）');
-assert(/this\.u\.empty/.test(bMini), '紧迫度是空环时整格不出现');
-const bJump = block(/jumpModule\(id\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.modsOpen = true/.test(bJump), 'jumpModule 先展开列表');
-assert(/pageScrollTo\(\{ selector: '\.mod-wrap\[data-id="'/.test(bJump), '再滚到那张卡（按 data-id 定位）');
-assert(/class="mod-wrap"/.test(home) && /:data-id="id"/.test(home), '每张卡带 data-id（滚动定位要靠它）');
+console.log('== 3. 抽屉：不上滑，卡片一个都不渲染 ==');
+assert(/drawerOn: false/.test(home), 'data 里抽屉默认收起');
+assert(/<view v-if="drawerOn" class="dr-mask"/.test(home), '抽屉层整包 v-if（收起时不渲染卡片）');
+assert(/v-for="\(id, i\) in restOrder"/.test(home), '抽屉里遍历其余组件');
+assert(/class="dr-grip"/.test(home) && /@touchmove="gripMove"/.test(home), '抽屉内把手可下拉收起');
+assert(/y - this\.gripY > 48/.test(home), '下拉收起阈值 48px（滚列表时不会误关）');
+// 把手本身要能"上滑开 / 点一下开"两条路 —— 只比"文件里有 peekMove"是假绿，
+// 得确认它确实挂在 .dr-peek 上（而不是别处恰好同名）。
+const bPeek = block(/v-if="!drawerOn && restCount"[\s\S]{0,420}?<\/view>/);
+assert(/class="dr-peek"/.test(bPeek), '找得到抽屉把手 .dr-peek');
+assert(/@touchmove="peekMove"/.test(bPeek), '把手支持上滑手势');
+assert(/@tap="openDrawer"/.test(bPeek), '把手也能点一下直接开（手势失灵时有退路）');
+// 阈值在 script 的 peekMove 里，不在模板上
+const bPeekMove = block(/peekMove\(e\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.peekY - y > 32/.test(bPeekMove), '上滑开抽屉阈值 32px（免得随便一碰就开）');
+assert(/v-if="!drawerOn && restCount"/.test(home), '抽屉开着时把手让位（不叠在面板上）');
 
-console.log('== 4. 折叠区：默认收起 ==');
-assert(/modsOpen: false/.test(home), 'data 里默认收起（首页默认只显示聚焦区）');
-assert(/v-if="!modsOpen"[\s\S]{0,300}class="mods-peek"/.test(home), '收起时显示折叠把手');
-assert(/@touchstart="peekStart"/.test(home) && /@touchmove="peekMove"/.test(home) && /@touchend="peekEnd"/.test(home),
-  '把手接上滑手势（三条事件齐全）');
-assert(/@tap="openMods"/.test(home), '点一下也能展开（手势不成时还有这条路）');
-const bPeek = block(/peekMove\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.peekY - y > 32/.test(bPeek), '往上滑过 32px 才展开（不是随便一碰就开）');
-assert(/class="mh-fold"[^>]*@tap="closeMods"/.test(home), '展开后有「收起」');
+console.log('== 4. 再往下滑才有编辑 ==');
+assert(at('class="mod-list"') > 0 && at('class="home-foot"') > at('class="mod-list"'),
+  '编辑入口排在卡片列表之后');
+assert(at('class="dr-body"') > 0 && at('class="home-foot"') > at('class="dr-body"'),
+  '编辑入口在抽屉滚动区里（滑到底才出现）');
+assert(at('class="home-cta"') > 0 && at('class="home-cta"') < at('class="mod-list"'),
+  '收工留在主页底部（在抽屉之前）');
 
-console.log('== 5. 顺序：列表 → 收工 → 编辑（编辑要再往下滑才够得着） ==');
-// >0 那条不能省：整块被删掉时 indexOf 返回 -1，"-1 < x" 恒真会变成假绿
-assert(at('class="mods-head"') > 0 && at('class="mods-head"') < at('class="mod-list"'), '列表头在卡片列表之前');
-assert(at('class="mod-list"') < at('class="home-foot"'), '编辑入口压在卡片列表之后');
-assert(/class="home-foot"[\s\S]{0,400}toggleEdit/.test(home), '编辑入口仍在底部操作行');
-
-console.log('== 6. 两处联动（漏了就是"看不见 / 跳步骤"） ==');
+console.log('== 5. 两处联动 ==');
 const bToggle = block(/toggleEdit\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(this\.editing\) this\.modsOpen = true/.test(bToggle), '进编辑态自动展开（收着时没得拖、没得收纳）');
-const bClose = block(/closeMods\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(this\.editing\) return/.test(bClose), '编辑态不许收起');
-assert(/maybeGuide[\s\S]{0,2600}this\.modsOpen = true/.test(home),
-  '引导前先展开（.focus-card / .task-card 住在折叠区，收着时那两步会被跳过）');
+assert(/if \(this\.editing\) this\.drawerOn = true/.test(bToggle), '进编辑态自动拉出抽屉');
+const bClose = block(/closeDrawer\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/if \(this\.editing\) return/.test(bClose), '编辑态不许收起抽屉');
+// ⚠️ 这里不能用 /maybeGuide[\s\S]*?this\.drawerOn = true/ 这种跨段正则：
+//   它会一路吃到后面任意一个 drawerOn = true（比如 toggleEdit 里的），
+//   于是"引导前忘了拉抽屉"根本抓不到（假绿）。精确到 maybeGuide 方法体。
+const bGuide = block(/maybeGuide\(\)\s*\{[\s\S]*?\n {4}\}/);
+assert(/this\.drawerOn = true/.test(bGuide), '引导前先拉出抽屉');
+// 同理，locked(v) 只取 watch 那一段（缩进 4 空格收尾）
+const bLocked = block(/locked\(v\)\s*\{[\s\S]*?\n {4}\}/);
+assert(/this\.drawerOn = false/.test(bLocked), '计时一起就收起抽屉');
+
+console.log('== 6. 抽屉层在 .page-slide 之外（记忆约束 3）==');
+// 真跑一遍标签栈：只比"谁写在前面"是假绿 —— 标签忘了闭合时，
+// 就算是写在 page-slide 后面，也照样是它的子节点，fixed 参照还是会被动画接管。
+// 记忆约束 3：抽屉 / sheet 这类 fixed 层必须挂在 .page-slide 之外，
+//   否则切 tab 的 transform 会让 fixed 元素以包裹层为参照、跟着页面滑走。
+const VOID = { image: 1, input: 1, icon: 1, br: 1 };
+const ancestorsOf = (cls) => {
+  const tm = home.slice(home.indexOf('<template>'), home.indexOf('</template>'));
+  const stack = [];
+  let hit = null;
+  const re = /<(\/?)([a-zA-Z][\w-]*)([^>]*?)(\/?)>/g;
+  let m;
+  while ((m = re.exec(tm))) {
+    const close = m[1], tag = m[2], attrs = m[3], self = m[4];
+    if (tag === 'template') continue;
+    if (self === '/' || VOID[tag]) continue;
+    if (close) { if (stack.length) stack.pop(); continue; }
+    const cm = attrs.match(/class="([^"]*)"/);
+    const cl = cm ? cm[1] : '';
+    stack.push(cl);
+    if (hit === null && cl.split(/\s+/).indexOf(cls) >= 0) hit = stack.slice(0, -1);
+  }
+  return hit;
+};
+const ancDr = ancestorsOf('dr-mask');
+assert(ancDr !== null, '找得到抽屉层 .dr-mask');
+assert(ancDr !== null && ancDr.join(' | ').indexOf('page-slide') < 0,
+  '抽屉层 (.dr-mask) 不在 .page-slide 内（fixed 不受切 tab 动画影响）');
+const ancPk = ancestorsOf('dr-peek');
+assert(ancPk !== null && ancPk.join(' | ').indexOf('page-slide') < 0,
+  '抽屉把手 (.dr-peek) 不在 .page-slide 内');
+const ancHc = ancestorsOf('hcards');
+assert(ancHc !== null && ancHc.join(' | ').indexOf('page-slide') >= 0,
+  '主页三卡仍留在 .page-slide 内（跟着切 tab 动画走）');
 
 console.log('== 7. 起表仍然只能从准备页进 ==');
-const bStart = block(/startFocusTask\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.startFor\(this\.focusTask\)/.test(bStart), '有主任务 → 带着任务进准备页');
-assert(/this\.goFocus\(\)/.test(bStart), '没有安排 → 走自由专注（同样是准备页）');
-assert(!/auto/.test(bStart), '不带任何 auto 起表参数');
+// 先剥注释再扫 —— 注释里要写清楚"为什么没有 auto=1"，不剥会被自己的注释命中
+// （口径与 check-home.js 一致）。autoRestOn / autoReplan 是正经功能名，不能用 /auto/ 扫。
+const heroCode = home.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+assert(!/auto=1/.test(heroCode), '首页不带 auto=1 起表参数（只扫代码，不扫注释）');
 
 console.log('== 8. 新文案都进了英文表 ==');
 [
   '今天先做这个', '今天还没有安排', '剩 {n} 分钟', '段专注', '项待办',
-  '开始专注', '往上滑看全部 {n} 个组件', '全部组件', '说一句',
-  '到「目标」里定一个，AI 会帮你拆成每天的任务'
+  '开始专注', '全部组件', '说一句', '更多组件', '开始',
+  '查看其余 {n} 项', '还剩 {n} 段专注', '还要 {n} 分钟',
+  '自由专注', '点这里先看清时长与设置', '休息中', '专注中'
 ].forEach(k => assert(en.indexOf("'" + k + "'") >= 0, 'i18n-en 含 key「' + k + '」'));
 
 console.log(fail ? '\n首页分层校验失败 ' + fail + ' 项 ✗' : '\n首页分层校验全部通过 ✓');
-// ⚠️ 必须走 process.exit 而不是 exitCode：反向测试（neg-home-hero.js）靠接管
-//    process.exit 取退出码，用 exitCode 的话"改坏了也返回 0"，整套反向测试会假绿。
 process.exit(fail ? 1 : 0);

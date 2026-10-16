@@ -114,8 +114,16 @@ function eq(a, b, label) {
 
   // 硬控：只要还有一轮在跑（专注 / 休息 / 暂停），首页就只剩倒计时
   assert(/v-if="locked"/.test(tpl) && /class="lock"/.test(tpl), '计时中走硬控分支 locked');
-  assert(/<block v-else>/.test(tpl), '空闲态整块收在 v-else 里（不留分心入口）');
-  assert(/fmtMMSS\(cur\.remainSec\)/.test(tpl), '硬控屏显示剩余时间');
+  // ⚠️ 不能只判"文件里有 <block v-else>" —— 任务卡内部还有一个（队列空/非空二选一），
+  //    外层那个被删掉时它照样命中，于是"计时中仍渲染卡片列表"这种坏法抓不到。
+  //    外层 v-else 的特征：它是唯一包着 .setup-card（条件横幅）的那个。
+  assert(/<block v-else>[\s\S]{0,600}class="card setup-card"/.test(tpl),
+    '空闲态整块收在 v-else 里（不留分心入口）');
+  // ⚠️ 原来判的是 /fmtMMSS\(cur\.remainSec\)/ —— 它命中的是抽屉里那张完整专注卡
+  //    （.fc-time），跟"硬控屏"根本不是一个地方：名与判据对不上，
+  //    真去改硬控屏它反而抓不到（假绿）。精确到 .lock-time 这个节点。
+  assert(/class="lock-time">\s*\{\{ lockTime \}\}/.test(tpl),
+    '硬控屏显示剩余时间（走 lockTime 口径 —— 正计时段是 +MM:SS，不是卡住的 00:00）');
   assert(/lock-ring"[^\n]*@tap="goFocus\(\)/.test(tpl), '点计时环进全屏专注页');
   assert(/@tap="togglePause"/.test(tpl), '硬控屏有暂停 / 继续');
   assert(/@tap="confirmGiveUp"/.test(tpl), '硬控屏有放弃');
@@ -124,7 +132,9 @@ function eq(a, b, label) {
 
   // 空闲态：卡片区改成 v-for 遍历注册表（2026-10-12 从 AWword 移植拖拽排序后），
   // 每张卡由 v-if="id === 'xxx'" 分支渲染，显隐走 cardOrder（见脚本段断言）。
-  assert(/v-for="\(id,\s*i\)\s*in\s*cardOrder"/.test(tpl), '卡片区按 cardOrder 遍历渲染');
+  // 抽屉里的卡片遍历 restOrder（其余组件；编辑态返回全部 —— 口径与 cardOrder 一致），
+  // 主页常驻的三张卡走 homeOrder，两边加起来正好覆盖全部模块。
+  assert(/v-for="\(id,\s*i\)\s*in\s*restOrder"/.test(tpl), '抽屉卡片区按 restOrder 遍历渲染');
   assert(/class="mod-list"/.test(tpl), '卡片区包在 .mod-list 里（拖拽测量与位移都靠它）');
   MUST_IDS.forEach(id => {
     assert(tpl.indexOf("id === '" + id + "'") >= 0, '卡片分支 v-if="id === \'' + id + '\'"');
@@ -160,7 +170,7 @@ function eq(a, b, label) {
   const resumeCard = /<view[^>]*class="card resume-card"[^>]*>/.exec(tpl);
   assert(resumeCard && /v-if="resumePlan"/.test(resumeCard[0]),
     'AI 规划中卡：条件触发，不进注册表');
-  assert(/<float-navbar/.test(tpl), '有自定义顶栏');
+  assert(/<float-navbar[\s>]/.test(tpl), '有自定义顶栏');
 
   /* ---------- 4. home.vue 脚本 ---------- */
   console.log('== 4. pages/home/home.vue 脚本 ==');
@@ -171,8 +181,18 @@ function eq(a, b, label) {
   assert(/layoutIds: layout\.layout\(\)/.test(sc),
     'layoutIds 首帧直接读一次（留空会让所有卡闪一下）');
   assert(/syncLayout\(\)\s*\{[\s\S]*?layout\.layout\(\)/.test(sc), 'syncLayout 读注册表');
-  assert(/cardOrder\(\)\s*\{[\s\S]*?layoutIds/.test(sc), 'cardOrder 由当前布局派生');
-  assert(/this\.syncLayout\(\)/.test(sc), 'refresh 里同步一次模块（收纳/加回后立刻生效）');
+  // ⚠️ 原来是 /cardOrder\(\)\s*\{[\s\S]*?layoutIds/ —— 无界通配符会跨到后面的
+  //    syncLayout() 里命中 `this.layoutIds = ...`，于是"cardOrder 不再读布局"抓不到。
+  //    先切出方法体再判（第 15 条硬约束）。
+  const body0 = (sig) => {
+    const i = sc0.indexOf(sig);
+    return i < 0 ? '' : sc0.slice(i, sc0.indexOf('\n    }', i));
+  };
+  assert(/layoutIds/.test(body0('cardOrder() {')), 'cardOrder 由当前布局派生');
+  // 同理：syncLayout 也可能在别处被调用，这里必须确认是 **refresh 里** 调的
+  assert(/this\.syncLayout\(\)/.test(body0('async refresh() {'))
+    || /this\.syncLayout\(\)/.test(body0('refresh() {')),
+    'refresh 里同步一次模块（收纳/加回后立刻生效）');
 
   // 硬控的判定与文案
   assert(/locked\(\)\s*\{[\s\S]*?c && c\.phase/.test(sc), 'locked = 有 phase 就硬控（休息/暂停也算）');

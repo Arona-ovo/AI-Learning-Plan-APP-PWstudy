@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PWstudy 首页抽屉式分层 · 预览</title>
+<style>
+  :root{
+    --brand:#e4173d; --brand-strong:#bb1332; --sand:#f5efe6; --ink:#17201a;
+    --ink2:#5A6560; --ink3:#98A19B; --line:#e7ddcf; --card:#ffffff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#d9cfc1;color:var(--ink);display:flex;justify-content:center;padding:24px;gap:24px;flex-wrap:wrap}
+  .phone{width:300px;background:var(--sand);border-radius:34px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,.28);position:relative;overflow:hidden}
+  .screen{background:var(--sand);border-radius:26px;overflow:hidden;min-height:620px;position:relative;padding:14px 14px 0}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--ink2);padding:4px 6px 8px}
+  .navbar{display:flex;justify-content:space-between;align-items:center;padding:2px 4px 12px}
+  .nav-title{font-size:17px;font-weight:600}
+  .nav-capsule{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.7);border:1px solid var(--line);border-radius:18px;padding:5px 11px;font-size:12px;color:var(--ink2)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--brand)}
+  h3.sec{font-size:13px;color:var(--ink2);margin:18px 2px 10px;font-weight:600;letter-spacing:.3px}
+
+  /* 首页三卡 */
+  .hcard{background:var(--card);border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 4px 14px rgba(120,90,60,.08);border:1px solid rgba(231,221,207,.7)}
+  .hc-row{display:flex;align-items:center;gap:14px}
+  .hc-ring{width:62px;height:62px;border-radius:50%;border:5px solid var(--brand);display:flex;flex-direction:column;align-items:center;justify-content:center;flex:0 0 auto;background:#fff}
+  .hc-ring-num{font-size:19px;font-weight:700;color:var(--brand);line-height:1}
+  .hc-ring-unit{font-size:9px;color:var(--ink3);margin-top:2px}
+  .hc-body{flex:1;min-width:0}
+  .hc-title{font-size:16px;font-weight:600}
+  .hc-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.4}
+  .hc-time{font-size:22px;font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums}
+  .hc-go{margin-top:12px;background:var(--brand);color:#fff;border:none;border-radius:12px;padding:11px;width:100%;font-size:14px;font-weight:600}
+
+  .hc-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  .hc-head .t{font-size:15px;font-weight:600}
+  .hc-count{font-size:12px;color:var(--ink2)}
+  .hc-bar{height:7px;background:#efe7da;border-radius:4px;overflow:hidden}
+  .hc-fill{height:100%;background:var(--brand);border-radius:4px;width:62%}
+  .hc-task{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);padding:7px 0;border-bottom:1px dashed var(--line)}
+  .hc-task:last-child{border-bottom:none}
+  .hc-task .lead{width:6px;height:6px;border-radius:50%;background:var(--brand);flex:0 0 auto}
+  .hc-more{font-size:11px;color:var(--brand);text-align:right;margin-top:6px}
+
+  .hc-lv{font-size:11px;background:rgba(228,23,61,.1);color:var(--brand-strong);padding:3px 9px;border-radius:10px;font-weight:600}
+  .hc-axis{height:8px;border-radius:4px;background:#e3dccf;position:relative;margin:12px 0 8px;overflow:hidden}
+  .hc-axis-need{position:absolute;left:0;top:0;bottom:0;background:var(--brand);border-radius:4px;width:45%}
+  .hc-foot-row{display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)}
+
+  /* 收工 */
+  .home-cta{margin:6px 0 14px;text-align:center}
+  .cta-btn{background:var(--brand);color:#fff;border:none;border-radius:14px;padding:13px 26px;font-size:15px;font-weight:600}
+  .cta-tip{display:block;font-size:11px;color:var(--ink3);margin-top:7px}
+
+  /* 抽屉把手 */
+  .peek{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0 14px;color:var(--ink3);cursor:pointer}
+  .peek .arr{font-size:13px;line-height:1}
+  .peek .txt{font-size:12px}
+
+  /* 抽屉（展开态） */
+  .drawer{position:absolute;left:0;right:0;bottom:0;height:78%;background:#f0e9de;border-radius:24px 24px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.16);display:flex;flex-direction:column;padding:6px 14px 0;animation:up .28s ease}
+  @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .dr-grip{display:flex;flex-direction:column;align-items:center;padding:6px 0 10px}
+  .dr-bar{width:38px;height:4px;border-radius:2px;background:#cdbfa9}
+  .dr-title{font-size:13px;color:var(--ink2);margin-top:6px;font-weight:600}
+  .dr-body{flex:1;overflow:auto}
+  .mod{background:var(--card);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 3px 10px rgba(120,90,60,.07)}
+  .mod .mh{font-size:14px;font-weight:600;margin-bottom:6px}
+  .mod .mb{font-size:12px;color:var(--ink2);line-height:1.5}
+  .mod.focus{outline:2px solid var(--brand)}
+  .home-foot{text-align:center;padding:14px 0 22px}
+  .foot-btn{display:inline-block;background:var(--brand);color:#fff;border-radius:12px;padding:11px 28px;font-size:14px;font-weight:600}
+  .foot-sub{display:block;font-size:11px;color:var(--ink3);margin-top:8px}
+
+  .cap{width:300px;color:#3a2f22}
+  .cap h2{font-size:18px;margin-bottom:6px}
+  .cap p{font-size:13px;line-height:1.7;color:#5b4c3a;margin-bottom:10px}
+  .cap .tag{display:inline-block;background:var(--brand);color:#fff;font-size:11px;padding:2px 9px;border-radius:8px;margin-bottom:12px}
+  .cap ol{font-size:12.5px;line-height:1.9;color:#5b4c3a;padding-left:18px}
+  .cap b{color:var(--brand-strong)}
+  .col{display:flex;flex-direction:column;gap:14px}
+</style>
+</head>
+<body>
+
+  <!-- 说明栏 -->
+  <div class="cap">
+    <span class="tag">抽屉式分层 · 1.3.3</span>
+    <h2>首页只留「今天」</h2>
+    <p>主页常驻三张<strong>精简适配卡</strong>，每张只突出一个焦点；其余组件平时<strong>完全不渲染</strong>，上滑才拉出抽屉。</p>
+    <ol>
+      <li><b>主页三卡</b>：开始专注 / 今日任务 / 今日紧迫度，各一张、只一个焦点。</li>
+      <li><b>更多组件把手</b>：不上滑时只有一个小把手露出。</li>
+      <li><b>上滑</b> → 抽屉拉出，完整卡片列表（目标/日程/学习App/AI 等）。</li>
+      <li><b>抽屉里再往下滑到底</b> → 今日收工 / 编辑首页入口。</li>
+    </ol>
+  </div>
+
+  <!-- ① 默认第一屏 -->
+  <div class="phone">
+    <div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●● 5G ▮100%</span></div>
+      <div class="navbar">
+        <span class="nav-title">今天</span>
+        <span class="nav-capsule"><span class="dot"></span>专注设置</span>
+      </div>
+
+      <!-- ① 开始专注 -->
+      <div class="hcard">
+        <div class="hc-row">
+          <div class="hc-ring"><span class="hc-ring-num">75</span><span class="hc-ring-unit">分钟</span></div>
+          <div class="hc-body">
+            <div class="hc-title">开始专注</div>
+            <div class="hc-sub">先看清时长与设置</div>
+          </div>
+        </div>
+        <button class="hc-go">开始</button>
+      </div>
+
+      <!-- ② 今日任务 -->
+      <div class="hcard">
+        <div class="hc-head"><span class="t">今日任务</span><span class="hc-count">2/5</span></div>
+        <div class="hc-bar"><div class="hc-fill"></div></div>
+        <div style="margin-top:10px">
+          <div class="hc-task"><span class="lead"></span>英语阅读 Chapter 4</div>
+          <div class="hc-task"><span class="lead"></span>数学 错题复盘</div>
+          <div class="hc-more">查看其余 3 项 ›</div>
+        </div>
+      </div>
+
+      <!-- ③ 今日紧迫度 -->
+      <div class="hcard">
+        <div class="hc-head"><span class="t">今日紧迫度</span><span class="hc-lv">偏紧</span></div>
+        <div class="hc-axis"><div class="hc-axis-need"></div></div>
+        <div class="hc-foot-row"><span>还剩 3 段专注</span><span>还要 120 分钟</span></div>
+      </div>
+
+      <!-- 收工留在主页底部 -->
+      <div class="home-cta">
+        <button class="cta-btn">今日收工</button>
+        <span class="cta-tip">花十几秒说说今天，明天的安排才排得准</span>
+      </div>
+
+      <!-- 把手（不上滑时唯一露出） -->
+      <div class="peek"><span class="arr">︿</span><span class="txt">更多组件</span></div>
+    </div>
+  </div>
+
+  <!-- ② 上滑拉出抽屉 -->
+  <div class="phone">
+    <div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●● 5G ▮100%</span></div>
+      <div class="navbar">
+        <span class="nav-title">今天</span>
+        <span class="nav-capsule"><span class="dot"></span>专注设置</span>
+      </div>
+      <div style="text-align:center;font-size:11px;color:#a99;padding:10px 0">（主页三卡收起）</div>
+
+      <div class="drawer">
+        <div class="dr-grip"><div class="dr-bar"></div><div class="dr-title">全部组件</div></div>
+        <div class="dr-body">
+          <div class="mod focus"><div class="mh">开始专注</div><div class="mb">今日累计 75 分钟 · 自由专注</div></div>
+          <div class="mod"><div class="mh">今日任务</div><div class="mb">2/5 已完成 · 还有 3 项</div></div>
+          <div class="mod"><div class="mh">今日紧迫度</div><div class="mb">偏紧 · 还要约 120 分钟</div></div>
+          <div class="mod"><div class="mh">本周目标</div><div class="mb">考研冲刺 · 距 deadline 18 天</div></div>
+          <div class="mod"><div class="mh">今日日程</div><div class="mb">14:00 英语课 · 19:30 自习</div></div>
+          <div class="mod"><div class="mh">关联学习 App</div><div class="mb">背单词 22 分钟</div></div>
+          <div class="mod"><div class="mh">AI 规划助手</div><div class="mb">说一句，重新安排今天</div></div>
+          <div class="home-foot">
+            <span class="foot-btn">编辑首页</span>
+            <span class="foot-sub">拖动排序 · 收纳不常用的组件</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

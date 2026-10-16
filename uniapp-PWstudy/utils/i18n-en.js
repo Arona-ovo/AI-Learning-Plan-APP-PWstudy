@@ -898,6 +898,16 @@ export default {
   '往上滑看全部 {n} 个组件': 'Swipe up for all {n} widgets',
   '全部组件': 'All widgets',
   '说一句': 'Say something',
+  // 抽屉把手与主页精简卡（2026-10-16 抽屉式重构）
+  '更多组件': 'More widgets',
+  '开始': 'Start',
+  '查看其余 {n} 项': '{n} more',
+  '还剩 {n} 段专注': '{n} sessions left',
+  '还要 {n} 分钟': '{n} min to go',
+  '自由专注': 'Free focus',
+  '点这里先看清时长与设置': 'Tap to check the length and settings first',
+  '休息中': 'On a break',
+  '专注中': 'Focusing',
   // 首页模块注册表（utils/home-layout.ts 的 MODULES）：名字与说明也要有英文，
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '专注': 'Focus',

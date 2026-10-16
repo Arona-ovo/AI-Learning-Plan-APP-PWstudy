@@ -155,7 +155,12 @@ assert(/v-if="cur\.overrun"[^>]*>\s*<button[^>]*@tap="exitOverrun"/.test(hv),
 assert(/focus\.stopOverrun\(\)/.test(fnBody(hv, 'exitOverrun')), 'exitOverrun 走状态机的唯一出口');
 assert(/cur\.overrun/.test(fnBody(hv, 'onBackPress')), '首页返回键在正计时段放行');
 assert(/justOverrun/.test(fnBody(hv, 'tick')), '首页 tick 认得 justOverrun');
-assert(!/\{\{ fmtMMSS\(cur\.remainSec\) \}\}/.test(hv), '不再直接渲染 remainSec（正计时时它会恒为 0）');
+// ⚠️ 不能只判 `{{ fmtMMSS(cur.remainSec) }}` 这一种写法 ——
+//    `{{ running ? fmtMMSS(cur.remainSec) : ... }}` 这种三元形式照样绕过去，
+//    而正计时段的 running 也是 true，一样会卡在 00:00。直接禁掉任何渲染点。
+const hvTpl = hv.slice(hv.indexOf('<template>'), hv.indexOf('</template>'));
+assert(!/fmtMMSS\(cur\.remainSec\)/.test(hvTpl),
+  '首页模板不再直接渲染 remainSec（正计时时它会恒为 0）');
 
 /* ---------- 7. 真跑：读数 ---------- */
 console.log('== 7. 真跑读数（timeText / lockTime）==');

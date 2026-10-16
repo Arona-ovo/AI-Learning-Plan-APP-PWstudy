@@ -137,8 +137,10 @@ shouldCatch('overSec 在暂停期间还接着数', (c) => {
 }, 'overSec 在暂停期间冻结');
 
 // ---- 3. 落账口径 ----
+// ⚠️ 锚点跟着实现走：现在是 `const r = settle(...)` + `return r`，
+//    早年直接 `return settle(...)` 的写法早已改掉，照抄旧锚点会"注入失败"（假红）
 shouldCatch('退出时不带上正计时那段（只落预设时长）', (c) => {
-  swap(c, FJ, '  return settle(s, true, Date.now());\n}', '  return settle(s, true);\n}');
+  swap(c, FJ, '  const r = settle(s, true, Date.now());', '  const r = settle(s, true);');
 }, '按「退出」落账');
 
 shouldCatch('退出时忘了 bumpRound（长休永远轮不到）', (c) => {
@@ -151,8 +153,8 @@ shouldCatch('被杀恢复改成按当下落账（把缺席的时间算成专注�
 }, '进程被杀恢复');
 
 shouldCatch('放弃正计时被记成中断会话', (c) => {
-  swap(c, FJ, '  if (s.overrun) {\n    bumpRound();\n    return settle(s, true, Date.now());\n  }\n  return settle(s, false);',
-    '  return settle(s, false);');
+  swap(c, FJ, '  if (s.overrun) {\n    bumpRound();\n    const r = settle(s, true, Date.now());',
+    '  if (s.overrun) {\n    bumpRound();\n    const r = settle(s, false);');
 }, '放弃正计时也按');
 
 // ---- 4. 强制 / 严格模式没罢手 ----

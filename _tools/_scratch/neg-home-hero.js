@@ -28,29 +28,92 @@ function runCheck() {
 }
 
 const cases = [
-  ['聚焦区整块改名（第一屏没了）', s => s.replace('class="hero"', 'class="hero2"')],
-  ['主任务不排除已完成的', s => s.replace(
-    "(this.queue || []).filter(i => i.task && i.task.status !== 'done')", "(this.queue || []).slice()")],
-  ['主任务不再"超期优先"', s => s.replace('if (late.length) return late[0]', 'if (false) return late[0]')],
-  ['主任务不再挑剩余最多的', s => s.replace('left(b) - left(a)', '0')],
-  ['图形槽改名（一排高低不齐）', s => s.replace('class="mg-slot"', 'class="mg-slot2"')],
-  ['miniList 给 focus 也发一格', s => s.replace("if (id === 'focus') return", "if (id === 'focus') {}")],
-  ['jumpModule 只滚不展开', s => s.replace(
-    /(jumpModule\(id\) \{[\s\S]{0,120}?)this\.modsOpen = true/, '$1this.modsOpen = false')],
-  ['折叠区默认就展开（首页不再简洁）', s => s.replace('modsOpen: false', 'modsOpen: true')],
-  ['把手丢掉上滑手势', s => s.replace('@touchmove="peekMove"', '@touchmove="noop"')],
-  ['把手点不动（没有 openMods）', s => s.replace('@tap="openMods"', '@tap="noop"')],
-  ['列表头整块删掉', s => s.replace('class="mods-head"', 'class="mods-head2"')],
-  ['进编辑态不自动展开（看不见卡片）', s => s.replace('if (this.editing) this.modsOpen = true', 'if (this.editing) {}')],
-  // ⚠️ 不能只替换 'if (this.editing) return' —— cardOrder 里那句
+  // ---- 1. 主页只放三张卡 ----
+  ['主页三卡容器改名（第一屏没了）',
+    s => s.replace('<view class="hcards">', '<view class="hcards2">')],
+  ['主页不按 homeOrder 渲染（其余组件又挤回首页）',
+    s => s.replace('v-for="id in homeOrder"', 'v-for="id in cardOrder"')],
+  ['HOME_IDS 里多塞一个（首页不再只留"今天"）',
+    s => s.replace("const HOME_IDS = ['focus', 'task', 'urgency']",
+      "const HOME_IDS = ['focus', 'task', 'urgency', 'goal']")],
+  ['homeOrder 口径反了（主页变成"其余组件"）',
+    s => s.replace('HOME_IDS.indexOf(id) >= 0', 'HOME_IDS.indexOf(id) < 0')],
+  ['restOrder 不排除三件套（卡片重复渲染）',
+    s => s.replace('HOME_IDS.indexOf(id) < 0', 'true')],
+  // ⚠️ 不能直接替换 'if (this.editing) return ids' —— cardOrder 里有一句一模一样的，
+  //   会被先命中，改坏的是别处（于是这条用例变成假绿）。必须带 restOrder 上下文。
+  ['restOrder 编辑态不返回全部（收纳后捞不回来）',
+    s => s.replace(/(restOrder\(\)\s*\{[\s\S]{0,200}?)if \(this\.editing\) return ids/,
+      '$1if (false) return ids')],
+
+  // ---- 2. 三张卡是首页适配的精简版 ----
+  ['专注卡丢了 focus-card（引导第 2 步定位不到）',
+    s => s.replace('class="card hcard focus-card"', 'class="card hcard"')],
+  ['专注卡没有读数环（焦点没了）',
+    s => s.replace('class="hc-ring"', 'class="hc-ring2"')],
+  ['开始键不 stop 冒泡（点键会顺带跳页）',
+    s => s.replace('class="hc-go" @tap.stop="quickStart()"', 'class="hc-go" @tap="quickStart()"')],
+  ['任务卡不限三条（首页又被撑长）',
+    s => s.replace('v-for="(item, ti) in homeQueue"', 'v-for="(item, ti) in queue"')],
+  ['任务卡其余不给抽屉入口',
+    s => s.replace('v-if="hasMoreTask"', 'v-if="false"')],
+  ['紧迫度卡不画时间轴（只有干巴巴一行字）',
+    s => s.replace('class="hc-axis"', 'class="hc-axis2"')],
+
+  // ---- 3. 抽屉不上滑就完全不渲染 ----
+  ['抽屉默认就展开（不上滑也看见卡片）',
+    s => s.replace('drawerOn: false', 'drawerOn: true')],
+  ['抽屉层不整包 v-if（收起只是藏起来，卡片照样渲染）',
+    s => s.replace('<view v-if="drawerOn" class="dr-mask"', '<view class="dr-mask"')],
+  ['抽屉里遍历 cardOrder（卡片重复）',
+    s => s.replace('v-for="(id, i) in restOrder"', 'v-for="(id, i) in cardOrder"')],
+  ['抽屉内把手不能下拉收起',
+    s => s.replace('@touchmove="gripMove"', '@touchmove="noop"')],
+  ['下拉阈值归零（滚列表就误关抽屉）',
+    s => s.replace('y - this.gripY > 48', 'y - this.gripY > -1')],
+  ['把手丢掉上滑手势（只能点）',
+    s => s.replace('@touchmove="peekMove"', '@touchmove="noop"')],
+  ['把手点不动（手势失灵就没退路）',
+    s => s.replace('@tap="openDrawer"', '@tap="noop"')],
+  ['上滑阈值归零（随便一碰就开抽屉）',
+    s => s.replace('this.peekY - y > 32', 'this.peekY - y > -1')],
+  ['抽屉开着时把手不隐藏（叠在面板上）',
+    s => s.replace('v-if="!drawerOn && restCount"', 'v-if="restCount"')],
+
+  // ---- 4. 再往下滑才有编辑 ----
+  ['编辑入口挪到列表之前（一开抽屉就看见）',
+    s => s.replace('<view class="mod-list"', '<view class="home-foot"></view><view class="mod-list"')],
+  ['收工挪进抽屉（主页底部空了）',
+    s => s.replace('class="home-cta"', 'class="home-cta-in-drawer"')],
+
+  // ---- 5. 两处联动 ----
+  ['进编辑态不自动拉出抽屉（看不见卡片）',
+    s => s.replace('if (this.editing) this.drawerOn = true', 'if (this.editing) {}')],
+  // ⚠️ 不能只替换 'if (this.editing) return' —— restOrder 里那句
   //    'if (this.editing) return ids' 同前缀会被先命中，改坏的是别处（假绿）
-  ['编辑态允许收起（拖到一半没了）', s => s.replace(
-    /(closeMods\(\) \{[\s\S]{0,200}?)if \(this\.editing\) return/, '$1if (false) return')],
-  ['引导前不展开（两步被跳过）', s => s.replace(
-    /(引导要挖洞[\s\S]{0,320}?)this\.modsOpen = true/, '$1this.modsOpen = false')],
-  ['主按钮直接起表（带 auto）', s => s.replace(
-    /(startFocusTask\(\) \{[\s\S]{0,80}?)this\.startFor\(this\.focusTask\)/,
-    "$1uni.navigateTo({ url: this.focusUrl() + '&auto=1' })")]
+  ['编辑态允许收起抽屉（拖到一半没了）',
+    s => s.replace(/(closeDrawer\(\) \{[\s\S]{0,200}?)if \(this\.editing\) return/,
+      '$1if (false) return')],
+  ['引导前不拉出抽屉（第 2/3 步被跳过）',
+    s => s.replace(/(引导要挖洞[\s\S]{0,320}?)this\.drawerOn = true/,
+      '$1this.drawerOn = false')],
+  ['计时一起不收抽屉（fixed 层浮在硬控屏上）',
+    s => s.replace('if (v && this.drawerOn) { this.editing = false; this.drawerOn = false }',
+      'if (v && this.drawerOn) { this.editing = false }')],
+
+  // ---- 6. 抽屉层在 page-slide 之外 ----
+  // 把 page-slide 的闭合 </view> 拿掉，抽屉层就变成它的子节点了
+  // ⚠️ 仓库是 CRLF（记忆约束 17）：这里要写 \r\n，写 \n 会静默匹配不上（假绿）
+  ['抽屉层塞回 page-slide 内（fixed 被切 tab 动画接管）',
+    s => s.replace('    </view>\r\n    <!-- ===== 底部抽屉', '    <!-- ===== 底部抽屉')],
+  // ⚠️ 不能改名成 page-slide-x —— 'page-slide' 仍是它的子串，断言照样命中（假绿）
+  ['主页三卡搬出 page-slide（不跟切 tab 动画了）',
+    s => s.replace('class="page-slide home-slide"', 'class="pslide home-slide"')],
+
+  // ---- 7. 起表仍然只能从准备页进 ----
+  ['主按钮直接起表（带 auto=1）',
+    s => s.replace("uni.navigateTo({ url: this.focusUrl() })",
+      "uni.navigateTo({ url: this.focusUrl() + '&auto=1' })")]
 ];
 
 let bad = 0;
