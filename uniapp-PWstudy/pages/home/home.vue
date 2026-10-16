@@ -735,8 +735,10 @@ export default {
      * 顺序沿用用户在「编辑首页」里排出的相对先后（尊重他自己的排序）。
      */
     homeOrder() {
-      const ids = this.cardOrder || []
-      return ids.filter(id => HOME_IDS.indexOf(id) >= 0)
+      const ids = (this.cardOrder || []).filter(id => HOME_IDS.indexOf(id) >= 0)
+      // 兜底：三张主卡全被收纳时主页不能开天窗 —— 至少把「开始专注」摆回来。
+      // 不兜底的后果（真机出现过）：整页只剩一张收工按钮，中间一大片空白。
+      return ids.length ? ids : ['focus']
     },
     /**
      * 抽屉里住着其余组件（目标 / 日程 / 学习 App / AI 对话…）。
@@ -770,7 +772,12 @@ export default {
       if (this.editing) return {}
       const p = this.openProg
       if (p <= 0) return {}
-      const s = { transform: 'translateY(-' + (p * 18).toFixed(2) + 'vh)' }
+      const s = {
+        transform: 'translateY(-' + (p * 18).toFixed(2) + 'vh)',
+        // 主页整列同步淡出：抽屉没有实体，若主页还亮着，收工按钮会和
+        // 抽屉底部的「编辑首页」叠在一起（真机视频里两行字摞一处）
+        opacity: String(1 - p)
+      }
       if (this.dragging) s.transition = 'none'
       return s
     },
@@ -863,109 +870,6 @@ export default {
     this.runReplanFlow()
   },
 
-  // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
-
-  /**
-   * 两条自动重排线，进首页各试一次：
-   *   ① sweep  跨天兜底 —— 过了 00:00 昨天还有没做完的，重排后面的（一天一次）
-   *   ② autoReplan 当天全部完成 —— 综合今天完成的数据与历史反馈重排（一天一次）
-   *
-   * 都**不等用户确认**：这是需求定的（"若需要则直接重排，无需用户确认"）。
-   * 但砍任务 / 顺延截止日这两种"事后难反悔"的动作不会自动落地 —— 它们进待确认队列，
-   * 由 maybePendingAsk() 单独问一次。
-   *
-   * ⚠️ 顺序固定：先兜底再全部完成。兜底会把欠账重排掉，跑完当天状态才准；
-   *    反过来先判"全部完成"很容易在有欠账时误判。
-   */
-  async runReplanFlow() {
-    const show = (txt) => {
-      if (!txt) return
-      this.replanTip = txt
-      try { uni.showToast({ title: txt, icon: 'none', duration: 3200 }) } catch (e) {}
-    }
-    try {
-      // 上次重排的结果先回显一下（不是这次跑的），让"重排过"这件事有痕迹
-      const last = pw.replanState().last
-      if (last && last.at && Date.now() - last.at < 36 * 3600 * 1000 && !this.replanTip) {
-        this.replanTip = 'AI 上次重排：' + (last.detail || last.summary || '调整了后面的任务')
-      }
-      const sw = await harvest.sweep()
-      if (sw && sw.ok && sw.applied) {
-        show('昨天有没做完的，已重排后面 ' + sw.applied + ' 项')
-        this.refresh()
-      }
-      const ar = await harvest.autoReplan()
-      if (ar && ar.ok && ar.applied) {
-        show('今天的任务都做完了，已按完成情况重排后面 ' + ar.applied + ' 项')
-        this.refresh()
-      }
-      // 信息不足：不硬排，先问本人一句最新意见，拿到再重跑一次
-      if (ar && ar.ok === false && ar.ask) { this.askReplanNote(ar.ask); return }
-      if (sw && sw.ok === false && sw.ask) { this.askReplanNote(sw.ask); return }
-      this.maybePendingAsk()
-    } catch (e) {
-      // 自动重排失败一律静默：它不该在用户刚打开 App 时弹一个错误吓人
-      console.warn('[home] 自动重排失败', e && e.message)
-    }
-  },
-  /** 勾掉一项（日程表卡）→ 弹「恭喜你完成任务」 */
-  onSchedDone(row) {
-    this.openDoneDialog(row)
-  },
-  /**
-   * 弹完成弹窗。
-   * ⚠️ 专注起表时首页被倒计时硬控，卡片都没了 —— 那时不弹（也无处可弹）。
-   */
-  openDoneDialog(row) {
-    if (this.locked || this.gdOn) return
-    const d = this.$refs.doneDlg
-    if (!d) return
-    // 完成时刻从当日台账里取（pwstore 在置完成那一刻就记好了）
-    let atText = ''
-    try {
-      const it = harvest.listOf(pw.today()).filter(x => x.taskId === (row.id || row.taskId))[0]
-      if (it) atText = it.atText || ''
-    } catch (e) {}
-    d.open({
-      goalId: row.goalId,
-      id: row.id || row.taskId,
-      title: row.title,
-      goalTitle: row.goalTitle
-    }, atText)
-    // 勾完最后一项 → 可能正好触发"全部完成"，顺手试一次（一天只跑一次，有守卫）
-    this.runReplanFlow()
-  },
-  /**
-   * 信息不足时问一句（需求 6）。
-   * 拿到回答 → 存进 lastNote → 立刻带这句话重跑一次重排。
-   */
-  askReplanNote(ask) {
-    if (this.dlg.show || this.doneDlgOn) return
-    this.ask({
-      title: '想先问你一句',
-      content: (ask && ask.ask) || '现在的数据还不够排出更好的安排，方便说一句你的想法吗？',
-      mode: 'input',
-      confirmText: '就这样重排',
-      placeholder: '比如：每天最多 2 段专注 / 先啃阅读',
-      value: '',
-      maxlength: 120,
-      action: 'replan-note'
-    })
-  },
-  /** 砍任务 / 顺延截止日：这两件事不自动落地，攒着在这儿问一次 */
-  maybePendingAsk() {
-    if (this.dlg.show || this.doneDlgOn) return
-    const list = harvest.pendingList()
-    if (!list.length) return
-    const it = list[0]
-    this.ask({
-      title: '有一件事想跟你确认',
-      content: harvest.pendingText(it),
-      confirmText: '就按它说的',
-      cancelText: '先不动',
-      action: 'replan-pending'
-    })
-  },
   onHide() {
     // 离开首页一律退出编辑态，保证回来时界面是简洁的
     this.finishEdit()
@@ -996,6 +900,109 @@ export default {
     return true
   },
   methods: {
+    // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
+
+    /**
+     * 两条自动重排线，进首页各试一次：
+     *   ① sweep  跨天兜底 —— 过了 00:00 昨天还有没做完的，重排后面的（一天一次）
+     *   ② autoReplan 当天全部完成 —— 综合今天完成的数据与历史反馈重排（一天一次）
+     *
+     * 都**不等用户确认**：这是需求定的（"若需要则直接重排，无需用户确认"）。
+     * 但砍任务 / 顺延截止日这两种"事后难反悔"的动作不会自动落地 —— 它们进待确认队列，
+     * 由 maybePendingAsk() 单独问一次。
+     *
+     * ⚠️ 顺序固定：先兜底再全部完成。兜底会把欠账重排掉，跑完当天状态才准；
+     *    反过来先判"全部完成"很容易在有欠账时误判。
+     */
+    async runReplanFlow() {
+      const show = (txt) => {
+        if (!txt) return
+        this.replanTip = txt
+        try { uni.showToast({ title: txt, icon: 'none', duration: 3200 }) } catch (e) {}
+      }
+      try {
+        // 上次重排的结果先回显一下（不是这次跑的），让"重排过"这件事有痕迹
+        const last = pw.replanState().last
+        if (last && last.at && Date.now() - last.at < 36 * 3600 * 1000 && !this.replanTip) {
+          this.replanTip = 'AI 上次重排：' + (last.detail || last.summary || '调整了后面的任务')
+        }
+        const sw = await harvest.sweep()
+        if (sw && sw.ok && sw.applied) {
+          show('昨天有没做完的，已重排后面 ' + sw.applied + ' 项')
+          this.refresh()
+        }
+        const ar = await harvest.autoReplan()
+        if (ar && ar.ok && ar.applied) {
+          show('今天的任务都做完了，已按完成情况重排后面 ' + ar.applied + ' 项')
+          this.refresh()
+        }
+        // 信息不足：不硬排，先问本人一句最新意见，拿到再重跑一次
+        if (ar && ar.ok === false && ar.ask) { this.askReplanNote(ar.ask); return }
+        if (sw && sw.ok === false && sw.ask) { this.askReplanNote(sw.ask); return }
+        this.maybePendingAsk()
+      } catch (e) {
+        // 自动重排失败一律静默：它不该在用户刚打开 App 时弹一个错误吓人
+        console.warn('[home] 自动重排失败', e && e.message)
+      }
+    },
+    /** 勾掉一项（日程表卡）→ 弹「恭喜你完成任务」 */
+    onSchedDone(row) {
+      this.openDoneDialog(row)
+    },
+    /**
+     * 弹完成弹窗。
+     * ⚠️ 专注起表时首页被倒计时硬控，卡片都没了 —— 那时不弹（也无处可弹）。
+     */
+    openDoneDialog(row) {
+      if (this.locked || this.gdOn) return
+      const d = this.$refs.doneDlg
+      if (!d) return
+      // 完成时刻从当日台账里取（pwstore 在置完成那一刻就记好了）
+      let atText = ''
+      try {
+        const it = harvest.listOf(pw.today()).filter(x => x.taskId === (row.id || row.taskId))[0]
+        if (it) atText = it.atText || ''
+      } catch (e) {}
+      d.open({
+        goalId: row.goalId,
+        id: row.id || row.taskId,
+        title: row.title,
+        goalTitle: row.goalTitle
+      }, atText)
+      // 勾完最后一项 → 可能正好触发"全部完成"，顺手试一次（一天只跑一次，有守卫）
+      this.runReplanFlow()
+    },
+    /**
+     * 信息不足时问一句（需求 6）。
+     * 拿到回答 → 存进 lastNote → 立刻带这句话重跑一次重排。
+     */
+    askReplanNote(ask) {
+      if (this.dlg.show || this.doneDlgOn) return
+      this.ask({
+        title: '想先问你一句',
+        content: (ask && ask.ask) || '现在的数据还不够排出更好的安排，方便说一句你的想法吗？',
+        mode: 'input',
+        confirmText: '就这样重排',
+        placeholder: '比如：每天最多 2 段专注 / 先啃阅读',
+        value: '',
+        maxlength: 120,
+        action: 'replan-note'
+      })
+    },
+    /** 砍任务 / 顺延截止日：这两件事不自动落地，攒着在这儿问一次 */
+    maybePendingAsk() {
+      if (this.dlg.show || this.doneDlgOn) return
+      const list = harvest.pendingList()
+      if (!list.length) return
+      const it = list[0]
+      this.ask({
+        title: '有一件事想跟你确认',
+        content: harvest.pendingText(it),
+        confirmText: '就按它说的',
+        cancelText: '先不动',
+        action: 'replan-pending'
+      })
+    },
     refresh() {
       const ov = pw.overview()
       this.todayMin = ov.todayMin
@@ -1158,8 +1165,13 @@ export default {
       this.panelDrag = pct
     },
     gripEnd() {
-      if (this.panelDrag === null) { this.gripY = 0; return }
-      const commit = this.panelDrag < 50
+      // 没进入拖动也要复位 dragging —— 否则点一下标题（没拖出 6px）
+      // dragging 永远是 true，所有过渡被关掉，界面看着像冻住了
+      if (this.panelDrag === null) { this.dragging = false; this.gripY = 0; return }
+      // 下拉收起：往下拖过面板一半才算数（与上滑"过半才开"对称）。
+      // ⚠️ 方向别写反：panelDrag 是"离开的距离"，下拉收起时要 > 50 才提交；
+      //    写成 < 50 会变成"轻碰就收、使劲拉反而弹回"。
+      const commit = this.panelDrag > 50
       this.dragging = false
       this.panelDrag = null
       this.gripY = 0
@@ -2906,6 +2918,9 @@ export default {
   pointer-events: auto;
 }
 .dr-panel {
+  /* ⚠️ 必须 border-box：width:100% + padding 在 content-box 下会溢出右边缘，
+     卡片整体"向右偏"被屏幕裁掉一截（真机视频 2026-10-16 实锤） */
+  box-sizing: border-box;
   width: 100%;
   height: 76vh;
   display: flex;
@@ -2918,7 +2933,7 @@ export default {
    松手后交给这条，弹到终态 */
 .hcards,
 .home-cta {
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
   will-change: transform;
 }
 /* 抽屉把手 / 底部编辑区：随展开进度 --open 淡入 + 升起
@@ -2940,10 +2955,13 @@ export default {
 .dr-panel.dragging .mod-wrap:not(.is-editing) {
   transition: none;
 }
-/* 抽屉把手：往下拖 = 收起（touch-action 禁掉滚动手势，拖动时页面不跟着走） */
+/* 抽屉把手：往下拖 = 收起（touch-action 禁掉滚动手势，拖动时页面不跟着走）。
+   上下 padding 撑出足够大的热区 —— 之前只有"全部组件"四个字那么大，
+   真机上根本抓不住，抽屉收不回去（2026-10-16 视频实锤） */
 .dr-grip {
   flex: 0 0 auto;
-  padding: 22rpx 0 14rpx;
+  padding: 34rpx 0 26rpx;
+  margin: 0 -24rpx;
   display: flex;
   flex-direction: column;
   align-items: center;

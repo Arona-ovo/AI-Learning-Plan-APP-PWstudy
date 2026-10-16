@@ -111,7 +111,8 @@
       <li><b>主页三卡</b>：开始专注 / 今日任务 / 今日紧迫度，各一张、只一个焦点。</li>
       <li><b>整屏上滑 = 把一列卡片滚出来</b>：主页整列<strong>跟手上移让位</strong>，抽屉里的卡片按同一进度<strong>逐张淡入 + 升起</strong>（错拍 stagger），全程只动 opacity/transform。</li>
       <li><b>抽屉没有实体</b>：不压暗整屏、没有滑上来的面板 —— 主卡和抽屉卡片本来就是<strong>同一列</strong>，滑到哪、哪张卡出头。</li>
-      <li><b>抽屉里再往下滑到底</b> → 今日收工 / 编辑首页入口。</li>
+      <li><b>主页同步淡出</b>：抽屉展开时主页整列<strong>上移并淡出</strong>，收工按钮不再和抽屉底部的「编辑首页」叠字。</li>
+      <li><b>怎么收回去</b>：① 按住抽屉顶部<strong>「全部组件」那一条往下拉</strong>（热区已放大到整条宽 × 约 60rpx 高），拉过面板一半松手；② 点抽屉之外的空白处（屏幕上半部分）；③ 编辑态下不收。</li>
     </ol>
   </div>
 
@@ -170,8 +171,8 @@
         <span class="nav-capsule"><span class="dot"></span>专注设置</span>
       </div>
 
-      <!-- 主页整列：跟手上移让位（主卡从正中升起来） -->
-      <div class="homecol mid" style="opacity:.9">
+      <!-- 主页整列：跟手上移让位 + 同步淡出（淡一半） -->
+      <div class="homecol mid" style="opacity:.35">
         <div class="hcard focus" style="padding:16px">
           <div class="hc-ring" style="width:64px;height:64px"><span class="hc-ring-num" style="font-size:20px">75</span><span class="hc-ring-unit">分钟</span></div>
           <button class="hc-go" style="margin:10px 0 2px;width:150px;height:44px;font-size:15px">开始</button>
@@ -204,8 +205,8 @@
         <span class="nav-capsule"><span class="dot"></span>专注设置</span>
       </div>
 
-      <!-- 主页整列：让位到顶部（主卡缩小让位，仍在列里） -->
-      <div class="homecol out" style="flex:0 0 auto;opacity:.92">
+      <!-- 主页整列：上移到顶 + 完全淡出（抽屉接管整屏，收工不与「编辑首页」叠字） -->
+      <div class="homecol out" style="flex:0 0 auto;opacity:0">
         <div class="hcard focus" style="padding:10px 16px;margin-bottom:10px">
           <div class="hc-ring" style="width:44px;height:44px;border-width:4px;margin:0 0 8px"><span class="hc-ring-num" style="font-size:15px">75</span><span class="hc-ring-unit">分钟</span></div>
         </div>

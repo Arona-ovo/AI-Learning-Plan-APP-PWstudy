@@ -73,7 +73,14 @@ assert(/gripMove\(e\)/.test(home) && /this\.panelDrag = 0/.test(home), '把手�
 assert(/gripEnd\(\)/.test(home) && /this\.closeDrawer\(\)/.test(home), '拉过半 → 收起，否则弹回');
 assert(/if \(dy <= 6\) return/.test(home), '把手下拉要超过 6px 才接管（滚列表不会误关）');
 assert(/if \(dy <= 12 \|\| dy <= dx\) return/.test(home), '上滑要"明显竖向"才接管（不和顶部滚动打架）');
-assert(/const commit = this\.panelDrag < 50/.test(home), '拖动过半才提交开/关（轻拖会弹回）');
+// 开/关两条手势的提交方向各自独立断言 —— 之前笼统一条，方向写反照样是绿的
+const bOpenEnd = block(/homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
+assert(/const commit = this\.panelDrag < 50/.test(bOpenEnd), '上滑：拉过一半才提交开（轻拖弹回）');
+const bGripEnd = block(/gripEnd\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/const commit = this\.panelDrag > 50/.test(bGripEnd),
+  '把手下拉：必须拖过一半才收起（方向写成 < 会"轻碰就收、使劲拉反而弹回"）');
+assert(/if \(this\.panelDrag === null\) \{ this\.dragging = false; this\.gripY = 0; return \}/.test(home),
+  '把手轻点（没拖出 6px）也要复位 dragging，否则过渡被永久关掉');
 assert(!/class="dr-peek"/.test(home), '主页底部常驻把手（小横条）已移除：打开靠整屏上滑');
 
 console.log('== 3b. 主页整块上滑跟手拉抽屉（不只小把手）==');
@@ -85,6 +92,24 @@ assert(/class="hcards" :style="homeShift"/.test(home) && /class="home-cta" :styl
   '主页整列绑 homeShift（上滑时主卡上移让位）');
 const bShift = block(/homeShift\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/openProg/.test(bShift) && /translateY/.test(bShift), '上移量由展开进度驱动（跟手，非硬切）');
+// 主页必须随抽屉淡出：抽屉没有实体，主页还亮着的话收工按钮会和抽屉底部的
+// 「编辑首页」摞在一起（真机 2026-10-16 视频实锤）
+assert(/opacity: String\(1 - p\)/.test(bShift), '主页整列随抽屉展开淡出（不与抽屉底部按钮重叠）');
+// ⚠️ 抽屉面板必须 border-box：width:100% + padding 在 content-box 下溢出右边缘，
+//    卡片整体向右偏、右边被屏幕裁掉一截
+assert(/box-sizing: border-box/.test(drPanelCss), '抽屉面板 border-box（避免 width100%+padding 溢出右边缘）');
+// 结构护栏：Options API 里 top-level 的自定义项会被 Vue 直接丢弃 —— 
+// 曾经 runReplanFlow 等 5 个方法被放在 onShow 与 onHide 之间（methods 之外），
+// 结果 this.runReplanFlow is not a function，且任务完成弹窗永远打不开。
+const iMethods = home.indexOf('\n  methods: {');
+assert(iMethods > 0, '存在 methods: {');
+for (const nm of ['async runReplanFlow()', 'onSchedDone(row)', 'openDoneDialog(row)', 'askReplanNote(ask)', 'maybePendingAsk()']) {
+  const i = home.indexOf(nm);
+  assert(i > iMethods, nm + ' 必须住在 methods 里（顶层会被 Vue 丢弃）');
+}
+// 主页不能开天窗：三张主卡全被收纳时兜底回「开始专注」
+const bHomeOrder = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/ids\.length \? ids : \['focus'\]/.test(bHomeOrder), '主卡全被收纳时兜底回「开始专注」（主页不开天窗）');
 assert(/drawerOn \|\| this\.editing \|\| this\.locked/.test(home), '抽屉已开 / 编辑 / 计时中时上滑不响应');
 assert(/if \(!this\.restCount\)/.test(home), '没有其余组件可展示时不空开抽屉');
 assert(/dy > 56 && dx < dy \* 0\.6 && startY > this\.winH \* 0\.55/.test(home), '兜底：下半屏起手 + 上滑够长才开');

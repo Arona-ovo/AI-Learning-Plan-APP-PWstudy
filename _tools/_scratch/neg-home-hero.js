@@ -77,7 +77,7 @@ const cases = [
       '  background: rgba(23, 32, 26, 0.28);\r\n  display: flex;\r\n  align-items: flex-end;')],
   // 面板又整体滑入：实体 sheet 回来了，卡片浮现被它盖住
   ['面板恢复整体滑入（实体 sheet 回来了）',
-    s => s.replace('.dr-panel {\r\n  width: 100%;', '.dr-panel {\r\n  transform: translateY(100%);\r\n  width: 100%;')],
+    s => s.replace(/\r\n  width: 100%;\r\n  height: 76vh;/, '\r\n  transform: translateY(100%);\r\n  width: 100%;\r\n  height: 76vh;')],
   // 逐张错拍消失：所有卡一起淡入（没有"逐张浮现"的滚动感）
   ['卡片错拍显现在（一起冒出来，没有逐张滚动感）',
     s => s.replace('const p = Math.max(0, Math.min(1, (this.openProg - i * span) / 0.55))', 'const p = 1')],
@@ -141,6 +141,28 @@ const cases = [
   //    否则另一处还留着，断言照过 → 假绿。
   ['上滑手势守卫失效（抽屉开着还往上滑就重叠）',
     s => s.replace(/this\.drawerOn \|\| this\.editing \|\| this\.locked/g, 'false')],
+
+  // ---- 8. 2026-10-16 真机视频回归：向右偏 / 收不回去 / 主页开天窗 ----
+  // 面板吃掉 border-box：width:100% + padding 溢出右边缘，卡片被屏幕裁掉一截
+  ['抽屉面板改回 content-box（卡片向右偏、右边被裁）',
+    s => s.replace(/  box-sizing: border-box;\r\n  width: 100%;\r\n  height: 76vh;/,
+      '  width: 100%;\r\n  height: 76vh;')],
+  // 把手提交方向写反：变成"轻碰就收、使劲拉反而弹回"
+  ['把手收起方向写反（panelDrag < 50）',
+    s => s.replace('const commit = this.panelDrag > 50', 'const commit = this.panelDrag < 50')],
+  // 轻点把手没拖够 6px 时不复位：dragging 永久为 true，所有过渡被关掉
+  ['把手轻点不复位 dragging（过渡被永久关掉）',
+    s => s.replace('if (this.panelDrag === null) { this.dragging = false; this.gripY = 0; return }',
+      'if (this.panelDrag === null) { this.gripY = 0; return }')],
+  // 主页不淡出：收工按钮与抽屉底部的「编辑首页」摞在一起
+  ['主页不随抽屉淡出（收工与编辑首页重叠）',
+    s => s.replace('opacity: String(1 - p)', "opacity: String(1)")],
+  // 方法被丢回顶层（methods 之外）：this.runReplanFlow is not a function
+  ['runReplanFlow 掉回顶层（Vue 丢弃 → 不是一个函数）',
+    s => s.replace('  onHide() {', '  async runReplanFlow() {}\r\n  onHide() {')],
+  // 三张主卡全被收纳时主页开天窗（只剩一张收工按钮）
+  ['主卡全收纳时不兜底（主页中间一大片空白）',
+    s => s.replace("return ids.length ? ids : ['focus']", "return ids")],
 ];
 
 let bad = 0;
