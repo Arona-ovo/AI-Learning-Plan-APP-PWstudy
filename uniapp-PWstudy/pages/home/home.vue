@@ -623,7 +623,8 @@ export default {
       panelDrag: null,
       dragging: false,
       gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
-      nodeMiss: 0,         // 诊断：量不到抽屉面板节点累计次数（见 panelHpx）
+      nodeMiss: 0,         // 诊断：面板高度算不出来的累计次数（见 panelHpx）
+      panelH: 0,           // 抽屉面板实测高度 px（measurePanel 异步量好缓存，拖动时同步用）
       // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
       // 只记起点，touchend 时再算位移，避免 touchmove 和页面滚动打架。
       swipeX0: 0,
@@ -868,6 +869,8 @@ export default {
     syncTabbar(this)
     // 实测一次视口高度：主页上滑拉抽屉要判定"下半屏起手"，免得和顶部滚动打架
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
+    // 抽屉面板高度提前量好缓存：拖动时要用它把手指位移换成百分比（异步量来不及）
+    this.measurePanel()
     this.refresh()
     this.startTick()
     // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
@@ -1106,25 +1109,39 @@ export default {
       if (this.editing) return
       this.drawerOn = false
     },
-    // 抽屉当前像素高度（拖动百分比要换算成 px）。优先量真实面板，量不到退回 76vh 估算。
+    /**
+     * 量一次抽屉面板的真实高度缓存进 panelH —— touchmove 里要**同步**用，
+     * 而 createSelectorQuery 是异步的，拖动现场等不起。
+     * ⚠️ 别再指望 this.$refs.drPanel.offsetHeight：app 端 ref 拿到的不是 DOM 节点
+     *    （真机日志 ref=has 却读不到高度，2026-10-16 实锤）。
+     * 首帧可能还没布局完（量到 0）→ 退一拍重量，最多 6 次。
+     */
+    measurePanel(tryN) {
+      const n = tryN || 0
+      if (n > 6) return
+      const q = uni.createSelectorQuery().in(this)
+      q.select('.dr-panel').boundingClientRect()
+      q.exec((res) => {
+        const r = res && res[0]
+        const h = r && (r.height || 0)
+        if (h > 0) { this.panelH = Math.round(h); return }
+        setTimeout(() => { this.measurePanel(n + 1) }, 120)
+      })
+    },
+    // 抽屉当前像素高度（拖动百分比要换算成 px）：缓存的实测值，没有就退回 76vh 估算。
     panelHpx() {
-      const r = this.$refs.drPanel
-      const el = r && (r.offsetHeight ? r : (r && r.$el))
-      const h = el && (el.offsetHeight || (el.$el && el.$el.offsetHeight))
-      if (!h) {
-        // ★ 诊断：拿不到节点必须留痕。
-        //   这里一旦退回估算值（尤其 winH 也还是 0 时 → H=0 → dy/H 得 NaN），
-        //   拖动进度算不出来、内联 transform 收到 NaN 会被整个丢弃 ——
-        //   表现是"上滑完全没反应"，而控制台一声不吭，根本查不到是节点没拿到。
-        this.nodeMiss++
-        if (this.nodeMiss <= 3 || this.nodeMiss % 20 === 0) {
-          console.warn('[drawer] 拿不到面板节点，高度退回估算值',
-            'miss=' + this.nodeMiss, 'winH=' + this.winH, 'ref=' + (r ? 'has' : 'null'))
-        }
+      const H = this.panelH || Math.round(this.winH * 0.76)
+      // ★ 诊断只在**两种都拿不到**时才留痕：H 算不出 → dy/H 得 NaN →
+      //   内联 transform 收到 NaN 被整个丢弃 → 表现"上滑没反应"、控制台一声不吭。
+      //   有估算值可用就别刷日志 —— 这函数在每次 touchmove 里都会走。
+      if (H > 0) return H
+      this.nodeMiss++
+      if (this.nodeMiss === 1 || this.nodeMiss % 20 === 0) {
+        console.warn('[drawer] 面板高度算不出来，退回地板值 480',
+          'miss=' + this.nodeMiss, 'winH=' + this.winH, 'panelH=' + this.panelH)
       }
-      const H = h || Math.round(this.winH * 0.76)
-      // 兜底地板值：除以 0 会让进度变 NaN，动画等于没写上去
-      return H > 0 ? H : 480
+      // 地板值：除以 0 会让进度变 NaN，动画等于没写上去
+      return 480
     },
     /**
      * 主页整块上滑：不只是小把手。手指在内容区往上滑，抽屉面板跟着手指升起，

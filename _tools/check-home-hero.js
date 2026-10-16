@@ -115,13 +115,30 @@ assert(/transform-origin:\s*50% 22%/.test(home), '主页整列统一 transform-o
 // 主页必须随抽屉淡出：主页还亮着的话收工按钮会和抽屉底部的
 // 「编辑首页」摞在一起（真机 2026-10-16 视频实锤）
 assert(/opacity: String\(1 - p \* 0\.92\)/.test(bShift), '主页整列随抽屉展开淡出（不与抽屉底部按钮重叠）');
-// ★ 诊断：拿不到面板节点必须留痕。退回估算值（winH 也是 0 时 H=0 → dy/H = NaN）
-//   会让内联 transform 收到 NaN 被整个丢弃 —— 表现"上滑没反应"且控制台一声不吭。
+// ★ 诊断：面板高度算不出来必须留痕（H=0 → dy/H=NaN → 内联 transform 被整个丢弃
+//   → 表现"上滑没反应"且控制台一声不吭）。但**有估算值可用时别刷日志** ——
+//   panelHpx 每次 touchmove 都走，无条件 warn 会把控制台淹掉（真机 2026-10-16 实锤）。
 const bPanelH = block(/panelHpx\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.nodeMiss\+\+/.test(bPanelH), '量不到节点要计数（诊断）');
-assert(/console\.warn\(/.test(bPanelH) && /\[drawer\]/.test(bPanelH), '量不到节点要 console.warn 留痕');
-assert(/return H > 0 \? H : 480/.test(bPanelH), '高度有地板值（除零 → NaN → 动画等于没写）');
+assert(/this\.nodeMiss\+\+/.test(bPanelH), '高度算不出来要计数（诊断）');
+assert(/console\.warn\(/.test(bPanelH) && /\[drawer\]/.test(bPanelH), '高度算不出来要 console.warn 留痕');
+assert(/if \(H > 0\) return H/.test(bPanelH) && /return 480/.test(bPanelH),
+  '高度有地板值 480（除零 → NaN → 动画等于没写）');
+assert(/this\.panelH \|\| Math\.round\(this\.winH \* 0\.76\)/.test(bPanelH),
+  '优先用缓存的实测高度，其次才退回估算');
 assert(/nodeMiss: 0/.test(home), 'data 里有 nodeMiss 诊断计数');
+// ★ 面板高度必须提前异步量好缓存：app 端 ref 不是 DOM 节点，读不到 offsetHeight
+//   （真机日志 ref=has 却拿不到高度）；而 touchmove 要同步用、等不了异步查询。
+assert(/panelH: 0/.test(home), 'data 里有 panelH 缓存字段');
+const bMeasure = block(/measurePanel\(tryN\)\s*\{[\s\S]*?\n    \}/);
+assert(bMeasure !== '', '存在 measurePanel（异步量真实高度）');
+assert(/createSelectorQuery/.test(bMeasure) && /boundingClientRect/.test(bMeasure),
+  'measurePanel 用选择器查询量高（不是读 ref.offsetHeight）');
+assert(/select\('\.dr-panel'\)/.test(bMeasure), 'measurePanel 量的是抽屉面板');
+assert(/this\.panelH = Math\.round\(h\)/.test(bMeasure), '量到就写进 panelH 缓存');
+assert(/measurePanel\(n \+ 1\)/.test(bMeasure), '首帧没布局完要退一拍重量（最多 6 次）');
+assert(/this\.measurePanel\(\)/.test(home), '进页面要把面板高度量好（onShow 调用）');
+assert(!/\$refs\.drPanel/.test(home.split('measurePanel(tryN)')[1] || ''),
+  '量高不再依赖 ref（app 端 ref 不是 DOM 节点）');
 // ⚠️ 抽屉面板必须 border-box：width:100% + padding 在 content-box 下溢出右边缘，
 //    卡片整体向右偏、右边被屏幕裁掉一截
 assert(/box-sizing: border-box/.test(drPanelCss), '抽屉面板 border-box（避免 width100%+padding 溢出右边缘）');

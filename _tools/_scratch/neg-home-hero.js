@@ -182,11 +182,22 @@ const cases = [
   // 各自绕中心缩放：三张卡间距乱跳
   ['主页不设统一 transform-origin（缩放各自为中心）',
     s => s.replace('  transform-origin: 50% 22%;\r\n', '')],
-  // 拿不到节点不留痕：H=0 → NaN → 动画被丢弃，控制台一声不吭
-  ['拿不到节点不计数（诊断没了）',
-    s => s.replace('        this.nodeMiss++\r\n', '')],
+  // 高度算不出来不留痕：H=0 → NaN → 动画被丢弃，控制台一声不吭
+  ['高度算不出来不计数（诊断没了）',
+    s => s.replace('      this.nodeMiss++\r\n', '')],
   ['面板高度没有地板值（除零 → NaN → 动画等于没写）',
-    s => s.replace('return H > 0 ? H : 480', 'return H')],
+    s => s.replace('      if (H > 0) return H\r\n', '')],
+  // 只读估算、不吃缓存的实测值：面板真实高度（76vh）与估算万一差得多，
+  // 拖动百分比就整体错位（拉到底还差一截 / 拉一点就顶满）
+  ['panelHpx 不吃实测缓存（只用估算）',
+    s => s.replace('const H = this.panelH || Math.round(this.winH * 0.76)',
+      'const H = Math.round(this.winH * 0.76)')],
+  // 不提前量高度：app 端 ref 不是 DOM 节点，现场读不到 → 只能用估算值凑合
+  ['进页面不量面板高度（panelH 永远是 0）',
+    s => s.replace('    this.measurePanel()\r\n', '')],
+  // 量错节点：缓存写不进去，等于没量
+  ['measurePanel 量错节点',
+    s => s.replace("q.select('.dr-panel').boundingClientRect()", "q.select('.dr-body').boundingClientRect()")],
   // 方法被丢回顶层（methods 之外）：this.runReplanFlow is not a function
   ['runReplanFlow 掉回顶层（Vue 丢弃 → 不是一个函数）',
     s => s.replace('  onHide() {', '  async runReplanFlow() {}\r\n  onHide() {')],
