@@ -566,6 +566,16 @@ const BRAND = 'var(--brand, #e4173d)'
 // 其余模块一律进底部抽屉（不上滑就完全不渲染）。
 const HOME_IDS = ['focus', 'task', 'urgency']
 
+// ★ 上滑视差：主页整列最多上移多少（vh）。抽屉上来时主页被"顶上去"，
+//   两者位移不同速才有景深；数值越大层次越明显（之前 18 太小，读出来像同一层）。
+const HOME_PARALLAX_VH = 26
+// ★ 景深：抽屉上来时主页整列缩到多少（0.07 = 缩 7%），
+//   后退一层 = 抽屉那层玻璃底板往前，层次才立得住。
+const HOME_DEPTH_SCALE = 0.07
+// ★ 抽屉玻璃底板自己的视差：闭合时往下沉多少（面板高度的百分比）。
+//   比主页的位移小得多 —— 主页 26vh 大幅后退，底板只小幅上顶，两层错开。
+const PANEL_PARALLAX_PCT = 10
+
 export default {
   components: {
     FloatTabbar, FloatNavbar, CoachBox, UrgencyMeter, ScheduleList,
@@ -613,6 +623,7 @@ export default {
       panelDrag: null,
       dragging: false,
       gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
+      nodeMiss: 0,         // 诊断：量不到抽屉面板节点累计次数（见 panelHpx）
       // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
       // 只记起点，touchend 时再算位移，避免 touchmove 和页面滚动打架。
       swipeX0: 0,
@@ -754,9 +765,17 @@ export default {
       return this.restOrder.length
     },
     // 把"展开进度" open 作为 CSS 变量传下去：抽屉把手 / 底部编辑区靠它淡入。
-    // 卡片本体不走这条（它们的逐张错拍显现在 wrapStyle 里按进度算）
+    // 卡片本体不走这条（它们的逐张错拍显现在 wrapStyle 里按进度算）。
+    // 面板自己也带一小段视差：闭合时下沉 PANEL_PARALLAX_PCT%，展开归零 ——
+    // 主页大幅后退、底板小幅上顶，两层不同速才有层次（同速 = 同一列接着排）。
     panelStyle() {
-      return { '--open': String(this.openProg) }
+      const p = this.openProg
+      const s = {
+        '--open': String(p),
+        transform: 'translateY(' + ((1 - p) * PANEL_PARALLAX_PCT).toFixed(2) + '%)'
+      }
+      if (this.dragging) s.transition = 'none'
+      return s
     },
     // 抽屉"展开进度"：0=全关（卡片不可见），1=全开（完全显现）。
     // 拖动时跟手（由 panelDrag 实时换算），松手后由 drawerOn 决定终态，
@@ -765,18 +784,21 @@ export default {
       if (this.panelDrag !== null) return Math.max(0, Math.min(1, 1 - this.panelDrag / 100))
       return this.drawerOn ? 1 : 0
     },
-    // 主页整列随展开进度上移：上滑时主卡往上让位，抽屉卡片在其下方逐张浮现
-    // —— 像把一列卡片滚上去，而不是掀一张面板。拖动中关掉过渡跟手，
-    // 松手后由样式表里的 transition 补完。
+    // 主页整列随展开进度**上移 + 轻微缩小**：上滑时主卡往上让位，
+    // 抽屉卡片在其下方逐张浮现 —— 像把一列卡片滚上去，而不是掀一张面板。
+    // ★ 缩小是为了景深：主页后退一层，抽屉那块玻璃底板才读得出"浮在上面"。
+    //   只上移不缩小的话，两层同速、同大小，看着就是同一列接着排下去。
+    // 拖动中关掉过渡跟手，松手后由样式表里的 transition 补完。
     homeShift() {
       if (this.editing) return {}
       const p = this.openProg
       if (p <= 0) return {}
       const s = {
-        transform: 'translateY(-' + (p * 18).toFixed(2) + 'vh)',
-        // 主页整列同步淡出：抽屉没有实体，若主页还亮着，收工按钮会和
-        // 抽屉底部的「编辑首页」叠在一起（真机视频里两行字摞一处）
-        opacity: String(1 - p)
+        transform: 'translateY(-' + (p * HOME_PARALLAX_VH).toFixed(2) + 'vh) scale(' +
+          (1 - p * HOME_DEPTH_SCALE).toFixed(4) + ')',
+        // 主页整列同步淡出：若主页还亮着，收工按钮会和抽屉底部的
+        // 「编辑首页」叠在一起（真机视频里两行字摞一处）
+        opacity: String(1 - p * 0.92)
       }
       if (this.dragging) s.transition = 'none'
       return s
@@ -1089,7 +1111,20 @@ export default {
       const r = this.$refs.drPanel
       const el = r && (r.offsetHeight ? r : (r && r.$el))
       const h = el && (el.offsetHeight || (el.$el && el.$el.offsetHeight))
-      return h || Math.round(this.winH * 0.76)
+      if (!h) {
+        // ★ 诊断：拿不到节点必须留痕。
+        //   这里一旦退回估算值（尤其 winH 也还是 0 时 → H=0 → dy/H 得 NaN），
+        //   拖动进度算不出来、内联 transform 收到 NaN 会被整个丢弃 ——
+        //   表现是"上滑完全没反应"，而控制台一声不吭，根本查不到是节点没拿到。
+        this.nodeMiss++
+        if (this.nodeMiss <= 3 || this.nodeMiss % 20 === 0) {
+          console.warn('[drawer] 拿不到面板节点，高度退回估算值',
+            'miss=' + this.nodeMiss, 'winH=' + this.winH, 'ref=' + (r ? 'has' : 'null'))
+        }
+      }
+      const H = h || Math.round(this.winH * 0.76)
+      // 兜底地板值：除以 0 会让进度变 NaN，动画等于没写上去
+      return H > 0 ? H : 480
     },
     /**
      * 主页整块上滑：不只是小把手。手指在内容区往上滑，抽屉面板跟着手指升起，
@@ -2895,9 +2930,10 @@ export default {
 .hc-foot-row { display: flex; align-items: baseline; justify-content: space-between; }
 
 /* ===== 底部"抽屉"：其余组件住在这儿 =====
-   它不是一张面板，也没有实体：上滑时主页整列上移让位，
-   这摞卡片按展开进度逐张淡入 + 升起（见 wrapStyle 的错拍）。
-   这层只是透明的点击承接层（开着时点空白处 = 收起），**不压暗整屏**。 */
+   上滑时主页整列上移并轻微缩小（后退一层），抽屉这块**玻璃底板**小幅上顶，
+   卡在底板上的卡片按展开进度逐张淡入 + 升起（见 wrapStyle 的错拍）——
+   两层不同速、不同大小，才有"抽屉压上来"的景深，而不是同一列接着排。
+   外层 .dr-mask 只是透明的点击承接层（开着时点空白处 = 收起），**不压暗整屏**。 */
 .dr-mask {
   position: fixed;
   left: 0;
@@ -2926,13 +2962,31 @@ export default {
   display: flex;
   flex-direction: column;
   padding: 0 24rpx;
-  /* 面板本身**不整体平移**：没有从屏下滑上来的实体 sheet，
-     卡片各自按展开进度浮现（wrapStyle 错拍），首页整列同时上移让位 */
+  /* ★ 层级感：整块玻璃底板（圆角 + 毛玻璃 + 上沿阴影）。
+     之前把它做成完全透明，结果抽屉卡片和主页卡片成了"同一层里接着排"，
+     读不出谁盖着谁。有这块底板，抽屉才明确浮在首页之上 ——
+     但它是**玻璃**不是实色 sheet：底下主页的余光还透得过来，
+     不会退回"一张白板压上来"的老观感。 */
+  border-radius: 40rpx 40rpx 0 0;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
+  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  box-shadow: 0 -16rpx 44rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.22);
+  border-top: 2rpx solid rgba(255, 255, 255, 0.55);   /* 玻璃上沿的高光边 */
+  /* 视差由 panelStyle 内联给（跟手时关过渡）；松手后靠这条补完 */
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.dr-panel.dragging {
+  transition: none;
 }
 /* 主页整列松手后的补完过渡：拖动中由 homeShift 内联关掉（跟手），
-   松手后交给这条，弹到终态 */
+   松手后交给这条，弹到终态。
+   ★ transform-origin 固定在上方偏中：主页后退时是"整体往里收"，
+     不是绕各自中心缩 —— 否则三张卡各自缩放，之间的间距会跟着乱跳。 */
 .hcards,
 .home-cta {
+  transform-origin: 50% 22%;
   transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
   will-change: transform;
 }

@@ -63,9 +63,14 @@
   .cta-btn{background:var(--brand);color:#fff;border:none;border-radius:14px;padding:13px 26px;font-size:15px;font-weight:600}
   .cta-tip{display:block;font-size:11px;color:var(--ink3);margin-top:7px}
 
-  /* "抽屉"（无实体）：不是一张滑上来的面板 —— 主页整列上移让位，
-     卡片各自按同一进度**逐张**淡入 + 升起（错拍 stagger） */
-  .drawer{position:absolute;left:0;right:0;bottom:0;height:80%;background:transparent;display:flex;flex-direction:column;padding:6px 14px 0}
+  /* "抽屉"：整块**玻璃底板**（圆角 + 毛玻璃 + 上沿阴影）——
+     没有它，抽屉卡片和主页卡片就成了"同一层里接着排"，读不出谁盖着谁。
+     它是玻璃不是实色白板：底下主页的余光还透得过来。
+     卡片再在底板上按同一进度**逐张**淡入 + 升起（错拍 stagger）。 */
+  .drawer{position:absolute;left:0;right:0;bottom:0;height:80%;display:flex;flex-direction:column;padding:6px 14px 0;
+    border-radius:22px 22px 0 0;background:rgba(255,255,255,.82);backdrop-filter:blur(10px) saturate(180%);
+    -webkit-backdrop-filter:blur(10px) saturate(180%);box-shadow:0 -10px 26px rgba(0,0,0,.22);
+    transform:translateY(0);transition:transform .34s cubic-bezier(.22,1,.36,1)}
   .dr-grip{display:flex;flex-direction:column;align-items:center;padding:6px 0 10px;opacity:0;transform:translateY(22px);animation:emerge .3s ease forwards}
   .dr-title{font-size:13px;color:var(--ink2);margin-top:6px;font-weight:600}
   .dr-body{flex:1;overflow:auto}
@@ -81,10 +86,14 @@
   .foot-btn{display:inline-block;background:var(--brand);color:#fff;border-radius:12px;padding:11px 28px;font-size:14px;font-weight:600}
   .foot-sub{display:block;font-size:11px;color:var(--ink3);margin-top:8px}
   @keyframes emerge{to{opacity:1;transform:translateY(0)}}
-  /* 主页整列：上滑时上移让位（跟手），主卡从正中升到顶部 */
-  .homecol{display:flex;flex-direction:column;flex:1;min-height:0;transition:transform .34s cubic-bezier(.22,1,.36,1)}
-  .homecol.mid{transform:translateY(-58px);transition:none}
-  .homecol.out{transform:translateY(-122px)}
+  /* 主页整列：上滑时**上移 + 轻微缩小**（景深：后退一层）。
+     只上移不缩小 = 两层同速同大小，看着还是同一列接着排。 */
+  .homecol{display:flex;flex-direction:column;flex:1;min-height:0;transform-origin:50% 22%;
+    transition:transform .34s cubic-bezier(.22,1,.36,1),opacity .3s ease}
+  .homecol.mid{transform:translateY(-84px) scale(.965);transition:none}
+  .homecol.out{transform:translateY(-160px) scale(.93)}
+  /* 底板自己的小幅视差：闭合时下沉一点，与主页大幅后退错开 */
+  .drawer.mid{transform:translateY(26px)}
   /* 上滑中（跟手态）：错拍进行到一半 —— 第一张卡刚探出头，后面的还在等 */
   .drawer.mid .dr-grip,.drawer.mid .mod,.drawer.mid .home-foot{animation:none}
   .drawer.mid .dr-grip{opacity:.6;transform:translateY(8px)}
@@ -110,7 +119,8 @@
     <ol>
       <li><b>主页三卡</b>：开始专注 / 今日任务 / 今日紧迫度，各一张、只一个焦点。</li>
       <li><b>整屏上滑 = 把一列卡片滚出来</b>：主页整列<strong>跟手上移让位</strong>，抽屉里的卡片按同一进度<strong>逐张淡入 + 升起</strong>（错拍 stagger），全程只动 opacity/transform。</li>
-      <li><b>抽屉没有实体</b>：不压暗整屏、没有滑上来的面板 —— 主卡和抽屉卡片本来就是<strong>同一列</strong>，滑到哪、哪张卡出头。</li>
+      <li><b>层级感 = 整块玻璃底板</b>：抽屉是一块<strong>毛玻璃底板</strong>（上方圆角 + 毛玻璃 + 上沿阴影），明确浮在首页之上；但它是玻璃不是实色白板，底下主页的余光还透得过来 —— 卡片就长在这块底板上。</li>
+      <li><b>视差 + 景深</b>：上滑时主页整列<strong>大幅上移并轻微缩小</strong>（后退一层），玻璃底板只<strong>小幅上顶</strong> —— 两层不同速、不同大小，才有"抽屉压上来"的层次，而不是同一列接着排。</li>
       <li><b>主页同步淡出</b>：抽屉展开时主页整列<strong>上移并淡出</strong>，收工按钮不再和抽屉底部的「编辑首页」叠字。</li>
       <li><b>怎么收回去</b>：① 按住抽屉顶部<strong>「全部组件」那一条往下拉</strong>（热区已放大到整条宽 × 约 60rpx 高），拉过面板一半松手；② 点抽屉之外的空白处（屏幕上半部分）；③ 编辑态下不收。</li>
     </ol>

@@ -156,7 +156,37 @@ const cases = [
       'if (this.panelDrag === null) { this.gripY = 0; return }')],
   // 主页不淡出：收工按钮与抽屉底部的「编辑首页」摞在一起
   ['主页不随抽屉淡出（收工与编辑首页重叠）',
-    s => s.replace('opacity: String(1 - p)', "opacity: String(1)")],
+    s => s.replace('opacity: String(1 - p * 0.92)', "opacity: String(1)")],
+
+  // ---- 9. 层级感：玻璃底板 / 视差 / 景深 / 节点诊断 ----
+  // 把玻璃底板的毛玻璃去掉：又变回"同一层里接着排"，读不出谁盖着谁
+  ['玻璃底板去掉毛玻璃（层次感没了）',
+    // ⚠️ 文件里有 3 处 backdrop-filter，直接按串替换会命中 2100 行那处（不是抽屉的）→ 假绿。
+    //    必须锚在 .dr-panel 块里删。
+    s => s.replace(/(\.dr-panel \{[\s\S]*?)-webkit-backdrop-filter:[^\n]*\r\n[^\n]*backdrop-filter:[^\n]*\r\n/, '$1')],
+  // 去掉上方圆角：抽屉与主页视觉上又连成一片
+  ['玻璃底板去掉圆角',
+    s => s.replace('  border-radius: 40rpx 40rpx 0 0;\r\n', '')],
+  // 去掉上沿阴影：底板"浮起来"的高度线索没了
+  ['玻璃底板去掉上沿阴影',
+    s => s.replace('  box-shadow: 0 -16rpx 44rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.22);\r\n', '')],
+  // 视差回到 18vh：位移太小，读不出"主页被顶上去"
+  ['上滑视差缩回 18vh（层次又没了）',
+    s => s.replace('const HOME_PARALLAX_VH = 26', 'const HOME_PARALLAX_VH = 18')],
+  // 去掉景深缩放：两层同速同大小 → 还是同一列接着排
+  ['主页不缩小（没有景深，两层同速）',
+    s => s.replace("'vh) scale(' +\r\n          (1 - p * HOME_DEPTH_SCALE).toFixed(4) + ')',", "'vh)',")],
+  // 面板自己不带视差：只有主页在动，抽屉变成"原地淡入"
+  ['面板视差去掉（抽屉原地淡入、不压上来）',
+    s => s.replace("        transform: 'translateY(' + ((1 - p) * PANEL_PARALLAX_PCT).toFixed(2) + '%)'\r\n", '')],
+  // 各自绕中心缩放：三张卡间距乱跳
+  ['主页不设统一 transform-origin（缩放各自为中心）',
+    s => s.replace('  transform-origin: 50% 22%;\r\n', '')],
+  // 拿不到节点不留痕：H=0 → NaN → 动画被丢弃，控制台一声不吭
+  ['拿不到节点不计数（诊断没了）',
+    s => s.replace('        this.nodeMiss++\r\n', '')],
+  ['面板高度没有地板值（除零 → NaN → 动画等于没写）',
+    s => s.replace('return H > 0 ? H : 480', 'return H')],
   // 方法被丢回顶层（methods 之外）：this.runReplanFlow is not a function
   ['runReplanFlow 掉回顶层（Vue 丢弃 → 不是一个函数）',
     s => s.replace('  onHide() {', '  async runReplanFlow() {}\r\n  onHide() {')],

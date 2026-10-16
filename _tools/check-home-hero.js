@@ -61,6 +61,17 @@ assert(/background:\s*transparent/.test(drMaskCss) && !/rgba\(/.test(drMaskCss),
 const drPanelCss = block(/\.dr-panel \{[\s\S]*?\n\}/);
 assert(drPanelCss !== '' && !/translateY\(100%\)/.test(drPanelCss),
   '面板不再整体滑入（卡片逐张浮现，替代实体 sheet）');
+// ★ 层级感：整块玻璃底板（圆角 + 毛玻璃 + 上沿阴影）。
+//   完全透明时抽屉卡片和主页卡片成了"同一层里接着排"，读不出谁盖着谁。
+assert(/border-radius:\s*40rpx 40rpx 0 0/.test(drPanelCss), '玻璃底板有上方圆角');
+assert(/backdrop-filter:\s*var\(--glass-lg/.test(drPanelCss), '玻璃底板有毛玻璃（不是实色白板）');
+assert(/box-shadow:\s*0 -16rpx 44rpx/.test(drPanelCss), '玻璃底板有上沿阴影（浮在上面的层次）');
+assert(/background:\s*rgba\(var\(--surface-rgb/.test(drPanelCss), '玻璃底板半透明（透得出底下的主页）');
+// 面板自身的视差：闭合时下沉、展开归零，和主页位移不同速
+const bPanelStyle = block(/panelStyle\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/PANEL_PARALLAX_PCT/.test(bPanelStyle) && /translateY/.test(bPanelStyle),
+  '面板自带小幅视差（与主页不同速 → 两层错开）');
+assert(/const PANEL_PARALLAX_PCT = 10/.test(home), '面板视差幅度常量存在');
 assert(/class="dr-panel"[^>]*ref="drPanel"[^>]*:style="panelStyle"/.test(home), '面板内联 --open 进度跟手');
 // 逐张错拍：wrapStyle 里按 openProg 算每张卡的淡入/升起（scroll-linked stagger）
 const bWrap = block(/wrapStyle\(i\)\s*\{[\s\S]*?\n    \}/);
@@ -92,9 +103,25 @@ assert(/class="hcards" :style="homeShift"/.test(home) && /class="home-cta" :styl
   '主页整列绑 homeShift（上滑时主卡上移让位）');
 const bShift = block(/homeShift\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/openProg/.test(bShift) && /translateY/.test(bShift), '上移量由展开进度驱动（跟手，非硬切）');
-// 主页必须随抽屉淡出：抽屉没有实体，主页还亮着的话收工按钮会和抽屉底部的
+// ★ 景深：主页整列轻微缩小形成后退一层。只上移不缩小 = 两层同速同大小，
+//   看着就是同一列接着排，没有抽屉压上来的层次。
+assert(/HOME_DEPTH_SCALE/.test(bShift) && /scale\(/.test(bShift), '主页整列随抽屉缩小（景深：后退一层）');
+assert(/const HOME_DEPTH_SCALE = 0\.07/.test(home), '景深缩放常量存在');
+// ★ 上滑视差要比原来 18vh 更大，否则位移太小读不出层次
+assert(/HOME_PARALLAX_VH/.test(bShift), '上移幅度走常量（不是散落的魔法数字）');
+assert(/const HOME_PARALLAX_VH = 26/.test(home), '上滑视差幅度 26vh（原先 18vh 太小）');
+// 缩放要以同一个原点收，否则三张卡各自缩放、间距乱跳
+assert(/transform-origin:\s*50% 22%/.test(home), '主页整列统一 transform-origin（不各自绕中心缩）');
+// 主页必须随抽屉淡出：主页还亮着的话收工按钮会和抽屉底部的
 // 「编辑首页」摞在一起（真机 2026-10-16 视频实锤）
-assert(/opacity: String\(1 - p\)/.test(bShift), '主页整列随抽屉展开淡出（不与抽屉底部按钮重叠）');
+assert(/opacity: String\(1 - p \* 0\.92\)/.test(bShift), '主页整列随抽屉展开淡出（不与抽屉底部按钮重叠）');
+// ★ 诊断：拿不到面板节点必须留痕。退回估算值（winH 也是 0 时 H=0 → dy/H = NaN）
+//   会让内联 transform 收到 NaN 被整个丢弃 —— 表现"上滑没反应"且控制台一声不吭。
+const bPanelH = block(/panelHpx\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.nodeMiss\+\+/.test(bPanelH), '量不到节点要计数（诊断）');
+assert(/console\.warn\(/.test(bPanelH) && /\[drawer\]/.test(bPanelH), '量不到节点要 console.warn 留痕');
+assert(/return H > 0 \? H : 480/.test(bPanelH), '高度有地板值（除零 → NaN → 动画等于没写）');
+assert(/nodeMiss: 0/.test(home), 'data 里有 nodeMiss 诊断计数');
 // ⚠️ 抽屉面板必须 border-box：width:100% + padding 在 content-box 下溢出右边缘，
 //    卡片整体向右偏、右边被屏幕裁掉一截
 assert(/box-sizing: border-box/.test(drPanelCss), '抽屉面板 border-box（避免 width100%+padding 溢出右边缘）');
