@@ -174,7 +174,7 @@
     ⚠️ 必须放在 .page-slide 之外 —— fixed 参照不能受切 tab 的滑动动画影响，
     否则抽屉会跟着页面一起滑走（记忆约束 3）。 -->
     <view class="dr-mask" :class="{ on: drawerOn }" :style="maskStyle" @tap="closeDrawer" @touchmove.stop.prevent="noop">
-      <view class="dr-panel" ref="drPanel" :style="panelStyle" @tap.stop>
+      <view class="dr-panel" ref="drPanel" :class="{ dragging: dragging }" :style="panelStyle" @tap.stop>
         <!-- 抽屉把手：往下拖 = 收起抽屉（去掉了装饰小横条，只留标题做抓手） -->
         <view
         class="dr-grip"
@@ -748,17 +748,28 @@ export default {
     restCount() {
       return this.restOrder.length
     },
-    // 拖动时跟着手指实时改遮罩透明度；null 时走 class（开=1 / 关=0 带过渡）
+    // 拖动时跟着手指实时改遮罩透明度（关掉过渡，避免和手指打架）；
+    // 松手后交回 class（开=1 / 关=0 带过渡）
     maskStyle() {
-      if (this.maskAlpha !== null) return { opacity: this.maskAlpha }
+      if (this.maskAlpha !== null) return { opacity: this.maskAlpha, transition: 'none' }
       return {}
     },
-    // 拖动中：内联 transform 跟手、关掉过渡；松手后交回 class 做弹性过渡
+    // 拖动中：内联 transform 跟手、关掉过渡；松手后交回 class 做弹性过渡。
+    // 同时把"展开进度" open 作为 CSS 变量传给面板，卡片靠它做淡入 + 升起。
     panelStyle() {
+      const s = { '--open': String(this.openProg) }
       if (this.panelDrag !== null) {
-        return { transform: 'translateY(' + this.panelDrag + '%)', transition: 'none' }
+        s.transform = 'translateY(' + this.panelDrag + '%)'
+        s.transition = 'none'
       }
-      return {}
+      return s
+    },
+    // 抽屉"展开进度"：0=全关（卡片不可见、略下沉），1=全开（完全显现）。
+    // 拖动时跟手（由 panelDrag 实时换算），松手后由 drawerOn 决定终态，
+    // 让卡片的淡入与面板的升起被同一个进度串起来，首页上滑和抽屉不再割裂。
+    openProg() {
+      if (this.panelDrag !== null) return Math.max(0, Math.min(1, 1 - this.panelDrag / 100))
+      return this.drawerOn ? 1 : 0
     },
     /**
      * 主页任务卡只列最该做的三条 —— 第一行永远是主任务
@@ -2890,21 +2901,32 @@ export default {
   height: 76vh;
   display: flex;
   flex-direction: column;
-  border-radius: 32rpx 32rpx 0 0;
   padding: 0 24rpx;
-  background: #ffffff;
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.96);
-  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  box-shadow: 0 -12rpx 40rpx rgba(23, 32, 26, 0.18);
-  box-shadow: 0 -12rpx 40rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.18);
-  /* 关=在屏幕下方；开=归位。只动 transform（GPU 合成），松手有弹性过渡 */
+  /* 抽屉"没有实体"：去掉实心底色 / 圆角 / 阴影 / 毛玻璃 —— 它不再是一张白 sheet
+     突兀地滑上来，而是一层透明容器，里面那摞卡片各自带表面，直接浮在首页之上，
+     从底部淡入升起。只动 transform（GPU 合成），松手有弹性过渡 */
   transform: translateY(100%);
   transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 .dr-mask.on .dr-panel {
   transform: translateY(0);
+}
+/* 抽屉内容随"展开进度" --open 淡入 + 升起：open=0 时不可见且略下沉，
+   open=1 时完全显现。--open 由手势进度实时驱动（拖动时跟手、松手由过渡补完），
+   把"首页上滑"和"抽屉展开"串成同一段动画，消除割裂感。
+   卡片用 :not(.is-editing) 排除编辑态，避免和排序拖动打架。 */
+.dr-grip,
+.mod-wrap:not(.is-editing),
+.home-foot {
+  opacity: var(--open, 0);
+  transform: translateY(calc((1 - var(--open, 0)) * 28rpx));
+  transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dr-panel.dragging .dr-grip,
+.dr-panel.dragging .mod-wrap:not(.is-editing),
+.dr-panel.dragging .home-foot {
+  transition: none;
 }
 /* 抽屉把手：往下拖 = 收起（touch-action 禁掉滚动手势，拖动时页面不跟着走） */
 .dr-grip {
