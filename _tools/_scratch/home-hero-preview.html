@@ -32,6 +32,17 @@
   .hc-time{font-size:22px;font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums}
   .hc-go{margin-top:12px;background:var(--brand);color:#fff;border:none;border-radius:12px;padding:11px;width:100%;font-size:14px;font-weight:600}
 
+  /* 主页聚焦：开始专注居中，周边两张淡化退到上下边缘 */
+  .screen.home{display:flex;flex-direction:column}
+  .hcards{display:flex;flex-direction:column;flex:1;justify-content:center;gap:14px;min-height:0}
+  .hcard.focus{display:flex;flex-direction:column;align-items:center;text-align:center;padding:24px 16px}
+  .hcard.focus .hc-ring{width:86px;height:86px;border-width:6px;margin:0 0 16px}
+  .hcard.focus .hc-ring-num{font-size:28px}
+  .hcard.focus .hc-go{margin:18px 0 4px;width:180px;height:52px;font-size:17px;background:var(--brand);color:#fff;border:none;border-radius:14px}
+  .hcard.focus .hc-title{margin-top:6px;font-size:15px;color:var(--ink2)}
+  .hcard.focus .hc-sub{font-size:12px;margin-top:3px}
+  .hcard.faded{opacity:.58;transform:scale(.96);transform-origin:center}
+
   .hc-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
   .hc-head .t{font-size:15px;font-weight:600}
   .hc-count{font-size:12px;color:var(--ink2)}
@@ -81,7 +92,7 @@
   <div class="cap">
     <span class="tag">抽屉式分层 · 1.3.3</span>
     <h2>首页只留「今天」</h2>
-    <p>主页常驻三张<strong>精简适配卡</strong>，每张只突出一个焦点；其余组件平时<strong>完全不渲染</strong>，上滑才拉出抽屉。</p>
+    <p>主页常驻三张<strong>精简适配卡</strong>，每张只突出一个焦点；<strong>开始专注居中放大</strong>做整屏唯一视觉中心，任务 / 紧迫度两张<strong>淡化退到上下边缘</strong>；其余组件平时<strong>完全不渲染</strong>，上滑才拉出抽屉。</p>
     <ol>
       <li><b>主页三卡</b>：开始专注 / 今日任务 / 今日紧迫度，各一张、只一个焦点。</li>
       <li><b>整屏上滑</b>：在主页内容区从下往上滑，抽屉面板<strong>跟手升起</strong>，拉过一半松手才开。</li>
@@ -89,43 +100,41 @@
     </ol>
   </div>
 
-  <!-- ① 默认第一屏 -->
+  <!-- ① 默认第一屏：开始专注居中，周边两张卡淡化退到上下边缘 -->
   <div class="phone">
-    <div class="screen">
+    <div class="screen home">
       <div class="statusbar"><span>9:41</span><span>●●● 5G ▮100%</span></div>
       <div class="navbar">
         <span class="nav-title">今天</span>
         <span class="nav-capsule"><span class="dot"></span>专注设置</span>
       </div>
 
-      <!-- ① 开始专注 -->
-      <div class="hcard">
-        <div class="hc-row">
-          <div class="hc-ring"><span class="hc-ring-num">75</span><span class="hc-ring-unit">分钟</span></div>
-          <div class="hc-body">
-            <div class="hc-title">开始专注</div>
-            <div class="hc-sub">先看清时长与设置</div>
+      <div class="hcards">
+        <!-- ② 今日任务（淡化，退到顶部） -->
+        <div class="hcard faded">
+          <div class="hc-head"><span class="t">今日任务</span><span class="hc-count">2/5</span></div>
+          <div class="hc-bar"><div class="hc-fill"></div></div>
+          <div style="margin-top:10px">
+            <div class="hc-task"><span class="lead"></span>英语阅读 Chapter 4</div>
+            <div class="hc-task"><span class="lead"></span>数学 错题复盘</div>
+            <div class="hc-more">查看其余 3 项 ›</div>
           </div>
         </div>
-        <button class="hc-go">开始</button>
-      </div>
 
-      <!-- ② 今日任务 -->
-      <div class="hcard">
-        <div class="hc-head"><span class="t">今日任务</span><span class="hc-count">2/5</span></div>
-        <div class="hc-bar"><div class="hc-fill"></div></div>
-        <div style="margin-top:10px">
-          <div class="hc-task"><span class="lead"></span>英语阅读 Chapter 4</div>
-          <div class="hc-task"><span class="lead"></span>数学 错题复盘</div>
-          <div class="hc-more">查看其余 3 项 ›</div>
+        <!-- ① 开始专注（居中焦点） -->
+        <div class="hcard focus">
+          <div class="hc-ring"><span class="hc-ring-num">75</span><span class="hc-ring-unit">分钟</span></div>
+          <button class="hc-go">开始</button>
+          <div class="hc-title">先看清时长与设置</div>
+          <div class="hc-sub">今天先做这个</div>
         </div>
-      </div>
 
-      <!-- ③ 今日紧迫度 -->
-      <div class="hcard">
-        <div class="hc-head"><span class="t">今日紧迫度</span><span class="hc-lv">偏紧</span></div>
-        <div class="hc-axis"><div class="hc-axis-need"></div></div>
-        <div class="hc-foot-row"><span>还剩 3 段专注</span><span>还要 120 分钟</span></div>
+        <!-- ③ 今日紧迫度（淡化，退到底部） -->
+        <div class="hcard faded">
+          <div class="hc-head"><span class="t">今日紧迫度</span><span class="hc-lv">偏紧</span></div>
+          <div class="hc-axis"><div class="hc-axis-need"></div></div>
+          <div class="hc-foot-row"><span>还剩 3 段专注</span><span>还要 120 分钟</span></div>
+        </div>
       </div>
 
       <!-- 收工留在主页底部 -->

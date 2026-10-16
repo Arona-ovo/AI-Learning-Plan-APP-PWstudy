@@ -85,22 +85,21 @@
       <view class="hcards">
         <block v-for="id in homeOrder" :key="id">
 
-          <!-- ① 开始专注 —— 这一屏的焦点只有这一颗键 -->
+          <!-- ① 开始专注 —— 这一屏唯一的视觉中心：竖向居中（环 + 开始键 + 极简上下文），
+               借 .hcards 的弹性空间用上下 auto margin 推到视口正中；
+               周边两张卡（任务 / 紧迫度）各自退到上下边缘并淡化，整屏只剩中心一处焦点 -->
           <view v-if="id === 'focus'" class="card hcard focus-card" hover-class="hcard-press" @tap="goFocus()">
             <view class="hc-ring" :class="{ 'hc-ring-run': running }">
               <text class="hc-ring-num">{{ todayMin }}</text>
               <text class="hc-ring-unit">{{ $t('分钟') }}</text>
             </view>
-            <view class="hc-body">
-              <text class="hc-title">{{ focusTitle }}</text>
-              <text class="hc-sub">{{ focusLead }}</text>
-              <!-- 跑着的时候顺手给个读数：不进专注页也知道还剩多久。
-                   ⚠️ 必须走 lockTime 而不是直接吃 remainSec —— 正计时段
-                   remainSec 恒为 0，直接渲染会一直卡在 00:00，看着像计时坏了
-                   （check-overrun 第 6 节守着这条）。 -->
-              <text v-if="running" class="hc-time">{{ lockTime }}</text>
-            </view>
             <view class="hc-go" @tap.stop="quickStart()">{{ running ? $t('继续') : $t('开始') }}</view>
+            <text class="hc-title">{{ focusTitle }}</text>
+            <text class="hc-sub">{{ focusLead }}</text>
+            <!-- 跑着的时候顺手给个读数：必须走 lockTime 而非 remainSec —— 正计时段
+                 remainSec 恒为 0，直接渲染会一直卡在 00:00，看着像计时坏了
+                 （check-overrun 第 6 节守着这条）。 -->
+            <text v-if="running" class="hc-time">{{ lockTime }}</text>
           </view>
 
           <!-- ② 今日任务 —— 焦点是"下一条做什么"，只列最该做的三条 -->
@@ -1911,6 +1910,20 @@ export default {
 .home-slide > .card { margin-bottom: 20rpx; }
 .home-slide > .card:last-child { margin-bottom: 0; }
 
+/* ===== 主页聚焦布局：开始专注居中，周边淡化 =====
+   根容器 .page-nav 顶部占掉 (状态栏 + 136rpx)，.page-tabbar 底部占掉
+   (220rpx + 安全区)；这里撑起剩下的全部可视高度做成 flex 列，
+   「开始专注」靠上下 auto margin 推到正中，任务 / 紧迫度退到底部并淡化
+   （见 .hcard.task-card / .urg-card），收工压在最底 —— 视觉焦点只剩一处。 */
+.home-slide {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  /* 与 .page-nav / .page-tabbar 的占位口径一致（两行写法兜底不支持 env 的端） */
+  min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px));
+  min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px) - env(safe-area-inset-bottom));
+}
+
 
 /* 正在拖的那张：抬起来一点 + 加投影，跟底下静止的卡分开 */
 .mod-wrap.is-drag {
@@ -2654,7 +2667,7 @@ export default {
    ① 开始专注：焦点只有那颗键
    ② 今日任务：焦点是"下一条做什么"，只列三条
    ③ 今日紧迫度：焦点是"还剩多久"，一条时间轴说完 */
-.hcards { display: flex; flex-direction: column; gap: 20rpx; }
+.hcards { display: flex; flex-direction: column; gap: 20rpx; flex: 1 1 auto; min-height: 0; }
 .hcard {
   padding: 30rpx 28rpx;
   display: flex;
@@ -2662,7 +2675,37 @@ export default {
 }
 .hcard-press { opacity: 0.86; }
 
-/* ① 开始专注：左边环是今日累计，右边那颗键是唯一的落点 */
+/* ① 开始专注：在 .hcards 里用上下 auto margin 推到正中；竖向居中排布，做整屏唯一视觉中心。
+     周边两张卡（任务 / 紧迫度）各自退到上下边缘并淡化，不抢"开始专注"的焦点 */
+.hcard.focus-card {
+  flex: 0 0 auto;
+  margin: auto 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40rpx 32rpx;
+}
+.hcard.focus-card .hc-ring { width: 168rpx; height: 168rpx; margin: 0 0 24rpx; }
+.hcard.focus-card .hc-ring-num { font-size: 46rpx; }
+.hcard.focus-card .hc-go {
+  margin: 28rpx 0 4rpx;
+  width: 248rpx;
+  height: 86rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.hcard.focus-card .hc-title { margin-top: 12rpx; }
+.hcard.focus-card .hc-time { margin-top: 10rpx; }
+/* 周边两张：退到上下边缘并淡化，强化"中心聚焦"的视觉关系 */
+.hcard.task-card,
+.hcard.urg-card {
+  flex: 0 0 auto;
+  opacity: 0.74;
+  transform: scale(0.97);
+  transform-origin: center;
+}
+
+/* ① 开始专注：环是今日累计读数；在 .focus-card 里被放大并居中（见上文 .hcard.focus-card） */
 .hc-ring {
   width: 132rpx;
   height: 132rpx;
