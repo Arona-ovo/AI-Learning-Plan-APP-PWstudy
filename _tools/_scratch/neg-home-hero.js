@@ -113,7 +113,18 @@ const cases = [
   // ---- 7. 起表仍然只能从准备页进 ----
   ['主按钮直接起表（带 auto=1）',
     s => s.replace("uni.navigateTo({ url: this.focusUrl() })",
-      "uni.navigateTo({ url: this.focusUrl() + '&auto=1' })")]
+      "uni.navigateTo({ url: this.focusUrl() + '&auto=1' })")],
+
+  // ---- 3b. 主页整块上滑拉抽屉 ----
+  // 把内容区的上滑绑定撤掉：用户又在主页上滑没反应（只靠那个小把手太难够）
+  ['主页上滑手势从内容区移除（用户上滑又没反应）',
+    s => s.replace(
+      '@touchstart="homeSwipeStart" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd"',
+      '@touchstart="noop" @touchend="noop"')],
+  // 守卫改成"永远不拦"：抽屉已开 / 编辑 / 计时中时上滑也会乱开
+  ['上滑手势守卫失效（抽屉开着还往上滑就重叠）',
+    s => s.replace('if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; return }',
+      'if (false) { this.swipeY0 = 0; return }')]
 ];
 
 let bad = 0;

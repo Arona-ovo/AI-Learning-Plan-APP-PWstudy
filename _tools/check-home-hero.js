@@ -65,6 +65,16 @@ const bPeekMove = block(/peekMove\(e\)\s*\{[\s\S]*?\n    \}/);
 assert(/this\.peekY - y > 32/.test(bPeekMove), '上滑开抽屉阈值 32px（免得随便一碰就开）');
 assert(/v-if="!drawerOn && restCount"/.test(home), '抽屉开着时把手让位（不叠在面板上）');
 
+console.log('== 3b. 主页整块也能上滑拉抽屉（不只小把手）==');
+assert(/@touchstart="homeSwipeStart"/.test(home) && /@touchend="homeSwipeEnd"/.test(home),
+  '主页内容区绑了上滑手势（用户在主页上滑就该拉开抽屉）');
+const bSwipe = block(/homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
+assert(/if \(this\.drawerOn \|\| this\.editing \|\| this\.locked\)/.test(bSwipe),
+  '抽屉已开 / 编辑 / 计时中时上滑不响应');
+assert(/if \(!this\.restCount\)/.test(bSwipe), '没有其余组件可展示时不空开抽屉');
+assert(/dy > 56/.test(bSwipe) && /startY > this\.winH \* 0\.55/.test(bSwipe),
+  '下半屏起手 + 上滑够长才开（不和顶部滚动 / 卡片轻点打架）');
+
 console.log('== 4. 再往下滑才有编辑 ==');
 assert(at('class="mod-list"') > 0 && at('class="home-foot"') > at('class="mod-list"'),
   '编辑入口排在卡片列表之后');

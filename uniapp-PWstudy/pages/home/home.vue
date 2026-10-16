@@ -10,7 +10,8 @@
   >
     <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="forcedOn || blockNotifOn || autoRestOn" @open-focus="toggleFocusSheet" />
 
-    <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
+    <view class="page-slide home-slide" :class="slideCls" :style="slideStyle"
+      @touchstart="homeSwipeStart" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd">
 
       <!-- ===== 专注进行中：首页被"硬控"，只剩倒计时 =====
            计时一旦开始，首页不再显示任务列表 / 目标 / Dock 这些会让人分心的东西；
@@ -621,6 +622,11 @@ export default {
       drawerOn: false,    // 抽屉是否拉出
       peekY: 0,           // 把手上的手势起点（上滑开 / 下拉关）
       gripY: 0,           // 抽屉内把手的手势起点（往下拉 = 收起）
+      // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
+      // 只记起点，touchend 时再算位移，避免 touchmove 和页面滚动打架。
+      swipeX0: 0,
+      swipeY0: 0,
+      winH: 667,          // 视口高度（onShow 实测），用来判定"下半屏起手"的上滑
       // ---------- 首页编辑（顺序 / 收纳 / 拖拽）----------
       // editing 是唯一开关：进编辑态才显示把手、遮罩、底部两个按钮
       editing: false,
@@ -817,6 +823,8 @@ export default {
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
+    // 实测一次视口高度：主页上滑拉抽屉要判定"下半屏起手"，免得和顶部滚动打架
+    try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
     this.refresh()
     this.startTick()
     // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
@@ -1072,6 +1080,33 @@ export default {
     },
     peekEnd() {
       this.peekY = 0
+    },
+    /**
+     * 主页整块的上滑手势（不只小把手）：用户在主页内容区往上滑就该拉开抽屉。
+     * 只记起点，touchend 时再算位移 —— 这样不会和页面滚动抢 touchmove，也不会误触卡片的 tap。
+     * 判定"下半屏起手 + 明显竖向上滑"才开：顶部往下滚不算，卡片轻点（位移≈0）也不算。
+     */
+    homeSwipeStart(e) {
+      const t = (e && e.touches && e.touches[0]) || null
+      this.swipeX0 = t ? t.clientX : 0
+      this.swipeY0 = t ? t.clientY : 0
+    },
+    homeSwipeEnd(e) {
+      if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; return }
+      // 没有"其余组件"可展示时不开（开出来是空的，反而像坏了）
+      if (!this.restCount) { this.swipeY0 = 0; return }
+      const startY = this.swipeY0
+      if (!startY) return
+      const t = (e && e.changedTouches && e.changedTouches[0]) ||
+                (e && e.touches && e.touches[0]) || null
+      if (!t) { this.swipeY0 = 0; return }
+      const dy = startY - t.clientY   // 上滑为正
+      const dx = Math.abs((this.swipeX0 || 0) - t.clientX)
+      this.swipeY0 = 0
+      // 下半屏起手（startY > 视口 55%）+ 上滑够长（>56px）+ 明显竖向（横向 < 竖向 0.6 倍）
+      if (dy > 56 && dx < dy * 0.6 && startY > this.winH * 0.55) {
+        this.openDrawer()
+      }
     },
     /** 抽屉里那道把手：往下拉 = 收起抽屉（阈值放宽到 48px，滚列表时不会误关） */
     gripStart(e) {
