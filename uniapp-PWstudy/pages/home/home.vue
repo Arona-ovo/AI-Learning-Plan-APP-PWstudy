@@ -1144,7 +1144,17 @@ export default {
     measurePanel(tryN) {
       const n = tryN || 0
       if (n > 6) return
-      const q = uni.createSelectorQuery().in(this)
+      // ★ H5 开发态（KeepAlive + onShow 早于 $el 就绪）下 uni.createSelectorQuery().in(this)
+      //   内部会访问 this.$el.parentElement，而此刻 $el 还是 null → 同步抛
+      //   "Cannot read property 'parentElement' of null"。App 真机从不触发，但 H5 会。
+      //   兜底：先 try 带作用域的查询；抛了就退回全局查询（H5 下 .dr-panel 本就唯一）；
+      //   拿不到高度时沿用原退拍重试逻辑（多为还没布局完）。
+      let q
+      try {
+        q = uni.createSelectorQuery().in(this)
+      } catch (e) {
+        q = uni.createSelectorQuery()
+      }
       q.select('.dr-panel').boundingClientRect()
       q.exec((res) => {
         const r = res && res[0]

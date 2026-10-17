@@ -351,20 +351,30 @@ function applyBackground(key, image, mask, blur, dark) {
   }
 
   // 原生窗体底色 + 状态栏文字颜色（App 端 overscroll / 状态栏不会跟着 CSS 变）
+  // ★ H5 没有原生导航栏/窗体，这两个调用必 fail（"page not found"），纯属噪音。
+  //   运行时判 H5：uni.getSystemInfoSync().platform === 'h5'；不用 process.env.UNI_PLATFORM，
+  //   否则护栏沙箱 vm 里 process 未注入会抛 ReferenceError。
   const nativeBg = image ? (dark ? DARK_BG : LIGHT_BG) : bg.solid;
+  let isH5 = false;
   try {
-    if (typeof uni !== 'undefined' && uni && typeof uni.setBackgroundColor === 'function') {
-      uni.setBackgroundColor({ backgroundColor: nativeBg, backgroundColorTop: nativeBg, backgroundColorBottom: nativeBg });
+    isH5 = typeof uni !== 'undefined' && uni && uni.getSystemInfoSync &&
+           uni.getSystemInfoSync().platform === 'h5';
+  } catch (e) { isH5 = false; }
+  if (!isH5) {
+    try {
+      if (typeof uni !== 'undefined' && uni && typeof uni.setBackgroundColor === 'function') {
+        uni.setBackgroundColor({ backgroundColor: nativeBg, backgroundColorTop: nativeBg, backgroundColorBottom: nativeBg });
+      }
+    } catch (e) {
+      /* 部分端不支持，忽略 */
     }
-  } catch (e) {
-    /* 部分端不支持，忽略 */
-  }
-  try {
-    if (typeof uni !== 'undefined' && uni && typeof uni.setNavigationBarColor === 'function') {
-      uni.setNavigationBarColor({ frontColor: dark ? '#ffffff' : '#000000', backgroundColor: nativeBg });
+    try {
+      if (typeof uni !== 'undefined' && uni && typeof uni.setNavigationBarColor === 'function') {
+        uni.setNavigationBarColor({ frontColor: dark ? '#ffffff' : '#000000', backgroundColor: nativeBg });
+      }
+    } catch (e) {
+      /* 部分端不支持，忽略 */
     }
-  } catch (e) {
-    /* 部分端不支持，忽略 */
   }
   return bg;
 }
