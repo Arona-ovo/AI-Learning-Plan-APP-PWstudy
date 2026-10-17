@@ -2173,6 +2173,11 @@ export default {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  /* ★ 上滑拉抽屉的手势宿主：必须禁掉浏览器默认触摸平移，否则安卓 webview 把"从下往上滑"
+       当成页面滚动/橡皮筋吞掉（且 touchmove 多为 passive，preventDefault 被忽略），
+       自定义上滑手势接管不了 → 抽屉拉不开。主页内容本就按视口高度排（min-height 已扣掉状态栏/导航/底栏），
+       不需要原生纵向滚动，禁掉安全。 */
+  touch-action: none;
   /* 与 .page-nav / .page-tabbar 的占位口径一致（两行写法兜底不支持 env 的端） */
   min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px));
   min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px) - env(safe-area-inset-bottom));

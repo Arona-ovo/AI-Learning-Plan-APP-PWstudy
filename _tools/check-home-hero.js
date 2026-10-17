@@ -131,6 +131,10 @@ assert(!/class="dr-peek"/.test(home), '主页底部常驻把手（小横条）�
 console.log('== 3b. 主页整块上滑跟手拉抽屉（不只小把手）==');
 assert(/@touchstart="homeSwipeStart"/.test(home) && /@touchmove="homeSwipeMove"/.test(home) && /@touchend="homeSwipeEnd"/.test(home),
   '主页内容区绑了上滑手势（跟手升起）');
+// ★ 承载上滑手势的元素必须禁掉浏览器默认平移：否则安卓 webview 把"从下往上滑"当成页面滚动/橡皮筋吞掉
+//   （touchmove 多为 passive，preventDefault 被忽略），自定义上滑接管不了 → 抽屉拉不开（2026-10-17 真机实锤）。
+const bSlideCss = block(/\.home-slide \{[\s\S]*?\n\}/);
+assert(/touch-action:\s*none/.test(bSlideCss), '主页上滑宿主 .home-slide 有 touch-action:none（安卓不被浏览器抢滚动）');
 assert(/homeSwipeMove\(e\)/.test(home) && /this\.panelDrag = 100/.test(home), '上滑进入拖动（panelDrag=100 起手、面板跟手升起）');
 // 首页与抽屉连贯：主页整列随同一进度上移让位（主卡升起、卡片从其下方浮现）
 assert(/class="hcards" :style="homeShift"/.test(home) && /class="home-cta" :style="homeShift"/.test(home),
