@@ -261,5 +261,34 @@ console.log('== 8. 新文案都进了英文表 ==');
   '自由专注', '点这里先看清时长与设置', '休息中', '专注中'
 ].forEach(k => assert(en.indexOf("'" + k + "'") >= 0, 'i18n-en 含 key「' + k + '」'));
 
+console.log('== 9. 背单词 App 移植：hero-glass 模糊层 + 抽屉 Q 弹 ==');
+// hero-glass：主页撤退时把背景糊成一片（静止必须透明、背景高清；只过渡 opacity，不过渡 blur 半径）
+assert(/class="hero-glass"[^>]*:style="heroGlassStyle"/.test(home), 'hero-glass 层存在并绑定 heroGlassStyle');
+const hgCss = block(/\.hero-glass \{[\s\S]*?\n\}/);
+assert(/z-index: -1/.test(hgCss), 'hero-glass z-index:-1（压背景之上 / 主页之下，不被 opacity 祖先隔离）');
+assert(/transition: opacity 0\.16s ease/.test(hgCss), 'hero-glass 只过渡 opacity（160ms），不过渡 blur 半径');
+const bGlass = block(/heroGlassStyle\(\)\s*\{[\s\S]*?\n    \},/);
+assert(/if \(this\.editing \|\| p <= 0\) return \{ opacity: '0' \}/.test(bGlass), '静止 / 编辑态 hero-glass 透明（背景必须高清）');
+assert(/const blur = \[6, 12, 18, 20\]\[tier - 1\]/.test(bGlass), 'hero-glass 五档模糊（不过渡半径）');
+assert(/backdropFilter: 'blur\(/.test(bGlass), 'hero-glass 走 backdrop-filter 而非实色垫片');
+assert(/webkitBackdropFilter/.test(bGlass), 'hero-glass 带 -webkit- 前缀（App 端 webview 兼容）');
+assert(/const tint = tier >= 4 \? 0\.12 : 0/.test(bGlass), '拉满那档才给一点实体色，平时纯靠模糊');
+// 抽屉"丢上来"的 Q 弹：dr-throw 包 dr-panel，pop-a/pop-b 交替重触发
+assert(/<view class="dr-throw" :class="popCls">/.test(home), 'dr-throw 包裹层存在（动画不冲掉面板跟手位移）');
+const bPopCls = block(/popCls\(\)\s*\{[\s\S]*?\n    \},/);
+assert(/return this\.popSeq % 2 \? 'pop-b' : 'pop-a'/.test(bPopCls), 'popCls 按奇偶交替 pop-a/pop-b 重触发');
+const bPlayPop = block(/playPop\(\)\s*\{[\s\S]*?\n    \},/);
+assert(/this\.popSeq\+\+/.test(bPlayPop) && /this\.popOn = false/.test(bPlayPop) && /this\.popOn = true/.test(bPlayPop),
+  'playPop 先关后开 + 自增序号以重触发');
+assert(/if \(this\.editing\) return/.test(bPlayPop), '编辑态打开不弹（编辑有自己的过渡）');
+const bWatch = block(/watch: \{[\s\S]*?\n  \},/);
+assert(/drawerOn\(n, o\)\s*\{[\s\S]*?this\.playPop\(\)/.test(bWatch), 'drawerOn false→true 监听统一触发 Q 弹');
+const popKeyA = block(/@keyframes sheet-pop-a \{[\s\S]*?\n\}/);
+assert(/26%.*translateY\(-16rpx\) scale\(1\.026\)/.test(popKeyA), 'sheet-pop 冲过头 -16rpx/1.026');
+assert(/54%.*translateY\(5rpx\) scale\(0\.995\)/.test(popKeyA), 'sheet-pop 回落 +5rpx/0.995');
+assert(/78%.*translateY\(-2rpx\) scale\(1\.003\)/.test(popKeyA), 'sheet-pop 二段余震 -2rpx');
+const popKeyB = block(/@keyframes sheet-pop-b \{[\s\S]*?\n\}/);
+assert(popKeyB !== '' && /translateY\(-16rpx\) scale\(1\.026\)/.test(popKeyB), 'sheet-pop-b 与 a 内容一致（交替挂用）');
+
 console.log(fail ? '\n首页分层校验失败 ' + fail + ' 项 ✗' : '\n首页分层校验全部通过 ✓');
 process.exit(fail ? 1 : 0);

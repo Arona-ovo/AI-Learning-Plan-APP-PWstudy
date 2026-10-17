@@ -238,6 +238,32 @@ const cases = [
   ['buzzDrawer 丢了 catch（老包没权限时直接抛异常打断开抽屉）',
     s => s.replace("try { haptic.tick('drawer') } catch (e) { console.warn('[home] haptic tick failed:', e) }",
       "haptic.tick('drawer')")],
+
+  // ---- 11. 背单词 App 移植：hero-glass 模糊层 + 抽屉 Q 弹 ----
+  // 撤掉 hero-glass 的 heroGlassStyle 绑定：静止时背景不再受控（退化为纯透明层，没模糊）
+  ['hero-glass 不绑 heroGlassStyle（模糊层失控）',
+    s => s.replace('class="hero-glass" :style="heroGlassStyle"', 'class="hero-glass"')],
+  // 去掉 z-index:-1：hero-glass 会盖到主页内容之上（层次反了）
+  ['hero-glass 不设 z-index:-1（盖到主页之上）',
+    s => s.replace(/(\.hero-glass \{[\s\S]*?)  z-index: -1;\r\n/, '$1')],
+  // 静止 / 编辑态不再透明：背景永远被糊（失去"静止必须高清"约定）
+  ['hero-glass 静止不透明（永远糊背景）',
+    s => s.replace("if (this.editing || p <= 0) return { opacity: '0' }", "if (this.editing) return { opacity: '0' }")],
+  // 不走 backdrop-filter：改成普通 filter，失去"玻璃"质感且可能无模糊
+  ['hero-glass 不用 backdrop-filter（退化成 filter）',
+    s => s.replace("backdropFilter: 'blur(", "filter: 'blur(")],
+  // dr-throw 改掉 class：Q 弹不再挂在抽屉外层面（动画会冲掉面板跟手位移）
+  ['dr-throw 改名（Q 弹挂错层）',
+    s => s.replace('class="dr-throw" :class="popCls"', 'class="dr-throw-x" :class="popCls"')],
+  // popCls 不再交替：同名动画摘了再戴被合并 → 第二次不播（假弹）
+  ['popCls 不交替（第二次不弹）',
+    s => s.replace("return this.popSeq % 2 ? 'pop-b' : 'pop-a'", "return 'pop-a'")],
+  // sheet-pop-a 过冲幅度砍没：Q 弹变成纯缩放、没有"丢上来"的冲劲
+  ['sheet-pop-a 过冲砍没（没有丢上来的冲劲）',
+    s => s.replace(/@keyframes sheet-pop-a \{[\s\S]*?\r\n\}/, '')],
+  // drawerOn 监听不再触发 playPop：打开抽屉不弹
+  ['drawerOn 监听不触发 Q 弹',
+    s => s.replace('if (n && !o) this.playPop()', 'if (n && !o) {}')],
 ];
 
 let bad = 0;

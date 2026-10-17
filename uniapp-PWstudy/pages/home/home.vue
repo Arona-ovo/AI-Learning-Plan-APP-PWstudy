@@ -8,6 +8,14 @@
     @touchend="onSlideEnd"
     @touchcancel="onSlideEnd"
   >
+    <!-- ===== 主页撤退时的"毛玻璃"层（背单词 App 的 hero-glass 等价物） =====
+         上滑时整张主页后退、淡出，这层在它背后把**背景**糊成一片 ——
+         静止（openProg=0）时 opacity:0，背景必须是高清原图；只有"动起来"才糊。
+         ⚠️ 必须是 .page-slide / 带 opacity 的祖先之外、且自身不做 opacity 祖先：
+         一旦某一层成了 backdrop root，子级的 backdrop-filter 只能糊到那一层内部。
+         这里挂在 .container 下、自身 opacity 由内联单独控制，安全。 -->
+    <view class="hero-glass" :style="heroGlassStyle"></view>
+
     <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="forcedOn || blockNotifOn || autoRestOn" @open-focus="toggleFocusSheet" />
 
     <view class="page-slide home-slide" :class="slideCls" :style="slideStyle"
@@ -178,6 +186,10 @@
     ⚠️ 必须放在 .page-slide 之外 —— fixed 参照不能受切 tab 的滑动动画影响，
     否则抽屉会跟着页面一起滑走（记忆约束 3）。 -->
     <view class="dr-mask" :class="{ on: drawerOn }" @tap="closeDrawer" @touchmove.stop.prevent="noop">
+      <!-- 抽屉"丢上来"的 Q 弹层：抽屉到位时 .dr-throw 播一次 sheet-pop 过冲动画。
+           ⚠️ 必须挂在 .dr-panel 外层：动画的优先级高于内联 transform，直接挂面板上
+           会把 panelStyle 跟手的内联位移冲掉。父子相乘，互不打扰（背单词 App 同款做法）。 -->
+      <view class="dr-throw" :class="popCls">
       <view class="dr-panel" ref="drPanel" :class="{ dragging: dragging }" :style="panelStyle" @tap.stop>
         <!-- 抽屉把手：往下拖 = 收起抽屉（去掉了装饰小横条，只留标题做抓手） -->
         <view
@@ -445,6 +457,7 @@
           </view>
         </scroll-view>
       </view>
+      </view>
     </view>
 
     <!-- 统一弹窗（.pop-mask 是 fixed，必须放在 .page-slide 之外） -->
@@ -643,6 +656,9 @@ export default {
       // 抽屉拖动：panelDrag = 展开进度的反向百分比（0=全开，100=全关），null=未拖动
       panelDrag: null,
       dragging: false,
+      // Q 弹（sheet-pop）触发状态：popOn 控制播不播、popSeq 奇偶交替挂 pop-a/pop-b 以重触发
+      popOn: false,
+      popSeq: 0,
       gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
       bodyTop: 0,          // 抽屉内容区的滚动位置（滚到顶再往下拉 = 收抽屉）
       dragVy: 0,           // 手指竖向速度 px/ms（收起支持"快速一甩"）
@@ -810,6 +826,38 @@ export default {
       if (this.panelDrag !== null) return Math.max(0, Math.min(1, 1 - this.panelDrag / 100))
       return this.drawerOn ? 1 : 0
     },
+    /**
+     * 主页撤退时的"毛玻璃"层（背单词 App 的 hero-glass 等价物）——
+     * 上滑时整张主页后退、淡出，这层在它背后把**背景**糊成一片，让"主页在失焦退场"看得见。
+     * 对照背单词 App 的五档：静止（p=0）必须透明、背景高清；随进度长到五档模糊，
+     * 每档只切 class（不过渡 blur 半径，逐帧改半径 = 整屏高斯按帧重跑 = 掉帧老路）。
+     * 模糊只存在于"滑到下面那屏"的过渡里，静止时一律 none。
+     * 自身 opacity 由内联单独控制（它不是任何 opacity 祖先的子级，backdrop 不会被隔离）。
+     */
+    heroGlassStyle() {
+      const p = this.openProg
+      if (this.editing || p <= 0) return { opacity: '0' }
+      // 量化到 5 档（0 档=透明，已在上一步拦掉）
+      const tier = p >= 0.85 ? 4 : p >= 0.6 ? 3 : p >= 0.4 ? 2 : p >= 0.2 ? 1 : 0
+      if (tier === 0) return { opacity: '0' }
+      const blur = [6, 12, 18, 20][tier - 1]
+      const sat = [140, 150, 165, 190][tier - 1]
+      const op = [0.28, 0.52, 0.76, 1][tier - 1]
+      const tint = tier >= 4 ? 0.12 : 0   // 拉满那档才给一点实体色，平时纯靠模糊
+      const s = {
+        opacity: String(op),
+        backdropFilter: 'blur(' + blur + 'px) saturate(' + sat + '%)',
+        webkitBackdropFilter: 'blur(' + blur + 'px) saturate(' + sat + '%)',
+        background: 'rgba(var(--surface-rgb, 255, 255, 255), ' + tint + ')'
+      }
+      if (this.dragging) s.pointerEvents = 'none'
+      return s
+    },
+    /** 抽屉"丢上来"的 Q 弹 class：openProg 到位瞬间播一次 sheet-pop 过冲，二选一交替挂以重触发 */
+    popCls() {
+      if (!this.popOn) return ''
+      return this.popSeq % 2 ? 'pop-b' : 'pop-a'
+    },
     // 主页整列随展开进度**上移 + 轻微缩小**：上滑时主卡往上让位，
     // 抽屉卡片在其下方逐张浮现 —— 像把一列卡片滚上去，而不是掀一张面板。
     // ★ 缩小是为了景深：主页后退一层，抽屉那块玻璃底板才读得出"浮在上面"。
@@ -887,6 +935,11 @@ export default {
       // 专注一跑起来卡片区整个不显示了，引导的高亮目标也就没了 ——
       // 收掉但**不记完成**：这次没看成，下次进首页再放一遍
       if (v && this.gdOn) this.stopGuide()
+    },
+    // 抽屉打开（false→true）瞬间：先震一下（buzzDrawer 在打开提交处已调），
+    // 再播一次 Q 弹过冲 —— 用监听统一收口，所有打开路径都覆盖。
+    drawerOn(n, o) {
+      if (n && !o) this.playPop()
     }
   },
   onShow() {
@@ -1256,6 +1309,21 @@ export default {
      */
     buzzDrawer() {
       try { haptic.tick('drawer') } catch (e) { console.warn('[home] haptic tick failed:', e) }
+    },
+    /**
+     * 抽屉"丢上来"的 Q 弹：拉到位瞬间在 .dr-throw 上播一次 sheet-pop 过冲（先冲过头、再回落）。
+     * 由 drawerOn 的 false→true 监听统一触发，覆盖所有打开路径（上滑 / 一甩 / 点"查看其余"）。
+     * 编辑态打开抽屉不弹（编辑有自己的过渡，叠弹会发糊）。
+     * ⚠️ pop-a / pop-b 两份**内容完全一样**的 keyframes 交替挂：同名动画摘了再戴，
+     *   Vue 会在同一次渲染合并掉 → 第二次不播。交替挂才能每次都重触发。
+     */
+    playPop() {
+      if (this.editing) return
+      this.popSeq++
+      this.popOn = false
+      this.$nextTick(() => { this.popOn = true })
+      clearTimeout(this._popT)
+      this._popT = setTimeout(() => { this.popOn = false }, 360)
     },
     /** 抽屉里那道把手：往下拉 = 收起，同样跟手 */
     gripStart(e) {
@@ -3071,6 +3139,47 @@ export default {
 .dr-mask.on {
   opacity: 1;
   pointer-events: auto;
+}
+/* 主页撤退时的"毛玻璃"层（hero-glass 等价物）：
+   静止（openProg=0）opacity:0，背景必须是高清原图；上滑随进度五档长出模糊。
+   ⚠️ 只过渡 opacity（160ms），绝不过渡 blur 半径（逐帧改 = 整屏高斯按帧重跑 = 掉帧老路）。
+   自身 opacity 单独控制、且 z-index:-1 压在背景之上 / 主页内容之下，不会被任何
+   opacity 祖先隔离 backdrop（隔离会让模糊只能糊到那一层内部，等于没糊）。 */
+.hero-glass {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+  will-change: opacity;
+}
+/* 抽屉"丢上来"的 Q 弹层：只承载 sheet-pop 过冲，不写任何内联 transform ——
+   面板的跟手位移在 .dr-panel 上，父子相乘互不干扰（背单词 App 同款做法）。 */
+.dr-throw {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+.dr-throw.pop-a { animation: sheet-pop-a 340ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+.dr-throw.pop-b { animation: sheet-pop-b 340ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+/* 锚定底边（抽屉从屏幕底边涨起），先冲过头 -16rpx/放大 1.026，再回落 +5rpx/缩小，
+   二段余震 -2rpx，最后归位；幅度刻意压小，大了就成弹窗、廉价。 */
+@keyframes sheet-pop-a {
+  0%   { transform: translateY(0) scale(1); }
+  26%  { transform: translateY(-16rpx) scale(1.026); }
+  54%  { transform: translateY(5rpx) scale(0.995); }
+  78%  { transform: translateY(-2rpx) scale(1.003); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes sheet-pop-b {
+  0%   { transform: translateY(0) scale(1); }
+  26%  { transform: translateY(-16rpx) scale(1.026); }
+  54%  { transform: translateY(5rpx) scale(0.995); }
+  78%  { transform: translateY(-2rpx) scale(1.003); }
+  100% { transform: translateY(0) scale(1); }
 }
 .dr-panel {
   /* ⚠️ 必须 border-box：width:100% + padding 在 content-box 下会溢出右边缘，

@@ -137,10 +137,33 @@ assert(!/removeStorage|removeItem|clear\(\)/.test(stashBody),
 
 /* ---------- 6. 抽屉必须浮在页面外层 ---------- */
 console.log('== 6. 抽屉不在 .page-slide 里 ==');
-// fixed 参照不能受切 tab 的滑动 transform 影响，否则抽屉会跟着页面一起滑走
-const dMask = depthAt('class="sheet-mask"');
-assert(dSlide >= 0 && dMask >= 0 && dMask === dSlide,
-  '.sheet-mask 与 .page-slide 同级（在其之外，切 tab 不会被带走）');
+// fixed 参照不能受切 tab 的滑动 transform 影响，否则抽屉会跟着页面一起滑走。
+// ⚠️ 不能用朴素标签计数（depthAt）：移植背单词 App 时给 .dr-panel 加了 .dr-throw 包裹层，
+//    裸 <view> 净计数被整体推一格，导致"同级"判断失手，而真实结构（sheet-mask 仍是
+//    container 直接子节点、与 page-slide 平级）并未破坏。改用真实标签栈 ancestorsOf。
+const VOID2 = { image: 1, input: 1, icon: 1, br: 1 };
+const ancestorsOf = (cls) => {
+  const tm = home.slice(home.indexOf('<template>'), home.indexOf('</template>'));
+  const stack = [];
+  let hit = null;
+  const re = /<(\/?)([a-zA-Z][\w-]*)([^>]*?)(\/?)>/g;
+  let m;
+  while ((m = re.exec(tm))) {
+    const close = m[1], tag = m[2], attrs = m[3], self = m[4];
+    if (tag === 'template') continue;
+    if (self === '/' || VOID2[tag]) continue;
+    if (close) { if (stack.length) stack.pop(); continue; }
+    const cm = attrs.match(/class="([^"]*)"/);
+    const cl = cm ? cm[1] : '';
+    stack.push(cl);
+    if (hit === null && cl.split(/\s+/).indexOf(cls) >= 0) hit = stack.slice(0, -1);
+  }
+  return hit;
+};
+const ancMask = ancestorsOf('sheet-mask');
+assert(ancMask !== null, '找得到编辑抽屉 .sheet-mask');
+assert(ancMask.join(' | ').indexOf('page-slide') < 0,
+  '.sheet-mask 在 .page-slide 之外（同级兄弟，切 tab 不会被带走）');
 assert(/\.sheet-mask\s*\{[^}]*position:\s*fixed/.test(css), '.sheet-mask 是 fixed');
 
 /* ---------- 7. 遮罩与把手的层级 ---------- */
