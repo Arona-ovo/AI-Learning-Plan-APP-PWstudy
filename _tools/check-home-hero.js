@@ -109,7 +109,9 @@ assert(/opacity:\s*1/.test(bListStatic), '.mod-list 静态兜底 opacity:1');
 // 首屏撑满一屏：这是"卡片静止时在折叠线之下"的**结构**保证
 const bHeroCss = cssBlock(/\.home-hero \{[^}]*\}/);
 assert(/min-height:\s*calc\(100vh/.test(bHeroCss), '.home-hero 自己撑满一屏（结构保证卡片在折叠线之下）');
-assert(/revealP: 1/.test(home), 'revealP 初值 1（卡片常显 —— 不靠 JS 算出来的 opacity 藏卡片）');
+// ★ 初值必须与 syncReveal 的"0 = 顶部"同口径。写成 1 会在 revealOn 先亮、
+//   进度还没算出来的那一帧把首屏 fade 成 0（首页一片空白，2026-10-24 实锤）。
+assert(/revealP: 0/.test(home), 'revealP 初值 0（= 停在顶部；给 1 会把首屏 fade 成空白）');
 assert(/revealOn: false/.test(home), 'revealOn 初值 false（静态兜底生效）');
 
 console.log('== 3b. 滚动进度怎么算出来的（★ 只认 onPageScroll）==');
@@ -127,7 +129,13 @@ assert(!/document\.|getBoundingClientRect|createSelectorQuery/.test(bScrollHook)
 assert(/Math\.round\(p \* 20\) \/ 20/.test(bSync), '进度量化到 0.05 一档（滑一次最多 20 次赋值，不按帧重渲染）');
 assert(/this\._scrollTop - dead|this\._scrollTop - /.test(bSync), '有死区（刚起手的抖动不让卡片先闪一下）');
 assert(/const on = !this\.locked && this\.restCount > 0/.test(bSync),
-  '硬控屏 / 下面没有卡时 p=1（那一屏没有可淡入的东西，不能出现"卡片整个不见了"）');
+  '硬控屏 / 下面没有卡时不参与淡入（revealOn=false，页面走 CSS 默认值）');
+// ★ 首屏"整片空白"的另一个入口：_scrollTop 还没被 onPageScroll 喂过（undefined）
+//   就算出 NaN —— `p<0 / p>1` 两道夹逼拦不住 NaN，进度会卡死在初值上。
+assert(/typeof this\._scrollTop !== 'number'/.test(bSync), '_scrollTop 没来过时按 0 兜底（undefined 会算出 NaN）');
+assert(/!isFinite\(p\)/.test(bSync), '进度算式有 isFinite 兜底（NaN 骗过全部夹逼）');
+assert(/try \{ this\.syncReveal\(this\._scrollTop\) \} catch/.test(home),
+  'onShow 回首页先对齐一次进度（别等用户先滑一下，那一帧像空的）');
 assert(/const REVEAL_SPAN_RPX = 520/.test(home), '淡入距离常量存在（520rpx）');
 assert(/const REVEAL_DEAD_RPX = 16/.test(home), '死区常量存在（16rpx）');
 assert(/const SHEET_PARALLAX_RPX = 220/.test(home), '卡片视差常量存在（220rpx，落后于滚动）');
@@ -140,6 +148,14 @@ assert(/v \* w \/ 750/.test(bUpx) || /return v \/ 2/.test(bUpx), 'upx() 有拿�
 const bRemeasure = block(/remeasure\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/this\._spanPx = /.test(bRemeasure) && /this\._parallaxPx = /.test(bRemeasure),
   'remeasure() 一次性重算四个距离（屏宽变了要重算，否则幅度不对）');
+// ★ 淡入距离必须按"一屏"算：给固定 520rpx 的话，大屏上走完进度时首屏还占着
+//   上半屏、却已经透明了 → 中间空一片。
+assert(/this\.winH/.test(bRemeasure) && /insets\.statusBar\(\)/.test(bRemeasure),
+  '淡入距离按首屏可视高度算（winH 去掉顶栏 / 底栏留白）');
+assert(/Math\.max\(this\.upx\(REVEAL_SPAN_RPX\)/.test(bRemeasure),
+  '按屏算的同时保留 520rpx 下限（横屏 / 折叠小窗也要走完）');
+assert(/const PAGE_NAV_RPX = 136/.test(home) && /const PAGE_TAB_RPX = 220/.test(home),
+  '顶栏 / 底栏留白常量与 App.vue 的 .page-nav / .page-tabbar 同值');
 assert(/try \{ this\.remeasure\(\) \} catch/.test(home), 'onShow 里 remeasure 自带 try（不许打断 refresh / startTick）');
 // 拉到位的震动 + Q 弹：一次来回只响一声
 const bBuzz = block(/buzzDrawer\(\)\s*\{[\s\S]*?\n    \}/);
@@ -262,7 +278,7 @@ console.log('== 10. 真跑 syncReveal（静态断言说"算对了"不算数）==
   if (m) {
     const make = () => {
       const src = 'return { _scrollTop: 0, locked: false, restCount: 4,' +
-        ' _spanPx: 260, _deadPx: 8, revealP: 1, revealOn: false, _buzzed: false,' +
+        ' _spanPx: 260, _deadPx: 8, revealP: 0, revealOn: false, _buzzed: false,' +
         ' buzz: 0, pop: 0, remeasure: function () {},' +
         ' buzzDrawer: function () { this.buzz++ }, playPop: function () { this.pop++ },' +
         m[0].trim() + '}';
@@ -288,17 +304,24 @@ console.log('== 10. 真跑 syncReveal（静态断言说"算对了"不算数）==
     assert(c.buzz === 2, '滑回去再拉可以再响一声（buzz=' + c.buzz + '）');
     // D. 下面一张卡都没有：卡片必须常显，否则会出现"整摞不见了"
     const d = make(); d.restCount = 0; d.syncReveal(0);
-    assert(d.revealOn === false && d.revealP === 1, '没有卡时卡片常显（revealOn=false, p=1）');
+    assert(d.revealOn === false && d.revealP === 0, '没有卡时卡片常显、进度归 0（revealOn=false, p=' + d.revealP + '）');
     assert(d.buzz === 0, '没有卡时不震');
     // E. 正在专注（硬控屏）：同样不该有淡入动画
     const e = make(); e.locked = true; e.syncReveal(0);
-    assert(e.revealOn === false && e.revealP === 1, '硬控屏卡片常显（那一屏没有可淡入的东西）');
+    assert(e.revealOn === false && e.revealP === 0, '硬控屏卡片常显（那一屏没有可淡入的东西）');
     // F. 死区：起手那点抖动不该让进度动
     const f = make(); f.syncReveal(6);
     assert(f.revealP === 0, '死区内的抖动不推进度（p=' + f.revealP + '）');
     // G. 传 -1（重新对齐）时不能把已有的滚动位置冲掉
     const g = make(); g.syncReveal(200); const keep = g.revealP; g.syncReveal(-1);
     assert(g.revealP === keep, 'syncReveal(-1) 只重新对齐、不覆盖已有滚动位置');
+    // H. ★ onPageScroll 一次都没来过（_scrollTop 未定义）→ 必须当顶部，不能算出 NaN 卡在初值。
+    //    真机上这就是"进首页一片空白，动一下屏幕才回来"。
+    const h = make(); delete h._scrollTop; h.syncReveal(-1);
+    assert(h.revealOn === true && h.revealP === 0,
+      '_scrollTop 未初始化时当顶部（revealOn=true, p=' + h.revealP + '；NaN 会让首屏淡成 0）');
+    const h2 = make(); h2._scrollTop = NaN; h2.syncReveal(-1);
+    assert(h2.revealP === 0, '_scrollTop 是 NaN 时同样归 0（p=' + h2.revealP + '）');
   }
 }
 

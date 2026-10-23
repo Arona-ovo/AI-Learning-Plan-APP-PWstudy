@@ -66,8 +66,20 @@ const cases = [
     s => s.replace(/\.mod-sheet::before \{[\s\S]*?\n\}/, m => m.replace(/var\(--glass-lg[^)]*\)/g, 'blur(0px)'))],
 
   // ---- 4. 静态兜底：脚本没跑时卡片必须还在 ----
-  ['revealP 初值改成 0（脚本一环没跑卡片就永久不见）',
-    s => s.replace('revealP: 1,', 'revealP: 0,')],
+  // ★ 初值是 0（= 顶部）。改成 1 会让"revealOn 先亮、进度还没算出来"那一帧
+  //   把首屏 fade 成 0 —— 首页一片空白，只有底下一张卡露个边（2026-10-24 实锤）。
+  ['revealP 初值改成 1（进度没算出来时首屏被 fade 成空白）',
+    s => s.replace('revealP: 0,', 'revealP: 1,')],
+  // ★ _scrollTop 一次都没被喂过时是 undefined：参与算术得到 NaN，`<0 / >1` 两道夹逼
+  //   都拦不住 → 进度停在初值 → 首屏淡出、整页看着像空的。
+  ['去掉 _scrollTop 未初始化兜底（算出 NaN，进度卡死）',
+    s => s.replace("if (typeof this._scrollTop !== 'number' || !isFinite(this._scrollTop)) this._scrollTop = 0", '')],
+  ['去掉进度的 isFinite 兜底（NaN 骗过夹逼）',
+    s => s.replace('p = !isFinite(p) ? 0 : p < 0 ? 0 : p > 1 ? 1 : p', 'p = p < 0 ? 0 : p > 1 ? 1 : p')],
+  ['onShow 不对齐进度（回首页第一帧像空的）',
+    s => s.replace('    try { this.syncReveal(this._scrollTop) } catch (e) {}' + NL, '')],
+  ['淡入距离退回固定 520rpx（大屏上首屏已透明、卡片还没铺满 → 中间空一片）',
+    s => s.replace('this._spanPx = Math.max(this.upx(REVEAL_SPAN_RPX), byScreen)', 'this._spanPx = this.upx(REVEAL_SPAN_RPX)')],
   // ★ 要**替换**掉 opacity:1，不是在上面再插一条 opacity:0 ——
   //   两条都在块里时 /opacity:\s*1/ 依然命中，等于没改（假绿）。
   ['.mod-list 静态兜底改成透明',

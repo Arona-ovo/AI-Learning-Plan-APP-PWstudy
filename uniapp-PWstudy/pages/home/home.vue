@@ -658,6 +658,7 @@ import * as reminder from '../../utils/reminder.js'
 import * as onboarding from '../../utils/onboarding.js'
 import * as harvest from '../../utils/harvest.js'
 import * as theme from '../../utils/theme.js'
+import * as insets from '../../utils/insets.js'
 // 触感反馈：抽屉滑出到位震一下（跟着设置 › 触感反馈的总开关走，utils/haptic.js）
 import * as haptic from '../../utils/haptic.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
@@ -681,8 +682,14 @@ const BRAND = 'var(--brand, #e4173d)'
 // 两边必须一致：这里漏一个，那张卡就会在首屏和下面各渲染一份（两套样式并存）。
 const HOME_IDS = ['focus', 'task', 'urgency']
 
-// 滚多远算"把下面那摞卡拉到位"（rpx）。滑过这段，卡片淡满、首屏退干净。
+// 滚多远算"把下面那摞卡拉到位"（rpx）—— 这是**下限**：真实距离按一屏算（见 remeasure）。
+// 固定成 520rpx 在大屏上只有半屏，滚到进度 1 时首屏还占着上半屏、却已经透明了，
+// 中间空一片；按屏算之后才是"滚一屏 = 换一屏"。
 const REVEAL_SPAN_RPX = 520
+// 页面上下被悬浮导航吃掉的高度（rpx），必须与 App.vue 的 .page-nav / .page-tabbar 一致：
+// 算"首屏可视高度"要用它俩，CSS 改了这里不跟着改，跨度就会偏。
+const PAGE_NAV_RPX = 136
+const PAGE_TAB_RPX = 220
 // 死区（rpx）：刚起手那点抖动不该让卡片先闪一下
 const REVEAL_DEAD_RPX = 16
 // 下面那摞卡的视差（rpx）：它们**落后于滚动**这么多，看着才像从折叠线下被拉上来，
@@ -748,9 +755,11 @@ export default {
       // 下面那摞卡跟在首屏后面**正常滚动**（不是抽屉）：不用学手势、不会误触，
       // 下面的内容也一直"在那儿"，不滑也知道它存在。
       // revealP = 滚动进度 0→1，串起"卡片淡入 / 首屏退场 / 背景模糊"三件事。
-      // 初值给 1（卡片常显）：万一 onPageScroll 没跑，也不能把卡片藏起来 ——
-      //   "卡片在首屏之外"必须靠首屏撑满一屏这个**结构**保证，不能靠 JS 算的 opacity。
-      revealP: 1,
+      // 初值 **0 = 停在顶部**，必须和 syncReveal 的"0 = 顶部"同口径：
+      //   一旦 revealOn 先变 true、进度还没算出来，0 只会让下面的卡片先透明
+      //   （它本来就在折叠线之下，看不见），而首屏照常全亮。
+      //   ⚠️ 反过来给 1 曾把首屏 fade 成 0 —— 首页一片空白，只有底下一张卡露个边。
+      revealP: 0,
       revealOn: false,
       // Q 弹：下面那摞卡拉到位瞬间播一次过冲（pop-a / pop-b 交替挂以重触发）
       popOn: false,
@@ -1070,6 +1079,10 @@ export default {
     //    全不执行，首页就停在旧数据上（H5 未挂载时实测确实会抛，2026-10-23 实锤）。
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
     try { this.remeasure() } catch (e) {}
+    // 回首页立刻把滚动进度对齐一次（不碰 DOM，H5 未挂载也不会抛）：
+    // revealOn 一旦亮起来就必须配一个**真实**进度 —— 等用户先滑一下才算是错的，
+    // 那一帧会是"首屏已退场、卡片还没进来"，整页看着像空的。
+    try { this.syncReveal(this._scrollTop) } catch (e) {}
     this.refresh()
     this.startTick()
     // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
@@ -1323,10 +1336,18 @@ export default {
     // 把所有"rpx → px"的距离一次性重算。**屏幕尺寸变了必须重算一遍**：
     // 否则换新机 / 转横屏后距离还是老屏幕的，动画幅度会明显不对。
     remeasure() {
-      this._spanPx = this.upx(REVEAL_SPAN_RPX)
       this._deadPx = this.upx(REVEAL_DEAD_RPX)
       this._parallaxPx = this.upx(SHEET_PARALLAX_RPX)
       this._heroLiftPx = this.upx(HERO_LIFT_RPX)
+      // 淡入距离 = 首屏在视口里实际占的那一屏（去掉悬浮顶栏 / 底栏的留白）。
+      // 进度走完时首屏正好被顶出去、卡片占满屏 —— 距离给短了，会出现
+      // "首屏已经透明、卡片还没铺满"的一片空白（小屏尤其明显）。
+      // 下限仍是 REVEAL_SPAN_RPX：极矮的屏（横屏 / 折叠小窗）也得走完。
+      let ins = 0
+      try { ins = (insets.statusBar() || 0) + (insets.safeBottom() || 0) } catch (e) { ins = 0 }
+      const heroPx = (this.winH || 667) - ins - this.upx(PAGE_NAV_RPX) - this.upx(PAGE_TAB_RPX)
+      const byScreen = heroPx > 0 ? Math.round(heroPx * 0.96) : 0
+      this._spanPx = Math.max(this.upx(REVEAL_SPAN_RPX), byScreen)
     },
     /**
      * 算"下面那摞卡淡入 / 首屏退场"的进度，并把它推进响应式数据
@@ -1344,15 +1365,23 @@ export default {
      */
     syncReveal(scrollTop) {
       if (typeof scrollTop === 'number' && scrollTop >= 0) this._scrollTop = scrollTop
+      // ⚠️ onPageScroll 一次都没来过时 _scrollTop 还是 undefined —— 让它参与算术会得到
+      //    NaN，后面的 `< 0 / > 1` 两道夹逼都拦不住它（NaN 和任何数比都是 false），
+      //    进度就永远停在初值上。实测代价：首屏 opacity 被算成 0，首页整片空白，
+      //    只有底下那摞卡露个边，动一下屏幕才回来。这里一律按"顶部"兜底。
+      if (typeof this._scrollTop !== 'number' || !isFinite(this._scrollTop)) this._scrollTop = 0
       const on = !this.locked && this.restCount > 0
-      let p = 1
+      // on=false（硬控屏 / 一张卡都没有）时 revealOn 也是 false、四套样式全返回 {}，
+      // 页面用 CSS 默认值（首屏亮、卡片实）。这里同步把进度归 0，免得"关一次再开"
+      // 带着上一轮的旧进度回来。
+      let p = 0
       if (on) {
         // 兜底：屏宽变化后四个值都要跟着变（见 remeasure），别只补 span
         if (!this._spanPx) this.remeasure()
         const span = this._spanPx || 1
         const dead = this._deadPx || 0
         p = (this._scrollTop - dead) / span
-        p = p < 0 ? 0 : p > 1 ? 1 : p
+        p = !isFinite(p) ? 0 : p < 0 ? 0 : p > 1 ? 1 : p
         // 拉到位 → 震一下 + Q 弹过冲（一次来回只响一声；滑回去再拉才会再响）
         if (p > 0.985) {
           if (!this._buzzed) {
