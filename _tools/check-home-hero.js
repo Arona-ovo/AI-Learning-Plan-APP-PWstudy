@@ -1,15 +1,19 @@
-// _tools/check-home-hero.js - 首页分层（主页三卡 + 底部抽屉）静态校验（只读）
+// _tools/check-home-hero.js - 首页分层（首屏三卡 + 下面一摞可排模块）静态校验（只读）
 //
 // 回归点（对应需求：主页只显示今天要用的东西 —— 开始专注 / 任务 / 紧迫度，
-//   这三张要做首页适配、突出焦点、简洁；其余卡片做成抽屉，
-//   不上滑就**完全不出现**，滑到抽屉底部才有编辑）：
-//  1) 主页常驻 = 三张精简卡（homeOrder / HOME_IDS），每张一个焦点
-//  2) 抽屉：drawerOn 默认 false，抽屉层常驻但用 .on class + transform 切换（收起时不挂载 → 不掉帧）
-//  3) 抽屉把手（grip）跟手下拉收起；主页整屏上滑跟手拉起，过半才提交
-//  4) 编辑入口压在抽屉滚动区最底部（要再往下滑才够得着）
-//  5) 两处联动：进编辑态自动拉出抽屉、引导前自动拉出；计时一起就收起
-//  6) 抽屉层必须在 .page-slide 之外（记忆约束 3：fixed 参照不能被动画 transform 接管）
-//  7) 起表仍然只有准备页那颗确认键（首页不带任何 auto 参数）
+//   这三张要做首页适配、突出焦点、简洁；其余模块**跟在首屏后面正常滚动**）：
+//  1) 首屏 = 三张精简卡（homeOrder / HOME_IDS），每张一个焦点
+//  2) 首屏自己撑满一屏 —— 下面那摞卡静止时**结构性**落在折叠线之下，不靠 opacity 藏
+//  3) 下面那摞卡是页面流的一部分（不是 fixed 抽屉）：不用学手势、不会误触
+//  4) 滚动进度只认 onPageScroll 的 scrollTop（App 端没有 document，量节点那条路会静默失效）
+//  5) 编辑入口压在最后一卡下面（滑到底才够得着）
+//  6) 起表仍然只有准备页那颗确认键（首页不带任何 auto 参数）
+//
+// ⚠️ 2026-10-23 这版把"底部抽屉"整块拆了：
+//    以前那是一层 fixed 面板 + 一套上滑手势，手势在屏幕**任何位置**划 12px 就接管
+//    （页面本身还被 touch-action:none 禁了滚动），想点卡片却把面板拽出来 ——
+//    "首页很乱"的直接来源；而且没有任何常驻提示，不滑就不知道下面还有东西。
+//    现在规则只有一条：**它就是页面流**。下面这些断言有一半是守"别退回去"。
 const fs = require('fs');
 const path = require('path');
 
@@ -23,20 +27,39 @@ let fail = 0;
 const ok = (m) => console.log('  ✓ ' + m);
 const bad = (m) => { fail++; console.error('  ✗ ' + m); };
 const assert = (c, m) => (c ? ok(m) : bad(m));
-// 模板先后关系：本需求里"顺序"本身就是验收项（把手 → 列表 → 收工 → 编辑）
+// 模板先后关系：本需求里"顺序"本身就是验收项（首屏 → 一摞卡 → 编辑）
 const at = (s) => home.indexOf(s);
 const block = (re) => { const m = home.match(re); return m ? m[0] : ''; };
+// ★ 硬约束 12：先剥注释再扫。这些 CSS 块里我写了大段"为什么**不能**这么写"的注释，
+//   注释里**必然出现**被禁的那个属性名（touch-action / opacity …），不剥就假红。
+const blocks = (re) => {
+  const out = [];
+  const r = new RegExp(re.source, 'g');
+  let m;
+  while ((m = r.exec(home))) out.push(m[0]);
+  return out;
+};
+const cssBlocks = (re) => blocks(re).map(s => s.replace(/\/\*[\s\S]*?\*\//g, ''));
+// 同名选择器可能有多处（.mod-list 在"编辑"与"滚动流"两节各一条），取**最后**一条
+const cssBlock = (re) => { const a = cssBlocks(re); return a.length ? a[a.length - 1] : ''; };
 
-console.log('== 1. 主页只放今天要用的三张卡 ==');
-assert(/<view class="hcards" :style="homeShift">/.test(home), '有主页三卡容器 .hcards（并绑定整列上移）');
-assert(/v-for="id in homeOrder"/.test(home), '主页按 homeOrder 渲染');
+console.log('== 1. 首屏只放今天要用的三张卡 ==');
+assert(/class="home-hero"/.test(home), '有首屏容器 .home-hero（撑满一屏，位移/渐隐都挂在它身上）');
+assert(/class="hcards"/.test(home) && at('class="hcards"') > at('class="home-hero"'),
+  '三张精简卡 .hcards 在 .home-hero 内');
+assert(/v-for="id in homeOrder"/.test(home), '首屏按 homeOrder 渲染');
 assert(/const HOME_IDS = \['focus', 'task', 'urgency'\]/.test(home),
-  'HOME_IDS = 专注 / 今日任务 / 紧迫度（其余一律进抽屉）');
+  'HOME_IDS = 专注 / 今日任务 / 紧迫度');
 const bHome = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/HOME_IDS\.indexOf\(id\) >= 0/.test(bHome), 'homeOrder 只留三件套');
+const bHomeOrder = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/ids\.length \? ids : \['focus'\]/.test(bHomeOrder), '主卡全被收纳时兜底回「开始专注」（主页不开天窗）');
 const bRest = block(/restOrder\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/HOME_IDS\.indexOf\(id\) < 0/.test(bRest), 'restOrder 是"其余组件"');
-assert(/if \(this\.editing\) return ids/.test(bRest), '编辑态抽屉列出全部卡片（收纳后捞得回来）');
+assert(/HOME_IDS\.indexOf\(id\) < 0/.test(bRest), 'restOrder 是"首屏下面那一摞"');
+// ★ 编辑态也必须排除：以前编辑态返回**全部**，于是首屏与下面各渲染一份
+//   focus / task / urgency —— 同一模块两套样式并存（"乱"的一条来源）。
+assert(!/if \(this\.editing\) return ids/.test(bRest),
+  '编辑态**也**排除首屏三张（不与首屏双份渲染、两套样式并存）');
 
 console.log('== 2. 三张卡都是首页适配的精简版（每张一个焦点）==');
 assert(/class="card hcard focus-card"/.test(home), '① 专注卡（focus-card 保留，引导靠它定位）');
@@ -44,203 +67,130 @@ assert(/class="hc-ring"/.test(home) && /hc-ring-num/.test(home), '① 焦点：�
 assert(/class="hc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(home), '① 焦点：唯一落点是那颗开始键');
 assert(/class="card hcard task-card"/.test(home), '② 任务卡（task-card 保留，引导靠它定位）');
 assert(/v-for="\(item, ti\) in homeQueue"/.test(home), '② 焦点：只列最该做的三条');
-assert(/v-if="hasMoreTask"[\s\S]{0,120}openDrawer/.test(home), '② 其余的从抽屉里看');
+assert(/v-if="hasMoreTask"[\s\S]{0,160}goCalendar/.test(home), '② 其余的去日历页看（不再假装有个抽屉能拉开）');
 assert(/class="card hcard urg-card"/.test(home), '③ 紧迫度卡');
-assert(/class="hc-axis"/.test(home) && /hc-axis-now/.test(home), '③ 焦点：一条 24 小时时间轴 + 现在位置');
+assert(/class="hc-axis"/.test(home) && /hc-axis-need/.test(home), '③ 焦点：一条 24 小时时间轴 + 还要多久');
 
-console.log('== 3. 抽屉：常驻但收起时不挂载卡片（真抽屉 + 不掉帧）==');
-assert(/drawerOn: false/.test(home), 'data 里抽屉默认收起');
-// 关键：抽屉 DOM 常驻（不再整包 v-if 挂载），只动 opacity/transform（GPU 合成），
-// 不会因为挂载整摞卡片掉帧。
-assert(/class="dr-mask"[^>]*:class="\{ on: drawerOn \}"/.test(home), '抽屉层常驻 + .on class 切换开合');
-// "抽屉没有实体"：遮罩全透明，不压暗整屏（上滑时主页和卡片是同一列，不是两层）
-const drMaskCss = block(/\.dr-mask \{[\s\S]*?\n\}/);
-assert(/background:\s*transparent/.test(drMaskCss) && !/rgba\(/.test(drMaskCss),
-  '遮罩全透明：上滑不压暗整屏（没有实体抽屉）');
-// 面板不再整体平移：没有从屏下滑上来的实体 sheet，卡片各自按进度浮现
-const drPanelCss = block(/\.dr-panel \{[\s\S]*?\n\}/);
-assert(drPanelCss !== '' && !/translateY\(100%\)/.test(drPanelCss),
-  '面板不再整体滑入（卡片逐张浮现，替代实体 sheet）');
-// ★ 层级感：整块玻璃底板（圆角 + 毛玻璃 + 上沿阴影）。
-//   完全透明时抽屉卡片和主页卡片成了"同一层里接着排"，读不出谁盖着谁。
-assert(/border-radius:\s*40rpx 40rpx 0 0/.test(drPanelCss), '玻璃底板有上方圆角');
-assert(/backdrop-filter:\s*var\(--glass-lg/.test(drPanelCss), '玻璃底板有毛玻璃（不是实色白板）');
-assert(/box-shadow:\s*0 -16rpx 44rpx/.test(drPanelCss), '玻璃底板有上沿阴影（浮在上面的层次）');
-assert(/background:\s*rgba\(var\(--surface-rgb/.test(drPanelCss), '玻璃底板半透明（透得出底下的主页）');
-// 面板自身的视差：闭合时下沉、展开归零，和主页位移不同速
-const bPanelStyle = block(/panelStyle\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/PANEL_PARALLAX_PCT/.test(bPanelStyle) && /translateY/.test(bPanelStyle),
-  '面板自带小幅视差（与主页不同速 → 两层错开）');
-assert(/const PANEL_PARALLAX_PCT = 10/.test(home), '面板视差幅度常量存在');
-assert(/class="dr-panel"[^>]*ref="drPanel"[^>]*:style="panelStyle"/.test(home), '面板内联 --open 进度跟手');
-// 逐张错拍：wrapStyle 里按 openProg 算每张卡的淡入/升起（scroll-linked stagger）
-const bWrap = block(/wrapStyle\(i\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.openProg/.test(bWrap) && /opacity/.test(bWrap) && /translateY/.test(bWrap),
-  '抽屉卡片随展开进度逐张淡入+升起（错拍 stagger）');
-assert(/v-for="\(id, i\) in restOrder"/.test(home), '抽屉里遍历其余组件');
-assert(/class="dr-grip"/.test(home) && /@touchmove="gripMove"/.test(home), '抽屉内把手可下拉收起');
-// 关闭改成"跟手拖动 + 过半才提交"，不再是固定 48px 阈值
-assert(/gripMove\(e\)/.test(home) && /this\.panelDrag = 0/.test(home), '把手下拉进入拖动（panelDrag=0 起手）');
-assert(/gripEnd\(\)/.test(home) && /this\.closeDrawer\(\)/.test(home), '拉过半 → 收起，否则弹回');
-assert(/if \(dy <= 6\) return/.test(home), '把手下拉要超过 6px 才接管（滚列表不会误关）');
-assert(/if \(dy <= 12 \|\| dy <= dx\) return/.test(home), '上滑要"明显竖向"才接管（不和顶部滚动打架）');
-// 开/关两条手势的提交方向各自独立断言 —— 之前笼统一条，方向写反照样是绿的
-const bOpenEnd = block(/homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/const commit = this\.panelDrag < 50/.test(bOpenEnd), '上滑：拉过一半才提交开（轻拖弹回）');
-// ★ 上滑一甩也能开（跟收起的一甩对称，参考 AWword 的顺滑感）：只认"拖过一半"太死板
-assert(/const OPEN_FLICK_V = 0\.45/.test(home), '上滑一甩的速度阈值常量存在');
-assert(/this\.dragVy <= -OPEN_FLICK_V/.test(bOpenEnd),
-  '快速上滑一甩也算开（⚠️ 上滑速度为负，判定必须是 <= 负值）');
-const bOpenStart = block(/homeSwipeStart\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.dragVy = 0/.test(bOpenStart) && /this\.dragT = /.test(bOpenStart),
-  '上滑起手清速度残留（旧手势的 lastMoveY/dragVy 会污染第一帧）');
-assert(/this\.trackVy\(t\.clientY\)/.test(block(/homeSwipeMove\(e\)\s*\{[\s\S]*?\n    \}/)),
-  '上滑拖动要记速度（否则一甩判定永远为 0）');
-const bGripEnd = block(/gripEnd\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/const commit = this\.panelDrag > CLOSE_COMMIT_PCT/.test(bGripEnd),
-  '把手下拉：拖过阈值才收起（方向写成 < 会"轻碰就收、使劲拉反而弹回"）');
-// ★ 收起阈值必须比"一半"小得多：面板 76vh，一半就是 38vh，
-//   真机上要从上往下滑老长一段才收得回去（2026-10-16 反馈）
-assert(/const CLOSE_COMMIT_PCT = 20/.test(home), '收起阈值 20%（不是 50% —— 38vh 太远）');
-// 快速一甩也收：不想拖够距离时甩一下就走
-assert(/this\.dragVy >= CLOSE_FLICK_V/.test(bGripEnd), '收起支持"快速一甩"（不必拖够距离）');
-assert(/const CLOSE_FLICK_V = 0\.45/.test(home), '一甩的速度阈值常量存在');
-assert(/trackVy\(y\)/.test(home) && /this\.dragVy = /.test(home), '有手指速度记录（喂给一甩判定）');
-const bGripMove = block(/gripMove\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.trackVy\(t\.clientY\)/.test(bGripMove), '把手拖动要记速度（否则一甩判定永远为 0）');
-// 内容区也能收：滚到顶之后再往下拉就接管，不必非够顶部那条把手
-assert(/@touchmove="bodyMove"/.test(home) && /@touchend="bodyEnd"/.test(home),
-  '抽屉内容区也接管收起手势');
-const bBodyMove = block(/bodyMove\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.bodyTop > 2/.test(bBodyMove) && /return/.test(bBodyMove),
-  '列表没滚到顶时不抢手势（让它自己滚）');
-assert(/@scroll="bodyScroll"/.test(home) && /this\.bodyTop = /.test(home), '内容区滚动位置有记录');
-assert(/bodyEnd\(\)/.test(home) && /this\.gripEnd\(\)/.test(home),
-  '内容区接管后走同一套收起判定（不另起一套）');
-assert(/if \(this\.panelDrag === null\) \{ this\.dragging = false; this\.gripY = 0; return \}/.test(home),
-  '把手轻点（没拖出 6px）也要复位 dragging，否则过渡被永久关掉');
-// ★ 滑出要有震动（2026-10-16 反馈）：只在"打开提交"的松手瞬间震，收起不震。
-//   全套行为测试在 check-haptic.js；这里守接线位置。
+console.log('== 3. 下面那摞卡 = 页面正常滚动（★ 不再是 fixed 抽屉）==');
+// 抽屉时代的四个标识：任何一个回来都说明退版本了
+assert(!/dr-mask|dr-panel|dr-body|dr-grip|dr-throw|dr-title/.test(home),
+  '抽屉那层 fixed 面板已拆干净（dr-mask / dr-panel / dr-body / dr-grip）');
+assert(!/drawerOn|panelDrag|openProg|homeShift|panelStyle|measurePanel|panelHpx/.test(home),
+  '抽屉那套状态量已拆干净（drawerOn / panelDrag / openProg / homeShift）');
+assert(!/homeSwipeStart|homeSwipeMove|homeSwipeEnd/.test(home),
+  '屏幕任意位置劫持上滑的手势已删除（那是"想点卡片却拽出面板"的根因）');
+// ★ 承载首屏的元素绝不能再禁触摸：那行是为手势加的，手势一去就得放开，
+//   否则整个首页滚不动，下面那摞卡永远够不着。
+const bSlideCss = cssBlock(/\.home-slide \{[^}]*\}/);
+assert(!/touch-action:\s*none/.test(bSlideCss),
+  '.home-slide 不再 touch-action:none（页面要能正常滚到下面那摞卡）');
+assert(/class="mod-sheet"[^>]*:style="sheetRevealStyle"/.test(home), '玻璃底板层 .mod-sheet 存在');
+assert(/class="mod-list"[^>]*:style="listRevealStyle"/.test(home), '卡片层 .mod-list 存在');
+assert(at('class="mod-list"') > at('class="mod-sheet"'), '卡片层在底板层之内（底板能一路糊到首屏内容）');
+// 玻璃底板：整摞卡共用一张，卡片之间的缝隙露出被模糊的首屏内容
+const bSheetCss = cssBlock(/\.mod-sheet::before \{[^}]*\}/);
+assert(bSheetCss !== '', '底板挂在 ::before 上（不占一个真实节点）');
+assert(/border-radius:\s*36rpx/.test(bSheetCss), '底板有圆角（边缘才像"抽屉的边"）');
+assert(/backdrop-filter:\s*var\(--glass-lg/.test(bSheetCss), '底板有毛玻璃（不是实色白板）');
+assert(/background:\s*rgba\(var\(--surface-rgb/.test(bSheetCss), '底板半透明（透得出底下的首屏）');
+assert(/box-shadow/.test(bSheetCss), '底板有上沿阴影（浮在上面的层次）');
+// ★ 两层分工：底板只吃 transform（带 opacity 会自成 backdrop root，玻璃感全废），
+//   卡片只吃 opacity。
+const bSheetStyle = block(/sheetRevealStyle\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/transform/.test(bSheetStyle) && !/opacity/.test(bSheetStyle),
+  'sheetRevealStyle 只给 transform（★ 带 opacity 会把 backdrop 隔离在层内 = 糊了个寂寞）');
+const bListStyle = block(/listRevealStyle\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/opacity/.test(bListStyle) && !/transform/.test(bListStyle), 'listRevealStyle 只给 opacity（位移在上层）');
+// ★ 静态兜底：JS 没跑时卡片必须完全显现。把初值写成"藏在下面"，脚本一环没跑就永久不见。
+const bSheetStatic = cssBlock(/\.mod-sheet \{[^}]*\}/);
+assert(/transform:\s*none/.test(bSheetStatic), '.mod-sheet 静态兜底 transform:none（脚本没跑不藏卡片）');
+const bListStatic = cssBlock(/\.mod-list \{[^}]*\}/);
+assert(/opacity:\s*1/.test(bListStatic), '.mod-list 静态兜底 opacity:1');
+// 首屏撑满一屏：这是"卡片静止时在折叠线之下"的**结构**保证
+const bHeroCss = cssBlock(/\.home-hero \{[^}]*\}/);
+assert(/min-height:\s*calc\(100vh/.test(bHeroCss), '.home-hero 自己撑满一屏（结构保证卡片在折叠线之下）');
+assert(/revealP: 1/.test(home), 'revealP 初值 1（卡片常显 —— 不靠 JS 算出来的 opacity 藏卡片）');
+assert(/revealOn: false/.test(home), 'revealOn 初值 false（静态兜底生效）');
+
+console.log('== 3b. 滚动进度怎么算出来的（★ 只认 onPageScroll）==');
+assert(/onPageScroll\(e\)/.test(home) && /this\.syncReveal\(/.test(home), 'onPageScroll 把滚动位置喂给 syncReveal');
+const bSync = block(/syncReveal\(scrollTop\)\s*\{[\s\S]*?\n    \}/);
+assert(bSync !== '', '存在 syncReveal');
+assert(/e && typeof e\.scrollTop === 'number'/.test(home), '进度来自 scrollTop（唯一不依赖 DOM 的滚动数据源）');
+assert(!/getBoundingClientRect|document\./.test(bSync), 'syncReveal 不量节点 / 不碰 document（App 端会静默失效）');
+// 唯一的数据入口也不许自己去摸 DOM：App 端逻辑层没有 document，量节点那条路
+// 拿不到东西且不报错 —— 表现就是"上滑什么都没发生"。
+const bScrollHook = block(/onPageScroll\(e\)\s*\{[\s\S]*?\n {2}\}/);
+assert(bScrollHook !== '', '存在 onPageScroll');
+assert(!/document\.|getBoundingClientRect|createSelectorQuery/.test(bScrollHook),
+  'onPageScroll 自己也不碰 DOM（只把 e.scrollTop 递给 syncReveal）');
+assert(/Math\.round\(p \* 20\) \/ 20/.test(bSync), '进度量化到 0.05 一档（滑一次最多 20 次赋值，不按帧重渲染）');
+assert(/this\._scrollTop - dead|this\._scrollTop - /.test(bSync), '有死区（刚起手的抖动不让卡片先闪一下）');
+assert(/const on = !this\.locked && this\.restCount > 0/.test(bSync),
+  '硬控屏 / 下面没有卡时 p=1（那一屏没有可淡入的东西，不能出现"卡片整个不见了"）');
+assert(/const REVEAL_SPAN_RPX = 520/.test(home), '淡入距离常量存在（520rpx）');
+assert(/const REVEAL_DEAD_RPX = 16/.test(home), '死区常量存在（16rpx）');
+assert(/const SHEET_PARALLAX_RPX = 220/.test(home), '卡片视差常量存在（220rpx，落后于滚动）');
+assert(/const HERO_LIFT_RPX = 56/.test(home), '首屏上抬常量存在（56rpx）');
+assert(/const HERO_DEPTH_SCALE = 0\.05/.test(home), '首屏缩放常量存在（0.05）');
+// rpx → px 必须自己换：uni-app 只转换 CSS 文件里的 rpx，内联样式里的不转
+const bUpx = block(/upx\(v\)\s*\{[\s\S]*?\n    \}/);
+assert(/uni\.upx2px/.test(bUpx), 'upx() 走 uni.upx2px（内联里写 rpx 不会被转换）');
+assert(/v \* w \/ 750/.test(bUpx) || /return v \/ 2/.test(bUpx), 'upx() 有拿不到屏宽时的兜底');
+const bRemeasure = block(/remeasure\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\._spanPx = /.test(bRemeasure) && /this\._parallaxPx = /.test(bRemeasure),
+  'remeasure() 一次性重算四个距离（屏宽变了要重算，否则幅度不对）');
+assert(/try \{ this\.remeasure\(\) \} catch/.test(home), 'onShow 里 remeasure 自带 try（不许打断 refresh / startTick）');
+// 拉到位的震动 + Q 弹：一次来回只响一声
 const bBuzz = block(/buzzDrawer\(\)\s*\{[\s\S]*?\n    \}/);
-assert(bBuzz !== '' && /haptic\.tick\('drawer'\)/.test(bBuzz) && /catch/.test(bBuzz),
-  'buzzDrawer 震 drawer 档且包 catch（震不动也要把抽屉拉开）');
-assert(/if \(commit\) this\.buzzDrawer\(\)/.test(bOpenEnd), '打开提交的松手瞬间才震（拖动中不震）');
-assert(/this\.drawerOn = true\s*\n\s*this\.buzzDrawer\(\)/.test(bOpenEnd), '兜底一甩开抽屉同样震');
-assert(!/class="dr-peek"/.test(home), '主页底部常驻把手（小横条）已移除：打开靠整屏上滑');
+assert(bBuzz !== '' && /haptic\.tick\('drawer'\)/.test(bBuzz) && /catch/.test(bBuzz), 'buzzDrawer 震 drawer 档且包 catch');
+assert(/this\._buzzed/.test(bSync) && /this\.buzzDrawer\(\)/.test(bSync) && /this\.playPop\(\)/.test(bSync),
+  '拉到位才震 + Q 弹（一次来回只响一声，滑回去再拉才会再响）');
+assert(/p < 0\.55/.test(bSync), '滑回一半以上才解除"已响过"，避免来回抖时狂震');
 
-console.log('== 3b. 主页整块上滑跟手拉抽屉（不只小把手）==');
-assert(/@touchstart="homeSwipeStart"/.test(home) && /@touchmove="homeSwipeMove"/.test(home) && /@touchend="homeSwipeEnd"/.test(home),
-  '主页内容区绑了上滑手势（跟手升起）');
-// ★ 承载上滑手势的元素必须禁掉浏览器默认平移：否则安卓 webview 把"从下往上滑"当成页面滚动/橡皮筋吞掉
-//   （touchmove 多为 passive，preventDefault 被忽略），自定义上滑接管不了 → 抽屉拉不开（2026-10-17 真机实锤）。
-const bSlideCss = block(/\.home-slide \{[\s\S]*?\n\}/);
-assert(/touch-action:\s*none/.test(bSlideCss), '主页上滑宿主 .home-slide 有 touch-action:none（安卓不被浏览器抢滚动）');
-assert(/homeSwipeMove\(e\)/.test(home) && /this\.panelDrag = 100/.test(home), '上滑进入拖动（panelDrag=100 起手、面板跟手升起）');
-// 首页与抽屉连贯：主页整列随同一进度上移让位（主卡升起、卡片从其下方浮现）
-assert(/class="hcards" :style="homeShift"/.test(home) && /class="home-cta" :style="homeShift"/.test(home),
-  '主页整列绑 homeShift（上滑时主卡上移让位）');
-const bShift = block(/homeShift\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/openProg/.test(bShift) && /translateY/.test(bShift), '上移量由展开进度驱动（跟手，非硬切）');
-// ★ 景深：主页整列轻微缩小形成后退一层。只上移不缩小 = 两层同速同大小，
-//   看着就是同一列接着排，没有抽屉压上来的层次。
-assert(/HOME_DEPTH_SCALE/.test(bShift) && /scale\(/.test(bShift), '主页整列随抽屉缩小（景深：后退一层）');
-assert(/const HOME_DEPTH_SCALE = 0\.07/.test(home), '景深缩放常量存在');
-// ★ 上滑视差要比原来 18vh 更大，否则位移太小读不出层次
-assert(/HOME_PARALLAX_VH/.test(bShift), '上移幅度走常量（不是散落的魔法数字）');
-assert(/const HOME_PARALLAX_VH = 26/.test(home), '上滑视差幅度 26vh（原先 18vh 太小）');
-// 缩放要以同一个原点收，否则三张卡各自缩放、间距乱跳
-assert(/transform-origin:\s*50% 22%/.test(home), '主页整列统一 transform-origin（不各自绕中心缩）');
-// 主页必须随抽屉淡出：主页还亮着的话收工按钮会和抽屉底部的
-// 「编辑首页」摞在一起（真机 2026-10-16 视频实锤）
-assert(/opacity: String\(1 - p \* 0\.92\)/.test(bShift), '主页整列随抽屉展开淡出（不与抽屉底部按钮重叠）');
-// ★ 诊断：面板高度算不出来必须留痕（H=0 → dy/H=NaN → 内联 transform 被整个丢弃
-//   → 表现"上滑没反应"且控制台一声不吭）。但**有估算值可用时别刷日志** ——
-//   panelHpx 每次 touchmove 都走，无条件 warn 会把控制台淹掉（真机 2026-10-16 实锤）。
-const bPanelH = block(/panelHpx\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/this\.nodeMiss\+\+/.test(bPanelH), '高度算不出来要计数（诊断）');
-assert(/console\.warn\(/.test(bPanelH) && /\[drawer\]/.test(bPanelH), '高度算不出来要 console.warn 留痕');
-assert(/if \(H > 0\) return H/.test(bPanelH) && /return 480/.test(bPanelH),
-  '高度有地板值 480（除零 → NaN → 动画等于没写）');
-assert(/this\.panelH \|\| Math\.round\(this\.winH \* 0\.76\)/.test(bPanelH),
-  '优先用缓存的实测高度，其次才退回估算');
-assert(/nodeMiss: 0/.test(home), 'data 里有 nodeMiss 诊断计数');
-// ★ 面板高度必须提前异步量好缓存：app 端 ref 不是 DOM 节点，读不到 offsetHeight
-//   （真机日志 ref=has 却拿不到高度）；而 touchmove 要同步用、等不了异步查询。
-assert(/panelH: 0/.test(home), 'data 里有 panelH 缓存字段');
-const bMeasure = block(/measurePanel\(tryN\)\s*\{[\s\S]*?\n    \}/);
-assert(bMeasure !== '', '存在 measurePanel（异步量真实高度）');
-assert(/createSelectorQuery/.test(bMeasure) && /boundingClientRect/.test(bMeasure),
-  'measurePanel 用选择器查询量高（不是读 ref.offsetHeight）');
-assert(/select\('\.dr-panel'\)/.test(bMeasure), 'measurePanel 量的是抽屉面板');
-assert(/this\.panelH = Math\.round\(h\)/.test(bMeasure), '量到就写进 panelH 缓存');
-assert(/measurePanel\(n \+ 1\)/.test(bMeasure), '首帧没布局完要退一拍重量（最多 6 次）');
-// ★ 防御必须包在 exec 外侧：H5 的 $el 未挂载时，抛点在 **exec 里**（要读
-//   $el.parentElement），不在 in(this) 里。只把 in(this) 包进 try 等于没兜 ——
-//   2026-10-17 那次就是这么补的，2026-10-23 的 H5 运行日志照样崩：
-//   onShow 被打断 → refresh / startTick 全没跑，首页停在旧数据上。
-//   ★ 判据要取"第一个 catch"：只要求 catch 出现在 exec 之后是不够的 ——
-//     在 exec 后面补一个空 try/catch 就能蒙过去（反向测试第一轮抓到的假绿）。
-const iTry = bMeasure.indexOf('try {');
-const iExec = bMeasure.indexOf('q.exec(');
-const iCatch1 = bMeasure.indexOf('catch');
-assert(iTry >= 0 && iTry < iExec && iExec < iCatch1,
-  'measurePanel 的 exec 落在 try 块内（H5 的抛点在 exec 里，不是 in(this)）');
-assert(/if \(!this\.\$el\)/.test(bMeasure), 'measurePanel 先判 $el 是否已挂载（H5 未挂载时是 null）');
-// 量高是纯辅助动作：它抛了不能连累 onShow 后面的 refresh / startTick
-assert(/try \{ this\.measurePanel\(\) \} catch/.test(home), 'onShow 里量高自带 try（不许打断后续刷新）');
-assert(/this\.measurePanel\(\)/.test(home), '进页面要把面板高度量好（onShow 调用）');
-assert(!/\$refs\.drPanel/.test(home.split('measurePanel(tryN)')[1] || ''),
-  '量高不再依赖 ref（app 端 ref 不是 DOM 节点）');
-// ⚠️ 抽屉面板必须 border-box：width:100% + padding 在 content-box 下溢出右边缘，
-//    卡片整体向右偏、右边被屏幕裁掉一截
-assert(/box-sizing: border-box/.test(drPanelCss), '抽屉面板 border-box（避免 width100%+padding 溢出右边缘）');
-// 结构护栏：Options API 里 top-level 的自定义项会被 Vue 直接丢弃 —— 
-// 曾经 runReplanFlow 等 5 个方法被放在 onShow 与 onHide 之间（methods 之外），
-// 结果 this.runReplanFlow is not a function，且任务完成弹窗永远打不开。
-const iMethods = home.indexOf('\n  methods: {');
-assert(iMethods > 0, '存在 methods: {');
-for (const nm of ['async runReplanFlow()', 'onSchedDone(row)', 'openDoneDialog(row)', 'askReplanNote(ask)', 'maybePendingAsk()']) {
-  const i = home.indexOf(nm);
-  assert(i > iMethods, nm + ' 必须住在 methods 里（顶层会被 Vue 丢弃）');
-}
-// 主页不能开天窗：三张主卡全被收纳时兜底回「开始专注」
-const bHomeOrder = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/ids\.length \? ids : \['focus'\]/.test(bHomeOrder), '主卡全被收纳时兜底回「开始专注」（主页不开天窗）');
-assert(/drawerOn \|\| this\.editing \|\| this\.locked/.test(home), '抽屉已开 / 编辑 / 计时中时上滑不响应');
-assert(/if \(!this\.restCount\)/.test(home), '没有其余组件可展示时不空开抽屉');
-assert(/dy > 56 && dx < dy \* 0\.6 && startY > this\.winH \* 0\.55/.test(home), '兜底：下半屏起手 + 上滑够长才开');
+console.log('== 3c. 首屏怎么退场 ==');
+const bHeroStyle = block(/heroCardStyle\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/transform/.test(bHeroStyle) && !/opacity/.test(bHeroStyle),
+  'heroCardStyle 只给 transform（★ 带 opacity 会让背景毛玻璃糊不到 App 背景）');
+assert(/HERO_DEPTH_SCALE/.test(bHeroStyle) && /scale\(/.test(bHeroStyle), '首屏轻微缩小（后退一层的景深）');
+const bBodyStyle = block(/heroBodyStyle\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.revealP \* 1\.2/.test(bBodyStyle), '内容渐隐比卡片淡入早一点到位（×1.2）');
+assert(/pointerEvents/.test(bBodyStyle), '淡到看不见就别再吃点击（否则透明首屏挡住下面那摞卡）');
+assert(/hero-glass/.test(home) && /heroGlassStyle/.test(home), '背景毛玻璃层还在（随进度五档长出模糊）');
+const bGlass = block(/heroGlassStyle\(\)\s*\{[\s\S]*?\n    \},/);
+assert(/if \(!this\.revealOn\) return \{ opacity: '0' \}/.test(bGlass), '静止时 hero-glass 透明（背景必须高清）');
+assert(/const blur = \[6, 12, 18, 20\]\[tier - 1\]/.test(bGlass), 'hero-glass 五档模糊（不过渡 blur 半径）');
 
-console.log('== 4. 再往下滑才有编辑 ==');
+console.log('== 4. 编辑入口在最后一卡下面 ==');
 assert(at('class="mod-list"') > 0 && at('class="home-foot"') > at('class="mod-list"'),
-  '编辑入口排在卡片列表之后');
-assert(at('class="dr-body"') > 0 && at('class="home-foot"') > at('class="dr-body"'),
-  '编辑入口在抽屉滚动区里（滑到底才出现）');
+  '编辑入口排在卡片列表之后（滑到底才够得着）');
 assert(at('class="home-cta"') > 0 && at('class="home-cta"') < at('class="mod-list"'),
-  '收工留在主页底部（在抽屉之前）');
+  '收工留在首屏（在下面那摞卡之前）');
 
 console.log('== 5. 两处联动 ==');
 const bToggle = block(/toggleEdit\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(this\.editing\) this\.drawerOn = true/.test(bToggle), '进编辑态自动拉出抽屉');
-const bClose = block(/closeDrawer\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(this\.editing\) return/.test(bClose), '编辑态不许收起抽屉');
-assert(!/buzzDrawer|haptic/.test(bClose), '收起不震（用户只要"滑出来"震）');
-// ⚠️ 这里不能用 /maybeGuide[\s\S]*?this\.drawerOn = true/ 这种跨段正则：
-//   它会一路吃到后面任意一个 drawerOn = true（比如 toggleEdit 里的），
-//   于是"引导前忘了拉抽屉"根本抓不到（假绿）。精确到 maybeGuide 方法体。
+assert(/if \(this\.editing\) this\.scrollToModules\(\)/.test(bToggle),
+  '进编辑态把那一摞卡滚到眼前（把手/收纳/排序全在卡片上）');
+assert(!/this\.drawerOn = true/.test(bToggle), '进编辑态不再"拉开抽屉"（抽屉已拆）');
+const bScrollTo = block(/scrollToModules\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/uni\.pageScrollTo/.test(bScrollTo) && /catch/.test(bScrollTo), 'scrollToModules 走 pageScrollTo 且包 catch');
+// 引导要挖 .focus-card / .task-card，它们在首屏 —— 用户滑到下面就量不到了
 const bGuide = block(/maybeGuide\(\)\s*\{[\s\S]*?\n {4}\}/);
-assert(/this\.drawerOn = true/.test(bGuide), '引导前先拉出抽屉');
-// 同理，locked(v) 只取 watch 那一段（缩进 4 空格收尾）
-const bLocked = block(/locked\(v\)\s*\{[\s\S]*?\n {4}\}/);
-assert(/this\.drawerOn = false/.test(bLocked), '计时一起就收起抽屉');
+assert(/pageScrollTo\(\{ scrollTop: 0/.test(bGuide), '放引导前先滚回顶（目标卡在首屏，滑走了就量不到）');
+const bWatch = block(/watch: \{[\s\S]*?\n  \},/);
+assert(/restOrder\(\) \{ this\.syncReveal\(-1\) \}/.test(bWatch), '卡片增减要重新对齐进度（否则最后一张收掉后整摞透明）');
+assert(/locked\(\) \{ this\.syncReveal\(-1\) \}/.test(bWatch), '进出硬控要重新对齐进度');
 
-console.log('== 6. 抽屉层在 .page-slide 之外（记忆约束 3）==');
-// 真跑一遍标签栈：只比"谁写在前面"是假绿 —— 标签忘了闭合时，
-// 就算是写在 page-slide 后面，也照样是它的子节点，fixed 参照还是会被动画接管。
-// 记忆约束 3：抽屉 / sheet 这类 fixed 层必须挂在 .page-slide 之外，
-//   否则切 tab 的 transform 会让 fixed 元素以包裹层为参照、跟着页面滑走。
+console.log('== 6. 层级归属（真跑标签栈）==');
+// 只比"谁写在前面"是假绿 —— 标签忘了闭合时，照样是兄弟/子节点。
+// ★ 与抽屉时代相反：下面那摞卡**必须**在 .page-slide 内（它就是页面流的一部分）；
+//   只有"添加组件"这类 fixed 浮层才留在 .page-slide 外（记忆约束 3）。
 const VOID = { image: 1, input: 1, icon: 1, br: 1 };
 const ancestorsOf = (cls) => {
-  const tm = home.slice(home.indexOf('<template>'), home.indexOf('</template>'));
+  // ★ 先剥 HTML 注释：模板里那几段"为什么这么排"的长注释带尖括号，不剥会被
+  //   当成标签压进栈里，祖先链整条错位（页面本身是配平的，错的只是这一把扫描）。
+  const tm = home.slice(home.indexOf('<template>'), home.indexOf('</template>'))
+    .replace(/<!--[\s\S]*?-->/g, '');
   const stack = [];
   let hit = null;
   const re = /<(\/?)([a-zA-Z][\w-]*)([^>]*?)(\/?)>/g;
@@ -257,50 +207,45 @@ const ancestorsOf = (cls) => {
   }
   return hit;
 };
-const ancDr = ancestorsOf('dr-mask');
-assert(ancDr !== null, '找得到抽屉层 .dr-mask');
-assert(ancDr !== null && ancDr.join(' | ').indexOf('page-slide') < 0,
-  '抽屉层 (.dr-mask) 不在 .page-slide 内（fixed 不受切 tab 动画影响）');
+const ancMod = ancestorsOf('mod-list');
+assert(ancMod !== null, '找得到卡片列表 .mod-list');
+assert(ancMod !== null && ancMod.join(' | ').indexOf('page-slide') >= 0,
+  '下面那摞卡 (.mod-list) **在** .page-slide 内（它就是页面流，不是浮层）');
+// 它还得落在 .home-slide（不是 .page-slide 的直接兄弟）：那一层是切 tab 时整块滑动的
+//   容器，落在它外面时首页只有首屏在动、下面那摞卡钉在原地。
+const ancSheetHost = ancestorsOf('mod-sheet');
+assert(ancSheetHost !== null && ancSheetHost.join(' | ').indexOf('home-slide') >= 0,
+  '底板 .mod-sheet 在 .home-slide 内（切 tab 时跟着首屏一起滑）');
 const ancHc = ancestorsOf('hcards');
 assert(ancHc !== null && ancHc.join(' | ').indexOf('page-slide') >= 0,
-  '主页三卡仍留在 .page-slide 内（跟着切 tab 动画走）');
+  '首屏三卡仍留在 .page-slide 内（跟着切 tab 动画走）');
+const ancSheet = ancestorsOf('sheet-mask');
+assert(ancSheet !== null && ancSheet.join(' | ').indexOf('page-slide') < 0,
+  '「添加组件」浮层 (.sheet-mask) 在 .page-slide 外（fixed 参照不受切 tab 动画影响）');
+const ancFoot = ancestorsOf('home-foot');
+assert(ancFoot !== null && ancFoot.join(' | ').indexOf('mod-list') >= 0,
+  '编辑入口 (.home-foot) 在 .mod-list 内（跟着那一摞卡一起滚）');
 
 console.log('== 7. 起表仍然只能从准备页进 ==');
 // 先剥注释再扫 —— 注释里要写清楚"为什么没有 auto=1"，不剥会被自己的注释命中
-// （口径与 check-home.js 一致）。autoRestOn / autoReplan 是正经功能名，不能用 /auto/ 扫。
 const heroCode = home.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 assert(!/auto=1/.test(heroCode), '首页不带 auto=1 起表参数（只扫代码，不扫注释）');
 
 console.log('== 8. 新文案都进了英文表 ==');
 [
   '今天先做这个', '今天还没有安排', '剩 {n} 分钟', '段专注', '项待办',
-  '开始专注', '全部组件', '说一句', '更多组件', '开始',
-  '查看其余 {n} 项', '还剩 {n} 段专注', '还要 {n} 分钟',
+  '开始专注', '说一句', '更多组件', '开始',
+  '查看全部 ›', '还剩 {n} 段专注', '还要 {n} 分钟',
   '自由专注', '点这里先看清时长与设置', '休息中', '专注中'
 ].forEach(k => assert(en.indexOf("'" + k + "'") >= 0, 'i18n-en 含 key「' + k + '」'));
 
-console.log('== 9. 背单词 App 移植：hero-glass 模糊层 + 抽屉 Q 弹 ==');
-// hero-glass：主页撤退时把背景糊成一片（静止必须透明、背景高清；只过渡 opacity，不过渡 blur 半径）
-assert(/class="hero-glass"[^>]*:style="heroGlassStyle"/.test(home), 'hero-glass 层存在并绑定 heroGlassStyle');
-const hgCss = block(/\.hero-glass \{[\s\S]*?\n\}/);
-assert(/z-index: -1/.test(hgCss), 'hero-glass z-index:-1（压背景之上 / 主页之下，不被 opacity 祖先隔离）');
-assert(/transition: opacity 0\.16s ease/.test(hgCss), 'hero-glass 只过渡 opacity（160ms），不过渡 blur 半径');
-const bGlass = block(/heroGlassStyle\(\)\s*\{[\s\S]*?\n    \},/);
-assert(/if \(this\.editing \|\| p <= 0\) return \{ opacity: '0' \}/.test(bGlass), '静止 / 编辑态 hero-glass 透明（背景必须高清）');
-assert(/const blur = \[6, 12, 18, 20\]\[tier - 1\]/.test(bGlass), 'hero-glass 五档模糊（不过渡半径）');
-assert(/backdropFilter: 'blur\(/.test(bGlass), 'hero-glass 走 backdrop-filter 而非实色垫片');
-assert(/webkitBackdropFilter/.test(bGlass), 'hero-glass 带 -webkit- 前缀（App 端 webview 兼容）');
-assert(/const tint = tier >= 4 \? 0\.12 : 0/.test(bGlass), '拉满那档才给一点实体色，平时纯靠模糊');
-// 抽屉"丢上来"的 Q 弹：dr-throw 包 dr-panel，pop-a/pop-b 交替重触发
-assert(/<view class="dr-throw" :class="popCls">/.test(home), 'dr-throw 包裹层存在（动画不冲掉面板跟手位移）');
+console.log('== 9. Q 弹：拉到位播一次过冲 ==');
+assert(/<view class="mod-throw" :class="popCls">/.test(home), 'mod-throw 包裹层存在（动画不冲掉底板的跟手位移）');
 const bPopCls = block(/popCls\(\)\s*\{[\s\S]*?\n    \},/);
 assert(/return this\.popSeq % 2 \? 'pop-b' : 'pop-a'/.test(bPopCls), 'popCls 按奇偶交替 pop-a/pop-b 重触发');
 const bPlayPop = block(/playPop\(\)\s*\{[\s\S]*?\n    \},/);
 assert(/this\.popSeq\+\+/.test(bPlayPop) && /this\.popOn = false/.test(bPlayPop) && /this\.popOn = true/.test(bPlayPop),
   'playPop 先关后开 + 自增序号以重触发');
-assert(/if \(this\.editing\) return/.test(bPlayPop), '编辑态打开不弹（编辑有自己的过渡）');
-const bWatch = block(/watch: \{[\s\S]*?\n  \},/);
-assert(/drawerOn\(n, o\)\s*\{[\s\S]*?this\.playPop\(\)/.test(bWatch), 'drawerOn false→true 监听统一触发 Q 弹');
 const popKeyA = block(/@keyframes sheet-pop-a \{[\s\S]*?\n\}/);
 assert(/26%.*translateY\(-16rpx\) scale\(1\.026\)/.test(popKeyA), 'sheet-pop 冲过头 -16rpx/1.026');
 assert(/54%.*translateY\(5rpx\) scale\(0\.995\)/.test(popKeyA), 'sheet-pop 回落 +5rpx/0.995');
@@ -308,44 +253,52 @@ assert(/78%.*translateY\(-2rpx\) scale\(1\.003\)/.test(popKeyA), 'sheet-pop 二�
 const popKeyB = block(/@keyframes sheet-pop-b \{[\s\S]*?\n\}/);
 assert(popKeyB !== '' && /translateY\(-16rpx\) scale\(1\.026\)/.test(popKeyB), 'sheet-pop-b 与 a 内容一致（交替挂用）');
 
-console.log('== 10. H5 量高不崩（真跑 measurePanel） ==');
-// 静态断言说"包住了"不算数：2026-10-17 那版也有 try，照样崩。
-// 这里把 measurePanel 抠出来真跑一遍，喂它一个"exec 里抛 parentElement"的 uni，
-// 验证它①不往外抛 ②自己退拍重试 —— 抛出去就说明 onShow 会被打断。
+console.log('== 10. 真跑 syncReveal（静态断言说"算对了"不算数）==');
+// 把 syncReveal 抠出来真跑：喂 0 / 中间 / 超出 / 没卡 / 硬控 五种输入，
+// 看 revealP 与 revealOn 是不是照着走的。
 {
-  const m = home.match(/ {4}measurePanel\(tryN\) \{[\s\S]*?\n {4}\},/);
-  assert(m !== '', '能抠出 measurePanel 函数体（真跑前置）');
+  const m = home.match(/ {4}syncReveal\(scrollTop\) \{[\s\S]*?\n {4}\},/);
+  assert(m !== '', '能抠出 syncReveal 函数体（真跑前置）');
   if (m) {
-    // setTimeout 换成注入的计数器：既避免真等 720ms，也能数出有没有退拍
-    const body = m[0].replace(/setTimeout\(/g, 'this.__timer(');
-    const src = 'return { panelH: 0, $el: null, __tries: 0,' +
-      ' __timer: function (fn, ms) { this.__tries++ },' + body.trim() + '}';
-    const make = new Function('uni', src);
-    const boom = () => { const e = new TypeError("Cannot read property 'parentElement' of null"); throw e; };
-    // 场景 A：H5 未挂载 —— in() 与 exec 都抛（正是线上日志那一条）
-    const uniBad = {
-      createSelectorQuery: () => ({
-        in() { boom(); }, select() { return this; }, boundingClientRect() { return this; }, exec() { boom(); }
-      })
+    const make = () => {
+      const src = 'return { _scrollTop: 0, locked: false, restCount: 4,' +
+        ' _spanPx: 260, _deadPx: 8, revealP: 1, revealOn: false, _buzzed: false,' +
+        ' buzz: 0, pop: 0, remeasure: function () {},' +
+        ' buzzDrawer: function () { this.buzz++ }, playPop: function () { this.pop++ },' +
+        m[0].trim() + '}';
+      return new Function(src)();
     };
-    const a = make(uniBad);
-    let threw = null;
-    try { a.measurePanel(); } catch (e) { threw = e && e.message; }
-    assert(!threw, 'H5 未挂载（exec 抛 parentElement）时 measurePanel 不往外抛' + (threw ? '：' + threw : ''));
-    assert(a.__tries >= 1, '抛了也要退一拍重试（tries=' + a.__tries + '）');
-    // 场景 B：正常路径仍然量得到（防御不能把主路径一起废掉）
-    const uniOk = {
-      createSelectorQuery: () => ({
-        in() { return this; }, select() { return this; }, boundingClientRect() { return this; },
-        exec(cb) { cb && cb([{ height: 520.4 }]); }
-      })
-    };
-    const b = make(uniOk);
-    b.$el = {};
-    let threw2 = null;
-    try { b.measurePanel(); } catch (e) { threw2 = e && e.message; }
-    assert(!threw2 && b.panelH === 520, '正常路径照样量到高度并写进 panelH（' + b.panelH + '）');
-    assert(b.__tries === 0, '量到了就不该再退拍重试');
+    // A. 停在顶部：卡片透明、首屏全亮
+    const a = make(); a.syncReveal(0);
+    assert(a.revealOn === true && a.revealP === 0, '顶部：revealOn=true 且 revealP=0（卡片透明）' +
+      ' [on=' + a.revealOn + ' p=' + a.revealP + ']');
+    assert(a.buzz === 0 && a.pop === 0, '顶部不震（震只在拉到位那一下）');
+    // B. 滑到一半
+    const b = make(); b.syncReveal(0); b.syncReveal(138);
+    assert(b.revealP > 0.4 && b.revealP < 0.6, '滑到一半：进度约 0.5（实际 ' + b.revealP + '）');
+    // C. 拉到底：进度满、震一下 + Q 弹一次
+    const c = make(); c.syncReveal(0); c.syncReveal(9999);
+    assert(c.revealP === 1, '拉到底：进度满');
+    assert(c.buzz === 1 && c.pop === 1, '拉到底震一下 + 弹一次（buzz=' + c.buzz + ' pop=' + c.pop + '）');
+    // 一次来回只响一声：继续上报"到底"不该再震
+    c.syncReveal(9999); c.syncReveal(9999);
+    assert(c.buzz === 1 && c.pop === 1, '停在同一处来回上报不重复震（一次来回只响一声）');
+    // 滑回一半以上再拉，才允许再响
+    c.syncReveal(0); c.syncReveal(9999);
+    assert(c.buzz === 2, '滑回去再拉可以再响一声（buzz=' + c.buzz + '）');
+    // D. 下面一张卡都没有：卡片必须常显，否则会出现"整摞不见了"
+    const d = make(); d.restCount = 0; d.syncReveal(0);
+    assert(d.revealOn === false && d.revealP === 1, '没有卡时卡片常显（revealOn=false, p=1）');
+    assert(d.buzz === 0, '没有卡时不震');
+    // E. 正在专注（硬控屏）：同样不该有淡入动画
+    const e = make(); e.locked = true; e.syncReveal(0);
+    assert(e.revealOn === false && e.revealP === 1, '硬控屏卡片常显（那一屏没有可淡入的东西）');
+    // F. 死区：起手那点抖动不该让进度动
+    const f = make(); f.syncReveal(6);
+    assert(f.revealP === 0, '死区内的抖动不推进度（p=' + f.revealP + '）');
+    // G. 传 -1（重新对齐）时不能把已有的滚动位置冲掉
+    const g = make(); g.syncReveal(200); const keep = g.revealP; g.syncReveal(-1);
+    assert(g.revealP === keep, 'syncReveal(-1) 只重新对齐、不覆盖已有滚动位置');
   }
 }
 

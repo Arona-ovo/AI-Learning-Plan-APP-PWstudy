@@ -113,8 +113,13 @@ assert(/selectAll\('\.mod-wrap'\)\.boundingClientRect/.test(block('beginDrag(i, 
   'beginDrag 量的是 .mod-wrap（不是 .card —— 卡片已不是 .page-slide 的直接子节点）');
 assert(/layout\.dropIndex\(from,\s*this\.dragDy,\s*this\.dragHeights\)/.test(block('dragEnd() {', '    ')),
   'dragEnd 用纯函数 dropIndex(from, dy, heights) 算落点');
-assert(/this\.dragIndex !== i/.test(block('wrapStyle(i) {', '    ')),
-  'wrapStyle 只位移 dragIndex 那一张');
+// ★ 只认"命中才位移"这条语义，不认具体写法（早返回 !==i / 正向 ===i 都算）——
+//   抽屉拆掉后整摞卡的淡入归 .mod-list 的 opacity，wrapStyle 只剩"跟手偏移"一件事。
+const wsBody = block('wrapStyle(i) {', '    ');
+assert(/dragIndex === i/.test(wsBody), 'wrapStyle 按 dragIndex === i 判定');
+assert(/dragIndex === i[\s\S]{0,120}transform: translateY/.test(wsBody),
+  '跟手位移只写在 dragIndex 命中的那一支里');
+assert(/return ''/.test(wsBody), '其余一律返回空（不再逐张错拍，淡入交给 .mod-list）');
 assert(/@touchmove="dragMove"[\s\S]*?@touchend="dragEnd"/.test(tpl),
   '.mod-list 上挂了 touchmove / touchend（手指抬起才落位）');
 assert(/@touchstart="dragStart\(i, \$event\)"/.test(tpl) && /@mousedown="dragStartMouse\(i, \$event\)"/.test(tpl),

@@ -88,12 +88,16 @@ assert(/import \* as haptic from '\.\.\/\.\.\/utils\/haptic\.js'/.test(home), '�
 const bBuzz = block(home, /buzzDrawer\(\)\s*\{[\s\S]*?\n    \}/);
 assert(bBuzz !== '' && /haptic\.tick\('drawer'\)/.test(bBuzz) && /catch/.test(bBuzz),
   'buzzDrawer 震 drawer 档且包 catch（震不动也要把抽屉拉开）');
-const bOpenEnd = block(home, /homeSwipeEnd\(e\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(commit\) this\.buzzDrawer\(\)/.test(bOpenEnd),
-  '打开提交的松手瞬间才震（拖动中每帧都路过，会震成一窝蜂）');
-assert(/this\.drawerOn = true\s*\n\s*this\.buzzDrawer\(\)/.test(bOpenEnd), '兜底一甩开抽屉同样震');
-const bClose = block(home, /closeDrawer\(\)\s*\{[\s\S]*?\n    \}/);
-assert(bClose !== '' && !/buzzDrawer|haptic/.test(bClose), '收起不震（用户只要"滑出来"震）');
+// ⚠️ 抽屉那套上滑手势已拆（2026-10-23）：现在下面那摞卡是**页面流**，
+//    震的时机从"松手提交"变成"滚到拉到位那一刻"，去抖靠 _buzzed + 滑回 0.55 才解锁。
+//    语义没变：**一次来回只响一声**，拖动/滚动途中绝不每帧震。
+const bSync = block(home, /syncReveal\(scrollTop\)\s*\{[\s\S]*?\n    \}/);
+assert(bSync !== '', '找得到 syncReveal（抽屉拆掉后震动改由它触发）');
+assert(/if \(!this\._buzzed\)[\s\S]{0,120}buzzDrawer\(\)/.test(bSync),
+  '拉到位才震，且带 _buzzed 去抖（滚动途中每帧路过不会震成一窝蜂）');
+assert(/p < 0\.55[\s\S]{0,80}_buzzed = false/.test(bSync),
+  '滑回一半以上才解锁"已响过"（一次来回只响一声）');
+assert(/revealOn === false|_buzzed = false/.test(bSync), '没有可淡入的东西时不去震');
 const set = R('pkgManage/pages/settings/settings.vue');
 assert(/import \* as haptic from '\.\.\/\.\.\/\.\.\/utils\/haptic\.js'/.test(set), '设置页引入 haptic');
 assert(/data-k="haptic"/.test(set) && /openSec === 'haptic'/.test(set), '设置页有「触感反馈」分组');

@@ -1,9 +1,13 @@
-// 反向测试：故意把首页分层改坏，确认 check-home-hero.js 真的会红（防假绿）。
+// 反向测试：故意把首页分层（首屏三卡 + 下面一摞可排模块）改坏，
+//   确认 check-home-hero.js 真的会红（防假绿）。
 // 结束后一定把文件还原 —— 用内存里的备份写回，不走 git。
 //
 // ⚠️ 不能用 child_process 起子进程：这个沙箱里 spawnSync 直接 EBUSY，
 //    而且失败时 status/signal 都是 null、stdout 为空 —— 会被误判成"被抓到"（假绿）。
 //    改成同进程 require：清掉 require.cache 让它重新读文件，并接管 process.exit 取退出码。
+// ⚠️ 源码是 CRLF：多行锚点里必须写 \r\n，否则匹配不到（会被判成 SKIP）。
+// ⚠️ 2026-10-23 整份重写：抽屉拆了，旧的 40 条用例守的是 fixed 面板 + 上滑手势，
+//    现在一条都对不上（改不到点 = SKIP，那也是失败）。
 const fs = require('fs');
 const path = require('path');
 
@@ -11,6 +15,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const FILE = path.join(ROOT, 'uniapp-PWstudy', 'pages', 'home', 'home.vue');
 const CHECK = path.join(ROOT, '_tools', 'check-home-hero.js');
 const orig = fs.readFileSync(FILE, 'utf8');
+const NL = '\r\n';
 
 function runCheck() {
   delete require.cache[require.resolve(CHECK)];
@@ -28,271 +33,100 @@ function runCheck() {
 }
 
 const cases = [
-  // ---- 1. 主页只放三张卡 ----
-  ['主页三卡容器改名（第一屏没了）',
-    s => s.replace('<view class="hcards" :style="homeShift">', '<view class="hcards2" :style="homeShift">')],
-  ['主页整列不随抽屉上移（主卡不让位，割裂回来了）',
-    s => s.replace('class="hcards" :style="homeShift"', 'class="hcards"')],
-  ['收工那行不随整列上移（上滑时它和主卡脱节）',
-    s => s.replace('class="home-cta" :style="homeShift"', 'class="home-cta"')],
-  ['主页不按 homeOrder 渲染（其余组件又挤回首页）',
-    s => s.replace('v-for="id in homeOrder"', 'v-for="id in cardOrder"')],
-  ['HOME_IDS 里多塞一个（首页不再只留"今天"）',
-    s => s.replace("const HOME_IDS = ['focus', 'task', 'urgency']",
-      "const HOME_IDS = ['focus', 'task', 'urgency', 'goal']")],
-  ['homeOrder 口径反了（主页变成"其余组件"）',
-    s => s.replace('HOME_IDS.indexOf(id) >= 0', 'HOME_IDS.indexOf(id) < 0')],
-  ['restOrder 不排除三件套（卡片重复渲染）',
-    s => s.replace('HOME_IDS.indexOf(id) < 0', 'true')],
-  // ⚠️ 不能直接替换 'if (this.editing) return ids' —— cardOrder 里有一句一模一样的，
-  //   会被先命中，改坏的是别处（于是这条用例变成假绿）。必须带 restOrder 上下文。
-  ['restOrder 编辑态不返回全部（收纳后捞不回来）',
-    s => s.replace(/(restOrder\(\)\s*\{[\s\S]{0,200}?)if \(this\.editing\) return ids/,
-      '$1if (false) return ids')],
+  // ---- 1. 首屏只放三张 ----
+  ['HOME_IDS 里多塞一个（首屏不再只留"今天"）',
+    s => s.replace("const HOME_IDS = ['focus', 'task', 'urgency']", "const HOME_IDS = ['focus', 'task', 'urgency', 'goal']")],
+  ['restOrder 不排除首屏三张（上下双份渲染）',
+    s => s.replace('return ids.filter(id => HOME_IDS.indexOf(id) < 0)', 'return ids')],
+  ['restOrder 编辑态返回全部（两套样式并存）',
+    s => s.replace('const ids = this.cardOrder || []' + NL + '      return ids.filter(id => HOME_IDS.indexOf(id) < 0)',
+      'const ids = this.cardOrder || []' + NL + '      if (this.editing) return ids' + NL + '      return ids.filter(id => HOME_IDS.indexOf(id) < 0)')],
 
-  // ---- 2. 三张卡是首页适配的精简版 ----
-  ['专注卡丢了 focus-card（引导第 2 步定位不到）',
-    s => s.replace('class="card hcard focus-card"', 'class="card hcard"')],
-  ['专注卡没有读数环（焦点没了）',
-    s => s.replace('class="hc-ring"', 'class="hc-ring2"')],
-  ['开始键不 stop 冒泡（点键会顺带跳页）',
-    s => s.replace('class="hc-go" @tap.stop="quickStart()"', 'class="hc-go" @tap="quickStart()"')],
-  ['任务卡不限三条（首页又被撑长）',
-    s => s.replace('v-for="(item, ti) in homeQueue"', 'v-for="(item, ti) in queue"')],
-  ['任务卡其余不给抽屉入口',
-    s => s.replace('v-if="hasMoreTask"', 'v-if="false"')],
-  ['紧迫度卡不画时间轴（只有干巴巴一行字）',
-    s => s.replace('class="hc-axis"', 'class="hc-axis2"')],
+  // ---- 2. 别退回 fixed 抽屉 ----
+  ['抽屉状态量回来（drawerOn）',
+    s => s.replace('revealOn: false,', 'revealOn: false, drawerOn: false,')],
+  ['抽屉的上滑手势回来（任何位置划 12px 就接管）',
+    s => s.replace('onPageScroll(e) {', 'homeSwipeStart(e) {' + NL + '      this.swipeX0 = 0' + NL + '    },' + NL + '    onPageScroll(e) {')],
+  ['首屏重新禁掉触摸（整个首页滚不动）',
+    s => s.replace('.home-slide {' + NL, '.home-slide {' + NL + '  touch-action: none;' + NL)],
+  // ★ 必须是"整块里干掉 min-height"，不是再加一条 min-height:0 ——
+  //   同名的第二条盖不住第一条，加一条等于没改（写成那样会得到假绿）。
+  ['首屏不撑满一屏（卡片静止时就露在折叠线之上）',
+    s => s.replace(/\.home-hero \{[\s\S]*?\n\}/, m => m.replace(/min-height: calc\(100vh[^;]*;/g, ''))],
 
-  // ---- 3. 抽屉常驻但收起不挂载/不开 + 跟手 ----
-  ['抽屉默认就展开（不上滑也看见卡片）',
-    s => s.replace('drawerOn: false', 'drawerOn: true')],
-  // 把 .on class 去掉：抽屉永远停在"关"，上滑拉不起来
-  ['抽屉无法切换开合（.on class 没了）',
-    s => s.replace(' :class="{ on: drawerOn }"', '')],
-  // 遮罩又压暗整屏：实体抽屉的"两层感"回来了
-  // ⚠️ .vue 是 CRLF：替换串必须写 \r\n，写 \n 会静默匹配不上（假绿）
-  ['遮罩恢复压暗（实体抽屉的割裂感回来）',
-    s => s.replace('  background: transparent;\r\n  display: flex;\r\n  align-items: flex-end;',
-      '  background: rgba(23, 32, 26, 0.28);\r\n  display: flex;\r\n  align-items: flex-end;')],
-  // 面板又整体滑入：实体 sheet 回来了，卡片浮现被它盖住
-  ['面板恢复整体滑入（实体 sheet 回来了）',
-    s => s.replace(/\r\n  width: 100%;\r\n  height: 76vh;/, '\r\n  transform: translateY(100%);\r\n  width: 100%;\r\n  height: 76vh;')],
-  // 逐张错拍消失：所有卡一起淡入（没有"逐张浮现"的滚动感）
-  ['卡片错拍显现在（一起冒出来，没有逐张滚动感）',
-    s => s.replace('const p = Math.max(0, Math.min(1, (this.openProg - i * span) / 0.55))', 'const p = 1')],
-  ['抽屉里遍历 cardOrder（卡片重复）',
-    s => s.replace('v-for="(id, i) in restOrder"', 'v-for="(id, i) in cardOrder"')],
-  ['抽屉内把手不能下拉收起',
-    s => s.replace('@touchmove="gripMove"', '@touchmove="noop"')],
-  // 把手下拉的"接管"门槛归零：列表里往下滚一点就把抽屉关了（误关）
-  ['把手下拉门槛归零（滚列表就误关抽屉）',
-    s => s.replace('if (dy <= 6) return', 'if (dy <= -50) return')],
-  // 主页上滑的"接管"门槛归零：顶部往下滚也把抽屉拉起来（误开）
-  ['上滑接管门槛归零（顶部滚动也拉抽屉）',
-    s => s.replace('if (dy <= 12 || dy <= dx) return', 'if (dy <= -50) return')],
-  // 过半判定归零：轻轻一拖就提交开/关（homeSwipeEnd 与 gripEnd 两处都有，要一起改）
-  ['过半判定归零（轻轻一拖就开/关）',
-    s => s.replace(/const commit = this\.panelDrag < 50/g, 'const commit = this.panelDrag < 100')],
+  // ---- 3. backdrop root：两层分工 ----
+  ['底板带上 opacity（backdrop 被隔离在层内 = 糊了个寂寞）',
+    s => s.replace("return { transform: 'translate3d(0,' + off + 'px,0) scale(' + sc + ')' }",
+      "return { transform: 'translate3d(0,' + off + 'px,0) scale(' + sc + ')', opacity: String(p) }")],
+  ['卡片层自己带位移（两层分工乱了）',
+    s => s.replace("return { opacity: String(this.revealP) }", "return { opacity: String(this.revealP), transform: 'translateY(10px)' }")],
+  // ★ 两条 backdrop-filter（-webkit- 与标准）都要改掉：只删一条的话，
+  //   另一条里的 `backdrop-filter: var(--glass-lg` 照样命中断言 → 假绿。
+  ['玻璃底板去掉毛玻璃（变成一块平涂半透明白片）',
+    s => s.replace(/\.mod-sheet::before \{[\s\S]*?\n\}/, m => m.replace(/var\(--glass-lg[^)]*\)/g, 'blur(0px)'))],
 
-  // ---- 4. 再往下滑才有编辑 ----
-  ['编辑入口挪到列表之前（一开抽屉就看见）',
-    s => s.replace('<view class="mod-list"', '<view class="home-foot"></view><view class="mod-list"')],
-  ['收工挪进抽屉（主页底部空了）',
-    s => s.replace('class="home-cta"', 'class="home-cta-in-drawer"')],
+  // ---- 4. 静态兜底：脚本没跑时卡片必须还在 ----
+  ['revealP 初值改成 0（脚本一环没跑卡片就永久不见）',
+    s => s.replace('revealP: 1,', 'revealP: 0,')],
+  // ★ 要**替换**掉 opacity:1，不是在上面再插一条 opacity:0 ——
+  //   两条都在块里时 /opacity:\s*1/ 依然命中，等于没改（假绿）。
+  ['.mod-list 静态兜底改成透明',
+    s => s.replace(/\.mod-list \{[^}]*\}/g, m => m.replace('opacity: 1;', 'opacity: 0;'))],
+  ['.mod-sheet 静态兜底改成藏在下面',
+    s => s.replace('  transform: none;' + NL + '}', '  transform: translateY(999px);' + NL + '}')],
 
-  // ---- 5. 两处联动 ----
-  ['进编辑态不自动拉出抽屉（看不见卡片）',
-    s => s.replace('if (this.editing) this.drawerOn = true', 'if (this.editing) {}')],
-  // ⚠️ 不能只替换 'if (this.editing) return' —— restOrder 里那句
-  //    'if (this.editing) return ids' 同前缀会被先命中，改坏的是别处（假绿）
-  ['编辑态允许收起抽屉（拖到一半没了）',
-    s => s.replace(/(closeDrawer\(\) \{[\s\S]{0,200}?)if \(this\.editing\) return/,
-      '$1if (false) return')],
-  ['引导前不拉出抽屉（第 2/3 步被跳过）',
-    s => s.replace(/(引导要挖洞[\s\S]{0,320}?)this\.drawerOn = true/,
-      '$1this.drawerOn = false')],
-  ['计时一起不收抽屉（fixed 层浮在硬控屏上）',
-    s => s.replace('if (v && this.drawerOn) { this.editing = false; this.drawerOn = false }',
-      'if (v && this.drawerOn) { this.editing = false }')],
+  // ---- 5. 滚动进度只认 onPageScroll ----
+  ['进度不量化（按帧重渲染，大页面掉帧）',
+    s => s.replace('const q = Math.round(p * 20) / 20', 'const q = p')],
+  // ⚠️ 只改 onPageScroll、不动 syncReveal 本体：syncReveal 会被护栏抠出来真跑，
+  //    在里面塞 document 会让**护栏自己崩掉** —— 崩溃会被当成"抓到"，那是假绿。
+  ['滚动位置不来自 e.scrollTop（去量节点，App 端静默失效）',
+    s => s.replace('this.syncReveal(e && typeof e.scrollTop === \'number\' ? e.scrollTop : -1)',
+      'this.syncReveal(document.documentElement.scrollTop)')],
+  ['没有卡时也走淡入（整摞卡凭空不见）',
+    s => s.replace('const on = !this.locked && this.restCount > 0', 'const on = !this.locked')],
+  ['拉到位的震动不去抖（滚动途中震成一窝蜂）',
+    s => s.replace('if (!this._buzzed) {', 'if (true) {')],
 
-  // ---- 6. 抽屉层在 page-slide 之外 ----
-  // 把 page-slide 的闭合 </view> 拿掉，抽屉层就变成它的子节点了
-  // ⚠️ 仓库是 CRLF（记忆约束 17）：这里要写 \r\n，写 \n 会静默匹配不上（假绿）
-  ['抽屉层塞回 page-slide 内（fixed 被切 tab 动画接管）',
-    s => s.replace('    </view>\r\n    <!-- ===== 底部"抽屉"', '    <!-- ===== 底部"抽屉"')],
-  // ⚠️ 不能改名成 page-slide-x —— 'page-slide' 仍是它的子串，断言照样命中（假绿）
-  ['主页三卡搬出 page-slide（不跟切 tab 动画了）',
-    s => s.replace('class="page-slide home-slide"', 'class="pslide home-slide"')],
+  // ---- 6. 结构归属（真跑标签栈）----
+  // ★ 这一处是"整摞卡之后那唯一的闭合"：拿掉它，.page-slide 就一直开到浮层之后，
+  //   「添加组件」那层 fixed 被卷进切 tab 的动画里（记忆约束 3）。
+  //   ⚠️ 锚点里几个空行要数清楚 —— 少写一个就匹配不到，会被判成 SKIP。
+  ['「添加组件」浮层塞回 .page-slide（fixed 被切 tab 动画接管）',
+    s => s.replace('    </view>' + NL + NL + NL + NL + '    <!-- 「添加组件」抽屉', NL + NL + NL + '    <!-- 「添加组件」抽屉')],
+  ['编辑入口挪出 .mod-list',
+    s => s.replace('      <!-- 编辑入口：压在最后一卡下面', '    </view>' + NL + '      <!-- 编辑入口：压在最后一卡下面')],
 
-  // ---- 7. 起表仍然只能从准备页进 ----
-  ['主按钮直接起表（带 auto=1）',
-    s => s.replace("uni.navigateTo({ url: this.focusUrl() })",
-      "uni.navigateTo({ url: this.focusUrl() + '&auto=1' })")],
-
-  // ---- 3b. 主页整块上滑拉抽屉 ----
-  // 把内容区的上滑绑定撤掉：用户又在主页上滑没反应
-  ['主页上滑手势从内容区移除（用户上滑又没反应）',
-    s => s.replace(
-      '@touchstart="homeSwipeStart" @touchmove="homeSwipeMove" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd"',
-      '@touchstart="noop" @touchmove="noop" @touchend="noop" @touchcancel="noop"')],
-  // 守卫改成"永远不拦"：抽屉已开 / 编辑 / 计时中时上滑也会乱开
-  // ⚠️ 这个守卫在 homeSwipeMove 与 homeSwipeEnd 两处都写，要一起失效才行，
-  //    否则另一处还留着，断言照过 → 假绿。
-  ['上滑手势守卫失效（抽屉开着还往上滑就重叠）',
-    s => s.replace(/this\.drawerOn \|\| this\.editing \|\| this\.locked/g, 'false')],
-
-  // ---- 8. 2026-10-16 真机视频回归：向右偏 / 收不回去 / 主页开天窗 ----
-  // 面板吃掉 border-box：width:100% + padding 溢出右边缘，卡片被屏幕裁掉一截
-  ['抽屉面板改回 content-box（卡片向右偏、右边被裁）',
-    s => s.replace(/  box-sizing: border-box;\r\n  width: 100%;\r\n  height: 76vh;/,
-      '  width: 100%;\r\n  height: 76vh;')],
-  // 把手提交方向写反：变成"轻碰就收、使劲拉反而弹回"
-  ['把手收起方向写反（panelDrag < 阈值）',
-    s => s.replace('const commit = this.panelDrag > CLOSE_COMMIT_PCT', 'const commit = this.panelDrag < CLOSE_COMMIT_PCT')],
-  // 轻点把手没拖够 6px 时不复位：dragging 永久为 true，所有过渡被关掉
-  ['把手轻点不复位 dragging（过渡被永久关掉）',
-    s => s.replace('if (this.panelDrag === null) { this.dragging = false; this.gripY = 0; return }',
-      'if (this.panelDrag === null) { this.gripY = 0; return }')],
-  // 主页不淡出：收工按钮与抽屉底部的「编辑首页」摞在一起
-  ['主页不随抽屉淡出（收工与编辑首页重叠）',
-    s => s.replace('opacity: String(1 - p * 0.92)', "opacity: String(1)")],
-
-  // ---- 9. 层级感：玻璃底板 / 视差 / 景深 / 节点诊断 ----
-  // 把玻璃底板的毛玻璃去掉：又变回"同一层里接着排"，读不出谁盖着谁
-  ['玻璃底板去掉毛玻璃（层次感没了）',
-    // ⚠️ 文件里有 3 处 backdrop-filter，直接按串替换会命中 2100 行那处（不是抽屉的）→ 假绿。
-    //    必须锚在 .dr-panel 块里删。
-    s => s.replace(/(\.dr-panel \{[\s\S]*?)-webkit-backdrop-filter:[^\n]*\r\n[^\n]*backdrop-filter:[^\n]*\r\n/, '$1')],
-  // 去掉上方圆角：抽屉与主页视觉上又连成一片
-  ['玻璃底板去掉圆角',
-    s => s.replace('  border-radius: 40rpx 40rpx 0 0;\r\n', '')],
-  // 去掉上沿阴影：底板"浮起来"的高度线索没了
-  ['玻璃底板去掉上沿阴影',
-    s => s.replace('  box-shadow: 0 -16rpx 44rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.22);\r\n', '')],
-  // 视差回到 18vh：位移太小，读不出"主页被顶上去"
-  ['上滑视差缩回 18vh（层次又没了）',
-    s => s.replace('const HOME_PARALLAX_VH = 26', 'const HOME_PARALLAX_VH = 18')],
-  // 去掉景深缩放：两层同速同大小 → 还是同一列接着排
-  ['主页不缩小（没有景深，两层同速）',
-    s => s.replace("'vh) scale(' +\r\n          (1 - p * HOME_DEPTH_SCALE).toFixed(4) + ')',", "'vh)',")],
-  // 面板自己不带视差：只有主页在动，抽屉变成"原地淡入"
-  ['面板视差去掉（抽屉原地淡入、不压上来）',
-    s => s.replace("        transform: 'translateY(' + ((1 - p) * PANEL_PARALLAX_PCT).toFixed(2) + '%)'\r\n", '')],
-  // 各自绕中心缩放：三张卡间距乱跳
-  ['主页不设统一 transform-origin（缩放各自为中心）',
-    s => s.replace('  transform-origin: 50% 22%;\r\n', '')],
-  // 高度算不出来不留痕：H=0 → NaN → 动画被丢弃，控制台一声不吭
-  ['高度算不出来不计数（诊断没了）',
-    s => s.replace('      this.nodeMiss++\r\n', '')],
-  ['面板高度没有地板值（除零 → NaN → 动画等于没写）',
-    s => s.replace('      if (H > 0) return H\r\n', '')],
-  // 只读估算、不吃缓存的实测值：面板真实高度（76vh）与估算万一差得多，
-  // 拖动百分比就整体错位（拉到底还差一截 / 拉一点就顶满）
-  ['panelHpx 不吃实测缓存（只用估算）',
-    s => s.replace('const H = this.panelH || Math.round(this.winH * 0.76)',
-      'const H = Math.round(this.winH * 0.76)')],
-  // 不提前量高度：app 端 ref 不是 DOM 节点，现场读不到 → 只能用估算值凑合
-  ['进页面不量面板高度（panelH 永远是 0）',
-    s => s.replace('    try { this.measurePanel() } catch (e) {}\r\n', '')],
-  // 量错节点：缓存写不进去，等于没量。
-  // ⚠️ 必须 /g：带作用域那条路与兜底那条路各有一处 .dr-panel，只换一处会被另一处救回来（假绿）
-  ['measurePanel 量错节点',
-    s => s.replace(/q\.select\('\.dr-panel'\)\.boundingClientRect\(\)/g, "q.select('.dr-body').boundingClientRect()")],
-  // ---- 9.x H5 量高崩溃（2026-10-23 运行日志：onShow 被打断 → 首页停在旧数据）----
-  ['量高不判 $el 是否已挂载（H5 未挂载时照样抛）',
-    s => s.replace("        if (!this.$el) throw new Error('el not mounted')\r\n", '')],
-  // 10-17 那版补丁就是这么写的：try 只包住 in(this)，而真正的抛点在 exec 里
-  ['try 只包 in(this)、exec 留在外面（H5 照样崩）',
-    s => s.replace(
-      "      try {\r\n        // $el 还没挂上就别构造查询：构造也是白构造，直接退一拍等它挂好\r\n        if (!this.$el) throw new Error('el not mounted')\r\n        const q = uni.createSelectorQuery().in(this)\r\n        q.select('.dr-panel').boundingClientRect()\r\n        q.exec((res) => {\r\n          const r = res && res[0]\r\n          const h = r && (r.height || 0)\r\n          if (h > 0) { this.panelH = Math.round(h); return }\r\n          retry()\r\n        })\r\n      } catch (e) {",
-      "      let q\r\n      try {\r\n        q = uni.createSelectorQuery().in(this)\r\n      } catch (e) {\r\n        q = uni.createSelectorQuery()\r\n      }\r\n      q.select('.dr-panel').boundingClientRect()\r\n      q.exec((res) => {\r\n        const r = res && res[0]\r\n        const h = r && (r.height || 0)\r\n        if (h > 0) { this.panelH = Math.round(h); return }\r\n        retry()\r\n      })\r\n      try { if (false) throw 0 } catch (e) {")],
-  ['onShow 里量高不带 try（量高一抛，refresh / startTick 全不跑）',
-    s => s.replace("    try { this.measurePanel() } catch (e) {}\r\n", "    this.measurePanel()\r\n")],
-
-  // ---- 10. 收起太费劲（2026-10-16 反馈：要往下滑很长一段）----
-  // 阈值回到 50：面板 76vh 的一半 = 38vh，真机上得滑老长一段
-  ['收起阈值改回 50（又要滑很长一段）',
-    s => s.replace('const CLOSE_COMMIT_PCT = 20', 'const CLOSE_COMMIT_PCT = 60')],
-  // 去掉"快速一甩"：不想拖够距离就没辙了
-  ['收起不支持一甩（必须拖够距离）',
-    s => s.replace(' || this.dragVy >= CLOSE_FLICK_V', '')],
-  // 把手拖动不记速度：一甩判定永远是 0，等于没有一甩
-  ['把手拖动不记速度（一甩判定恒为 0）',
-    s => s.replace('      this.trackVy(t.clientY)\r\n      const dy = t.clientY - this.gripY',
-      '      const dy = t.clientY - this.gripY')],
-  // 内容区不接管：只能去够顶部那条把手，用户第一反应拉列表时"拉不动"
-  ['抽屉内容区不接管收起手势',
-    s => s.replace('@touchmove="bodyMove"', '@touchmove="noop"')],
-  // 列表没滚到顶就抢手势：往下拖会直接把抽屉收了，列表根本滚不动
-  ['列表没滚到顶也抢手势（列表滚不动）',
-    s => s.replace('if (this.bodyTop > 2) return', 'if (false) return')],
-  // 方法被丢回顶层（methods 之外）：this.runReplanFlow is not a function
-  ['runReplanFlow 掉回顶层（Vue 丢弃 → 不是一个函数）',
-    s => s.replace('  onHide() {', '  async runReplanFlow() {}\r\n  onHide() {')],
-  // 三张主卡全被收纳时主页开天窗（只剩一张收工按钮）
-  ['主卡全收纳时不兜底（主页中间一大片空白）',
-    s => s.replace("return ids.length ? ids : ['focus']", "return ids")],
-
-  // ---- 8. 上滑一甩开抽屉 + 滑出震动（2026-10-16） ----
-  // ⚠️ 方向：dragVy 上滑为负，判定必须是 <= 负值；写反就成了"慢慢拖才开、一甩反而不开"
-  ['上滑一甩判定方向写反（>=）',
-    s => s.replace('this.dragVy <= -OPEN_FLICK_V', 'this.dragVy >= -OPEN_FLICK_V')],
-  ['删掉上滑一甩阈值常量（只认拖过一半）',
-    s => s.replace('const OPEN_FLICK_V = 0.45', 'const OPEN_FLICK_V_MISSING = 0.45')],
-  ['上滑起手不清速度残留（上一段手势污染第一帧）',
-    s => s.replace(/(homeSwipeStart\(e\)\s*\{[\s\S]{0,400}?)this\.dragVy = 0/, '$1/* no reset */')],
-  ['打开提交的松手瞬间不震（滑出没反馈）',
-    s => s.replace('if (commit) this.buzzDrawer()', '/* no buzz */')],
-  ['震动挪进收起路径（关抽屉也震，用户没要）',
-    s => s.replace(/closeDrawer\(\)\s*\{/, 'closeDrawer() { this.buzzDrawer()')],
-  ['buzzDrawer 丢了 catch（老包没权限时直接抛异常打断开抽屉）',
-    s => s.replace("try { haptic.tick('drawer') } catch (e) { console.warn('[home] haptic tick failed:', e) }",
-      "haptic.tick('drawer')")],
-
-  // ---- 11. 背单词 App 移植：hero-glass 模糊层 + 抽屉 Q 弹 ----
-  // 撤掉 hero-glass 的 heroGlassStyle 绑定：静止时背景不再受控（退化为纯透明层，没模糊）
-  ['hero-glass 不绑 heroGlassStyle（模糊层失控）',
-    s => s.replace('class="hero-glass" :style="heroGlassStyle"', 'class="hero-glass"')],
-  // 去掉 z-index:-1：hero-glass 会盖到主页内容之上（层次反了）
-  ['hero-glass 不设 z-index:-1（盖到主页之上）',
-    s => s.replace(/(\.hero-glass \{[\s\S]*?)  z-index: -1;\r\n/, '$1')],
-  // 静止 / 编辑态不再透明：背景永远被糊（失去"静止必须高清"约定）
-  ['hero-glass 静止不透明（永远糊背景）',
-    s => s.replace("if (this.editing || p <= 0) return { opacity: '0' }", "if (this.editing) return { opacity: '0' }")],
-  // 不走 backdrop-filter：改成普通 filter，失去"玻璃"质感且可能无模糊
-  ['hero-glass 不用 backdrop-filter（退化成 filter）',
-    s => s.replace("backdropFilter: 'blur(", "filter: 'blur(")],
-  // dr-throw 改掉 class：Q 弹不再挂在抽屉外层面（动画会冲掉面板跟手位移）
-  ['dr-throw 改名（Q 弹挂错层）',
-    s => s.replace('class="dr-throw" :class="popCls"', 'class="dr-throw-x" :class="popCls"')],
-  // popCls 不再交替：同名动画摘了再戴被合并 → 第二次不播（假弹）
-  ['popCls 不交替（第二次不弹）',
-    s => s.replace("return this.popSeq % 2 ? 'pop-b' : 'pop-a'", "return 'pop-a'")],
-  // sheet-pop-a 过冲幅度砍没：Q 弹变成纯缩放、没有"丢上来"的冲劲
-  ['sheet-pop-a 过冲砍没（没有丢上来的冲劲）',
-    s => s.replace(/@keyframes sheet-pop-a \{[\s\S]*?\r\n\}/, '')],
-  // drawerOn 监听不再触发 playPop：打开抽屉不弹
-  ['drawerOn 监听不触发 Q 弹',
-    s => s.replace('if (n && !o) this.playPop()', 'if (n && !o) {}')],
+  // ---- 7. 两处联动 ----
+  ['进编辑态不把卡片滚到眼前（把手/收纳全在卡片上）',
+    s => s.replace('if (this.editing) this.scrollToModules()', 'if (this.editing) this.drawerOn = true')],
+  ['放引导前不回顶（目标卡在首屏，滑走了量不到）',
+    s => s.replace(/uni\.pageScrollTo\(\{ scrollTop: 0, duration: 0 \}\)/, 'this.noop()')],
+  ['卡片增减不重新对齐进度（收掉最后一张后整摞透明）',
+    s => s.replace('restOrder() { this.syncReveal(-1) }', 'restOrder() {}')]
 ];
 
 let bad = 0;
 const base = runCheck();
 console.log('基线：exit=' + base.code + '（应为 0）');
-if (base.code !== 0) { console.log('基线就不是绿的，先修好再来 ✗'); process.exit(1); }
+if (base.code !== 0) { console.log('基线就不是绿的，先修好再来 ✗ ' + base.fails.join(' | ')); process.exit(1); }
 
-for (const [name, mut] of cases) {
-  const next = mut(orig);
-  if (next === orig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
-  fs.writeFileSync(FILE, next);
-  const r = runCheck();
-  const hit = r.code !== 0;
-  console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0] : ''));
-  if (!hit) bad++;
+// ⚠️ 还原必须放在 finally 里：某个变异把**护栏自己**搞崩时（比如往被真跑的
+//    syncReveal 里塞 document），进程会带着变异后的源码一起死 —— 源码就留在
+//    被改坏的状态了。2026-10-23 实锤过一次，靠手工改回。
+try {
+  for (const [name, mut] of cases) {
+    const next = mut(orig);
+    if (next === orig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
+    fs.writeFileSync(FILE, next);
+    const r = runCheck();
+    const hit = r.code !== 0;
+    console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0] : ''));
+    if (!hit) bad++;
+  }
+} finally {
+  fs.writeFileSync(FILE, orig);
 }
-
-fs.writeFileSync(FILE, orig);
 const back = runCheck();
 console.log(back.code === 0 ? '还原后仍是绿 ✓' : '还原后不绿 ✗ ' + back.fails.join(' | '));
 if (back.code !== 0) bad++;

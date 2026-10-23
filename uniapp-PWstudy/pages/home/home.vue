@@ -10,16 +10,15 @@
   >
     <!-- ===== 主页撤退时的"毛玻璃"层（背单词 App 的 hero-glass 等价物） =====
          上滑时整张主页后退、淡出，这层在它背后把**背景**糊成一片 ——
-         静止（openProg=0）时 opacity:0，背景必须是高清原图；只有"动起来"才糊。
+         静止（滚动进度 0）时 opacity:0，背景必须是高清原图；只有"动起来"才糊。
          ⚠️ 必须是 .page-slide / 带 opacity 的祖先之外、且自身不做 opacity 祖先：
          一旦某一层成了 backdrop root，子级的 backdrop-filter 只能糊到那一层内部。
          这里挂在 .container 下、自身 opacity 由内联单独控制，安全。 -->
     <view class="hero-glass" :style="heroGlassStyle"></view>
 
-    <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="forcedOn || blockNotifOn || autoRestOn" @open-focus="toggleFocusSheet" />
+    <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="focusSetOn" @open-focus="toggleFocusSheet" />
 
-    <view class="page-slide home-slide" :class="slideCls" :style="slideStyle"
-      @touchstart="homeSwipeStart" @touchmove="homeSwipeMove" @touchend="homeSwipeEnd" @touchcancel="homeSwipeEnd">
+    <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
 
       <!-- ===== 专注进行中：首页被"硬控"，只剩倒计时 =====
            计时一旦开始，首页不再显示任务列表 / 目标 / Dock 这些会让人分心的东西；
@@ -90,10 +89,17 @@
            每张只留一个焦点 —— 开始键 / 下一条要做 / 还剩多久。
            其余组件（目标、日程、学习 App、AI 对话）**平时完全不渲染**，
            它们住在底部抽屉里，要往上滑才拉得出来（见文件末尾 .dr-*）。 -->
-      <!-- :style="homeShift"：整列随抽屉展开进度上移 —— 上滑时主卡往上让位，
-           抽屉卡片在其下方逐张浮现（对照分镜 reveal≈0.5：主卡已升起一半、
-           下一张卡刚探出头）。像滚动一列卡片，而不是掀一张面板。 -->
-      <view class="hcards" :style="homeShift">
+      <!-- 整块首屏的位移 / 渐隐由 .home-hero / .hero-body 的内联样式给（跟随滚动进度）。
+           三张卡的顺序是固定的（今天要用的就这三样），不参与排序与收纳。 -->
+      <!-- ===== 首屏：一屏装下"今天要用的三张卡 + 收工" =====
+           ⚠️ 它自己撑满一屏（见 CSS .home-hero 的 min-height）：下面那摞模块卡
+           静止时**必然**落在折叠线之下，是**结构**保证的，不靠 opacity 藏 ——
+           靠 JS 算初值的话，脚本一环没跑卡片就永久不见（同类实现已经踩过）。
+           上滑时整块首屏随滚动上抬、缩小、渐隐（heroCardStyle / heroBodyStyle），
+           下面那摞卡从折叠线下被推上来 —— 两层不同速，才有"另一层被拉上来"的景深。 -->
+      <view class="home-hero" :style="heroCardStyle">
+      <view class="hero-body" :style="heroBodyStyle">
+      <view class="hcards">
         <block v-for="id in homeOrder" :key="id">
 
           <!-- ① 开始专注 —— 这一屏唯一的视觉中心：竖向居中（环 + 开始键 + 极简上下文），
@@ -145,8 +151,8 @@
                   <text class="hc-sub">{{ item.goal.title }} · {{ $t('剩 {n} 分钟', { n: item.estMin }) }}</text>
                 </view>
               </view>
-              <view v-if="hasMoreTask" class="hc-more" @tap="openDrawer">
-                <text class="hc-sub">{{ $t('查看其余 {n} 项', { n: queue.length - 3 }) }}</text>
+              <view v-if="hasMoreTask" class="hc-more" @tap="goCalendar">
+                <text class="hc-sub">{{ $t('查看全部 ›') }}</text>
               </view>
             </block>
           </view>
@@ -172,46 +178,29 @@
            原来它缩在「今日任务」卡右上角当一个小链接，而"今天做了什么"其实是
            整个"动态安排"的输入口 —— 现在按主按钮的尺寸放在首页底部，
            填过就变成「改一下」，不重复催促。编辑首页时让位给编辑按钮。 -->
-      <view v-if="!editing" class="home-cta" :style="homeShift">
+      <view v-if="!editing" class="home-cta">
         <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
         <text class="cta-tip">{{ checked ? '今天已经记过了，想改随时点开' : '花十几秒说说今天，明天的安排才排得准' }}</text>
       </view>
-      </block>
-    </view>
-    <!-- ===== 底部"抽屉"：其余组件住在这儿 =====
-    它不是一张面板，也没有实体：上滑时主页整列上移让位，
-    这摞卡片按展开进度**逐张淡入 + 升起**（wrapStyle 错拍），
-    滑到最底 → 才够得着「编辑首页」。
-    这层只是透明的点击承接层（开着时点空白处 = 收起）。
-    ⚠️ 必须放在 .page-slide 之外 —— fixed 参照不能受切 tab 的滑动动画影响，
-    否则抽屉会跟着页面一起滑走（记忆约束 3）。 -->
-    <view class="dr-mask" :class="{ on: drawerOn }" @tap="closeDrawer" @touchmove.stop.prevent="noop">
-      <!-- 抽屉"丢上来"的 Q 弹层：抽屉到位时 .dr-throw 播一次 sheet-pop 过冲动画。
-           ⚠️ 必须挂在 .dr-panel 外层：动画的优先级高于内联 transform，直接挂面板上
-           会把 panelStyle 跟手的内联位移冲掉。父子相乘，互不打扰（背单词 App 同款做法）。 -->
-      <view class="dr-throw" :class="popCls">
-      <view class="dr-panel" ref="drPanel" :class="{ dragging: dragging }" :style="panelStyle" @tap.stop>
-        <!-- 抽屉把手：往下拖 = 收起抽屉（去掉了装饰小横条，只留标题做抓手） -->
-        <view
-        class="dr-grip"
-        @touchstart="gripStart"
-        @touchmove="gripMove"
-        @touchend="gripEnd"
-        @touchcancel="gripEnd"
-        >
-        <text class="dr-title">{{ $t('全部组件') }}</text>
       </view>
-      <!-- 内容区也接管收起：滚到顶之后再往下拉 = 收抽屉（不必非够那条把手） -->
-      <scroll-view
-      class="dr-body"
-      scroll-y
-      @scroll="bodyScroll"
-      @touchstart="bodyStart"
-      @touchmove="bodyMove"
-      @touchend="bodyEnd"
-      @touchcancel="bodyEnd"
-      >
-        <view class="mod-list" @touchmove="dragMove" @touchend="dragEnd" @touchcancel="dragEnd">
+      </view>
+      </block>
+    <!-- ===== 其余组件：跟在首屏后面正常滚动 =====
+         以前这是一层 fixed 的"抽屉"：非得上滑手势才拉得出来，而那个手势在屏幕
+         **任何位置**划 12px 就接管（页面本身还被 touch-action:none 禁掉了滚动），
+         于是"想点卡片、手抖一下"整块面板就被拽出来 —— 这是"首页很乱"的直接来源；
+         而且它没有任何常驻提示，不滑就不知道下面还有东西。
+         现在它就是页面流里的一摞卡：手指在哪往上滑都是**正常滚动**，
+         不用学手势、不会误触，下面的内容也一直"在那儿"。
+         ⚠️ .mod-sheet 是玻璃底板的宿主层，必须独立在 .mod-list 之外：
+            CSS 里 backdrop root 由 filter / opacity<1 / mask 创建 —— .mod-list 要淡入
+            就必然带 opacity<1，底板挂在它身上时 backdrop 被隔离在那一个层里，背后只剩
+            卡片自己，于是"糊了个寂寞"（看到的就是一块平涂半透明白片 = 没有立体感）。
+            拆两层后：.mod-sheet 只吃 transform（建 stacking context，但**不建** backdrop
+            root）→ 底板能一路糊到首页背景与首屏内容。 -->
+    <view class="mod-throw" :class="popCls">
+    <view class="mod-sheet" :style="sheetRevealStyle">
+    <view class="mod-list" :style="listRevealStyle" @touchmove="dragMove" @touchend="dragEnd" @touchcancel="dragEnd">
           <view
           v-for="(id, i) in restOrder"
           :key="id"
@@ -414,17 +403,19 @@
     <view v-if="dock.length" class="dock-hint">今日 {{ appTodayMin }} 分钟 · 点图标直达</view>
     </view>
     </view>
-    </view>
 
-    <!-- 编辑入口压在抽屉最底下：要往下翻两次才够得着，平时不会误触 -->
-    <view class="home-foot">
-      <block v-if="editing">
-        <view class="foot-btn ghost" @tap="openSheet">{{ $t('＋ 添加组件') }}</view>
-        <view class="foot-btn primary" @tap="finishEdit">{{ $t('完成') }}</view>
-      </block>
-      <view v-else class="foot-link" @tap="toggleEdit">{{ $t('编辑首页') }}</view>
+      <!-- 编辑入口：压在最后一卡下面，滑到底才够得着，平时不会误触。
+           ⚠️ 它必须在滚动流里（不在 fixed 抽屉里）—— 以前抽屉在"一张卡都没有"时
+           根本打不开，编辑入口就跟着一起够不着了。 -->
+      <view class="home-foot">
+        <block v-if="editing">
+          <view class="foot-btn ghost" @tap="openSheet">{{ $t('＋ 添加组件') }}</view>
+          <view class="foot-btn primary" @tap="finishEdit">{{ $t('完成') }}</view>
+        </block>
+        <view v-else class="foot-link" @tap="toggleEdit">{{ $t('编辑首页') }}</view>
+      </view>
     </view>
-    </scroll-view>
+    </view>
     </view>
     </view>
 
@@ -458,7 +449,6 @@
         </scroll-view>
       </view>
       </view>
-    </view>
 
     <!-- 统一弹窗（.pop-mask 是 fixed，必须放在 .page-slide 之外） -->
     <app-dialog
@@ -487,9 +477,16 @@
     />
 
     <!-- 首页「专注设置」卡片（顶栏右上角胶囊点开弹出）：
-         把「强制模式 / 拦截通知 / 自动进休息」三项收进同一张卡片，仿番茄 ToDo 把同类设置
-         收进一处。专注进行中（locked）与编辑首页（editing）时入口不显示；卡片用遮罩弹层，
-         点遮罩或 × 收起。 -->
+         ★ 跟专注有关的设置**全部**收在这一张卡里 —— 仿番茄 ToDo 把同类设置收进一处，
+           首页因此只剩"今天要做什么"，不再这儿一个开关那儿一个开关（"首页很乱"的一条来源）。
+         分四组：时长 / 结束提醒 / 白噪音 / 管住自己。组内是同一类动作，组之间用
+         小标题分开 —— 一张卡里塞十行，不分组就是一堵墙。
+         ⚠️ 内容多了就必须能滚：.fs-body 限高 + scroll-view，否则小屏上下面几行
+            永远点不到。用 scroll-view 而不是 overflow:auto（App 端 view 的 overflow
+            在部分机型上不吃，滚不动会静默失效）。
+         更深的几项（自定义时长 / 后台保活 / 通知提醒 / 试听）留在专注页，底部只给出口 ——
+         这个面板的职责是"开表前顺手调一下"，不是把所有旋钮都搬到首页。
+         专注进行中（locked）与编辑首页（editing）时入口不显示；点遮罩或 × 收起。 -->
     <view v-if="focusSheet" class="fs-mask" @tap="toggleFocusSheet">
       <view class="fs-card" @tap.stop>
         <view class="fs-head">
@@ -497,36 +494,128 @@
           <view class="fs-close" @tap="toggleFocusSheet">×</view>
         </view>
 
-        <view class="fc-row">
-          <view class="fc-info">
-            <text class="fc-title">{{ $t('强制模式') }}</text>
-            <text class="fc-sub">{{ $t('离开学习 App 立刻拉回') }}</text>
+        <scroll-view class="fs-body" scroll-y>
+          <!-- ① 时长 -->
+          <text class="fc-group">{{ $t('时长') }}</text>
+          <view class="fc-field">
+            <view class="fc-field-head">
+              <text class="fc-title">{{ $t('一段专注') }}</text>
+              <text class="fc-val">{{ focusMin }} {{ $t('分钟') }}</text>
+            </view>
+            <view class="fc-opts">
+              <text
+                v-for="m in focusMinOpts"
+                :key="m"
+                class="fc-opt"
+                :class="{ 'fc-opt-on': m === focusMin }"
+                @tap="setFocusMin(m)"
+              >{{ m }}</text>
+            </view>
           </view>
-          <view class="fc-switch" :class="{ 'fc-on': forcedOn }" @tap="tapForced">
-            <view class="fc-knob" :class="{ 'fc-knob-on': forcedOn }"></view>
+          <view class="fc-field">
+            <view class="fc-field-head">
+              <text class="fc-title">{{ $t('一段休息') }}</text>
+              <text class="fc-val">{{ restMin }} {{ $t('分钟') }}</text>
+            </view>
+            <view class="fc-opts">
+              <text
+                v-for="m in restMinOpts"
+                :key="m"
+                class="fc-opt"
+                :class="{ 'fc-opt-on': m === restMin }"
+                @tap="setRestMin(m)"
+              >{{ m }}</text>
+            </view>
           </view>
-        </view>
-        <view v-if="forcedOn && !overlayOk" class="fc-warn" @tap="openOverlayHome">{{ $t('强制模式需开启「显示在其他应用上层」') }}</view>
 
-        <view class="fc-row">
-          <view class="fc-info">
-            <text class="fc-title">{{ $t('拦截通知') }}</text>
-            <text class="fc-sub">{{ $t('专注时收起别家通知') }}</text>
+          <!-- ② 结束提醒 -->
+          <text class="fc-group">{{ $t('结束提醒') }}</text>
+          <view class="fc-row">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('结束响铃') }}</text>
+              <text class="fc-sub">{{ $t('专注结束时响一声') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': soundOn }" @tap="tapSound">
+              <view class="fc-knob" :class="{ 'fc-knob-on': soundOn }"></view>
+            </view>
           </view>
-          <view class="fc-switch" :class="{ 'fc-on': blockNotifOn }" @tap="tapBlockNotif">
-            <view class="fc-knob" :class="{ 'fc-knob-on': blockNotifOn }"></view>
+          <view class="fc-row">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('结束震动') }}</text>
+              <text class="fc-sub">{{ $t('专注结束时震一下') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': vibeOn }" @tap="tapVibe">
+              <view class="fc-knob" :class="{ 'fc-knob-on': vibeOn }"></view>
+            </view>
           </view>
-        </view>
 
-        <view class="fc-row">
-          <view class="fc-info">
-            <text class="fc-title">{{ $t('自动进休息') }}</text>
-            <text class="fc-sub">{{ $t('专注结束自动休息') }}</text>
+          <!-- ③ 白噪音：开关 + 音色（音色只在开着的时候出现，关着时不多占一行） -->
+          <text class="fc-group">{{ $t('白噪音') }}</text>
+          <view class="fc-row">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('专注时放环境音') }}</text>
+              <text class="fc-sub">{{ $t('本地合成不联网，休息自动停') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': noiseOn }" @tap="tapNoise">
+              <view class="fc-knob" :class="{ 'fc-knob-on': noiseOn }"></view>
+            </view>
           </view>
-          <view class="fc-switch" :class="{ 'fc-on': autoRestOn }" @tap="tapAutoRest">
-            <view class="fc-knob" :class="{ 'fc-knob-on': autoRestOn }"></view>
+          <view v-if="noiseOn" class="fc-opts fc-opts-pad">
+            <text
+              v-for="n in noiseKinds"
+              :key="n.k"
+              class="fc-opt"
+              :class="{ 'fc-opt-on': noiseKind === n.k }"
+              @tap="pickNoise(n.k)"
+            >{{ n.t }}</text>
           </view>
-        </view>
+
+          <!-- ④ 管住自己：提醒 → 拉回 → 收通知 → 收尾 -->
+          <text class="fc-group">{{ $t('管住自己') }}</text>
+          <view class="fc-row">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('严格模式') }}</text>
+              <text class="fc-sub">{{ $t('离开学习 App 就提醒，30 秒不回来作废') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': strictOn }" @tap="tapStrict">
+              <view class="fc-knob" :class="{ 'fc-knob-on': strictOn }"></view>
+            </view>
+          </view>
+          <view v-if="strictOn && !usageOk && !a11yOk" class="fc-warn" @tap="openUsage">{{ $t('需要「使用情况访问」才能判断你在用哪个 App') }}</view>
+
+          <view class="fc-row">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('强制模式') }}</text>
+              <text class="fc-sub">{{ $t('离开学习 App 立刻拉回') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': forcedOn }" @tap="tapForced">
+              <view class="fc-knob" :class="{ 'fc-knob-on': forcedOn }"></view>
+            </view>
+          </view>
+          <view v-if="forcedOn && !overlayOk" class="fc-warn" @tap="openOverlayHome">{{ $t('强制模式需开启「显示在其他应用上层」') }}</view>
+
+          <view class="fc-row">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('拦截通知') }}</text>
+              <text class="fc-sub">{{ $t('专注时收起别家通知') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': blockNotifOn }" @tap="tapBlockNotif">
+              <view class="fc-knob" :class="{ 'fc-knob-on': blockNotifOn }"></view>
+            </view>
+          </view>
+
+          <view class="fc-row is-last">
+            <view class="fc-info">
+              <text class="fc-title">{{ $t('自动进休息') }}</text>
+              <text class="fc-sub">{{ $t('专注结束自动休息') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': autoRestOn }" @tap="tapAutoRest">
+              <view class="fc-knob" :class="{ 'fc-knob-on': autoRestOn }"></view>
+            </view>
+          </view>
+
+          <view class="fs-more" @tap="goFocusSet">{{ $t('更多专注设置 ›') }}</view>
+        </scroll-view>
       </view>
     </view>
 
@@ -586,29 +675,23 @@ import TaskDoneDialog from '../../components/task-done-dialog/task-done-dialog.v
 // 换成蓝色 / 绿色主题时这一条会显得像另一套设计留下的。
 const BRAND = 'var(--brand, #e4173d)'
 
-// 主页常驻的三张卡：今天要用的就这三样 —— 开始专注 / 今天做什么 / 今天有多赶。
-// 其余模块一律进底部抽屉（不上滑就完全不渲染）。
+// 首屏常驻的三张卡：今天要用的就这三样 —— 开始专注 / 今天做什么 / 今天有多赶。
+// 它们**不属于可排模块**（见 utils/home-layout.ts 的 hero 标记）：
+// 排序 / 收纳只作用于首屏下面那一摞（目标 / 日程 / 学习 App / AI 对话）。
+// 两边必须一致：这里漏一个，那张卡就会在首屏和下面各渲染一份（两套样式并存）。
 const HOME_IDS = ['focus', 'task', 'urgency']
 
-// ★ 上滑视差：主页整列最多上移多少（vh）。抽屉上来时主页被"顶上去"，
-//   两者位移不同速才有景深；数值越大层次越明显（之前 18 太小，读出来像同一层）。
-const HOME_PARALLAX_VH = 26
-// ★ 景深：抽屉上来时主页整列缩到多少（0.07 = 缩 7%），
-//   后退一层 = 抽屉那层玻璃底板往前，层次才立得住。
-const HOME_DEPTH_SCALE = 0.07
-// ★ 收起抽屉要拖多少（面板高度的百分比）就算数。
-//   ⚠️ 原来跟着"上滑过半才开"对称写成 50 —— 面板 76vh，一半就是 38vh，
-//   真机上得从上往下滑老长一段才收得回去（2026-10-16 反馈）。收起该比打开省力。
-const CLOSE_COMMIT_PCT = 20
-// ★ 快速一甩也算收（px/ms 向下）：不想拖够距离时，甩一下就走
-const CLOSE_FLICK_V = 0.45
-// ★ 快速上滑一甩也能开（px/ms，向上滑速度取负号）：跟收起的一甩对称 ——
-//   参考视频（AWword）里"一甩就开"的顺滑感，只认"拖过一半"太死板。
-//   ⚠️ 方向：dragVy = (y - lastY)/dt，上滑 y 减小 → dragVy 为负，所以判定用 <= 负阈值。
-const OPEN_FLICK_V = 0.45
-// ★ 抽屉玻璃底板自己的视差：闭合时往下沉多少（面板高度的百分比）。
-//   比主页的位移小得多 —— 主页 26vh 大幅后退，底板只小幅上顶，两层错开。
-const PANEL_PARALLAX_PCT = 10
+// 滚多远算"把下面那摞卡拉到位"（rpx）。滑过这段，卡片淡满、首屏退干净。
+const REVEAL_SPAN_RPX = 520
+// 死区（rpx）：刚起手那点抖动不该让卡片先闪一下
+const REVEAL_DEAD_RPX = 16
+// 下面那摞卡的视差（rpx）：它们**落后于滚动**这么多，看着才像从折叠线下被拉上来，
+// 而不是跟着页面一起平移（同速 = 读不出"这是另一层"）。
+const SHEET_PARALLAX_RPX = 220
+// 首屏退场时额外上抬多少（rpx）：与页面滚动叠加，比卡片慢半拍才有景深
+const HERO_LIFT_RPX = 56
+// 首屏缩到多少（0.05 = 缩 5%）：后退一层，玻璃底板才读得出是浮在上面的另一层
+const HERO_DEPTH_SCALE = 0.05
 
 export default {
   components: {
@@ -646,31 +729,38 @@ export default {
       autoRestOn: false,     // 首页「专注设置」卡片：专注跑完自动进休息
       focusSheet: false,     // 首页「专注设置」卡片是否弹出
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
+      // ---- 「专注设置」卡片新增的三组 ----
+      // ⚠️ 时长那份配置在 pwstore 的 pomoCfg（focus.setCfg 写），**不在** settings.focus：
+      //    两处各存一份就会出现"首页改了 25、专注页还是 45"。
+      focusMin: 25,          // 一段专注多长
+      restMin: 5,            // 一段休息多长
+      // 档位必须与专注页 minutesOptions **逐项一致**（check-home-focus 守着）：
+      //   两处各写一套的话，专注页选了 20 分钟回到首页会没有一个档位亮着。
+      focusMinOpts: [15, 20, 25, 30, 45, 60],
+      restMinOpts: [3, 5, 10, 15],
+      soundOn: true,         // 结束响铃
+      vibeOn: true,          // 结束震动
+      noiseOn: false,        // 白噪音开关（'' 就是关，与专注页同口径）
+      noiseKind: 'rain',     // 白噪音音色
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
-      // ---------- 首页分层：主页三卡（常驻）+ 抽屉（其余组件）----------
-      // 主页只放今天要用的三张卡（专注 / 任务 / 紧迫度），其余组件**平时完全不渲染** ——
-      // 它们住在底部抽屉里，往上滑才拉得出来。抽屉状态只活在本次会话（切 tab 回来保持），
-      // 不写进设置 —— 每次进首页都强制收起的话，刚拉开看两眼又被收回去很烦。
-      drawerOn: false,    // 抽屉是否拉出
-      // 抽屉拖动：panelDrag = 展开进度的反向百分比（0=全开，100=全关），null=未拖动
-      panelDrag: null,
-      dragging: false,
-      // Q 弹（sheet-pop）触发状态：popOn 控制播不播、popSeq 奇偶交替挂 pop-a/pop-b 以重触发
+      // ---------- 首页分层：首屏三卡（常驻）+ 下面一摞可排模块 ----------
+      // 下面那摞卡跟在首屏后面**正常滚动**（不是抽屉）：不用学手势、不会误触，
+      // 下面的内容也一直"在那儿"，不滑也知道它存在。
+      // revealP = 滚动进度 0→1，串起"卡片淡入 / 首屏退场 / 背景模糊"三件事。
+      // 初值给 1（卡片常显）：万一 onPageScroll 没跑，也不能把卡片藏起来 ——
+      //   "卡片在首屏之外"必须靠首屏撑满一屏这个**结构**保证，不能靠 JS 算的 opacity。
+      revealP: 1,
+      revealOn: false,
+      // Q 弹：下面那摞卡拉到位瞬间播一次过冲（pop-a / pop-b 交替挂以重触发）
       popOn: false,
       popSeq: 0,
-      gripY: 0,            // 抽屉内把手的手势起点（往下拉 = 收起）
-      bodyTop: 0,          // 抽屉内容区的滚动位置（滚到顶再往下拉 = 收抽屉）
-      dragVy: 0,           // 手指竖向速度 px/ms（收起支持"快速一甩"）
-      dragT: 0,
-      lastMoveY: 0,
-      nodeMiss: 0,         // 诊断：面板高度算不出来的累计次数（见 panelHpx）
-      panelH: 0,           // 抽屉面板实测高度 px（measurePanel 异步量好缓存，拖动时同步用）
-      // 主页整块的上滑手势：用户在主页内容区（不只那个小把手）往上滑就该拉开抽屉。
-      // 只记起点，touchend 时再算位移，避免 touchmove 和页面滚动打架。
-      swipeX0: 0,
-      swipeY0: 0,
-      winH: 667,          // 视口高度（onShow 实测），用来判定"下半屏起手"的上滑
+      // rpx→px 的距离（remeasure 里算；屏幕尺寸变了要重算）
+      _spanPx: 0,
+      _deadPx: 0,
+      _parallaxPx: 0,
+      _heroLiftPx: 0,
+      winH: 667,          // 视口高度（onShow 实测）：进编辑态要滚到那一摞卡
       // ---------- 首页编辑（顺序 / 收纳 / 拖拽）----------
       // editing 是唯一开关：进编辑态才显示把手、遮罩、底部两个按钮
       editing: false,
@@ -794,37 +884,52 @@ export default {
       return ids.length ? ids : ['focus']
     },
     /**
-     * 抽屉里住着其余组件（目标 / 日程 / 学习 App / AI 对话…）。
-     * 编辑态返回**全部**卡片 —— 否则收纳之后就永远从抽屉里捞不回来（理由同 cardOrder）。
+     * 首屏下面那一摞（目标 / 日程 / 学习 App / AI 对话…）。
+     *
+     * 编辑态**也**排除首屏三张（HOME_IDS）：以前编辑态返回**全部**，于是首屏与
+     * 下面各渲染一份 focus / task / urgency —— 同一模块两套样式并存，还把三张卡
+     * 挤在顶部一小条里（这也是"首页很乱"的一条）。首屏那三张就是首页本身，
+     * 不参与排序与收纳；想加想减的是下面这一摞。
      */
     restOrder() {
       const ids = this.cardOrder || []
-      if (this.editing) return ids
       return ids.filter(id => HOME_IDS.indexOf(id) < 0)
     },
-    /** 抽屉里还有几张卡（0 张时连把手都不显示） */
+    /** 下面还有几张卡（0 张时「编辑首页」照样在，只是没有可排的卡） */
+    /** 顶栏那颗「专注设置」入口要不要点亮：有任意一项管控开着就点亮 ——
+        用户一眼知道"我现在是被管着的"，不用点进去看。 */
+    focusSetOn() {
+      return !!(this.forcedOn || this.blockNotifOn || this.autoRestOn ||
+        this.strictOn || this.noiseOn)
+    },
+    // 音色的中文名必须走 $t：字面量数组在 i18n init 前求值的话，切英文不会重算，
+    // 还会被 check-i18n 算成漏网的静态中文（阈值就那么点余量）。
+    noiseKinds() {
+      return [
+        { k: 'white', t: this.$t('白噪') },
+        { k: 'pink', t: this.$t('粉噪') },
+        { k: 'brown', t: this.$t('棕噪') },
+        { k: 'rain', t: this.$t('雨声') }
+      ]
+    },
     restCount() {
       return this.restOrder.length
     },
-    // 把"展开进度" open 作为 CSS 变量传下去：抽屉把手 / 底部编辑区靠它淡入。
-    // 卡片本体不走这条（它们的逐张错拍显现在 wrapStyle 里按进度算）。
-    // 面板自己也带一小段视差：闭合时下沉 PANEL_PARALLAX_PCT%，展开归零 ——
-    // 主页大幅后退、底板小幅上顶，两层不同速才有层次（同速 = 同一列接着排）。
-    panelStyle() {
-      const p = this.openProg
-      const s = {
-        '--open': String(p),
-        transform: 'translateY(' + ((1 - p) * PANEL_PARALLAX_PCT).toFixed(2) + '%)'
-      }
-      if (this.dragging) s.transition = 'none'
-      return s
+    // 玻璃底板那一层：只给 transform（视差 + 缩放）。
+    // 这一层**绝不能带 opacity**：opacity<1 会让它自成 backdrop root，
+    // 底板的 backdrop-filter 就糊不到首屏内容了（玻璃感全废，见 .mod-sheet 的注释）。
+    // 底板的"出场"靠它随滚动从屏幕下方推上来（跟系统 sheet 一样靠位移，不靠淡入）。
+    sheetRevealStyle() {
+      if (!this.revealOn) return {}
+      const p = this.revealP
+      const off = ((1 - p) * this._parallaxPx).toFixed(1)
+      const sc = (0.955 + 0.045 * p).toFixed(4)
+      return { transform: 'translate3d(0,' + off + 'px,0) scale(' + sc + ')' }
     },
-    // 抽屉"展开进度"：0=全关（卡片不可见），1=全开（完全显现）。
-    // 拖动时跟手（由 panelDrag 实时换算），松手后由 drawerOn 决定终态，
-    // 让"首页上移"和"卡片浮现"被同一个进度串起来，首页上滑和抽屉不再割裂。
-    openProg() {
-      if (this.panelDrag !== null) return Math.max(0, Math.min(1, 1 - this.panelDrag / 100))
-      return this.drawerOn ? 1 : 0
+    // 卡片那一层：只淡入（位移在上层 .mod-sheet，底板跟着一起被拉上来）
+    listRevealStyle() {
+      if (!this.revealOn) return {}
+      return { opacity: String(this.revealP) }
     },
     /**
      * 主页撤退时的"毛玻璃"层（背单词 App 的 hero-glass 等价物）——
@@ -835,8 +940,9 @@ export default {
      * 自身 opacity 由内联单独控制（它不是任何 opacity 祖先的子级，backdrop 不会被隔离）。
      */
     heroGlassStyle() {
-      const p = this.openProg
-      if (this.editing || p <= 0) return { opacity: '0' }
+      if (!this.revealOn) return { opacity: '0' }
+      const p = this.revealP
+      if (p <= 0) return { opacity: '0' }
       // 量化到 5 档（0 档=透明，已在上一步拦掉）
       const tier = p >= 0.85 ? 4 : p >= 0.6 ? 3 : p >= 0.4 ? 2 : p >= 0.2 ? 1 : 0
       if (tier === 0) return { opacity: '0' }
@@ -850,32 +956,39 @@ export default {
         webkitBackdropFilter: 'blur(' + blur + 'px) saturate(' + sat + '%)',
         background: 'rgba(var(--surface-rgb, 255, 255, 255), ' + tint + ')'
       }
-      if (this.dragging) s.pointerEvents = 'none'
       return s
     },
-    /** 抽屉"丢上来"的 Q 弹 class：openProg 到位瞬间播一次 sheet-pop 过冲，二选一交替挂以重触发 */
+    /** 下面那摞卡"推上来"的 Q 弹 class：拉到位瞬间播一次 sheet-pop 过冲，交替挂以重触发 */
     popCls() {
       if (!this.popOn) return ''
       return this.popSeq % 2 ? 'pop-b' : 'pop-a'
     },
-    // 主页整列随展开进度**上移 + 轻微缩小**：上滑时主卡往上让位，
-    // 抽屉卡片在其下方逐张浮现 —— 像把一列卡片滚上去，而不是掀一张面板。
-    // ★ 缩小是为了景深：主页后退一层，抽屉那块玻璃底板才读得出"浮在上面"。
-    //   只上移不缩小的话，两层同速、同大小，看着就是同一列接着排下去。
-    // 拖动中关掉过渡跟手，松手后由样式表里的 transition 补完。
-    homeShift() {
-      if (this.editing) return {}
-      const p = this.openProg
-      if (p <= 0) return {}
-      const s = {
-        transform: 'translateY(-' + (p * HOME_PARALLAX_VH).toFixed(2) + 'vh) scale(' +
-          (1 - p * HOME_DEPTH_SCALE).toFixed(4) + ')',
-        // 主页整列同步淡出：若主页还亮着，收工按钮会和抽屉底部的
-        // 「编辑首页」叠在一起（真机视频里两行字摞一处）
-        opacity: String(1 - p * 0.92)
+    // 整块首屏的外壳：**只给 transform**（上抬 + 轻微缩小）—— 上滑时是整屏一起退，
+    // 而不是只有下面那摞卡在动。
+    // 这一层**绝对不许带 opacity**：opacity<1 会让它自成 backdrop root，背景那层
+    // 毛玻璃（.hero-glass）的 backdrop-filter 就糊不到 App 背景了 —— 只会看到
+    // "背景图纹丝不动地平移"。内容的渐隐因此交给内层 .hero-body。
+    heroCardStyle() {
+      if (!this.revealOn) return {}
+      const p = this.revealP
+      const lift = (p * this._heroLiftPx).toFixed(1)
+      return {
+        transform: 'translate3d(0,-' + lift + 'px,0) scale(' +
+          (1 - HERO_DEPTH_SCALE * p).toFixed(4) + ')'
       }
-      if (this.dragging) s.transition = 'none'
-      return s
+    },
+    // 首屏内容（环 / 任务卡 / 收工按钮）：随上滑渐隐，把位让给下面那摞卡。
+    heroBodyStyle() {
+      if (!this.revealOn) return {}
+      // 渐隐比卡片淡入**早一点到位**（x1.2）：先看得出"首屏在退场"，
+      // 而不是两层一起平移。
+      let fade = this.revealP * 1.2
+      fade = fade > 1 ? 1 : fade
+      return {
+        opacity: (1 - fade).toFixed(3),
+        // 淡到基本看不见就别再吃点击：透明的首屏会挡住下面那摞卡
+        pointerEvents: fade > 0.9 ? 'none' : 'auto'
+      }
     },
     /**
      * 主页任务卡只列最该做的三条 —— 第一行永远是主任务
@@ -930,27 +1043,33 @@ export default {
     // 编辑态必须跟着收掉，否则会留下一个点不动的把手浮在倒计时上面。
     locked(v) {
       if (v) this.finishEdit()
-      // 抽屉是 fixed 的，硬控屏盖不住它 —— 不收掉就会浮在倒计时上面
-      if (v && this.drawerOn) { this.editing = false; this.drawerOn = false }
       // 专注一跑起来卡片区整个不显示了，引导的高亮目标也就没了 ——
       // 收掉但**不记完成**：这次没看成，下次进首页再放一遍
       if (v && this.gdOn) this.stopGuide()
     },
-    // 抽屉打开（false→true）瞬间：先震一下（buzzDrawer 在打开提交处已调），
-    // 再播一次 Q 弹过冲 —— 用监听统一收口，所有打开路径都覆盖。
-    drawerOn(n, o) {
-      if (n && !o) this.playPop()
-    }
+    // 卡片增减 / 进出硬控都要重新对齐滚动进度：否则"刚收纳掉最后一张卡"时
+    // 进度还停在 0，剩下那摞卡会整个透明。
+    restOrder() { this.syncReveal(-1) },
+    locked() { this.syncReveal(-1) }
+  },
+  /**
+   * 上滑多少 → 0→1 的滚动进度：下面那摞卡随之淡入并**落后于滚动**地上移，
+   * 首屏整块随之上抬、缩小、渐隐。只动 opacity / transform（合成器接管，零重排）。
+   * ⚠️ 进度只认 onPageScroll 给的 scrollTop —— 这是**唯一不依赖 DOM 的滚动数据源**：
+   *   App 端逻辑层没有 document，别去 getBoundingClientRect / 量节点，那条路在真机上
+   *   拿不到东西，整条动画会**静默失效**（表现为"上滑什么都没发生"）。
+   */
+  onPageScroll(e) {
+    this.syncReveal(e && typeof e.scrollTop === 'number' ? e.scrollTop : -1)
   },
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
-    // 实测一次视口高度：主页上滑拉抽屉要判定"下半屏起手"，免得和顶部滚动打架
+    // 实测视口高度 + 把 rpx 距离换算成 px（滚动视差要用）。
+    // ⚠️ 这些都是纯辅助动作，绝不能连累后面：onShow 里断一处，refresh / startTick
+    //    全不执行，首页就停在旧数据上（H5 未挂载时实测确实会抛，2026-10-23 实锤）。
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
-    // 抽屉面板高度提前量好缓存：拖动时要用它把手指位移换成百分比（异步量来不及）
-    // ⚠️ 量高是纯辅助动作，绝不能连累后面：onShow 里断一处，refresh / startTick
-    //    全不执行，首页就停在旧数据上（H5 未挂载时它确实会抛，2026-10-23 实锤）
-    try { this.measurePanel() } catch (e) {}
+    try { this.remeasure() } catch (e) {}
     this.refresh()
     this.startTick()
     // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
@@ -1136,6 +1255,14 @@ export default {
       const f = (settings.get().focus) || {}
       this.blockNotifOn = !!f.blockNotif
       this.autoRestOn = !!f.autoRest
+      this.soundOn = f.sound !== false
+      this.vibeOn = f.vibe !== false
+      this.noiseOn = !!f.noise
+      this.noiseKind = f.noise || 'rain'
+      // 时长读 pomoCfg（专注页读同一份）—— 面板里改完，进专注页就是新值
+      const pc = pw.get().pomoCfg || {}
+      this.focusMin = pc.focus || 25
+      this.restMin = pc.rest || 5
       this.overlayOk = apptime.canDrawOverlays()
       if (this.locked) this.focusSheet = false
     },
@@ -1180,158 +1307,83 @@ export default {
       const m = layout.moduleOf(id)
       return m ? m.name : id
     },
-    // ---------- 首页分层：底部抽屉（其余组件）----------
-    openDrawer() {
-      this.drawerOn = true
-    },
-    closeDrawer() {
-      // 编辑态不许收起：抽屉里那摞卡片是唯一能拖 / 能收纳的地方
-      if (this.editing) return
-      this.drawerOn = false
-    },
-    /**
-     * 量一次抽屉面板的真实高度缓存进 panelH —— touchmove 里要**同步**用，
-     * 而 createSelectorQuery 是异步的，拖动现场等不起。
-     * ⚠️ 别再指望 this.$refs.drPanel.offsetHeight：app 端 ref 拿到的不是 DOM 节点
-     *    （真机日志 ref=has 却读不到高度，2026-10-16 实锤）。
-     * ⚠️ H5 开发态：KeepAlive 下 onShow 可能早于挂载，此刻 this.$el 还是 null，
-     *    带作用域的查询内部要读 this.$el.parentElement → 同步抛 TypeError。
-     *    而**抛点在 exec 里，不在 in(this) 里** —— 2026-10-17 那次只把 in(this)
-     *    包进 try，H5 照样崩（2026-10-23 运行日志实锤），且这一抛发生在 onShow
-     *    里，后面 refresh / startTick 全被跳过，首页停在旧数据上。
-     *    所以三层：① 先判 $el ② select + exec 整段包 try ③ 失败退一拍重量。
-     * 首帧可能还没布局完（量到 0）→ 退一拍重量，最多 6 次。
-     * 量不到不致命：panelHpx() 有 76vh 估算兜底，抽屉照样拖得动。
-     */
-    measurePanel(tryN) {
-      const n = tryN || 0
-      if (n > 6) return
-      const retry = () => { setTimeout(() => { this.measurePanel(n + 1) }, 120) }
+    // ---------- 首页分层：滚动进度（下面那摞卡怎么被"拉上来"）----------
+    // rpx → px。⚠️ uni-app **只转换 CSS 文件里的 rpx**，内联样式里的 rpx 不会被转换，
+    // 所以 JS 算位移必须自己换；换不出来（拿不到屏宽）就按 375 宽的 0.5 兜底。
+    upx(v) {
       try {
-        // $el 还没挂上就别构造查询：构造也是白构造，直接退一拍等它挂好
-        if (!this.$el) throw new Error('el not mounted')
-        const q = uni.createSelectorQuery().in(this)
-        q.select('.dr-panel').boundingClientRect()
-        q.exec((res) => {
-          const r = res && res[0]
-          const h = r && (r.height || 0)
-          if (h > 0) { this.panelH = Math.round(h); return }
-          retry()
-        })
+        if (typeof uni !== 'undefined' && typeof uni.upx2px === 'function') return uni.upx2px(v)
+        const info = (typeof uni !== 'undefined' && uni.getSystemInfoSync) ? uni.getSystemInfoSync() : null
+        const w = (info && info.windowWidth) || 375
+        return v * w / 750
       } catch (e) {
-        // 带作用域的那条路走不通，退回全局查询（H5 下 .dr-panel 本就唯一）
-        try {
-          const q = uni.createSelectorQuery()
-          q.select('.dr-panel').boundingClientRect()
-          q.exec((res) => {
-            const r = res && res[0]
-            const h = r && (r.height || 0)
-            if (h > 0) { this.panelH = Math.round(h); return }
-            retry()
-          })
-        } catch (e2) {
-          retry()
+        return v / 2
+      }
+    },
+    // 把所有"rpx → px"的距离一次性重算。**屏幕尺寸变了必须重算一遍**：
+    // 否则换新机 / 转横屏后距离还是老屏幕的，动画幅度会明显不对。
+    remeasure() {
+      this._spanPx = this.upx(REVEAL_SPAN_RPX)
+      this._deadPx = this.upx(REVEAL_DEAD_RPX)
+      this._parallaxPx = this.upx(SHEET_PARALLAX_RPX)
+      this._heroLiftPx = this.upx(HERO_LIFT_RPX)
+    },
+    /**
+     * 算"下面那摞卡淡入 / 首屏退场"的进度，并把它推进响应式数据
+     * （由 listRevealStyle / sheetRevealStyle / heroCardStyle / heroBodyStyle 四个
+     * computed 变成内联样式下发 —— App 端唯一可用的样式通道）。
+     *
+     * 进度 = 已滑距离 / 淡入距离。不量节点、不看视口高，纯粹跟着滚动走：
+     *   · 静止时首屏撑满一屏，卡片在折叠线之下，p=0 → 卡片透明、首屏全亮；
+     *   · 往上滑 → p 增大 → 卡片淡入并**落后于滚动**地上移，首屏同步渐隐；
+     *   · 滑回去 → p 归 0。
+     * ⚠️ 硬控屏（专注中）与"下面一张卡都没有"时一律 p=1：那一屏没有可淡入的东西，
+     *    让卡片常显、首屏不淡出（否则会出现"卡片整个不见了"）。
+     * ⚠️ 必须待在 methods 里：onPageScroll / watch 都以 this.syncReveal 调用，
+     *    放到 methods 外（和生命周期选项平级）它就不是实例方法。
+     */
+    syncReveal(scrollTop) {
+      if (typeof scrollTop === 'number' && scrollTop >= 0) this._scrollTop = scrollTop
+      const on = !this.locked && this.restCount > 0
+      let p = 1
+      if (on) {
+        // 兜底：屏宽变化后四个值都要跟着变（见 remeasure），别只补 span
+        if (!this._spanPx) this.remeasure()
+        const span = this._spanPx || 1
+        const dead = this._deadPx || 0
+        p = (this._scrollTop - dead) / span
+        p = p < 0 ? 0 : p > 1 ? 1 : p
+        // 拉到位 → 震一下 + Q 弹过冲（一次来回只响一声；滑回去再拉才会再响）
+        if (p > 0.985) {
+          if (!this._buzzed) {
+            this._buzzed = true
+            this.buzzDrawer()
+            this.playPop()
+          }
+        } else if (p < 0.55) {
+          this._buzzed = false
         }
+      } else {
+        this._buzzed = false
       }
+      // 量化到 0.05 一档：滑一次最多 20 次赋值，不是每帧一次 ——
+      // 整页重渲染的代价不能按帧付（home.vue 模板很大），5% 的跳变肉眼看不见。
+      const q = Math.round(p * 20) / 20
+      if (this.revealOn !== on) this.revealOn = on
+      if (Math.abs(q - this.revealP) > 0.0001) this.revealP = q
     },
-    // 抽屉当前像素高度（拖动百分比要换算成 px）：缓存的实测值，没有就退回 76vh 估算。
-    panelHpx() {
-      const H = this.panelH || Math.round(this.winH * 0.76)
-      // ★ 诊断只在**两种都拿不到**时才留痕：H 算不出 → dy/H 得 NaN →
-      //   内联 transform 收到 NaN 被整个丢弃 → 表现"上滑没反应"、控制台一声不吭。
-      //   有估算值可用就别刷日志 —— 这函数在每次 touchmove 里都会走。
-      if (H > 0) return H
-      this.nodeMiss++
-      if (this.nodeMiss === 1 || this.nodeMiss % 20 === 0) {
-        console.warn('[drawer] 面板高度算不出来，退回地板值 480',
-          'miss=' + this.nodeMiss, 'winH=' + this.winH, 'panelH=' + this.panelH)
-      }
-      // 地板值：除以 0 会让进度变 NaN，动画等于没写上去
-      return 480
+    /** 把下面那一摞卡滚到眼前（进编辑态时用：把手 / 收纳 / 排序全在卡片上） */
+    scrollToModules() {
+      try {
+        uni.pageScrollTo({ scrollTop: (this._scrollTop || 0) + (this.winH || 667), duration: 260 })
+      } catch (e) {}
     },
-    /**
-     * 主页整块上滑：不只是小把手。手指在内容区往上滑，抽屉面板跟着手指升起，
-     * 拉过一半松手就开、没过一半弹回。这样"从下往上滑"是跟手的，不再靠阈值硬切，
-     * 也不会因为整包 v-if 挂载而掉帧（抽屉 DOM 常驻，只动 transform）。
-     * 只有"下半屏起手 + 明显竖向"才接管，避免和顶部滚动 / 卡片轻点打架。
-     */
-    homeSwipeStart(e) {
-      const t = (e && e.touches && e.touches[0]) || null
-      this.swipeX0 = t ? t.clientX : 0
-      this.swipeY0 = t ? t.clientY : 0
-      // 速度采样从这一按开始：不清零的话上一段手势残留的 lastMoveY/dragVy
-      // 会污染第一帧速度，"一甩就开"会误判
-      this.lastMoveY = t ? t.clientY : 0
-      this.dragT = Date.now()
-      this.dragVy = 0
-    },
-    homeSwipeMove(e) {
-      if (this.drawerOn || this.editing || this.locked || !this.restCount) return
-      const t = (e && e.touches && e.touches[0]) || null
-      if (!t) return
-      this.trackVy(t.clientY)   // 记手指速度：松手时"快速上滑一甩"也能开
-      const dy = this.swipeY0 - t.clientY   // 上滑为正
-      const dx = Math.abs(t.clientX - this.swipeX0)
-      if (this.panelDrag === null) {
-        // 还没进入拖动：要"明显竖向上滑"才接管，否则交给页面正常滚动
-        if (dy <= 12 || dy <= dx) return
-        this.dragging = true
-        this.panelDrag = 100   // 从全关（进度 0）开始跟手
-      }
-      const H = this.panelHpx()
-      let pct = 100 - (dy / H * 100)
-      pct = Math.max(0, Math.min(100, pct))
-      this.panelDrag = pct
-      if (e && e.preventDefault) e.preventDefault()
-    },
-    homeSwipeEnd(e) {
-      if (this.drawerOn || this.editing || this.locked) { this.swipeY0 = 0; this.swipeX0 = 0; return }
-      if (!this.restCount) { this.swipeY0 = 0; this.swipeX0 = 0; return }
-      if (this.panelDrag !== null) {
-        // 跟手拖动中松手：拖过一半、或者松手前是快速上滑的一甩，都算开
-        const commit = this.panelDrag < 50 || this.dragVy <= -OPEN_FLICK_V
-        this.dragging = false
-        this.panelDrag = null
-        this.dragVy = 0
-        this.swipeY0 = 0; this.swipeX0 = 0
-        this.drawerOn = commit
-        if (commit) this.buzzDrawer()   // 滑出 = 震一下（关闭不震）
-        return
-      }
-      // 没进入拖动的兜底：快速一甩也开（阈值同前）
-      const startY = this.swipeY0
-      if (!startY) { this.swipeY0 = 0; this.swipeX0 = 0; return }
-      const t = (e && e.changedTouches && e.changedTouches[0]) ||
-                (e && e.touches && e.touches[0]) || null
-      if (!t) { this.swipeY0 = 0; this.swipeX0 = 0; return }
-      const dy = startY - t.clientY
-      const dx = Math.abs((this.swipeX0 || 0) - t.clientX)
-      this.swipeY0 = 0; this.swipeX0 = 0
-      if (dy > 56 && dx < dy * 0.6 && startY > this.winH * 0.55) {
-        this.drawerOn = true
-        this.buzzDrawer()
-      }
-    },
-    /** 记一下手指竖向速度：收起抽屉支持"快速一甩"，不用非得拖够距离 */
-    trackVy(y) {
-      const now = Date.now()
-      const dt = now - (this.dragT || now)
-      if (dt > 0 && this.lastMoveY) this.dragVy = (y - this.lastMoveY) / dt
-      this.lastMoveY = y
-      this.dragT = now
-    },
-    /**
-     * 抽屉滑出到位震一下（drawer 档，一次打开只响一声；关闭不震）。
-     * 只在"打开提交"的松手瞬间调，不在拖动中调 —— 拖动中每帧都会路过，会震成一窝蜂。
-     * 震不动也要把抽屉拉开，所以包 catch。
-     */
+    /** 下面那摞卡拉到位震一下（drawer 档，一次来回只响一声） */
     buzzDrawer() {
       try { haptic.tick('drawer') } catch (e) { console.warn('[home] haptic tick failed:', e) }
     },
     /**
-     * 抽屉"丢上来"的 Q 弹：拉到位瞬间在 .dr-throw 上播一次 sheet-pop 过冲（先冲过头、再回落）。
-     * 由 drawerOn 的 false→true 监听统一触发，覆盖所有打开路径（上滑 / 一甩 / 点"查看其余"）。
-     * 编辑态打开抽屉不弹（编辑有自己的过渡，叠弹会发糊）。
+     * Q 弹：拉到位瞬间在 .mod-throw 上播一次 sheet-pop 过冲（先冲过头、再回落）。
      * ⚠️ pop-a / pop-b 两份**内容完全一样**的 keyframes 交替挂：同名动画摘了再戴，
      *   Vue 会在同一次渲染合并掉 → 第二次不播。交替挂才能每次都重触发。
      */
@@ -1343,87 +1395,13 @@ export default {
       clearTimeout(this._popT)
       this._popT = setTimeout(() => { this.popOn = false }, 360)
     },
-    /** 抽屉里那道把手：往下拉 = 收起，同样跟手 */
-    gripStart(e) {
-      this.gripY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
-      this.lastMoveY = this.gripY
-      this.dragT = Date.now()
-      this.dragVy = 0
-      this.dragging = true
-    },
-    gripMove(e) {
-      if (!this.drawerOn) return
-      const t = (e && e.touches && e.touches[0]) || null
-      if (!t) return
-      this.trackVy(t.clientY)
-      const dy = t.clientY - this.gripY   // 下拉为正
-      if (this.panelDrag === null) {
-        if (dy <= 6) return
-        this.panelDrag = 0
-      }
-      const H = this.panelHpx()
-      let pct = dy / H * 100
-      pct = Math.max(0, Math.min(100, pct))
-      this.panelDrag = pct
-    },
-    gripEnd() {
-      // 没进入拖动也要复位 dragging —— 否则点一下标题（没拖出 6px）
-      // dragging 永远是 true，所有过渡被关掉，界面看着像冻住了
-      if (this.panelDrag === null) { this.dragging = false; this.gripY = 0; return }
-      // 下拉收起：拖过 CLOSE_COMMIT_PCT（面板高度的 20%）就算数，
-      // 或者"快速往下一甩"也算 —— 原来要求拖过一半（38vh），真机上要滑老长一段。
-      // ⚠️ 方向别写反：panelDrag 是"往下离开的距离"，必须是 > 才提交；
-      //    写成 < 会变成"轻碰就收、使劲拉反而弹回"。
-      const commit = this.panelDrag > CLOSE_COMMIT_PCT || this.dragVy >= CLOSE_FLICK_V
-      this.dragging = false
-      this.panelDrag = null
-      this.gripY = 0
-      this.dragVy = 0
-      if (!commit) return        // 没拉够 → 维持打开
-      this.closeDrawer()          // 拉够 / 甩了 → 收起
-    },
-    /** 抽屉内容区滚动位置：滚到顶之后再往下拉，才轮到"收抽屉" */
-    bodyScroll(e) {
-      const d = e && e.detail
-      this.bodyTop = d ? (d.scrollTop || 0) : 0
-    },
-    bodyStart(e) {
-      this.gripY = (e && e.touches && e.touches[0]) ? e.touches[0].clientY : 0
-      this.lastMoveY = this.gripY
-      this.dragT = Date.now()
-      this.dragVy = 0
-    },
-    /**
-     * 内容区也能收抽屉：只要列表**已经滚到顶**，再往下拉就是收抽屉 ——
-     * 不必非得去够顶部那条把手（把手热区再大，用户第一反应也是拉列表）。
-     * 没滚到顶时一律交给列表自己滚，不抢手势。
-     */
-    bodyMove(e) {
-      if (!this.drawerOn || this.editing) return
-      const t = (e && e.touches && e.touches[0]) || null
-      if (!t) return
-      this.trackVy(t.clientY)
-      if (this.panelDrag === null) {
-        if (this.bodyTop > 2) return        // 列表还没滚到顶 → 让它自己滚
-        if (t.clientY - this.gripY <= 10) return   // 往下才接管（上滑是滚列表）
-        this.dragging = true
-        this.panelDrag = 0
-      }
-      const H = this.panelHpx()
-      let pct = (t.clientY - this.gripY) / H * 100
-      pct = Math.max(0, Math.min(100, pct))
-      this.panelDrag = pct
-    },
-    bodyEnd() {
-      if (this.panelDrag === null) return   // 没接管过（在滚列表）就别插手
-      this.gripEnd()                        // 接管了 → 走同一套收起判定
-    },
+
     // ---------- 首页编辑 ----------
     toggleEdit() {
       this.editing = !this.editing
-      // 进编辑态必须先把抽屉拉开：把手、收纳、排序全在抽屉里那一摞卡片上，
-      // 收着的时候点「编辑首页」等于进了一个什么都看不见的编辑态。
-      if (this.editing) this.drawerOn = true
+      // 进编辑态要把那一摞卡滚到眼前：把手 / 收纳 / 排序全在卡片上，
+      // 停在首屏看的话等于进了一个什么都看不见的编辑态。
+      if (this.editing) this.scrollToModules()
       if (!this.editing) this.sheetShow = false
       this.dragIndex = -1
       this.dragDy = 0
@@ -1515,21 +1493,16 @@ export default {
         this.syncLayout()
       }
     },
-    // 抽屉卡片样式：
-    //  · 编辑态 → 只有被拖的那张跟手偏移（排序）；
-    //  · 展示态 → 按"展开进度"逐张错拍淡入 + 升起（scroll-linked stagger）：
-    //    第 i 张在 [i*span, i*span+0.55] 区间内渐显，span 按张数归一，
-    //    保证最后一张恰好在 openProg=1 时完全显现 —— 手指滑到哪，哪张卡出头。
+    /**
+     * 卡片样式：只有编辑态拖着的那张跟手偏移。
+     * 展示态一律返回空 —— 卡片常显，"淡入"统一由 .mod-list 的 opacity 管，
+     * 不再逐张错拍（那套是抽屉时代的：卡片藏在折叠区里才需要一张张放出来）。
+     */
     wrapStyle(i) {
-      if (this.editing) {
-        if (this.dragIndex !== i) return ''
+      if (this.editing && this.dragIndex === i) {
         return 'transform: translateY(' + this.dragDy + 'px); z-index: 30;'
       }
-      const n = this.restOrder.length
-      const span = n > 1 ? 0.45 / (n - 1) : 0
-      const p = Math.max(0, Math.min(1, (this.openProg - i * span) / 0.55))
-      if (p >= 1) return ''
-      return 'opacity: ' + p.toFixed(3) + '; transform: translateY(' + ((1 - p) * 26).toFixed(1) + 'px);'
+      return ''
     },
     noop() {},
     // ---------- 今日紧迫度 ----------
@@ -1620,9 +1593,10 @@ export default {
       this.gdOn = true
       this.gdIndex = 0
       this.gdBox = null
-      // 引导要挖洞的是 .focus-card / .task-card，而它们住在折叠区里 ——
-      // 收着的时候量不到矩形，那两步会被当"目标不存在"跳过，引导讲一半。
-      this.drawerOn = true
+      // 挖洞的目标（.focus-card / .task-card）就在首屏上 —— 但如果用户已经把页面
+      // 滑到下面那一摞卡了，它们就在屏幕外，量不到矩形会被当"目标不存在"跳过，
+      // 引导讲一半。所以先回到顶。
+      try { uni.pageScrollTo({ scrollTop: 0, duration: 0 }) } catch (e) {}
       // 等卡片渲染完再量：首帧 layout 还没落地，量到的矩形是空的
       this.$nextTick(() => { setTimeout(() => { this.measureStep() }, 320) })
       return true
@@ -1869,6 +1843,53 @@ export default {
         )
         settings.save()
       } catch (e) {}
+    },
+    /** 面板里的「一段专注」：写进 pomoCfg（与专注页同一份配置，不做第二套） */
+    setFocusMin(m) {
+      this.focusMin = m
+      try { focus.setCfg({ focus: m }) } catch (e) {}
+    },
+    /** 面板里的「一段休息」 */
+    setRestMin(m) {
+      this.restMin = m
+      try { focus.setCfg({ rest: m }) } catch (e) {}
+    },
+    /** 面板里的「结束响铃」 */
+    tapSound() {
+      this.soundOn = !this.soundOn
+      this.saveFocus('sound', this.soundOn)
+    },
+    /** 面板里的「结束震动」 */
+    tapVibe() {
+      this.vibeOn = !this.vibeOn
+      this.saveFocus('vibe', this.vibeOn)
+    },
+    /** 面板里的白噪音开关：关 = 写空串（'' 就是关，与专注页同口径） */
+    tapNoise() {
+      const next = !this.noiseOn
+      this.noiseOn = next
+      this.saveFocus('noise', next ? (this.noiseKind || 'rain') : '')
+    },
+    /** 面板里的音色：开着就立刻换（下次开始专注起效；正跑着的那段不打断） */
+    pickNoise(k) {
+      this.noiseKind = k
+      if (this.noiseOn) this.saveFocus('noise', k)
+    },
+    /** 面板里的严格模式：与专注页 toggleStrict 同口径（记一笔 + 缺权限给路） */
+    tapStrict() {
+      const next = !this.strictOn
+      this.strictOn = next
+      this.saveFocus('strict', next)
+      if (next) {
+        this.usageOk = apptime.hasUsagePermission()
+        this.a11yOk = apptime.hasA11yPermission()
+      }
+      strict.sync()
+    },
+    /** 面板底部出口：自定义时长 / 后台保活 / 通知提醒 / 试听都在专注页 */
+    goFocusSet() {
+      this.focusSheet = false
+      this.goFocus()
     },
     /** 跳系统「显示在其他应用上层」设置页；跳回来再补一次实测 */
     openOverlayHome() {
@@ -2191,14 +2212,28 @@ export default {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  /* ★ 上滑拉抽屉的手势宿主：必须禁掉浏览器默认触摸平移，否则安卓 webview 把"从下往上滑"
-       当成页面滚动/橡皮筋吞掉（且 touchmove 多为 passive，preventDefault 被忽略），
-       自定义上滑手势接管不了 → 抽屉拉不开。主页内容本就按视口高度排（min-height 已扣掉状态栏/导航/底栏），
-       不需要原生纵向滚动，禁掉安全。 */
-  touch-action: none;
-  /* 与 .page-nav / .page-tabbar 的占位口径一致（两行写法兜底不支持 env 的端） */
+  /* ⚠️ 这里**绝不能**再写 touch-action:none：那是为上滑拉抽屉的手势加的，
+     手势一去就得放开 —— 否则整个首页滚不动，下面那摞卡永远够不着
+     （抽屉版本的遗留，2026-10-23 改滚动流时踩到）。
+     横向切 tab 的手势在根容器上（tab-slide-mixin 按方向判定），与纵向滚动不冲突。 */
   min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px));
   min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px) - env(safe-area-inset-bottom));
+}
+/* ★ 首屏：自己撑满一屏。下面那摞模块卡静止时**必然**落在折叠线之下 ——
+     这是**结构**保证的，不靠 opacity 把卡片藏起来（靠 JS 算 opacity 的话，
+     脚本一环没跑卡片就永久不见了）。上滑时它随滚动上抬 / 缩小 / 渐隐。 */
+.home-hero {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px));
+  min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px) - env(safe-area-inset-bottom));
+}
+.hero-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 
@@ -2777,6 +2812,60 @@ export default {
 }
 .fc-knob-on { transform: translateX(36rpx); }
 
+/* ★ 内容从 3 项扩到 10 项以后必须能滚：小屏上不滚的话下面几行永远点不到。
+   ⚠️ 用 scroll-view + 限高，不用 overflow:auto —— App 端 view 的 overflow 在部分
+      机型上不吃，滚不动会**静默失效**（量节点那条路就是这样哑掉的）。 */
+.fs-body {
+  max-height: 62vh;
+  padding-bottom: 8rpx;
+}
+/* 分组小标题：把"同类设置"显式分开 —— 一张卡里塞十行，不分组就是一堵墙 */
+.fc-group {
+  display: block;
+  margin: 22rpx 0 4rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+.fc-group:first-child { margin-top: 2rpx; }
+/* 时长：标题一行 + 档位一排（比开关紧凑，一组放两个也不显挤） */
+.fc-field { padding: 10rpx 0; }
+.fc-field-head { display: flex; align-items: baseline; justify-content: space-between; }
+.fc-val { font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
+.fc-opts { display: flex; flex-wrap: wrap; margin-top: 12rpx; }
+.fc-opts-pad { margin: 10rpx 0 4rpx; }
+.fc-opt {
+  min-width: 84rpx;
+  margin: 0 12rpx 12rpx 0;
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 25rpx;
+  text-align: center;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--shadow-rgb, 23, 32, 26), 0.05);
+}
+/* 选中态才用实心红（主按钮 tint 规则：实心红只给进度条 / 开关 / 选中态 / 聊天气泡） */
+.fc-opt-on {
+  color: #ffffff;
+  background: #e4173d;
+  background: var(--brand, #e4173d);
+}
+/* 分组插进来以后 :last-child 不再是最后一行（末尾还挂了个「更多」），
+   最后那条分隔线得显式收掉，否则"自动进休息"下面拖一条孤零零的线。 */
+.fc-row.is-last { border-bottom: none; }
+/* 底部出口：更深的几项留给专注页，这里只给一个出口 */
+.fs-more {
+  margin: 18rpx 0 6rpx;
+  font-size: 25rpx;
+  text-align: center;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+}
+
 /* ===== 卡片头 ===== */
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -3139,57 +3228,59 @@ export default {
 }
 .hc-foot-row { display: flex; align-items: baseline; justify-content: space-between; }
 
-/* ===== 底部"抽屉"：其余组件住在这儿 =====
-   上滑时主页整列上移并轻微缩小（后退一层），抽屉这块**玻璃底板**小幅上顶，
-   卡在底板上的卡片按展开进度逐张淡入 + 升起（见 wrapStyle 的错拍）——
-   两层不同速、不同大小，才有"抽屉压上来"的景深，而不是同一列接着排。
-   外层 .dr-mask 只是透明的点击承接层（开着时点空白处 = 收起），**不压暗整屏**。 */
-.dr-mask {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 620;
-  background: transparent;
-  display: flex;
-  align-items: flex-end;
-  /* 常驻但默认不挡触摸，开=承接点击。只动 opacity/pointer-events，不掉帧 */
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
+/* ===== 首屏下面那一摞卡（正常滚动流 —— 不再是抽屉）=====
+   两层的分工：
+   · .mod-sheet 只吃 transform —— 玻璃底板的宿主，卡片**落后于滚动**地从下面被推上来，
+     再加一点点缩放：它是从"后面"被推上来的，不是原地淡入。
+   · .mod-list 只吃 opacity —— 卡片自己淡入（位移在上层，底板跟着一起走）。
+   ★ 以前这里是一层 fixed 面板 + 一套上滑手势：手势在屏幕**任何位置**划 12px 就接管
+     （页面本身还被 touch-action:none 禁了滚动），于是"想点卡片、手抖一下"整块面板
+     就被拽出来 —— "首页很乱"的直接来源；而且它没有任何常驻提示，不滑就不知道下面
+     还有东西。现在规则只有一条：**它就是页面流**。
+   ⚠️ .mod-sheet 绝不能带 opacity：opacity<1 会让它自成 backdrop root，
+      底板的 backdrop-filter 就糊不到首屏内容了（变成一块平涂半透明白片）。 */
+.mod-sheet {
+  position: relative;
+  /* 静态兜底：JS 没跑时完全显现（不位移、不缩放）。
+     绝不能把初值写成"藏在下面" —— 脚本一环没跑，卡片就永久不见了。 */
+  transform: none;
 }
-.dr-mask.on {
+.mod-list {
+  position: relative;
+  /* 同上：默认可见。淡入由 listRevealStyle 的内联 opacity 下发。 */
   opacity: 1;
-  pointer-events: auto;
 }
-/* 主页撤退时的"毛玻璃"层（hero-glass 等价物）：
-   静止（openProg=0）opacity:0，背景必须是高清原图；上滑随进度五档长出模糊。
-   ⚠️ 只过渡 opacity（160ms），绝不过渡 blur 半径（逐帧改 = 整屏高斯按帧重跑 = 掉帧老路）。
-   自身 opacity 单独控制、且 z-index:-1 压在背景之上 / 主页内容之下，不会被任何
-   opacity 祖先隔离 backdrop（隔离会让模糊只能糊到那一层内部，等于没糊）。 */
-.hero-glass {
-  position: fixed;
-  left: 0; right: 0; top: 0; bottom: 0;
+/* 整摞卡共用一张**玻璃底板**：卡片之间的缝隙、上下边缘露出被模糊的首屏内容
+   （按钮 / 文字滑过它底下会被糊掉），一眼就看出"这是浮在首页之上的另一层"，
+   而不是接排下去的。
+   ⚠️ 这块**不能带 opacity**（见 .mod-sheet 注释：一带就把 backdrop 隔离了）；
+      它的出场靠"随滚动从屏幕下方推上来"，跟系统的 sheet 一样，不靠淡入。
+   ⚠️ 绝不逐帧改 blur 半径（那是掉帧的老路），模糊半径恒定。 */
+.mod-sheet::before {
+  content: '';
+  position: absolute;
+  /* 撑到屏幕两边：底板比卡片宽，边缘才像"抽屉的边" */
+  left: -28rpx;
+  right: -28rpx;
+  top: -24rpx;
+  bottom: -24rpx;
   z-index: -1;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.16s ease;
-  will-change: opacity;
+  border-radius: 36rpx;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
+  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
+  box-shadow: 0 -8rpx 32rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.16);
+  border-top: 2rpx solid rgba(255, 255, 255, 0.55);
 }
-/* 抽屉"丢上来"的 Q 弹层：只承载 sheet-pop 过冲，不写任何内联 transform ——
-   面板的跟手位移在 .dr-panel 上，父子相乘互不干扰（背单词 App 同款做法）。 */
-.dr-throw {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
+/* Q 弹：拉到位瞬间播一次过冲（先冲过头、再回落）。
+   ⚠️ 两份**内容完全一样**的 keyframes 交替挂：同名动画摘了再戴，Vue 会在同一次
+     渲染里合并掉 → 第二次不播。交替挂才能每次都重触发。 */
+.mod-throw {
   transform-origin: 50% 100%;
   will-change: transform;
 }
-.dr-throw.pop-a { animation: sheet-pop-a 340ms cubic-bezier(0.22, 0.61, 0.36, 1); }
-.dr-throw.pop-b { animation: sheet-pop-b 340ms cubic-bezier(0.22, 0.61, 0.36, 1); }
-/* 锚定底边（抽屉从屏幕底边涨起），先冲过头 -16rpx/放大 1.026，再回落 +5rpx/缩小，
-   二段余震 -2rpx，最后归位；幅度刻意压小，大了就成弹窗、廉价。 */
+.mod-throw.pop-a { animation: sheet-pop-a 340ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+.mod-throw.pop-b { animation: sheet-pop-b 340ms cubic-bezier(0.22, 0.61, 0.36, 1); }
 @keyframes sheet-pop-a {
   0%   { transform: translateY(0) scale(1); }
   26%  { transform: translateY(-16rpx) scale(1.026); }
@@ -3204,85 +3295,5 @@ export default {
   78%  { transform: translateY(-2rpx) scale(1.003); }
   100% { transform: translateY(0) scale(1); }
 }
-.dr-panel {
-  /* ⚠️ 必须 border-box：width:100% + padding 在 content-box 下会溢出右边缘，
-     卡片整体"向右偏"被屏幕裁掉一截（真机视频 2026-10-16 实锤） */
-  box-sizing: border-box;
-  width: 100%;
-  height: 76vh;
-  display: flex;
-  flex-direction: column;
-  padding: 0 24rpx;
-  /* ★ 层级感：整块玻璃底板（圆角 + 毛玻璃 + 上沿阴影）。
-     之前把它做成完全透明，结果抽屉卡片和主页卡片成了"同一层里接着排"，
-     读不出谁盖着谁。有这块底板，抽屉才明确浮在首页之上 ——
-     但它是**玻璃**不是实色 sheet：底下主页的余光还透得过来，
-     不会退回"一张白板压上来"的老观感。 */
-  border-radius: 40rpx 40rpx 0 0;
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
-  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  box-shadow: 0 -16rpx 44rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.22);
-  border-top: 2rpx solid rgba(255, 255, 255, 0.55);   /* 玻璃上沿的高光边 */
-  /* 视差由 panelStyle 内联给（跟手时关过渡）；松手后靠这条补完 */
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
-}
-.dr-panel.dragging {
-  transition: none;
-}
-/* 主页整列松手后的补完过渡：拖动中由 homeShift 内联关掉（跟手），
-   松手后交给这条，弹到终态。
-   ★ transform-origin 固定在上方偏中：主页后退时是"整体往里收"，
-     不是绕各自中心缩 —— 否则三张卡各自缩放，之间的间距会跟着乱跳。 */
-.hcards,
-.home-cta {
-  transform-origin: 50% 22%;
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
-  will-change: transform;
-}
-/* 抽屉把手 / 底部编辑区：随展开进度 --open 淡入 + 升起
-   （--open 由 panelStyle 内联在 .dr-panel 上，子元素继承）。
-   卡片本体不在这一组：它们的显现走 wrapStyle 内联（逐张错拍）。 */
-.dr-grip,
-.home-foot {
-  opacity: var(--open, 0);
-  transform: translateY(calc((1 - var(--open, 0)) * 28rpx));
-  transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-}
-/* 抽屉卡片：松手后补完淡入/升起的过渡。拖动中关掉（跟手）；
-   编辑态（is-editing）例外：排序拖动不能带过渡，否则跟手发糊 */
-.mod-wrap:not(.is-editing) {
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.dr-panel.dragging .dr-grip,
-.dr-panel.dragging .home-foot,
-.dr-panel.dragging .mod-wrap:not(.is-editing) {
-  transition: none;
-}
-/* 抽屉把手：往下拖 = 收起（touch-action 禁掉滚动手势，拖动时页面不跟着走）。
-   上下 padding 撑出足够大的热区 —— 之前只有"全部组件"四个字那么大，
-   真机上根本抓不住，抽屉收不回去（2026-10-16 视频实锤） */
-.dr-grip {
-  flex: 0 0 auto;
-  padding: 34rpx 0 26rpx;
-  margin: 0 -24rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  touch-action: none;
-}
-.dr-title {
-  margin-top: 10rpx;
-  font-size: 24rpx;
-  font-weight: 600;
-  letter-spacing: 1rpx;
-  color: #5a6560;
-  color: var(--ink-2, #5a6560);
-}
-.dr-body {
-  flex: 1;
-  min-height: 0;
-  padding-bottom: calc(40rpx + var(--safe-bottom, 0px));
-}
+
 </style>
