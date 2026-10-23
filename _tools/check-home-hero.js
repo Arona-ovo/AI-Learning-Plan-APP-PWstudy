@@ -174,6 +174,20 @@ assert(/createSelectorQuery/.test(bMeasure) && /boundingClientRect/.test(bMeasur
 assert(/select\('\.dr-panel'\)/.test(bMeasure), 'measurePanel 量的是抽屉面板');
 assert(/this\.panelH = Math\.round\(h\)/.test(bMeasure), '量到就写进 panelH 缓存');
 assert(/measurePanel\(n \+ 1\)/.test(bMeasure), '首帧没布局完要退一拍重量（最多 6 次）');
+// ★ 防御必须包在 exec 外侧：H5 的 $el 未挂载时，抛点在 **exec 里**（要读
+//   $el.parentElement），不在 in(this) 里。只把 in(this) 包进 try 等于没兜 ——
+//   2026-10-17 那次就是这么补的，2026-10-23 的 H5 运行日志照样崩：
+//   onShow 被打断 → refresh / startTick 全没跑，首页停在旧数据上。
+//   ★ 判据要取"第一个 catch"：只要求 catch 出现在 exec 之后是不够的 ——
+//     在 exec 后面补一个空 try/catch 就能蒙过去（反向测试第一轮抓到的假绿）。
+const iTry = bMeasure.indexOf('try {');
+const iExec = bMeasure.indexOf('q.exec(');
+const iCatch1 = bMeasure.indexOf('catch');
+assert(iTry >= 0 && iTry < iExec && iExec < iCatch1,
+  'measurePanel 的 exec 落在 try 块内（H5 的抛点在 exec 里，不是 in(this)）');
+assert(/if \(!this\.\$el\)/.test(bMeasure), 'measurePanel 先判 $el 是否已挂载（H5 未挂载时是 null）');
+// 量高是纯辅助动作：它抛了不能连累 onShow 后面的 refresh / startTick
+assert(/try \{ this\.measurePanel\(\) \} catch/.test(home), 'onShow 里量高自带 try（不许打断后续刷新）');
 assert(/this\.measurePanel\(\)/.test(home), '进页面要把面板高度量好（onShow 调用）');
 assert(!/\$refs\.drPanel/.test(home.split('measurePanel(tryN)')[1] || ''),
   '量高不再依赖 ref（app 端 ref 不是 DOM 节点）');
@@ -293,6 +307,47 @@ assert(/54%.*translateY\(5rpx\) scale\(0\.995\)/.test(popKeyA), 'sheet-pop 回�
 assert(/78%.*translateY\(-2rpx\) scale\(1\.003\)/.test(popKeyA), 'sheet-pop 二段余震 -2rpx');
 const popKeyB = block(/@keyframes sheet-pop-b \{[\s\S]*?\n\}/);
 assert(popKeyB !== '' && /translateY\(-16rpx\) scale\(1\.026\)/.test(popKeyB), 'sheet-pop-b 与 a 内容一致（交替挂用）');
+
+console.log('== 10. H5 量高不崩（真跑 measurePanel） ==');
+// 静态断言说"包住了"不算数：2026-10-17 那版也有 try，照样崩。
+// 这里把 measurePanel 抠出来真跑一遍，喂它一个"exec 里抛 parentElement"的 uni，
+// 验证它①不往外抛 ②自己退拍重试 —— 抛出去就说明 onShow 会被打断。
+{
+  const m = home.match(/ {4}measurePanel\(tryN\) \{[\s\S]*?\n {4}\},/);
+  assert(m !== '', '能抠出 measurePanel 函数体（真跑前置）');
+  if (m) {
+    // setTimeout 换成注入的计数器：既避免真等 720ms，也能数出有没有退拍
+    const body = m[0].replace(/setTimeout\(/g, 'this.__timer(');
+    const src = 'return { panelH: 0, $el: null, __tries: 0,' +
+      ' __timer: function (fn, ms) { this.__tries++ },' + body.trim() + '}';
+    const make = new Function('uni', src);
+    const boom = () => { const e = new TypeError("Cannot read property 'parentElement' of null"); throw e; };
+    // 场景 A：H5 未挂载 —— in() 与 exec 都抛（正是线上日志那一条）
+    const uniBad = {
+      createSelectorQuery: () => ({
+        in() { boom(); }, select() { return this; }, boundingClientRect() { return this; }, exec() { boom(); }
+      })
+    };
+    const a = make(uniBad);
+    let threw = null;
+    try { a.measurePanel(); } catch (e) { threw = e && e.message; }
+    assert(!threw, 'H5 未挂载（exec 抛 parentElement）时 measurePanel 不往外抛' + (threw ? '：' + threw : ''));
+    assert(a.__tries >= 1, '抛了也要退一拍重试（tries=' + a.__tries + '）');
+    // 场景 B：正常路径仍然量得到（防御不能把主路径一起废掉）
+    const uniOk = {
+      createSelectorQuery: () => ({
+        in() { return this; }, select() { return this; }, boundingClientRect() { return this; },
+        exec(cb) { cb && cb([{ height: 520.4 }]); }
+      })
+    };
+    const b = make(uniOk);
+    b.$el = {};
+    let threw2 = null;
+    try { b.measurePanel(); } catch (e) { threw2 = e && e.message; }
+    assert(!threw2 && b.panelH === 520, '正常路径照样量到高度并写进 panelH（' + b.panelH + '）');
+    assert(b.__tries === 0, '量到了就不该再退拍重试');
+  }
+}
 
 console.log(fail ? '\n首页分层校验失败 ' + fail + ' 项 ✗' : '\n首页分层校验全部通过 ✓');
 process.exit(fail ? 1 : 0);

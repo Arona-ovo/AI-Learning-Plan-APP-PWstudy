@@ -14,7 +14,11 @@ global.uni = {
   getStorageSync: (k) => mem[k],
   setStorageSync: (k, v) => { mem[k] = v; },
   removeStorageSync: (k) => { delete mem[k]; },
-  getSystemInfoSync: () => ({ statusBarHeight: 24, theme: sysTheme }),
+  // ⚠️ uniPlatform 必须显式给：本文件模拟的是 **App 端**。
+  //    H5 上 platform 返回的是宿主系统（windows/macos/ios），不是 'h5' ——
+  //    桩里不给 uniPlatform 的话，isWebPlatform() 会以为自己在 H5，
+  //    原生窗口色 / 导航栏色一次都不调，第 3 节的 bgCalls 断言就塌了。
+  getSystemInfoSync: () => ({ statusBarHeight: 24, theme: sysTheme, uniPlatform: 'app' }),
   setBackgroundColor: (o) => { bgCalls.push(o && o.backgroundColor); },
   setNavigationBarColor: (o) => { navCalls.push(o); },
   onThemeChange: () => {},
@@ -461,6 +465,37 @@ theme.setAccent('blue');
   else bad('.dlg-btn.primary 变回实心主色块');
   if (isTint(primaryBlock('\\.btn-primary'))) ok('.btn-primary = 淡色底 + 深色字');
   else bad('.btn-primary 变回实心主色块');
+
+  console.log('== 16. H5 不能调原生窗口/导航栏接口 ==');
+  // 真机表现：H5 上这两个调用必 fail，控制台刷
+  // "setNavigationBarColor:fail page not found"（2026-10-23 运行日志实锤）。
+  // 曾经的判据是 platform === 'h5' —— 但 H5 上 platform 是**宿主系统**，
+  // 判据失效 → 补丁等于没打。这里既验判据、又真跑一遍。
+  {
+    const tsrc = fs.readFileSync(path.join(__dirname, '..', 'uniapp-PWstudy', 'utils', 'theme.js'), 'utf8');
+    if (/uniPlatform/.test(tsrc) && /Html5Plus/.test(tsrc)) ok('H5 判据走 uniPlatform + UA 双通道');
+    else bad('H5 判据只有 platform（H5 上 platform 是宿主系统，不是 h5，必漏判）');
+    if (!/getSystemInfoSync\(\)\.platform === 'h5'/.test(tsrc)) ok('不再单靠 platform === "h5" 判 H5');
+    else bad('仍在单靠 platform === "h5" 判 H5（漏判 → 原生调用照样在 H5 上执行）');
+
+    // 真跑：把桩切成 web 端，原生调用必须一次都不发生
+    const sysInfo = global.uni.getSystemInfoSync;
+    global.uni.getSystemInfoSync = () => ({ statusBarHeight: 24, theme: sysTheme, uniPlatform: 'web' });
+    let web = null;
+    try { web = load('utils/theme.js', { settings, color, insets }); } catch (e) { /* 加载失败由下面断言兜 */ }
+    const bgBefore = bgCalls.length, navBefore = navCalls.length;
+    if (web) { try { web.setBackground('sky'); } catch (e) { /* 不该抛 */ } }
+    global.uni.getSystemInfoSync = sysInfo;
+    if (web && bgCalls.length === bgBefore && navCalls.length === navBefore) ok('H5 端不调 setBackgroundColor / setNavigationBarColor');
+    else bad('H5 端仍在调原生接口（bg +' + (bgCalls.length - bgBefore) + ' / nav +' + (navCalls.length - navBefore) + '）');
+    // App 端反过来：必须照常同步
+    if (typeof theme.setBackground === 'function') {
+      const b2 = bgCalls.length;
+      theme.setBackground('sky');
+      if (bgCalls.length > b2) ok('App 端照常同步原生窗口底色');
+      else bad('App 端反而没同步原生窗口底色（H5 判据误伤了 App）');
+    }
+  }
 
   console.log(fail === 0 ? '\n外观主题全部通过' : '\n存在 ' + fail + ' 项失败');
   process.exitCode = fail === 0 ? 0 : 1;

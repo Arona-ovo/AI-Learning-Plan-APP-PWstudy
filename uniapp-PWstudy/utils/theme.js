@@ -330,6 +330,39 @@ function customBackground(dark) {
   };
 }
 
+/**
+ * 运行时判断「当前是不是 H5」。
+ * ★ 别只判 platform === 'h5'：H5 上 platform 返回的是**宿主系统**
+ *   （windows / macos / ios ...），压根不是 'h5'，只判它必然漏判 ——
+ *   上面那两个原生调用就在 H5 上照样执行，控制台刷
+ *   "setNavigationBarColor:fail page not found"（2026-10-23 运行日志实锤；
+ *   10-17 那次补丁就是漏在这一句上）。
+ *   优先用官方标准字段 uniPlatform（app / web / mp-*），老内核退回 UA 判定。
+ * ⚠️ 不用 process.env.UNI_PLATFORM：护栏沙箱 vm 里 process 未注入会抛 ReferenceError。
+ */
+export function isWebPlatform() {
+  try {
+    if (typeof uni === 'undefined' || !uni || typeof uni.getSystemInfoSync !== 'function') {
+      return typeof plus === 'undefined';
+    }
+    const info = uni.getSystemInfoSync() || {};
+    const up = String(info.uniPlatform || '').toLowerCase();
+    if (up) return up === 'web';
+    const p = String(info.platform || '').toLowerCase();
+    if (p === 'h5' || p === 'web') return true;
+  } catch (e) {
+    /* 拿不到系统信息，退回 UA 判定 */
+  }
+  if (typeof plus !== 'undefined') return false; // App 端一定有 plus
+  try {
+    // App 的 webview UA 里带 Html5Plus（plus 注入前的那一小段窗口也靠它认出来）
+    const ua = String((typeof navigator !== 'undefined' && navigator.userAgent) || '');
+    return !/Html5Plus/i.test(ua);
+  } catch (e) {
+    return false;
+  }
+}
+
 // 背景：图片 → 原图 + 蒙版；预设 → 渐变；深色 → 深灰底（图片仍可用，蒙版换成黑色降亮度）
 function applyBackground(key, image, mask, blur, dark) {
   const bg = backgroundOf(key, dark);
@@ -352,15 +385,8 @@ function applyBackground(key, image, mask, blur, dark) {
 
   // 原生窗体底色 + 状态栏文字颜色（App 端 overscroll / 状态栏不会跟着 CSS 变）
   // ★ H5 没有原生导航栏/窗体，这两个调用必 fail（"page not found"），纯属噪音。
-  //   运行时判 H5：uni.getSystemInfoSync().platform === 'h5'；不用 process.env.UNI_PLATFORM，
-  //   否则护栏沙箱 vm 里 process 未注入会抛 ReferenceError。
   const nativeBg = image ? (dark ? DARK_BG : LIGHT_BG) : bg.solid;
-  let isH5 = false;
-  try {
-    isH5 = typeof uni !== 'undefined' && uni && uni.getSystemInfoSync &&
-           uni.getSystemInfoSync().platform === 'h5';
-  } catch (e) { isH5 = false; }
-  if (!isH5) {
+  if (!isWebPlatform()) {
     try {
       if (typeof uni !== 'undefined' && uni && typeof uni.setBackgroundColor === 'function') {
         uni.setBackgroundColor({ backgroundColor: nativeBg, backgroundColorTop: nativeBg, backgroundColorBottom: nativeBg });

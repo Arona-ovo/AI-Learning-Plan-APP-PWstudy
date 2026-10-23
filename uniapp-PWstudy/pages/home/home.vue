@@ -948,7 +948,9 @@ export default {
     // 实测一次视口高度：主页上滑拉抽屉要判定"下半屏起手"，免得和顶部滚动打架
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
     // 抽屉面板高度提前量好缓存：拖动时要用它把手指位移换成百分比（异步量来不及）
-    this.measurePanel()
+    // ⚠️ 量高是纯辅助动作，绝不能连累后面：onShow 里断一处，refresh / startTick
+    //    全不执行，首页就停在旧数据上（H5 未挂载时它确实会抛，2026-10-23 实锤）
+    try { this.measurePanel() } catch (e) {}
     this.refresh()
     this.startTick()
     // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
@@ -1192,29 +1194,45 @@ export default {
      * 而 createSelectorQuery 是异步的，拖动现场等不起。
      * ⚠️ 别再指望 this.$refs.drPanel.offsetHeight：app 端 ref 拿到的不是 DOM 节点
      *    （真机日志 ref=has 却读不到高度，2026-10-16 实锤）。
+     * ⚠️ H5 开发态：KeepAlive 下 onShow 可能早于挂载，此刻 this.$el 还是 null，
+     *    带作用域的查询内部要读 this.$el.parentElement → 同步抛 TypeError。
+     *    而**抛点在 exec 里，不在 in(this) 里** —— 2026-10-17 那次只把 in(this)
+     *    包进 try，H5 照样崩（2026-10-23 运行日志实锤），且这一抛发生在 onShow
+     *    里，后面 refresh / startTick 全被跳过，首页停在旧数据上。
+     *    所以三层：① 先判 $el ② select + exec 整段包 try ③ 失败退一拍重量。
      * 首帧可能还没布局完（量到 0）→ 退一拍重量，最多 6 次。
+     * 量不到不致命：panelHpx() 有 76vh 估算兜底，抽屉照样拖得动。
      */
     measurePanel(tryN) {
       const n = tryN || 0
       if (n > 6) return
-      // ★ H5 开发态（KeepAlive + onShow 早于 $el 就绪）下 uni.createSelectorQuery().in(this)
-      //   内部会访问 this.$el.parentElement，而此刻 $el 还是 null → 同步抛
-      //   "Cannot read property 'parentElement' of null"。App 真机从不触发，但 H5 会。
-      //   兜底：先 try 带作用域的查询；抛了就退回全局查询（H5 下 .dr-panel 本就唯一）；
-      //   拿不到高度时沿用原退拍重试逻辑（多为还没布局完）。
-      let q
+      const retry = () => { setTimeout(() => { this.measurePanel(n + 1) }, 120) }
       try {
-        q = uni.createSelectorQuery().in(this)
+        // $el 还没挂上就别构造查询：构造也是白构造，直接退一拍等它挂好
+        if (!this.$el) throw new Error('el not mounted')
+        const q = uni.createSelectorQuery().in(this)
+        q.select('.dr-panel').boundingClientRect()
+        q.exec((res) => {
+          const r = res && res[0]
+          const h = r && (r.height || 0)
+          if (h > 0) { this.panelH = Math.round(h); return }
+          retry()
+        })
       } catch (e) {
-        q = uni.createSelectorQuery()
+        // 带作用域的那条路走不通，退回全局查询（H5 下 .dr-panel 本就唯一）
+        try {
+          const q = uni.createSelectorQuery()
+          q.select('.dr-panel').boundingClientRect()
+          q.exec((res) => {
+            const r = res && res[0]
+            const h = r && (r.height || 0)
+            if (h > 0) { this.panelH = Math.round(h); return }
+            retry()
+          })
+        } catch (e2) {
+          retry()
+        }
       }
-      q.select('.dr-panel').boundingClientRect()
-      q.exec((res) => {
-        const r = res && res[0]
-        const h = r && (r.height || 0)
-        if (h > 0) { this.panelH = Math.round(h); return }
-        setTimeout(() => { this.measurePanel(n + 1) }, 120)
-      })
     },
     // 抽屉当前像素高度（拖动百分比要换算成 px）：缓存的实测值，没有就退回 76vh 估算。
     panelHpx() {

@@ -194,10 +194,21 @@ const cases = [
       'const H = Math.round(this.winH * 0.76)')],
   // 不提前量高度：app 端 ref 不是 DOM 节点，现场读不到 → 只能用估算值凑合
   ['进页面不量面板高度（panelH 永远是 0）',
-    s => s.replace('    this.measurePanel()\r\n', '')],
-  // 量错节点：缓存写不进去，等于没量
+    s => s.replace('    try { this.measurePanel() } catch (e) {}\r\n', '')],
+  // 量错节点：缓存写不进去，等于没量。
+  // ⚠️ 必须 /g：带作用域那条路与兜底那条路各有一处 .dr-panel，只换一处会被另一处救回来（假绿）
   ['measurePanel 量错节点',
-    s => s.replace("q.select('.dr-panel').boundingClientRect()", "q.select('.dr-body').boundingClientRect()")],
+    s => s.replace(/q\.select\('\.dr-panel'\)\.boundingClientRect\(\)/g, "q.select('.dr-body').boundingClientRect()")],
+  // ---- 9.x H5 量高崩溃（2026-10-23 运行日志：onShow 被打断 → 首页停在旧数据）----
+  ['量高不判 $el 是否已挂载（H5 未挂载时照样抛）',
+    s => s.replace("        if (!this.$el) throw new Error('el not mounted')\r\n", '')],
+  // 10-17 那版补丁就是这么写的：try 只包住 in(this)，而真正的抛点在 exec 里
+  ['try 只包 in(this)、exec 留在外面（H5 照样崩）',
+    s => s.replace(
+      "      try {\r\n        // $el 还没挂上就别构造查询：构造也是白构造，直接退一拍等它挂好\r\n        if (!this.$el) throw new Error('el not mounted')\r\n        const q = uni.createSelectorQuery().in(this)\r\n        q.select('.dr-panel').boundingClientRect()\r\n        q.exec((res) => {\r\n          const r = res && res[0]\r\n          const h = r && (r.height || 0)\r\n          if (h > 0) { this.panelH = Math.round(h); return }\r\n          retry()\r\n        })\r\n      } catch (e) {",
+      "      let q\r\n      try {\r\n        q = uni.createSelectorQuery().in(this)\r\n      } catch (e) {\r\n        q = uni.createSelectorQuery()\r\n      }\r\n      q.select('.dr-panel').boundingClientRect()\r\n      q.exec((res) => {\r\n        const r = res && res[0]\r\n        const h = r && (r.height || 0)\r\n        if (h > 0) { this.panelH = Math.round(h); return }\r\n        retry()\r\n      })\r\n      try { if (false) throw 0 } catch (e) {")],
+  ['onShow 里量高不带 try（量高一抛，refresh / startTick 全不跑）',
+    s => s.replace("    try { this.measurePanel() } catch (e) {}\r\n", "    this.measurePanel()\r\n")],
 
   // ---- 10. 收起太费劲（2026-10-16 反馈：要往下滑很长一段）----
   // 阈值回到 50：面板 76vh 的一半 = 38vh，真机上得滑老长一段
