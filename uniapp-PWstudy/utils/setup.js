@@ -173,6 +173,52 @@ export function allOk() {
   return pending().length === 0;
 }
 
+/**
+ * 首页那张「还有设置没完成」卡片里，被用户**点 × 关掉**的缺项。
+ *
+ * 为什么按 key 记、而不是一个"别再显示"的总开关：必办项会随使用变化 ——
+ * 只有开了强制模式才会冒出无障碍 / 悬浮窗。总开关会把**以后才出现的新问题**
+ * 一起沉默掉，用户以为自己关的只是当时那几项。按 key 记则"关过的安静、
+ * 新冒出来的照样提醒"。
+ */
+export function mutedKeys() {
+  try {
+    const s = settings.get();
+    const a = s && s.setup ? s.setup.mutedKeys : null;
+    return Array.isArray(a) ? a : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * 首页卡片该显示的缺项 —— 剔除被 × 关掉的。
+ * ⚠️ 权限页 / `pending()` 仍返回**全部**缺项：卡片可以关，真实状态不许藏。
+ */
+export function pendingForCard() {
+  const dis = mutedKeys();
+  return pending().filter(x => dis.indexOf(x.key) < 0);
+}
+
+/**
+ * 点首页卡片的 ×：把**此刻**这些缺项记为"别再拿它烦我"，同时让每日弹窗也闭嘴
+ * （用户点 × 的意思就是"我知道，别再说了"；只关卡片、弹窗照弹等于没关）。
+ *
+ * 直接整份覆盖成"当前 pending 的 key"：上一次关过、这次已经办好的项自然被清掉，
+ * 以后再缺一次就还会提醒。
+ */
+export function mutePending() {
+  try {
+    const s = settings.get();
+    s.setup = Object.assign({ done: false, promptAt: 0, appsAsked: false, mutedKeys: [] }, s.setup || {});
+    s.setup.mutedKeys = pending().map(x => x.key);
+    settings.save();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /** 点某一项的「去设置」：跳系统页并把这次操作记下来（电池/自启动靠这个记账） */
 export function fixItem(key) {
   const it = ITEMS.filter(x => x.key === key)[0];
@@ -206,16 +252,16 @@ export function shortTitle(t) {
 
 /** 还没办好的必办项的名字（弹窗文案用，按实际缺项生成而不是写死一份名单） */
 export function pendingNames() {
-  try { return pending().map(x => shortTitle(x.title)); } catch (e) { return []; }
+  try { return pendingForCard().map(x => shortTitle(x.title)); } catch (e) { return []; }
 }
 
-/** 还没有提醒过？一天最多弹一次，全部办好之后不再弹 */
+/** 还没有提醒过？一天最多弹一次，全部办好（或被用户逐项关掉）之后不再弹 */
 export function shouldPrompt() {
   try {
     const s = settings.get();
     const su = s && s.setup ? s.setup : {};
     if (su.done) return false;
-    if (!pending().length) return false;
+    if (!pendingForCard().length) return false;
     const at = Number(su.promptAt) || 0;
     if (at && Date.now() - at < 86400000) return false;
     return true;

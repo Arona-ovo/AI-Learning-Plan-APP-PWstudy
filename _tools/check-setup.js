@@ -121,6 +121,40 @@ eq(setup.shouldPrompt(), false, '★ 点过「先不弄」→ 以后不再弹（
 settings.set({ setup: { done: false, promptAt: Date.now() } });
 eq(setup.shouldPrompt(), false, '今天刚弹过 → 不再弹（一天一次）');
 
+/* ---------- 3b. 首页那张卡可以关（按缺项记，新问题还会回来） ---------- */
+console.log('== 3b. 首页卡片的 × ==');
+settings.set({ setup: { done: false, promptAt: 0, appsAsked: false, mutedKeys: [] } });
+st.notify = true; st.usage = true; st.battery = true; st.overlay = false; st.a11y = false;
+setForced(true);
+const before = setup.pendingForCard().map(x => x.key);
+assert(before.indexOf('overlay') >= 0, '关之前：卡片有待办（' + before.join('、') + '）');
+eq(setup.shouldPrompt(), true, '关之前：每日弹窗还会出现');
+setup.mutePending();
+eq(setup.pendingForCard().length, 0, '★ 点过 × → 首页卡片不再显示（用户要的"能关掉"）');
+assert(setup.pending().length > 0, 'pending() 仍返回全部 —— 卡片可以关，真实状态不许藏（权限页还要看）');
+eq(setup.shouldPrompt(), false, '★ 点过 × → 每日弹窗也闭嘴（只关卡片、弹窗照弹等于没关）');
+// 后来新缺的项（不在 mutedKeys 里）照样要提醒，不能被一句"别再显示"一起埋掉
+st.notify = false;
+const after = setup.pendingForCard().map(x => x.key);
+eq(after, ['notify'], '★ 新缺的项照样提醒（关的是当时那几项，不是"以后全别说了"）');
+// 再关一次：上次记的、这次已经办好的项要被清掉，不然会永久沉默
+setup.mutePending();
+eq(setup.mutedKeys().sort(), ['a11y', 'notify', 'overlay'], '重关时整份覆盖成当前缺项（办好的从名单里清掉）');
+st.notify = true;
+setup.mutePending();
+eq(setup.mutedKeys().sort(), ['a11y', 'overlay'], '全部关掉后名单只剩当前的缺项（notify 已办好，不占位）');
+// 复原：后面几节还要看"待办名字"，别让这一节把清单关空了
+settings.set({ setup: { done: false, promptAt: 0, appsAsked: false, mutedKeys: [] } });
+
+// 接线：首页必须用「剔除过的清单」，否则关掉了还会被 v-if 拽回来
+const homeJs = R('pages/home/home.vue');
+assert(/setup\.pendingForCard\(\)/.test(homeJs), '首页卡片读 pendingForCard（不是 pending）');
+assert(/setup\.mutePending\(\)/.test(homeJs), '首页的 × 调 setup.mutePending');
+assert(/class="sc-x"[^>]*@tap\.stop="muteSetup"/.test(homeJs),
+  '★ × 是独立按钮且 stop 冒泡（否则点 × 等于点了「去设置」）');
+assert(/setup\.shortTitle\(x\.title\)/.test(homeJs),
+  '副标题用 shortTitle（带括号的全称能排四行，正是"挤占下面的卡片"的原因）');
+
 /* ---------- 4. 标题简写（弹窗/toast 共用一份） ---------- */
 console.log('== 4. 标题简写 ==');
 eq(setup.shortTitle('无障碍（强制模式：把你拉回来）'), '无障碍', '去掉括号里的补充说明');

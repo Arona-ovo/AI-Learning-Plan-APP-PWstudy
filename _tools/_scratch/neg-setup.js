@@ -90,7 +90,20 @@ const cases = [
   ['首页弹窗写死名单（清单加一项就漏一条）', 'pages/home/home.vue',
     s => s.replace("      const names = setup.pendingNames()", "      const names = []")],
   ['英文词表少了新词条（英文态会掉回中文）', 'utils/i18n-en.js',
-    s => s.replace("  '去添加': 'Add',", "")]
+    s => s.replace("  '去添加': 'Add',", "")],
+
+  /* ---------- 首页那张待办卡要能关掉 ---------- */
+  ['首页卡片读完整清单（点过 × 的又冒回来 = 关不掉）', 'pages/home/home.vue',
+    s => s.replace('try { list = setup.pendingForCard() } catch (e) {}',
+      'try { list = setup.pending() } catch (e) {}')],
+  ['× 不 stop 冒泡（点 × 等于点了「去设置」，直接跳走）', 'pages/home/home.vue',
+    s => s.replace('@tap.stop="muteSetup"', '@tap="muteSetup"')],
+  ['mute 用一个总开关（以后新冒出来的权限也一起沉默）', 'utils/setup.js',
+    s => s.replace('return pending().filter(x => dis.indexOf(x.key) < 0)',
+      'return dis.length ? [] : pending()')],
+  ['副标题又拼完整标题（一段排四行，把首屏压下去）', 'pages/home/home.vue',
+    s => s.replace('const names = this.setupPending.map(x => setup.shortTitle(x.title))',
+      'const names = this.setupPending.map(x => x.title)')]
 ];
 
 function restoreAll() {

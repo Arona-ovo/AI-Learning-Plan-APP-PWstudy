@@ -59,9 +59,12 @@
       <block v-else>
       <!-- 临时卡：权限提醒 / 未完成的 AI 规划。
            它们不是"组件"，不参与排序与收纳，也永远排在最前面 ——
-           权限没开是真的会让计时断掉的，不该被用户收起来。 -->
-      <view v-if="setupPending.length" class="card setup-card" @tap="goSetup()">
-        <view class="sc-main">
+           权限没开是真的会让计时断掉的，不该被用户收起来。
+           右上角那个 × 是"我知道，别拿它烦我"：按缺项逐条记（见 setup.mutePending），
+           以后冒出**新**的缺项还会再提醒。没有这个出口的话，权限一天不开，
+           这张卡就一天压在首屏上、把下面几张卡全挤下去。 -->
+      <view v-if="setupPending.length" class="card setup-card">
+        <view class="sc-main" @tap="goSetup()">
           <view class="sc-badge">{{ setupPending.length }}</view>
           <view class="sc-info">
             <view class="sc-title">还有设置没完成</view>
@@ -69,6 +72,7 @@
           </view>
           <text class="sc-go">去设置 ›</text>
         </view>
+        <view class="sc-x" hover-class="sc-x-press" hover-stay-time="80" @tap.stop="muteSetup">×</view>
       </view>
 
       <!-- 未完成的 AI 规划：退出页面也能接着聊 -->
@@ -809,8 +813,17 @@ export default {
       if (this.editing) return ids
       return ids.filter(id => this.cardVisible(id))
     },
+    /**
+     * 卡片副标题：只列前两项（用 shortTitle 去掉括号里的解释），多的用省略号收口。
+     * ⚠️ 以前这里 join 的是**完整 title** —— 四项全带括号说明，一段排成四行，
+     *    整张卡把首屏压下去半屏（用户原话："挤占下面的卡片，导致下面不好点"）。
+     *    数量由左边的徽章说，文案不必重复。
+     */
     setupNames() {
-      return this.setupPending.map(x => x.title).join('、')
+      const names = this.setupPending.map(x => setup.shortTitle(x.title))
+      if (!names.length) return ''
+      const head = names.slice(0, 2).join('、')
+      return names.length > 2 ? head + '…' : head
     },
     running() {
       return !!(this.cur && !this.cur.paused)
@@ -1586,8 +1599,20 @@ export default {
     // ---------- 权限与后台保活 ----------
     refreshSetup() {
       let list = []
-      try { list = setup.pending() } catch (e) {}
+      // ⚠️ 这里用 pendingForCard 而不是 pending()：用户点过 × 的缺项不再上首页，
+      //    但权限页 / 弹窗判断仍看完整清单（卡片可以关，真实状态不许藏）。
+      try { list = setup.pendingForCard() } catch (e) {}
       this.setupPending = list
+    },
+    /**
+     * 点卡片右上角的 × —— "我知道，别拿它烦我"。
+     * 记的是**当时缺的这几项**（setup.mutePending），以后冒出新的缺项还会再提醒。
+     * 不跳设置页、不弹确认框：用户的动作就是"把这张卡收掉"，不该再被问一次。
+     */
+    muteSetup() {
+      try { setup.mutePending() } catch (e) {}
+      this.setupPending = []
+      try { haptic.tick('switch') } catch (e) {}
     },
     // 首次进入（或有新缺项）主动问一次：不然用户根本不知道要开这些
     /**
@@ -2643,9 +2668,12 @@ export default {
 .ck-txt { flex: 1; min-width: 0; font-size: 23rpx; line-height: 1.5; color: #8a5800; }
 .ck-go { flex-shrink: 0; margin-left: 16rpx; font-size: 23rpx; color: #b26400; }
 
-/* ===== 权限 / 后台保活提醒卡 ===== */
-.setup-card { margin-bottom: 20rpx; }
-.sc-main { display: flex; align-items: center; }
+/* ===== 权限 / 后台保活提醒卡 =====
+   这张卡压在首屏之上，能薄就薄：徽章 + 两行文字 + × ，副标题超两行直接截断。
+   以前副标题排的是四项完整标题（每项都带括号解释），一段能排四行，
+   把下面的专注/任务卡整块压下去 —— 用户反馈"挤占下面的卡片，不好点"。 */
+.setup-card { position: relative; margin-bottom: 20rpx; }
+.sc-main { display: flex; align-items: center; padding-right: 52rpx; }
 .sc-badge {
   width: 44rpx; height: 44rpx; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -2655,8 +2683,23 @@ export default {
 }
 .sc-info { flex: 1; min-width: 0; }
 .sc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.sc-sub { font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; line-height: 1.5; }
+.sc-sub {
+  font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560);
+  margin-top: 6rpx; line-height: 1.5;
+  /* 最多两行，多了截断：这张卡的高度直接决定下面几张卡能不能点到 */
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
 .sc-go { font-size: 25rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
+/* × ：「我知道，别再说了」。压到右上角，点击区给足 64rpx，别跟「去设置」抢地方 */
+.sc-x {
+  position: absolute; top: 0; right: 0;
+  width: 64rpx; height: 64rpx;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 6rpx; box-sizing: border-box;
+  font-size: 34rpx; line-height: 1;
+  color: #98a19b; color: var(--ink-3, #98a19b);
+}
+.sc-x-press { color: #5a6560; color: var(--ink-2, #5a6560); }
 
 /* ===== 超期提示条 ===== */
 .late-bar {
