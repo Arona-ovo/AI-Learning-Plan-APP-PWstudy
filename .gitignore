@@ -39,3 +39,5 @@ _tools/_scratch/_kt/
 _tools/_scratch/_img/*.png
 # 截图对照用的临时素材（真机 dump），不进仓库
 _tools/_scratch/frames/
+# 云打包产物（APK 十几 MB，不进仓库）
+release/
