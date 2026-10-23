@@ -14,6 +14,7 @@ import { flush as pwFlush } from './utils/pwstore.js'
 import * as apptime from './utils/apptime.js'
 import * as link from './utils/link.js'
 import * as updater from './utils/updater.js'
+import * as loc from './utils/location.js'
 
 export default {
   onLaunch() {
@@ -70,6 +71,10 @@ export default {
     try { usage.start() } catch (e) {}
     // 从 AppDock 跳去别的 App 后回到前台：结算那段前台计时
     try { apptime.onAppShow() } catch (e) {}
+    // 打开 App / 从后台切回前台：看一眼人在不在学习范围。
+    // 不 force —— 交给 location 里那 5 分钟的节流，别每次切回来都唤醒一次定位；
+    // 开关关着或没圈地点时它自己就返回了，一个权限都不会问。
+    try { loc.checkNow() } catch (e) {}
   },
   onHide() {
     // 应用切后台：立即停止所有发声（AI 语音 + 原生 TTS + InnerAudioContext）

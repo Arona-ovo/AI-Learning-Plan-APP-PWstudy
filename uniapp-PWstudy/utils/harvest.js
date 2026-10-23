@@ -28,6 +28,8 @@ import { isAIEnabled } from '../services/config.js';
 const HISTORY_DAYS = 14;
 /** 外部学习数据回溯多少天（给 AI 的"他几点在外面学"） */
 const EXT_DAYS = 7;
+/** 学习范围回溯多少天（给 AI 的"他哪几段人不在学习地点"） */
+const RANGE_DAYS = 7;
 /** 待确认队列最多留几条（堆太多就变成没人看的垃圾堆） */
 const MAX_PENDING = 8;
 /** 自动重排时允许"顺延截止日"的门槛：连续这么多天没做完才开门（与 replan 页同口径） */
@@ -207,6 +209,57 @@ export function externalBlock(days) {
   return lines.join('\n');
 }
 
+/**
+ * 【在 / 不在学习范围】（近 n 天）→ 给 AI 的一块上下文。
+ *
+ * 用户自己圈了几个学习地点，App 在几个固定时刻取一次定位，记下"这会儿在不在"。
+ * 这块数据回答的是排期里最容易判错的一件事：**那段时间他根本不在能学习的地方**，
+ * 任务没做完不是能力问题、也不是懈怠。
+ *
+ * ⚠️ 隐私红线（改这段前先读 utils/location.js 的三条边界）：
+ *   这里**只有时段与分钟数** —— 没有经纬度、没有地点名、没有"他在哪儿"。
+ *   加任何一项都是把位置数据送进模型，一律不许。
+ *
+ * ⚠️ 措辞里必须明写"不要据此判定他偷懒/退步"：
+ *   不给这句话，模型看到"下午 3 小时不在"最常见的反应就是砍任务量（drop / resize 减量）
+ *   或者在总结里说一句"近期投入不足"。那是把客观不在场误判成主观懈怠，
+ *   用户看到那句话会觉得这 App 在指责自己 —— 这功能的初衷就反了。
+ */
+export function rangeBlock(days) {
+  let s;
+  try { s = pw.rangeSummary(pw.today(), days || RANGE_DAYS); } catch (e) { s = null; }
+  if (!s || !s.times) return '';
+  const lines = ['【在 / 不在学习范围（近 ' + s.days + ' 天，本人设定的学习地点）】'];
+  lines.push('- 不在范围内共 ' + s.times + ' 段 · 合计 ' + minText(s.outMin) +
+    ' · 平均每段 ' + s.avgMin + ' 分钟 · 涉及 ' + s.outDays + ' 天');
+  if (s.topHours.length) {
+    lines.push('- 出去得最多的时段：' + s.topHours.map(h => h + ' 点（' + s.byHour[h] + ' 分钟）').join('、'));
+  }
+  // 最近 8 段的时间范围：让模型看得见"他一次出去多久、几点走"
+  const recent = s.spans.slice(-8);
+  if (recent.length) {
+    lines.push('- 最近几段不在范围内：');
+    recent.forEach(sp => {
+      lines.push('  · ' + sp.date + ' ' + pw.spanText(sp.from, sp.to) + ' · ' + minText(sp.min) +
+        (sp.open ? '（还没回来）' : ''));
+    });
+  }
+  lines.push('- **这些时段他客观不在学习地点，做不了事，不是偷懒也不是能力下降**：' +
+    '不要据此下调对他的判断，不要在反馈里说"投入不足"之类的话。');
+  lines.push('- 排期上：这些时段不要安排任务；若正好撞上，用 move 挪开而不是 drop 砍掉。' +
+    '已经落下的量按"人不在"处理，往后匀即可，不要压缩他一天该做的总量。');
+  return lines.join('\n');
+}
+
+/** 分钟的人话：不到 1 小时说分钟，超过就说"X 小时 Y 分" */
+function minText(m) {
+  const v = Math.max(0, Math.round(Number(m) || 0));
+  if (v < 60) return v + ' 分钟';
+  const h = Math.floor(v / 60);
+  const r = v % 60;
+  return h + ' 小时' + (r ? ' ' + r + ' 分' : '');
+}
+
 /** 上次自动重排的结果（让下一次别来回横跳） */
 export function lastBlock() {
   const r = pw.replanState();
@@ -340,6 +393,11 @@ function extraBlock() {
   // 所以"每日任务都完成后"与"第二天"这两个时刻都会重新带上它一起分析。
   const eb = externalBlock();
   if (eb) parts.push(eb);
+  // 在 / 不在学习范围：同上，两条自动重排主线都走这里。
+  // 它跟 externalBlock 是一对：一个说"这些时段他在学别的"，一个说"这些时段人不在"。
+  // 两个混在一段里讲不清楚，分开两块给，模型才知道这两件事性质不同。
+  const rb = rangeBlock();
+  if (rb) parts.push(rb);
   return parts.join('\n');
 }
 

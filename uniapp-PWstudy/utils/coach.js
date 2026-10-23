@@ -133,6 +133,17 @@ export function context(date) {
       }
     }
   } catch (e) {}
+  // 在 / 不在学习范围：跟上面那块是一对，一个说"在学别的"、一个说"人不在"。
+  // 教练对话里也要有 —— 不然用户说"今天下午啥也没干"，模型不知道他下午人根本不在家，
+  // 很容易接一句"要不要把任务量调小一点"，那是把客观不在场误判成能力问题。
+  try {
+    const rg = pw.rangeSummary(key, 3);
+    if (rg && rg.times) {
+      lines.push('不在学习范围内（近 ' + rg.days + ' 天，本人设定的学习地点）：' + rg.times + ' 段 · ' +
+        rg.outMin + ' 分钟' + (rg.topHours.length ? '，多在 ' + rg.topHours.join('、') + ' 点' : '') +
+        '；这些时段人客观不在场，不是懈怠，别据此下调任务量。');
+    }
+  } catch (e) {}
   if (tasks.length) {
     lines.push('可记功的任务（说过"做完了"就按 id 记专注）：' +
       tasks.map(t => t.id + '=「' + t.title + '」第' + t.day + '天 ' + (t.done || 0) + '/' + t.pomos).join('；'));

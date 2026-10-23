@@ -25,6 +25,9 @@
         "modules" : {
             "SQLite" : {
                 "description" : "本地账号（users）"
+            },
+            "Geolocation" : {
+                "description" : "学习范围：判定在不在学习地点（只申请使用期间的定位，不申请后台定位）"
             }
         },
         "distribute" : {
@@ -35,7 +38,9 @@
                     "<uses-permission android:name=\"android.permission.PACKAGE_USAGE_STATS\"/>",
                     "<uses-permission android:name=\"android.permission.QUERY_ALL_PACKAGES\"/>",
                     "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
-                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>"
+                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>"
                 ],
                 "packagename" : "com.PWstudy"
             },

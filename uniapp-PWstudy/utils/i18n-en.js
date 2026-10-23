@@ -1129,5 +1129,49 @@ export default {
   '抽屉滑出、底部导航切换时轻轻震一下': 'A light buzz when the drawer slides out or when you switch tabs',
   '试一下': 'Try it',
   '这一下没震成：多半是现在这个包里没打进震动权限，云打包一次就有了；本来就不带马达的设备也不会震。':
-    "That one didn't buzz: the installed build most likely lacks the VIBRATE permission — rebuild via cloud packaging and it will. Devices without a vibration motor never buzz."
+    "That one didn't buzz: the installed build most likely lacks the VIBRATE permission — rebuild via cloud packaging and it will. Devices without a vibration motor never buzz.",
+
+  // ---------- 学习范围（我的 › 学习范围；utils/location.js） ----------
+  '学习范围': 'Study range',
+  '这是干什么的': 'What this does',
+  '圈出你常学习的地方（家、图书馆、自习室）。打开 App、开始和结束专注时，各看一眼你在不在那儿 —— 之后 AI 排任务会绕开「人不在」的时段，也不会把你没做完的事算成偷懒。':
+    'Mark the places you usually study (home, the library, a study room). PWstudy checks whether you are there when the app opens and when a focus starts or ends — the planner then skips the hours you are away, and never counts unfinished work as slacking.',
+  '只记「在 / 不在」，不记你去过哪：定位拿到就用完即弃，坐标不会写进学习记录，也不会发给 AI。AI 只看到「14:00-16:00 不在」这种时段，看不到地点名，更看不到坐标。':
+    'It only records "in" or "out", never where you went: the fix is used on the spot and thrown away — coordinates never reach your study log and never reach the AI. The AI only sees spans like "away 14:00-16:00"; it never sees place names, let alone coordinates.',
+  '不会一直在后台定位：最多 5 分钟看一次，关掉下面的开关就彻底停。':
+    'No background tracking: at most one check every 5 minutes, and turning the switch off stops it completely.',
+  '记录我在不在学习范围': 'Track whether I am in my study range',
+  '关着的时候一个定位权限都不申请': 'While this is off, no location permission is ever requested',
+  '还没给定位权限': 'Location permission not granted',
+  '去开启 ›': 'Enable ›',
+  '不给定位就记不了。只会申请「使用期间」的定位，不会要后台定位。':
+    'Without it nothing can be recorded. Only "while using the app" location is requested — never background location.',
+  '还没圈地点。站到常学习的地方，点右上角把它加进来。':
+    'No places yet. Stand where you usually study and add it from the top right.',
+  '改名': 'Rename',
+  '现在在哪': 'Where am I now',
+  '刷新': 'Refresh',
+  '看一眼…': 'Checking…',
+  '定位中…': 'Locating…',
+  '＋ 用我现在的位置': '＋ Use my current location',
+  '在学习范围内': 'Inside my study range',
+  '不在学习范围内': 'Outside my study range',
+  '还没测过。点右上角「刷新」看一眼。': 'Not checked yet. Tap Refresh in the top right.',
+  '距最近的学习地点': 'Nearest study place is',
+  '今天不在范围内合计': 'Time outside the range today',
+  '请先给定位权限': 'Grant location permission first',
+  '给这个地点起个名': 'Name this place',
+  '例如：家 / 图书馆 / 自习室': 'e.g. Home / Library / Study room',
+  '例如：家 / 图书馆': 'e.g. Home / Library',
+  '100 米（一个房间）': '100 m (a single room)',
+  '200 米（一栋楼 / 一个院子）': '200 m (a building / a courtyard)',
+  '500 米（一个小区 / 校区一角）': '500 m (a block / part of a campus)',
+  '1000 米（整个校区）': '1000 m (a whole campus)',
+  '没拿到定位权限': 'Location permission denied',
+  '手机定位服务没开': 'Phone location services are off',
+  '定位失败，换个地方再试一次': "Couldn't get a fix — try again somewhere else",
+  '先打开开关并圈一个地点': 'Turn the switch on and mark a place first',
+  '定位失败，稍后再试': "Couldn't get a fix — try again later",
+  '个地点': 'places',
+  '还没圈地点': 'no places yet'
 };

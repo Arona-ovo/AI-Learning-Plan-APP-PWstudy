@@ -51,6 +51,10 @@
           "style": { "navigationBarTitleText": "学习 App", "navigationStyle": "custom" }
         },
         {
+          "path": "pages/range/range",
+          "style": { "navigationBarTitleText": "学习范围", "navigationStyle": "custom" }
+        },
+        {
           "path": "pages/daily/daily",
           "style": { "navigationBarTitleText": "今日收工", "navigationStyle": "custom" }
         },

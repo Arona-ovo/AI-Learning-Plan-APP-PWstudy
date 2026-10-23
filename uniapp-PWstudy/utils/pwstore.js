@@ -678,6 +678,151 @@ export function extStudySummary(key, days) {
   };
 }
 
+/* ---------- 学习范围：在 / 不在学习地点 ---------- */
+/*
+ * 用户自己圈几个学习地点（家、图书馆、自习室…），App 在几个固定时刻取一次定位，
+ * 记下"这会儿在不在范围内"。这批数据只有一个用途：**告诉 AI 那段时间人客观不在场**，
+ * 别把"没学"一律判成偷懒或能力下降。
+ *
+ * ⚠️ 三条红线（改这块前先读）：
+ *   ① 落库的只有 inside 布尔 + 时刻，**经纬度一个字节都不存** ——
+ *      定位拿到即用即弃；用户圈了哪些地点、在哪儿，都不属于统计层。
+ *   ② 只记**状态翻转**：全天没动过就一条都没有，不会攒成一串心跳日志。
+ *      取定位是耗电动作，这条约束同时也决定了"多久取一次"不能太密。
+ *   ③ 喂给 AI 的只有时段与分钟数（见 harvest.rangeBlock），地点名同样不外传。
+ */
+
+/**
+ * 记一次"在不在学习范围"的判定结果。
+ *
+ * 只在**翻转**时落一条：上一次也是同样的状态就什么都不做。
+ * 这样"在家坐了一下午"只会有 1 条记录，而不是几百条采样。
+ *
+ * @param {string} key 日期
+ * @param {boolean} inside 在学习范围内
+ * @param {number} [at] 判定时刻（缺省现在）
+ * @returns {{at:number,inside:boolean}|null} null = 没翻转，没落库
+ */
+export function addRangeSample(key, inside, at) {
+  const d = dayOf(get(), key || today());
+  if (!Array.isArray(d.range)) d.range = [];
+  const ts = Number(at) > 0 ? Number(at) : Date.now();
+  const last = d.range[d.range.length - 1];
+  if (last && !!last.inside === !!inside) return null;
+  const rec = { at: ts, inside: !!inside };
+  d.range.push(rec);
+  if (d.range.length > 60) d.range = d.range.slice(-40);   // 老数据不无限长
+  touch();
+  return rec;
+}
+
+/** 某天的翻转序列（副本，按时刻升序） */
+export function rangeOf(key) {
+  const d = get().daily[key || today()];
+  if (!d || !Array.isArray(d.range) || !d.range.length) return [];
+  return d.range.slice().sort((a, b) => (a.at || 0) - (b.at || 0));
+}
+
+/** 最后一条判定（当前大概在不在范围内）；没记过返回 null */
+export function rangeLast(key) {
+  const r = rangeOf(key || today());
+  return r.length ? r[r.length - 1] : null;
+}
+
+/** 把一段时长按整小时摊进 byHour（一段跨了 12:40-13:20 就两边各摊一半） */
+function spreadHours(byHour, from, to, min) {
+  const a = Number(from) || 0;
+  const b = Number(to) || 0;
+  if (!(b > a) || !(min > 0)) return;
+  let cur = a;
+  let left = min;
+  while (cur < b && left > 0) {
+    const nd = new Date(cur);
+    nd.setMinutes(0, 0, 0);
+    nd.setHours(nd.getHours() + 1);
+    const edge = Math.min(nd.getTime(), b);
+    const part = Math.round(min * (edge - cur) / (b - a));
+    byHour[new Date(cur).getHours()] = (byHour[new Date(cur).getHours()] || 0) + part;
+    left = left - part;
+    cur = edge;
+  }
+}
+
+/**
+ * 「在 / 不在学习范围」的节奏摘要（近 n 天，缺省 7 天）。
+ *
+ * 签名与风格照抄 extStudySummary：给排期回答三个问题 ——
+ *   ① 他通常几点不在学习地点（topHours）→ 别把任务排到那会儿
+ *   ② 一次出去多久（avgMin）→ 别把一整段活儿塞进一个注定被打断的下午
+ *   ③ 有几天压根不在（outDays）→ 判断"这几天进度慢"是能力问题还是人不在
+ *
+ * ⚠️ 时长只认**能确定首尾**的那几段：
+ *    第一次采样就已经在外面（不知道什么时候走的）、或那天之后再没消息
+ *    （不知道什么时候回来的），这两段时长不可知，**一律不计** ——
+ *    宁可少报，也不能拿一个拼出来的时长去让 AI 少排任务。
+ */
+export function rangeSummary(key, days) {
+  const n = Math.max(1, Math.floor(Number(days) || 7));
+  const now = Date.now();
+  const tk = today();
+  const spans = [];
+  const byHour = {};
+  let outDays = 0;
+  let openEnds = 0;
+  for (let i = n - 1; i >= 0; i--) {
+    const k = addDays(key || tk, -i);
+    const evs = rangeOf(k);
+    if (!evs.length) continue;
+    let daySpans = 0;
+    let outStart = 0;
+    evs.forEach(e => {
+      if (!e.inside) { if (!outStart) outStart = e.at; return; }
+      if (outStart) {
+        const min = Math.round((e.at - outStart) / 60000);
+        if (min > 0) {
+          spans.push({ date: k, from: outStart, to: e.at, min: min });
+          spreadHours(byHour, outStart, e.at, min);
+          daySpans++;
+        }
+        outStart = 0;
+      }
+    });
+    // 最后一次采样还是"在外面"：只有当天能补上"到现在"这个尾巴
+    // （人就在此刻不在场，这是事实）；过去的日子再没消息就是不可知，不计。
+    if (outStart) {
+      if (k === tk && now > outStart) {
+        const min = Math.round((now - outStart) / 60000);
+        if (min > 0) {
+          spans.push({ date: k, from: outStart, to: now, min: min, open: true });
+          spreadHours(byHour, outStart, now, min);
+          daySpans++;
+        }
+      } else {
+        openEnds++;
+      }
+    }
+    if (daySpans) outDays++;
+  }
+  if (!spans.length && !openEnds) return null;
+  let outMin = 0;
+  spans.forEach(sp => { outMin += sp.min; });
+  const topHours = Object.keys(byHour)
+    .sort((a, b) => byHour[b] - byHour[a])
+    .slice(0, 3)
+    .map(Number);
+  return {
+    days: n,
+    times: spans.length,
+    outMin: outMin,
+    outDays: outDays,
+    avgMin: spans.length ? Math.round(outMin / spans.length) : 0,
+    byHour: byHour,
+    topHours: topHours,
+    spans: spans,
+    openEnds: openEnds   // 有多少天"最后一次看到他时还在外面、之后没消息"
+  };
+}
+
 /** 一段时间范围的人话（08:30-09:00）；只有起点没有终点时给"08:30 起" */
 export function spanText(from, to) {
   const a = Number(from) || 0;

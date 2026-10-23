@@ -79,6 +79,13 @@
         <text class="menu-title">{{ $t('学习 App 管理') }}</text>
         <text class="menu-arrow">›</text>
       </view>
+      <view class="menu-item" @tap="go('/pkgPlan/pages/range/range')">
+        <view class="menu-main">
+          <text class="menu-title">{{ $t('学习范围') }}</text>
+          <text class="menu-hint" v-if="rangeHint">{{ rangeHint }}</text>
+        </view>
+        <text class="menu-arrow">›</text>
+      </view>
       <view class="menu-item" @tap="go('/pkgPlan/pages/wizard/wizard')">
         <text class="menu-title">{{ $t('新建目标') }}</text>
         <text class="menu-arrow">›</text>
@@ -125,6 +132,7 @@ import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import { aiGateReason } from '../../services/config.js'
 import * as updater from '../../utils/updater.js'
 import * as setup from '../../utils/setup.js'
+import * as loc from '../../utils/location.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
 import FloatNavbar from '../../components/float-navbar/float-navbar.vue'
@@ -145,6 +153,9 @@ export default {
       aiReason: '',
       account: { logged: false, username: '' },
       setupPending: 0,
+      // 「学习范围」那一项的副标题：只在开关打开后才有话说
+      // （关着是出厂默认，不该显示"未开启"这种像在催人的字样）
+      rangeHint: '',
       // 「设置」右侧那个小红点：有新版本才亮。
       // 它不记"看过了" —— 每次进页面重读一次，装完新版版本号不再比本机新，
       // 红点自己就没了。
@@ -161,6 +172,11 @@ export default {
     syncTabbar(this)
     this.refresh()
     try { this.setupPending = setup.pending().length } catch (e) {}
+    // 只在开关打开后才显示：关着是出厂默认，挂个"未开启"像在催人开
+    try {
+      const n = loc.on() ? loc.places().length : -1;
+      this.rangeHint = n < 0 ? '' : (n ? n + ' ' + t('个地点') : t('还没圈地点'));
+    } catch (e) { this.rangeHint = '' }
     // 每次进「我的」都重读一次红点：装完新版之后 pending 里的版本号就不再比
     // 本机新，红点自动消失 —— 不用记"看过了"，也就不会有清不掉的标记。
     this.refreshUpdateDot()

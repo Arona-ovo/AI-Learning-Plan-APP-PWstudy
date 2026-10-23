@@ -8,6 +8,7 @@ import * as notify from './notify.js';
 import * as settings from './settings.js';
 import * as fgsvc from './fgsvc.js';
 import * as ambient from './ambient.js';
+import * as loc from './location.js';
 import { t } from './i18n.js';
 
 // phase: idle | focus | rest | paused（paused 只在 focus/rest 上叠加）
@@ -339,7 +340,23 @@ export function startFocus(opt) {
   if (fcfg().noise) ambient.start(fcfg().noise);
   notifEnter();
   armWatchdog();
+  rangeMark();
   return snapshot();
+}
+
+/**
+ * 记一次"这会儿在不在学习范围"。
+ *
+ * 只在**专注开始**和**专注结束**（见 finishFocus）这两个点强制取样 ——
+ * force，不受 5 分钟节流限制：这才是"人到底在不在"最该记的时刻。
+ * 开始在这儿、结束也在这儿，那这一整段大概率都在；中间出去过的话，
+ * 出去时 App 通常已经不在前台，靠 App.vue onShow 那条线补上。
+ *
+ * 全程 try/catch：定位是锦上添花的功能，它出任何问题都不该影响专注计时 ——
+ * 计时是这 App 的主业，一个可选的统计不该有能力把它拖挂。
+ */
+function rangeMark() {
+  try { loc.checkNow(true); } catch (e) {}
 }
 
 /* ---------- 本轮专注计数（长休的依据） ---------- */
@@ -584,6 +601,9 @@ export function tick() {
  */
 function finishFocus(s, endAtOverride) {
   bumpRound();
+  // 结束这一下也要记：开始在场、结束在场，中间那段时间才算真的"人在"。
+  // 只记开始不记结束的话，"专注中途出去了"这条信息永远攒不出来。
+  rangeMark();
   return settle(s, true, endAtOverride);
 }
 

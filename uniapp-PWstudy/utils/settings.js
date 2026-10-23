@@ -57,6 +57,16 @@ function defaults() {
     // ⚠️ 取消关联落到 declined，而不是退回 undecided：
     //    否则下次启动又会重新弹一遍那张首次提示 —— 用户刚明确取消、转头又被问，最招人烦
     partner: { v: 1, state: 'undecided', askedCount: 0, lastAskAt: 0, linkedAt: 0, lastSyncAt: 0, lastWords: 0 },
+    // 学习范围（utils/location.js / pkgPlan/pages/range/range.vue）
+    //   用户自己圈几个学习地点（家 / 图书馆 / 自习室），App 记下"这会儿在不在范围内"，
+    //   拿去告诉 AI「那段时间人客观不在场」，别把没学一律判成偷懒。
+    //   on          总开关（**默认关**：关着就一个定位权限都不申请，也不取样）
+    //   places      [{ id, name, lat, lng, r }] 学习地点 + 半径（米）
+    //   lastCheckAt 上次取样时刻（节流用，取样是耗电动作，不能太密）
+    //   lastInside / lastDist  上次判定结果，界面显示用
+    // ⚠️ 经纬度只存在于**设置**里（用户亲手填的），统计层（pwstore.daily）只存
+    //    "在/不在"这个布尔，AI 上下文连地点名都拿不到 —— 见 location.js 的三条红线。
+    range: { on: false, places: [], lastCheckAt: 0, lastInside: true, lastDist: 0 },
     // 在线模式（以后接服务器用）。**现在没有服务器 → 默认关**，App 完全跑本地，
     // 功能一条不少（跟伙伴 App 联动同一个原则：可选增强，关了不缺功能）。
     // 服务端就绪后只要两步：填 baseUrl + 打开 enabled。这部分全是 JS/TS，
