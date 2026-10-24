@@ -776,13 +776,28 @@ class PWPullActivity extends Activity {
     return true;
   }
 
-  /** 跳回计时页并销毁自己。此时本 Activity 在前台，startActivity 百分百合规。 */
+  /**
+   * 跳回计时页并销毁自己。
+   *
+   * ⚠️ 不能只发「启动页 intent」—— 那会把人送回 App 首页（主页），
+   *    而不是刚才在跑的专注页。用户原话要的是「应用自己打开**专注**页面」。
+   *    所以这里用 moveTaskToFront 把 PWstudy 自己的 task 提回最前：
+   *    专注页本来就在那个 task 的栈顶（按 HOME 只是把它压到后台），
+   *    提回来再 finish 掉自己，露出来的就是**专注页 + 原样计时状态**，不重建。
+   */
   goBack(): void {
     try {
-      let launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());
-      if (launch != null) {
-        launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        this.startActivity(launch);
+      let am = this.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      let tasks = am.getRunningTasks(20)
+      if (tasks != null) {
+        for (let t of tasks!) {
+          if (t == null) continue
+          let cn = t.topActivity != null ? t.topActivity : t.baseActivity
+          if (cn != null && cn!.getPackageName() == this.getPackageName()) {
+            am.moveTaskToFront(t.id, 0)
+            break
+          }
+        }
       }
     } catch (e) {}
     try { this.finish() } catch (e) {}
