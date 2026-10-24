@@ -79,6 +79,7 @@
 
 <script>
 import * as pw from '../../utils/pwstore.js'
+import * as forced from '../../utils/forced.js'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
@@ -100,6 +101,8 @@ export default {
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
+    // 强制模式下专注正跑着 → 这儿不该出现，直接把人送回专注页（判定在 utils/forced.js）
+    try { if (forced.guardInside('/pages/goals/goals')) return } catch (e) {}
     this.refresh()
   },
   methods: {

@@ -112,6 +112,8 @@ function depsWith(over) {
     },
     notify: { alert: () => {}, requestPermission: () => {} },
     settings: { get: () => ({ focus: { forced: true, fgservice: true, notify: true } }), save: () => {} },
+    // forced.js 里那句"先把这段专注跑完"的 toast 要走 i18n（不然英文态漏中文）
+    i18n: { t: (s) => s },
     fgsvc: {
       bringToFrontSupported: () => true,
       serviceAllowed: () => true,
@@ -321,6 +323,84 @@ console.log('== 4. 引导与状态行：不许谎报、不许把兜底说成可�
   assert(gn.length > 0, '抽得到 guideNextStep');
   assert(/if \(c\.effective\)/.test(gn), 'guideNextStep 判"已就绪"看 effective（以前只看 c.a11y）');
   assert(!/if \(c\.a11y\) \{[\s\S]{0,120}已就绪/.test(gn), '不许再出现"只凭 c.a11y 就报已就绪"');
+}
+
+console.log('== 5. App 内部的"离开"也是逃逸（2026-10-24 补） ==');
+
+{
+  const s = strip(fd);
+
+  // ① 判定只此一份：页面不得自己抄名单
+  assert(/export function insideFree/.test(s), '有 insideFree（自由页名单只此一份）');
+  assert(/export function insideBlocked/.test(s), '有 insideBlocked');
+  assert(/export function guardInside/.test(s), '有 guardInside（页面 onShow 问一句就行）');
+
+  // ② 自由页名单必须留出去开权限的入口（盖住设置页 = 用户永远开不了悬浮窗）
+  const fr = /const INSIDE_FREE = \[([\s\S]*?)\]/.exec(s);
+  assert(fr !== null, '抽得到 INSIDE_FREE');
+  assert(/FOCUS_ROUTE/.test(fr ? fr[1] : ''), '自由页含专注页自己');
+  assert(/const FOCUS_ROUTE = '\/pkgPlan\/pages\/focus\/focus'/.test(s),
+    'FOCUS_ROUTE 指向专注页（写错路径 = 送回去送到一个不存在的页）');
+  assert(/settings/.test(fr ? fr[1] : ''), '自由页含设置页（不然开不了悬浮窗权限）');
+
+  // ③ 真跑：专注正跑着 + 强制模式开 → 首页算逃逸，专注页/设置页不算
+  const running = { paused: false, overrun: false, phase: 'focus' };
+  const f2 = load('utils/forced.js', depsWith({ focus: { current: () => running } }));
+  assert(f2.insideBlocked('/pages/home/home') === true,
+    '专注跑着 + 强制模式开 → 首页算逃逸（App 里乱逛跟切走没区别）');
+  assert(f2.insideBlocked('/pkgPlan/pages/focus/focus') === false, '专注页自己放行');
+  assert(f2.insideBlocked('/pkgManage/pages/settings/settings') === false, '设置页放行（要去开权限）');
+  assert(f2.insideFree('pages/home/home') === false && f2.insideFree('/pages/home/home') === false,
+    'insideFree 对首页为 false（带不带前导斜杠都一样）');
+
+  const f3 = load('utils/forced.js', depsWith({
+    focus: { current: () => ({ paused: true, overrun: false, phase: 'focus' }) }
+  }));
+  assert(f3.insideBlocked('/pages/home/home') === false, '暂停中放行（拦人是为了专注，不是把人困死）');
+  const f4 = load('utils/forced.js', depsWith({
+    focus: { current: () => ({ paused: false, overrun: true, phase: 'focus' }) }
+  }));
+  assert(f4.insideBlocked('/pages/home/home') === false, '正计时段放行（专注已跑满，不赶人）');
+  const f5 = load('utils/forced.js', depsWith({
+    focus: { current: () => ({ paused: false, overrun: false, phase: 'rest' }) }
+  }));
+  assert(f5.insideBlocked('/pages/home/home') === false, '休息阶段放行');
+  const f6 = load('utils/forced.js', depsWith({
+    focus: { current: () => running },
+    settings: { get: () => ({ focus: { forced: false } }), save: () => {} }
+  }));
+  assert(f6.insideBlocked('/pages/home/home') === false, '强制模式没开 → 不拦');
+
+  // ④ goFocus 不许叠第二层专注页：栈里已有就 navigateBack 回去
+  const gb = fnBody(s, 'goFocus');
+  assert(gb.length > 0, '抽得到 goFocus');
+  assert(/navigateBack/.test(gb), 'goFocus 栈里已有专注页时走 navigateBack（不然会叠第二层）');
+  assert(/navigateTo/.test(gb), 'goFocus 栈里没有时才 navigateTo');
+  assert(/p\.route === 'pkgPlan\/pages\/focus\/focus'/.test(gb),
+    "比的是页面 route（不带前导斜杠）—— 写成 '/pkgPlan/...' 永远比不上");
+
+  // ⑤ 四个 tab 页都得接上（漏一个就是一条能钻出去的缝）
+  const HOME = path.join(ROOT, 'pages', 'home', 'home.vue');
+  const GOALS = path.join(ROOT, 'pages', 'goals', 'goals.vue');
+  const STATS = path.join(ROOT, 'pages', 'stats', 'stats.vue');
+  const PROFILE = path.join(ROOT, 'pages', 'profile', 'profile.vue');
+  const routes = {
+    'pages/home/home': HOME,
+    'pages/goals/goals': GOALS,
+    'pages/stats/stats': STATS,
+    'pages/profile/profile': PROFILE
+  };
+  Object.keys(routes).forEach((r) => {
+    const src = fs.readFileSync(routes[r], 'utf8');
+    assert(src.indexOf("forced.guardInside('/" + r + "')") >= 0,
+      r + ' 的 onShow 要调 forced.guardInside（不然点底部导航就跑出去了）');
+    assert(/import \* as forced from/.test(src) || /from '.*utils\/forced/.test(src),
+      r + ' 要 import forced');
+  });
+  // 被拦时必须 return：不然跳走之前还把整页刷了一遍（白刷，还容易闪）
+  const hs = strip(fs.readFileSync(HOME, 'utf8'));
+  assert(/if \(forced\.guardInside\('\/pages\/home\/home'\)\) return/.test(hs),
+    '首页被拦后要 return（别再往下 refresh / startTick）');
 }
 
 console.log('');

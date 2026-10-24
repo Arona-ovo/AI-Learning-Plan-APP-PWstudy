@@ -173,6 +173,7 @@
 import * as pw from '../../utils/pwstore.js'
 import * as link from '../../utils/link.js'
 import * as apptime from '../../utils/apptime.js'
+import * as forced from '../../utils/forced.js'
 import * as holiday from '../../utils/holiday.js'
 import { reviewWeek } from '../../services/plan-agent.js'
 import { aiGateReason } from '../../services/config.js'
@@ -217,6 +218,8 @@ export default {
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
+    // 强制模式下专注正跑着 → 这儿不该出现，直接把人送回专注页（判定在 utils/forced.js）
+    try { if (forced.guardInside('/pages/stats/stats')) return } catch (e) {}
     // 回到统计页时顺手拉一次系统级统计（有权限才生效）
     try { apptime.syncToday() } catch (e) {}
     this.refresh()

@@ -1134,9 +1134,14 @@ export default {
   '计算器': 'Calculator',
   '已拦截 {n} 条通知': '{n} notification(s) blocked',
   '拦截通知': 'Block notifications',
-  '专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。':
-    'While focusing, notifications from other apps are tucked away (not even visible in the shade) and summarized for you when the focus ends. Needs the notification-access permission.',
-  '通知使用权没开启，点这里去开启': 'Notification access is off — tap here to enable it',
+  '专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。怎么开：下一步会跳到系统的「通知使用权」页，在列表里找到「PWstudy 专注通知拦截」，把它的开关打开。如果列表里没有 PWstudy：把 PWstudy 完全退出再重新打开一次（服务要重新注册），回来再点这个开关就行。':
+    "While focusing, notifications from other apps are tucked away (not even visible in the shade) and summarized for you when the focus ends. How to turn it on: the next step jumps to the system \"Notification access\" page — find \"PWstudy focus notification blocker\" in the list and switch it on. If PWstudy is not in the list: close PWstudy completely and open it again (the service has to re-register), then tap this switch once more.",
+  '去开启': 'Turn it on',
+  '没跳过去': 'Could not open that page',
+  '这个机型没有开放「通知使用权」设置页，PWstudy 跳不过去。可以自己找：系统设置 → 通知（有的机型叫「通知与控制中心」）→ 通知使用权，在里面打开「PWstudy 专注通知拦截」。找不到就说明这个机型不支持，拦截通知用不了，其它功能不受影响。':
+    "This device does not expose the \"Notification access\" settings page, so PWstudy cannot jump to it. You can find it yourself: Settings → Notifications (on some devices \"Notifications & status bar\") → Notification access, then switch on \"PWstudy focus notification blocker\". If it is not there, this device does not support it — notification blocking stays off, everything else still works.",
+  '通知使用权已开启，拦截通知已打开': 'Notification access granted — notification blocking is on',
+  '没检测到授权 · 点这里重新检测': 'Permission not detected · tap to re-check',
   '自动进休息': 'Auto-break',
   '专注跑完后直接开始休息，不再停在完成面板上': 'Start the break right after a focus ends, instead of waiting on the finish panel',
   '专注设置': 'Focus settings',
@@ -1145,6 +1150,7 @@ export default {
   '专注时收起别家通知': "Tuck away other apps' notifications while focusing",
   '专注结束自动休息': 'Rest automatically when a focus ends',
   '强制模式需开启「显示在其他应用上层」': 'Forced mode needs "Display over other apps"',
+  '强制模式：先把这段专注跑完': 'Forced mode: finish this focus session first',
   // 触感反馈（设置 › 触感反馈）
   '触感反馈': 'Haptics',
   '震动反馈': 'Vibration',

@@ -28,6 +28,7 @@ import * as apptime from './apptime.js';
 import * as notify from './notify.js';
 import * as settings from './settings.js';
 import * as fgsvc from './fgsvc.js';
+import * as i18n from './i18n.js';
 
 const CHECK_MS = 2000;      // JS 侧轮询间隔（原生看门狗在跑时它只做低频对账）
 const MAX_ESCAPE = 3;       // 累计几次"逃逸"才作废这一轮
@@ -94,6 +95,81 @@ export function diag() {
 /** 监视器当前是否在工作（界面提示 + 测试用） */
 export function armed() {
   return on;
+}
+
+/* ==================== App 内部的"离开"也是逃逸 ====================
+ * 强制模式原来只盯"前台是不是别的 App"，于是人在 PWstudy 里从专注页切回
+ * 首页 / 统计 / 我的，前台还是自己 → 判定合规 → 一动不动。
+ * 强制模式的定义是"离开学习这件事就把人拽回来"，在自家 App 里逛
+ * 跟切去刷视频没区别 —— 所以这条也要管（2026-10-24 补）。
+ *
+ * ⚠️ 名单里必须留出去开权限的入口：盖住设置页 = 用户永远开不了悬浮窗，
+ *    跟原生侧 NEUTRAL_CSV 是同一条理由。
+ */
+const FOCUS_ROUTE = '/pkgPlan/pages/focus/focus';
+const INSIDE_FREE = [
+  FOCUS_ROUTE,
+  '/pkgManage/pages/settings/settings',
+  '/pkgManage/pages/setup/setup'
+];
+
+/** 这一页在强制模式下是"自由"的吗（页面别自己抄这份名单） */
+export function insideFree(route) {
+  const r = '/' + String(route || '').replace(/^\/+/, '');
+  return INSIDE_FREE.indexOf(r) >= 0;
+}
+
+/**
+ * 内部守卫：专注正跑着 + 强制模式开着 + 当前不在自由页 → 该把人送回专注页。
+ * 页面在 onShow 开头问一句就行，判定只此一份。
+ *
+ * 与 onBackPress 的分工：那个拦"按返回键"，这个拦"点底部导航 / 别处跳过来"。
+ */
+export function insideBlocked(route) {
+  if (!enabled()) return false;
+  const cur = focus.current();
+  // 与 sync() 同一口径：暂停 / 正计时 / 休息阶段一律罢手
+  if (!cur || cur.paused || cur.overrun || cur.phase !== 'focus') return false;
+  return !insideFree(route);
+}
+
+/**
+ * 送回专注页。
+ * 栈里已经有专注页就 navigateBack 回去（不然 navigateTo 会叠第二层，
+ * 返回键先退回这一页、再被拦一次，来回打架）；没有才新建。
+ */
+export function goFocus() {
+  try {
+    const pages = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || [];
+    for (let i = pages.length - 1; i >= 0; i--) {
+      const p = pages[i] || {};
+      // ⚠️ 页面对象的 route **不带**前导斜杠，别拿 'pkgPlan/pages/focus/focus' 去比
+      if (p.route === 'pkgPlan/pages/focus/focus') {
+        const delta = pages.length - 1 - i;
+        if (delta > 0) uni.navigateBack({ delta: delta });
+        return true;
+      }
+    }
+  } catch (e) {}
+  try {
+    uni.navigateTo({ url: FOCUS_ROUTE });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 页面在 onShow 开头调一句：该送回专注页就送，并返回 true。
+ * 调用方拿到 true 就直接 return —— 马上要跳走了，再刷一遍数据是白刷。
+ */
+export function guardInside(route) {
+  if (!insideBlocked(route)) return false;
+  try {
+    uni.showToast({ title: i18n.t('强制模式：先把这段专注跑完'), icon: 'none' });
+  } catch (e) {}
+  goFocus();
+  return true;
 }
 
 /** 有没有"拉回"的原生能力：没有就只剩通知，别骗用户说锁得住 */

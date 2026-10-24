@@ -601,6 +601,9 @@
           <view class="fc-row">
             <view class="fc-info">
               <text class="fc-title">{{ $t('拦截通知') }}</text>
+              <!-- 开关开着却没检测到授权 = 一条也拦不住。给个"重新检测"的出口，
+                   别让用户只能对着一个打不开的开关干瞪眼（2026-10-24） -->
+              <text v-if="blockNotifOn && !notifOk" class="fc-try fc-try-warn" @tap.stop="recheckNotif">{{ $t('没检测到授权 · 点这里重新检测') }}</text>
               <text class="fc-sub">{{ $t('专注时收起别家通知') }}</text>
             </view>
             <view class="fc-switch" :class="{ 'fc-on': blockNotifOn }" @tap="tapBlockNotif">
@@ -737,6 +740,7 @@ export default {
       usageOk: false,     // 「使用情况访问」权限：判断前台是谁的老路子
       a11yOk: false,      // 无障碍护卫：判断前台是谁的新路子（且能拿到后台启动豁免）
       blockNotifOn: false,   // 首页「专注设置」卡片：专注期间收起别家 App 通知
+      notifOk: false,        // 「通知使用权」实际授没授（拦截通知那条开关靠它说真话）
       autoRestOn: false,     // 首页「专注设置」卡片：专注跑完自动进休息
       focusSheet: false,     // 首页「专注设置」卡片是否弹出
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
@@ -1087,6 +1091,10 @@ export default {
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
+    // 强制模式：专注跑着的时候，App 内部也不许乱逛（回首页/统计/我的都算逃逸）。
+    // 判定与跳转全在 utils/forced.js，这里只问一句 —— 被拦就直接 return，
+    // 后面 refresh / startTick 都不用跑了（马上要跳走，跑了也是白跑）。
+    try { if (forced.guardInside('/pages/home/home')) return } catch (e) {}
     // 实测视口高度 + 把 rpx 距离换算成 px（滚动视差要用）。
     // ⚠️ 这些都是纯辅助动作，绝不能连累后面：onShow 里断一处，refresh / startTick
     //    全不执行，首页就停在旧数据上（H5 未挂载时实测确实会抛，2026-10-23 实锤）。
@@ -1280,6 +1288,14 @@ export default {
       // 「专注设置」卡片的三项开关：直接读 settings，保证离开设置页回来同步
       const f = (settings.get().focus) || {}
       this.blockNotifOn = !!f.blockNotif
+      // 从系统「通知使用权」页回来：授权成功就当场把开关打开（不然还得再点一次，
+      // 而第二次点又会弹同一个框 —— 用户看到的就是"这个开关开不了"）
+      if (this.__fromNotif) {
+        this.__fromNotif = false
+        this.syncNotifOpt()
+      } else {
+        this.notifOk = this.grantedNotif()
+      }
       this.autoRestOn = !!f.autoRest
       this.soundOn = f.sound !== false
       this.vibeOn = f.vibe !== false
@@ -1865,15 +1881,48 @@ export default {
       }
       forced.sync()
     },
+    /** 系统的「通知使用权」到底授没授（读写只有一处，别在页面里各处问） */
+    grantedNotif() {
+      try { return !!fgsvc.notifGranted() } catch (e) { return false }
+    },
+    /**
+     * 拿系统实际状态对一次账：授权成功就顺手把开关打开。
+     * 从系统设置页回来时不刷新，用户就得再点一次开关，而第二次点又会弹同一个框。
+     */
+    syncNotifOpt() {
+      const g = this.grantedNotif()
+      this.notifOk = g
+      if (!g) return false
+      if (!this.blockNotifOn) {
+        this.blockNotifOn = true
+        this.saveFocus('blockNotif', true)
+        try { uni.showToast({ title: this.$t('通知使用权已开启，拦截通知已打开'), icon: 'none' }) } catch (e) {}
+      }
+      return true
+    },
+    /** 手动"重新检测"：有的 ROM 授权后要隔几秒才写进系统表 */
+    recheckNotif() {
+      if (this.syncNotifOpt()) return
+      this.askNotifAccess()
+    },
+    /**
+     * 「通知使用权」没开：先讲清**怎么开**，再把系统那一页拉起来。
+     * 老文案只说"需要这个权限"，用户进了系统页不知道要找哪一项、也不知道列表里
+     * 没有时该怎么办 —— 那就是"拦截通知开不了"的体感来源。
+     */
+    askNotifAccess() {
+      this.ask({
+        title: this.$t('拦截通知'),
+        // ⚠️ 文案里不许写 \n：i18n 的 key 归一化会把真实换行折成空格，两边对不上
+        content: this.$t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。怎么开：下一步会跳到系统的「通知使用权」页，在列表里找到「PWstudy 专注通知拦截」，把它的开关打开。如果列表里没有 PWstudy：把 PWstudy 完全退出再重新打开一次（服务要重新注册），回来再点这个开关就行。'),
+        confirmText: this.$t('去开启'),
+        action: 'goto-notif'
+      })
+    },
     /** 面板里的"拦截通知"开关：未授权先引导去开「通知使用权」 */
     tapBlockNotif() {
-      if (!this.blockNotifOn && !fgsvc.notifGranted()) {
-        this.ask({
-          title: this.$t('拦截通知'),
-          content: this.$t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。'),
-          confirmText: this.$t('通知使用权没开启，点这里去开启'),
-          action: 'goto-notif'
-        })
+      if (!this.blockNotifOn && !this.grantedNotif()) {
+        this.askNotifAccess()
         return
       }
       const next = !this.blockNotifOn
@@ -1979,8 +2028,18 @@ export default {
       const item = this.dlg.item
       this.dlg.show = false
       if (act === 'goto-notif') {
-        // 跳系统「通知使用权」设置页；跳不出去（插件不在 / 标准基座）就只能如实算了
-        try { fgsvc.openNotifSettings() } catch (e) {}
+        // 跳系统「通知使用权」设置页。⚠️ 跳不出去必须**说出来**：
+        // 以前 try 一把就完事，用户点了"去开启"却毫无反应 —— 就是那个"开不了"
+        this.__fromNotif = true
+        let opened = false
+        try { opened = !!fgsvc.openNotifSettings() } catch (e) { opened = false }
+        if (!opened) {
+          this.ask({
+            title: this.$t('没跳过去'),
+            content: this.$t('这个机型没有开放「通知使用权」设置页，PWstudy 跳不过去。可以自己找：系统设置 → 通知（有的机型叫「通知与控制中心」）→ 通知使用权，在里面打开「PWstudy 专注通知拦截」。找不到就说明这个机型不支持，拦截通知用不了，其它功能不受影响。'),
+            confirmText: this.$t('知道了')
+          })
+        }
         return
       }
       if (act === 'task') {
@@ -2749,6 +2808,16 @@ export default {
   color: var(--ink-2, #5a6560);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* "没检测到授权 · 点这里重新检测"（琥珀色 = 要你补一步，不是报错） */
+.fc-try {
+  display: inline-block; margin-left: 14rpx;
+  font-size: 22rpx; font-weight: 500;
+  color: #f79009; color: var(--amber, #f79009);
+  padding: 4rpx 14rpx; border-radius: 999rpx;
+  background: rgba(247, 144, 9, 0.12);
+  border: 1rpx solid rgba(247, 144, 9, 0.3);
+}
+.fc-try:active { background: rgba(247, 144, 9, 0.22); }
 .fc-go {
   flex-shrink: 0;
   font-size: 26rpx; font-weight: 600;

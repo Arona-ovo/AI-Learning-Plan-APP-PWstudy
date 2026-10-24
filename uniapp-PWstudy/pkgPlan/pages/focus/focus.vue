@@ -62,6 +62,9 @@
                    点一下就能分辨是系统媒体音量为 0、素材播不出来，还是压根没触发 -->
               <text v-if="o.key === 'sound'" class="sr-try" @tap.stop="testSound">试听 ›</text>
               <text v-else-if="o.key === 'vibe'" class="sr-try" @tap.stop="testVibe">试一下 ›</text>
+              <!-- 开关开着却没检测到授权 = 一条也拦不住。给个"重新检测"的出口，
+                   别让用户只能对着一个打不开的开关干瞪眼（2026-10-24） -->
+              <text v-else-if="o.key === 'blockNotif' && opts[o.key] && !notifOk" class="sr-try sr-try-warn" @tap.stop="recheckNotif">{{ $t('没检测到授权 · 点这里重新检测') }}</text>
               <text class="sr-sub">{{ o.sub }}</text>
             </view>
             <view class="sr-switch" :class="{ 'sr-switch-on': opts[o.key] }" @tap="toggleOpt(o.key)">
@@ -330,6 +333,7 @@ export default {
       // 「确定 / 取消」走 t()：这两个词字典里早就有译文，别再各写一份中文
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', items: [], seq: 0, action: '' },
       opts: { notify: true, sound: true, vibe: true, fgservice: true, blockNotif: false, autoRest: true },
+      notifOk: false,   // 「通知使用权」实际授没授（拦截通知那条开关靠它说真话）
       optRows: [
         { key: 'notify', title: '通知提醒', sub: '结束后发通知，专注中在状态栏显示剩余时间' },
         { key: 'fgservice', title: '后台保活', sub: '计时期间常驻前台服务，息屏也不中断（需正式打包/自定义基座生效）' },
@@ -524,6 +528,14 @@ export default {
     this.usageOk = apptime.hasUsagePermission()
     this.pullOk = !!forced.canPull()
     this.overlayOk = apptime.canDrawOverlays()
+    // 从系统「通知使用权」页回来：授权成功就当场把开关打开 ——
+    // 之前这一步是缺的，用户开完权限回来还得再点一次开关，而第二次点又会弹同一个框
+    if (this.__fromNotif) {
+      this.__fromNotif = false
+      this.syncNotifOpt()
+    } else {
+      this.notifOk = !!this.grantedNotif()
+    }
     this.refreshA11y()
     this.refreshLearnApps()
     this.refreshForceCap()
@@ -1001,8 +1013,18 @@ export default {
         return
       }
       if (act === 'goto-notif') {
-        // 跳系统「通知使用权」设置页；跳不出去（插件不在/标准基座）就只能如实算了
-        try { fgsvc.openNotifSettings() } catch (e) {}
+        // 跳系统「通知使用权」设置页。⚠️ 跳不出去必须**说出来**：
+        // 以前这里是 try 一把就完事，用户点了"去开启"却毫无反应 —— 就是那个"开不了"。
+        this.__fromNotif = true
+        let opened = false
+        try { opened = !!fgsvc.openNotifSettings() } catch (e) { opened = false }
+        if (!opened) {
+          this.ask({
+            title: t('没跳过去'),
+            content: t('这个机型没有开放「通知使用权」设置页，PWstudy 跳不过去。可以自己找：系统设置 → 通知（有的机型叫「通知与控制中心」）→ 通知使用权，在里面打开「PWstudy 专注通知拦截」。找不到就说明这个机型不支持，拦截通知用不了，其它功能不受影响。'),
+            confirmText: t('知道了')
+          })
+        }
         return
       }
       if (act === 'exit-quota') {
@@ -1239,17 +1261,55 @@ export default {
       this.refreshForceCap()
     },
     goApps() { safeNav('/pkgPlan/pages/apps/apps') },
+    /** 系统的「通知使用权」到底授没授（读写只有一处，别在页面里各处问） */
+    grantedNotif() {
+      try { return !!fgsvc.notifGranted() } catch (e) { return false }
+    },
+    /**
+     * 拿系统实际状态对一次账：授权成功就顺手把开关打开。
+     * 不在 onShow 里直接开是为了让"重新检测"也能复用同一段。
+     */
+    syncNotifOpt() {
+      const g = this.grantedNotif()
+      this.notifOk = g
+      if (!g) return false
+      if (!this.opts.blockNotif) {
+        this.opts = Object.assign({}, this.opts, { blockNotif: true })
+        try {
+          const st = settings.get()
+          st.focus = Object.assign({}, st.focus || {}, { blockNotif: true })
+          settings.save()
+        } catch (e) {}
+        try { uni.showToast({ title: t('通知使用权已开启，拦截通知已打开'), icon: 'none' }) } catch (e) {}
+      }
+      return true
+    },
+    /** 手动"重新检测"：有的 ROM 授权后要隔几秒才写进系统表 */
+    recheckNotif() {
+      if (this.syncNotifOpt()) return
+      this.askNotifAccess()
+    },
+    /**
+     * 「通知使用权」没开：先讲清**怎么开**，再把系统那一页拉起来。
+     * ⚠️ 老文案只说"需要这个权限"，用户点完"去开启"进了系统页却不知道要找哪一项、
+     *    也不知道列表里没有时该怎么办 —— 那就是"拦截通知开不了"的体感来源。
+     */
+    askNotifAccess() {
+      this.ask({
+        title: t('拦截通知'),
+        // ⚠️ 文案里不许写 \n：i18n 的 key 归一化会把真实换行折成空格，
+        //    而护栏抽源码拿到的却是字面的 `\n` 两字符 —— 两边永远对不上（2026-10-24 已踩）
+        content: t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。怎么开：下一步会跳到系统的「通知使用权」页，在列表里找到「PWstudy 专注通知拦截」，把它的开关打开。如果列表里没有 PWstudy：把 PWstudy 完全退出再重新打开一次（服务要重新注册），回来再点这个开关就行。'),
+        confirmText: t('去开启'),
+        action: 'goto-notif'
+      })
+    },
     toggleOpt(key) {
       // 拦截通知要「通知使用权」：没授权就不落开关，先带人去开 ——
       // 开关显示"开着"却一条也拦不住，是骗人的界面
       if (key === 'blockNotif' && !this.opts.blockNotif) {
-        if (!fgsvc.notifGranted()) {
-          this.ask({
-            title: t('拦截通知'),
-            content: t('专注期间把别家 App 的通知收起来（下拉通知栏也看不到），专注结束再汇总发给你。需要「通知使用权」权限。'),
-            confirmText: t('通知使用权没开启，点这里去开启'),
-            action: 'goto-notif'
-          })
+        if (!this.grantedNotif()) {
+          this.askNotifAccess()
           return
         }
       }
@@ -1576,6 +1636,13 @@ export default {
   border: 1rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.28);
 }
 .sr-try:active { background: rgba(var(--brand-rgb, 228, 23, 61), 0.2); }
+/* "没检测到授权 · 点这里重新检测"：用琥珀色（这是"要你补一步"，不是报错） */
+.sr-try-warn {
+  color: var(--amber, #f79009);
+  background: rgba(247, 144, 9, 0.12);
+  border-color: rgba(247, 144, 9, 0.3);
+}
+.sr-try-warn:active { background: rgba(247, 144, 9, 0.22); }
 .sr-sub { display: block; margin-top: 8rpx; font-size: 22rpx; line-height: 1.6; color: var(--ink-3, #98a19b); }
 .sr-switch {
   width: 88rpx; height: 50rpx; border-radius: 999rpx;

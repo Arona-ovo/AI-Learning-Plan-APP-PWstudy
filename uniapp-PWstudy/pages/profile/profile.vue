@@ -132,6 +132,7 @@ import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
 import { aiGateReason } from '../../services/config.js'
 import * as updater from '../../utils/updater.js'
 import * as setup from '../../utils/setup.js'
+import * as forced from '../../utils/forced.js'
 import * as loc from '../../utils/location.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
 import FloatTabbar from '../../components/float-tabbar/float-tabbar.vue'
@@ -170,6 +171,8 @@ export default {
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
+    // 强制模式下专注正跑着 → 这儿不该出现，直接把人送回专注页（判定在 utils/forced.js）
+    try { if (forced.guardInside('/pages/profile/profile')) return } catch (e) {}
     this.refresh()
     try { this.setupPending = setup.pending().length } catch (e) {}
     // 只在开关打开后才显示：关着是出厂默认，挂个"未开启"像在催人开

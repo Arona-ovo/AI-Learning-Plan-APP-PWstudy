@@ -22,8 +22,9 @@ const UTS = path.join(U, 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android'
 const IFACE = path.join(U, 'uni_modules', 'pwstudy-focus', 'utssdk', 'interface.uts');
 const FV = path.join(U, 'pkgPlan', 'pages', 'focus', 'focus.vue');
 const APPTIME = path.join(U, 'utils', 'apptime.js');
+const HV = path.join(U, 'pages', 'home', 'home.vue');
 
-const FILES = [FORCED, FGSVC, UTS, IFACE, FV, APPTIME];
+const FILES = [FORCED, FGSVC, UTS, IFACE, FV, APPTIME, HV];
 const backup = {};
 FILES.forEach(f => { backup[f] = fs.readFileSync(f); });
 function restore() { Object.keys(backup).forEach(f => fs.writeFileSync(f, backup[f])); }
@@ -238,6 +239,26 @@ shouldCatch('allowList 里混进桌面包', (cur) => {
   sub(cur, APPTIME, /const out = \[selfPkg\(\)\]\.concat\(NEUTRAL\);/,
     "const out = [selfPkg()].concat(NEUTRAL).concat([HOME_PKGS[4]]);");
 }, 'allowList 里一个桌面包都没有', CHECK_PW);
+
+/* ---------- 第 6 节：App 内部逃逸守卫（2026-10-24） ---------- */
+
+shouldCatch('INSIDE_FREE 里塞进首页（等于内部守卫整个失效）', (cur) => {
+  sub(cur, FORCED, /const INSIDE_FREE = \[/, "const INSIDE_FREE = [\n  '/pages/home/home',");
+}, '首页算逃逸');
+
+shouldCatch('insideBlocked 忘了看是不是专注阶段（休息也把人按回去）', (cur) => {
+  // ⚠️ 行尾 \r?\n：utils 也是 CRLF（硬约束 17）
+  sub(cur, FORCED, /cur\.phase !== 'focus'\) return false;\r?\n  return !insideFree\(route\);/,
+    "cur.phase !== 'focus') return false;\r\n  return false;");
+}, '首页算逃逸');
+
+shouldCatch('goFocus 只会 navigateTo（栈里已有专注页时会叠第二层）', (cur) => {
+  sub(cur, FORCED, /p\.route === 'pkgPlan\/pages\/focus\/focus'/, "p.route === '___never___'");
+}, '比的是页面 route');
+
+shouldCatch('首页 onShow 不再调 guardInside（点底部导航就跑出去了）', (cur) => {
+  sub(cur, HV, /if \(forced\.guardInside\('\/pages\/home\/home'\)\) return/, '');
+}, 'onShow 要调 forced.guardInside');
 
 console.log('');
 if (fail === 0) console.log('反向测试全部通过：每一条都被 check-forced.js 抓住了 ✓');
