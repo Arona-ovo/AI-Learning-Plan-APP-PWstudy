@@ -343,17 +343,22 @@ export default {
         { key: 'sound', title: '结束响铃', sub: '专注结束时响一声' },
         { key: 'vibe', title: '震动', sub: '专注结束时震一下' }
       ],
-      noiseKinds: [
-        { k: 'white', t: '白噪' },
-        { k: 'pink', t: '粉噪' },
-        { k: 'brown', t: '棕噪' },
-        { k: 'rain', t: '雨声' }
-      ],
       noiseKind: 'rain',
       noiseOn: false
     }
   },
   computed: {
+    // 音色名走 $t：字面量数组在 i18n init 前就求值了 —— 切英文不会重算，
+    // 还会被 check-i18n 算成漏网的静态中文。名单与 utils/ambient.js 的 KINDS 对齐。
+    noiseKinds() {
+      return [
+        { k: 'white', t: this.$t('白噪') },
+        { k: 'pink', t: this.$t('粉噪') },
+        { k: 'brown', t: this.$t('棕噪') },
+        { k: 'rain', t: this.$t('雨声') },
+        { k: 'beach', t: this.$t('沙滩') }
+      ]
+    },
     active() {
       return !!this.cur
     },
@@ -1677,7 +1682,8 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 .sn-go { margin-left: 12rpx; color: var(--brand-strong, #bb1332); }
-.noise-row { margin-top: 20rpx; justify-content: flex-start; }
+/* 音色一行：现在是 5 个音色，窄屏上一排放不下就得换行（不然会被裁掉看不见） */
+.noise-row { margin-top: 20rpx; justify-content: flex-start; flex-wrap: wrap; }
 .noise-row .cfg-opt { margin: 6rpx 8rpx 0 0; padding: 10rpx 26rpx; }
 
 /* ===== 控制 ===== */

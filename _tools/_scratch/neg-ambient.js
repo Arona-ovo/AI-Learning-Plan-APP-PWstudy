@@ -13,15 +13,53 @@ const AMB = path.join(ROOT, 'uniapp-PWstudy', 'utils', 'ambient.js');
 const AUDIO = path.join(ROOT, 'uniapp-PWstudy', 'utils', 'audio.js');
 const FV = path.join(ROOT, 'uniapp-PWstudy', 'pkgPlan', 'pages', 'focus', 'focus.vue');
 const FJ = path.join(ROOT, 'uniapp-PWstudy', 'utils', 'focus.js');
+// ⚠️ 二进制（wav）**不能**跟文本文件混在 FILES 里：shouldCatch 会把它们当 utf8 读再写回，
+//    那是毁文件。所以分两组 —— 文本走 cur 字符串，wav 走 Buffer，还原统一走 backup。
+const HOME = path.join(ROOT, 'uniapp-PWstudy', 'pages', 'home', 'home.vue');
+const TOOL = path.join(ROOT, '_tools', 'build-ambient.py');
+const SRC = path.join(ROOT, 'uniapp-PWstudy', 'static', 'noise', 'SOURCES.md');
 const NOISE = path.join(ROOT, 'uniapp-PWstudy', 'static', 'noise', 'white.wav');
+const NOISE_RAIN = path.join(ROOT, 'uniapp-PWstudy', 'static', 'noise', 'rain.wav');
+const NOISE_BEACH = path.join(ROOT, 'uniapp-PWstudy', 'static', 'noise', 'beach.wav');
 
-const FILES = [AMB, AUDIO, FV, FJ];
+const FILES = [AMB, AUDIO, FV, FJ, HOME, TOOL, SRC];
+const BINS = [NOISE, NOISE_RAIN, NOISE_BEACH];
 const backup = {};
 FILES.forEach(f => { backup[f] = fs.readFileSync(f); });
-const noiseBackup = fs.readFileSync(NOISE);
+BINS.forEach(f => { backup[f] = fs.readFileSync(f); });   // Buffer，不能 utf8
 function restore() {
   Object.keys(backup).forEach(f => fs.writeFileSync(f, backup[f]));
-  fs.writeFileSync(NOISE, noiseBackup);
+}
+
+/** wav 的 data 段整体乘一个系数（改响度） */
+function scaleWav(file, k) {
+  const b = Buffer.from(backup[file]);
+  let i = 12;
+  while (i + 8 <= b.length) {
+    const id = b.slice(i, i + 4).toString('ascii');
+    const sz = b.readUInt32LE(i + 4);
+    if (id === 'data') {
+      for (let j = i + 8; j + 1 < i + 8 + sz; j += 2) {
+        b.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(b.readInt16LE(j) * k))), j);
+      }
+      break;
+    }
+    i += 8 + sz + (sz % 2);
+  }
+  fs.writeFileSync(file, b);
+}
+
+/** 把 wav 的第一个样本打满 —— 模拟"忘了做首尾交叉淡化"的接缝跳变 */
+function breakSeam(file) {
+  const b = Buffer.from(backup[file]);
+  let i = 12;
+  while (i + 8 <= b.length) {
+    const id = b.slice(i, i + 4).toString('ascii');
+    const sz = b.readUInt32LE(i + 4);
+    if (id === 'data') { b.writeInt16LE(32767, i + 8); break; }
+    i += 8 + sz + (sz % 2);
+  }
+  fs.writeFileSync(file, b);
 }
 
 function runCheck() {
@@ -90,7 +128,7 @@ console.log('');
 
 // 1. 素材被弄坏（不是合法 wav）
 shouldCatch('white.wav 不是合法 wav', () => {
-  const b = Buffer.from(noiseBackup);
+  const b = Buffer.from(backup[NOISE]);
   b.write('XXXX', 0);                 // 破坏 RIFF 头
   fs.writeFileSync(NOISE, b);
 }, '合法 wav');
@@ -138,6 +176,44 @@ shouldCatch('开始专注不起声', (c) => {
 shouldCatch('进休息没停', (c) => {
   swap(c, FJ, "  ambient.stop();          // 白噪音只陪专注，休息就停", "  /* 忘了停 */");
 }, '进休息');
+
+// ---------- 第 5 组：素材质量与来源（真实录音上线后新增） ----------
+// 这几个坑的共同点：**界面上全都看不出来**，只能靠护栏静态钉住。
+
+// 10~12. 三处音色名单分叉 —— 某个页面点得到、播放层又不认（或反过来）
+shouldCatch('ambient.js 少了沙滩（页面有、播不出来）', (c) => {
+  swap(c, AMB, "  { k: 'beach', t: '沙滩' }\n", '');
+}, '沙滩');
+// ⚠️ 锚点里的换行必须写 \r?\n：这些文件是 CRLF，写裸 \n 一律落空（第 17 条硬约束）
+shouldCatch('home.vue 音色选择器漏了沙滩', (c) => {
+  swap(c, HOME, /\{ k: 'beach', t: this\.\$t\('沙滩'\) \}\r?\n/, '');
+}, 'home.vue 的音色名单');
+shouldCatch('focus.vue 音色选择器漏了沙滩', (c) => {
+  swap(c, FV, /\{ k: 'beach', t: this\.\$t\('沙滩'\) \}\r?\n/, '');
+}, 'focus.vue 的音色名单');
+
+// 13~14. 真实录音的许可：换了素材却没同步 SOURCES.md / 混进要署名的素材
+shouldCatch('换了素材但没同步 SOURCES.md（kind 改名）', (c) => {
+  swap(c, TOOL, "'kind': 'rain',", "'kind': 'rainfall',");
+}, 'SOURCES.md 记了');
+shouldCatch('产线混进 CC BY 的素材（要署名，App 里没署名界面）', (c) => {
+  swap(c, TOOL, "'license': 'CC0 1.0',", "'license': 'CC BY 4.0',");
+}, 'CC-BY');
+shouldCatch('SOURCES.md 不写许可', (c) => {
+  swap(c, SRC, 'Public domain', '作者授权');
+}, '许可');
+
+// 15. 忘了做首尾交叉淡化 → 循环点"啪"一下
+//     （合成噪声统计平稳听不出，真实录音上一听就是接缝）
+shouldCatch('雨声忘了做首尾交叉淡化（循环点跳变）', () => {
+  breakSeam(NOISE_RAIN);
+}, '循环接缝连续');
+
+// 16. 某个音色被峰值夹下去一大截 —— crest 高的素材最容易踩：
+//     界面上音量条照常是满的，就是没声（第一版真实雨声就差了 16dB）
+shouldCatch('沙滩的响度被压下去（界面看不出来）', () => {
+  scaleWav(NOISE_BEACH, 0.25);
+}, '响度一致');
 
 restore();
 console.log('');

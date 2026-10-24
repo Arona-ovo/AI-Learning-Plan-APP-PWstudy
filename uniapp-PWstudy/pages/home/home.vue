@@ -1020,7 +1020,8 @@ export default {
         { k: 'white', t: this.$t('白噪') },
         { k: 'pink', t: this.$t('粉噪') },
         { k: 'brown', t: this.$t('棕噪') },
-        { k: 'rain', t: this.$t('雨声') }
+        { k: 'rain', t: this.$t('雨声') },
+        { k: 'beach', t: this.$t('沙滩') }
       ]
     },
     restCount() {

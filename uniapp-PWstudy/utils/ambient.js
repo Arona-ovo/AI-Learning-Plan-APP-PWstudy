@@ -1,7 +1,11 @@
 // utils/ambient.js - 专注白噪音（循环环境音，跟着专注状态走）
 //
-// 音源是自己合成的（_tools/gen-noise.py：白噪/粉噪/棕噪/雨声），
-// 没有任何第三方版权问题，离线可播。
+// 音源分两类：
+//   白噪 / 粉噪 / 棕噪 —— 自己合成（_tools/gen-noise.py），零版权问题
+//   雨声 / 沙滩（海浪） —— **真实录音**，只挑 CC0 / 公有领域的素材
+//      （_tools/build-ambient.py，来源与许可逐条记在 static/noise/SOURCES.md）
+//   为什么雨声要换真录音：合成得再物理化也只是"像雨"，真实录音自带那种
+//    合成不出来的细密随机感。代价是要过版权，所以只收 CC0/PD，不收要署名的。
 //
 // 与 sfx.js 的三点不同：
 //   1) 白噪音是长循环 —— 用一个**常驻**的 InnerAudioContext（loop=true），
@@ -15,11 +19,18 @@
 
 import * as audio from './audio.js';
 
+// ⚠️ 这里加/删音色时，三处名单要一起动（各写一份必然分叉）：
+//   utils/ambient.js 的 KINDS（唯一权威：播放前按它校验 kind）
+//   pages/home/home.vue 的 noiseKinds
+//   pkgPlan/pages/focus/focus.vue 的 noiseKinds
+// 素材本身：白/粉/棕噪由 _tools/gen-noise.py 合成，
+//           雨声与沙滩是真实录音（_tools/build-ambient.py，来源见 static/noise/SOURCES.md）。
 export const KINDS = [
   { k: 'white', t: '白噪' },
   { k: 'pink', t: '粉噪' },
   { k: 'brown', t: '棕噪' },
-  { k: 'rain', t: '雨声' }
+  { k: 'rain', t: '雨声' },
+  { k: 'beach', t: '沙滩' }
 ];
 
 // ⚠️ 白噪音是**宽带噪声**，峰值因子（crest factor）只有 3~4dB —— 同样的音量数值下，

@@ -85,6 +85,7 @@ export default {
   '粉噪': 'Pink',
   '棕噪': 'Brown',
   '雨声': 'Rain',
+  '沙滩': 'Beach',
   '设置 ›': 'Settings ›',
 
   // ---------- 掌握度 / 学习 ----------
