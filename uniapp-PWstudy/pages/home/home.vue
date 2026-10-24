@@ -16,7 +16,7 @@
          这里挂在 .container 下、自身 opacity 由内联单独控制，安全。 -->
     <view class="hero-glass" :style="heroGlassStyle"></view>
 
-    <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="focusSetOn" @open-focus="toggleFocusSheet" />
+    <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="focusSetOn" @open-focus="toggleManage" />
 
     <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
 
@@ -626,6 +626,63 @@
       </view>
     </view>
 
+    <!-- ===== 顶栏那颗键点开的「管理」面板 =====
+         学习 App / 学习范围 / 权限 / 设置都是同一类"管理"动作。各给一颗顶栏键的话
+         右上角会挤成一排，标题还被挤得不居中（2026-10-24）。所以统一收在这里：
+         顶栏**永远只有一颗键**，以后再多加管理项只是面板里多一行，不再动顶栏。
+         专注设置仍排第一行（开表前最常用的一项），点了就地展开底下那张卡。 -->
+    <view v-if="manageOn" class="fs-mask" @tap="toggleManage">
+      <view class="fs-card" @tap.stop>
+        <view class="fs-head">
+          <text class="fs-title">{{ $t('管理') }}</text>
+          <view class="fs-close" @tap="toggleManage">×</view>
+        </view>
+
+        <scroll-view class="fs-body" scroll-y>
+          <text class="fc-group">{{ $t('专注') }}</text>
+          <view class="mg-item" @tap="manageGo('focus')">
+            <view class="mg-info">
+              <text class="mg-title">{{ $t('专注设置') }}</text>
+              <text class="mg-sub">{{ manageFocusSub }}</text>
+            </view>
+            <text class="mg-go">›</text>
+          </view>
+
+          <text class="fc-group">{{ $t('学习') }}</text>
+          <view class="mg-item" @tap="manageGo('apps')">
+            <view class="mg-info">
+              <text class="mg-title">{{ $t('学习 App 管理') }}</text>
+              <text class="mg-sub">{{ manageAppsSub }}</text>
+            </view>
+            <text class="mg-go">›</text>
+          </view>
+          <view class="mg-item" @tap="manageGo('range')">
+            <view class="mg-info">
+              <text class="mg-title">{{ $t('学习范围') }}</text>
+              <text class="mg-sub">{{ manageRangeSub }}</text>
+            </view>
+            <text class="mg-go">›</text>
+          </view>
+
+          <text class="fc-group">{{ $t('系统与账号') }}</text>
+          <view class="mg-item" @tap="manageGo('setup')">
+            <view class="mg-info">
+              <text class="mg-title">{{ $t('权限与后台保活') }}</text>
+              <text class="mg-sub">{{ manageSetupSub }}</text>
+            </view>
+            <text class="mg-go">›</text>
+          </view>
+          <view class="mg-item is-last" @tap="manageGo('settings')">
+            <view class="mg-info">
+              <text class="mg-title">{{ $t('设置') }}</text>
+              <text class="mg-sub">{{ $t('主题 / 背景 / 触感 / 更新') }}</text>
+            </view>
+            <text class="mg-go">›</text>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+
     <float-tabbar ref="tabbar" current="home" />
 
     <!-- 新手引导遮罩（fixed 层，必须放在 .page-slide 之外 —— 记忆约束 3）。
@@ -743,6 +800,7 @@ export default {
       notifOk: false,        // 「通知使用权」实际授没授（拦截通知那条开关靠它说真话）
       autoRestOn: false,     // 首页「专注设置」卡片：专注跑完自动进休息
       focusSheet: false,     // 首页「专注设置」卡片是否弹出
+      manageOn: false,       // 顶栏那颗键点开的「管理」面板（所有管理入口的唯一出口）
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
       // ---- 「专注设置」卡片新增的三组 ----
       // ⚠️ 时长那份配置在 pwstore 的 pomoCfg（focus.setCfg 写），**不在** settings.focus：
@@ -927,6 +985,33 @@ export default {
     focusSetOn() {
       return !!(this.forcedOn || this.blockNotifOn || this.autoRestOn ||
         this.strictOn || this.noiseOn)
+    },
+    // ---- 管理面板四行的副标题 ----
+    // 每一行都要"不看进去也知道现在是什么状态"：副标题写状态，不写功能说明
+    // （功能说明在目标页里讲，这里重复一遍只会把卡片撑长）。
+    manageFocusSub() {
+      const n = [this.soundOn, this.vibeOn, this.noiseOn, this.strictOn,
+        this.forcedOn, this.blockNotifOn, this.autoRestOn].filter(Boolean).length
+      const base = this.focusMin + ' ' + this.$t('分钟')
+      return n ? base + ' · ' + this.$t('{n} 项开着', { n }) : base
+    },
+    manageAppsSub() {
+      const n = (this.dock || []).length
+      return n ? this.$t('已添加 {n} 个', { n }) : this.$t('还没添加')
+    },
+    manageRangeSub() {
+      try {
+        const r = settings.get().range || {}
+        if (!r.on) return this.$t('未开启')
+        const n = (r.places || []).length
+        return n ? n + ' ' + this.$t('个地点') : this.$t('还没圈地点')
+      } catch (e) {
+        return ''
+      }
+    },
+    manageSetupSub() {
+      const n = (this.setupPending || []).length
+      return n ? n + ' ' + this.$t('项待处理') : this.$t('都已开启')
     },
     // 音色的中文名必须走 $t：字面量数组在 i18n init 前求值的话，切英文不会重算，
     // 还会被 check-i18n 算成漏网的静态中文（阈值就那么点余量）。
@@ -1117,6 +1202,9 @@ export default {
       this.refreshSetup()
       return
     }
+    // 第一次用：先去「开始前的几件事」（系统权限 + 要不要被管着的开关），
+    // 回来再放新手引导 —— 顺序反了的话，引导挖的洞会落在还没定下来的界面上。
+    if (this.maybeFirstRun()) return
     // 新手引导：第一次进来放一遍（只看一次，设置页「关于」里可重看）。
     // 它铺满全屏，放出来就不该再叠权限 / 关联 / 更新那几个弹窗 —— 挤在一起谁都看不清。
     if (this.maybeGuide()) return
@@ -1650,6 +1738,23 @@ export default {
      * 该不该放引导：第一次进入（或设置页点了「重看」）才放。
      * 返回 true 表示"引导在场"，调用方据此让路，别把别的弹窗叠上来。
      */
+    /**
+     * 第一次用：把「开始前的几件事」那一屏放出来（权限清单 + 可选开关）。
+     *
+     * ⚠️ **先记账再跳**（与 setup.appsAsked 同一个套路）：跳转失败、页面还没编译、
+     *   或被别的事情打断时，不会变成"每次进 App 都被拽走一次"。
+     * ⚠️ 非安卓不放：那套清单是安卓专属（setup.applicable()），别端去了只有一屏空白。
+     */
+    maybeFirstRun() {
+      try {
+        if (!setup.shouldFirstRun()) return false
+        setup.markFirstRun()
+        safeNav('/pkgManage/pages/start/start')
+        return true
+      } catch (e) {
+        return false
+      }
+    },
     maybeGuide() {
       if (this.gdOn) {
         // 上一次量位置还没落地（遮罩空白）人就切走了 —— 补一次，别把引导卡成一个隐形层
@@ -1854,6 +1959,34 @@ export default {
        把强制模式 / 拦截通知 / 自动进休息三项收进同一张卡片，仿番茄 ToDo 把同类设置收进一处。
        逻辑与专注页同口径（未授权就引导去开，绝不假称已生效），只是入口前置到首页，少跳一层。 */
 
+    /**
+     * 顶栏那颗键 = 「管理」面板的开关。
+     * ⚠️ 编辑态与硬控态不响应：编辑时页面上全是拖拽把手、硬控时只剩倒计时，
+     *    浮层盖上去会让那两处的按钮点不到。
+     */
+    toggleManage() {
+      if (this.editing || this.locked) return
+      this.manageOn = !this.manageOn
+      if (this.manageOn) this.focusSheet = false
+    },
+    /** 面板里某一行的去路。专注设置是就地展开（多一层跳转没必要），其余跳页面。 */
+    manageGo(k) {
+      this.manageOn = false
+      if (!k) return
+      if (k === 'focus') {
+        // 等遮罩退场再展开第二张卡：同时两张会叠在一起，看着像卡住了
+        setTimeout(() => { this.focusSheet = true }, 180)
+        return
+      }
+      const map = {
+        apps: '/pkgPlan/pages/apps/apps',
+        range: '/pkgPlan/pages/range/range',
+        setup: '/pkgManage/pages/setup/setup',
+        settings: '/pkgManage/pages/settings/settings'
+      }
+      if (!map[k]) return
+      safeNav(map[k])
+    },
     /** 展开 / 收起「专注设置」卡片（编辑态与硬控态不响应，免得盖住编辑按钮或倒计时） */
     toggleFocusSheet() {
       if (this.editing || this.locked) return
@@ -3005,6 +3138,42 @@ export default {
   text-align: center;
   color: #bb1332;
   color: var(--brand-strong, #bb1332);
+}
+
+/* ===== 管理面板的行（顶栏那颗键点开） =====
+   一行 = 一个管理入口：标题 + 状态副标题 + 箭头。
+   副标题写"现在是什么状态"而不是"这个页面干嘛"，点进去才知道的说明不占这里的高度。 */
+.mg-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 2rpx;
+  border-bottom: 2rpx solid rgba(23, 32, 26, 0.07);
+  border-bottom: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.07));
+  transition: opacity 160ms ease;
+}
+.mg-item:active { opacity: 0.55; }
+.mg-item.is-last { border-bottom: none; }
+.mg-info { flex: 1; min-width: 0; }
+.mg-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 500;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.mg-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 23rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+.mg-go {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  font-size: 32rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
 }
 
 /* ===== 卡片头 ===== */

@@ -44,7 +44,17 @@ assert(!/onNotifTap/.test(navbar), 'float-navbar 已移除旧的 onNotifTap');
 
 console.log('== 2. 首页模板：顶栏接线 + 弹出卡片 ==');
 assert(/:focus-btn="!locked"/.test(home), '首页把 !locked 传给顶栏 :focus-btn');
-assert(/@open-focus="toggleFocusSheet"/.test(home), '首页接住 open-focus → toggleFocusSheet');
+// ⚠️ 顶栏那颗键现在是「管理」面板的入口（2026-10-24 收拢）：所有管理项共用一颗键，
+//    否则每加一个入口顶栏就多一颗、标题还会被挤偏。专注设置在面板第一行就地展开。
+assert(/@open-focus="toggleManage"/.test(home), '首页接住 open-focus → toggleManage（管理面板）');
+assert(/toggleManage\(\)\s*\{[\s\S]{0,200}?this\.manageOn = !this\.manageOn/.test(home),
+  'toggleManage 开的是 manageOn（不是直接开专注设置卡）');
+// 专注设置必须还在第一层可达：面板第一行点了就地展开 focusSheet，不能只剩跳转
+const bManageGo = (home.match(/manageGo\(k\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+assert(/k === 'focus'/.test(bManageGo) && /this\.focusSheet = true/.test(bManageGo),
+  '管理面板里「专注设置」点了就地展开 focusSheet（不是二次跳转）');
+assert(/manageGo\('focus'\)/.test(home) && /manageGo\('apps'\)/.test(home) && /manageGo\('range'\)/.test(home),
+  '管理面板收纳了专注 / 学习 App / 学习范围等同类入口');
 assert(/class="fs-mask"/.test(home), '首页有遮罩层 fs-mask');
 assert(/class="fs-card"/.test(home), '首页有弹出卡片 fs-card');
 assert(/focusSheet/.test(home), '首页有 focusSheet（卡片展开状态）');

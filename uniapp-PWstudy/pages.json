@@ -95,6 +95,10 @@
         {
           "path": "pages/setup/setup",
           "style": { "navigationBarTitleText": "权限与后台保活", "navigationStyle": "custom" }
+        },
+        {
+          "path": "pages/start/start",
+          "style": { "navigationBarTitleText": "开始前的几件事", "navigationStyle": "custom" }
         }
       ]
     }

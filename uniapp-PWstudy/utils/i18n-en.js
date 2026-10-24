@@ -1201,5 +1201,42 @@ export default {
   '先打开开关并圈一个地点': 'Turn the switch on and mark a place first',
   '定位失败，稍后再试': "Couldn't get a fix — try again later",
   '个地点': 'places',
-  '还没圈地点': 'no places yet'
+  '还没圈地点': 'no places yet',
+
+  // ---------- 顶栏「管理」面板（首页右上角那颗键） ----------
+  '管理': 'Manage',
+  '学习': 'Study',
+  '系统与账号': 'System & account',
+  '主题 / 背景 / 触感 / 更新': 'Theme / background / haptics / updates',
+  '{n} 项开着': '{n} on',
+  '已添加 {n} 个': '{n} added',
+  '还没添加': 'none yet',
+  '项待处理': 'to do',
+  '都已开启': 'all set',
+
+  // ---------- 开始前的几件事（首次用 App 那一屏） ----------
+  '开始前的几件事': 'A few things first',
+  '再看一遍': 'Walk through again',
+  '系统权限与「要不要被管着」那几个开关，一次性重新过一遍':
+    'System permissions and the "keep me in line" switches — go through them all at once',
+  '先把这几件事定下来': 'Let’s settle these first',
+  '上面几项是 Android 要你点头才给的能力，缺一件对应的功能就会「看着像坏了」；下面几个开关决定你要不要被管着。全部都可以跳过，也都能在设置里改回来。':
+    'The ones above are capabilities Android only grants if you say yes — miss one and the matching feature just looks broken. The switches below decide how strictly the app keeps you in line. All of them are skippable, and all of them can be changed later in Settings.',
+  '要系统放行的': 'Needs your permission',
+  '为什么需要它？': 'Why is this needed?',
+  '开了强制模式，「显示在其他应用上层」和「无障碍」就变成必办项 —— 它们是拉你回来的唯一通道。':
+    'With forced mode on, "draw over other apps" and Accessibility become required — they are the only way the app can pull you back.',
+  '要不要被管着': 'Keep me in line?',
+  '一离开学习 App 就立刻把你拉回来': 'Pull you right back the moment you leave a study app',
+  '离开学习 App 就提醒，30 秒不回来这次作废':
+    'Remind you when you leave a study app; no return within 30s and this round is void',
+  '专注跑完自动接着休息，不用再点一次': 'Roll into the break automatically — no second tap',
+  '记下我在不在学习地点（要用到定位，只在打开 App 与专注起止时看一眼）':
+    'Log whether I’m at a study spot (needs location, checked only when the app opens and when a session starts or ends)',
+  '就这样，开始用': 'Done — let’s start',
+  '随时可以在「设置 › 开始前的几件事」里回来改。':
+    'You can change any of this later in Settings › A few things first.',
+  '没能打开设置页，请手动去系统设置': "Couldn't open the settings page — please go there manually",
+  '还差「显示在其他应用上层」和「无障碍」才拉得动':
+    'Still needs "draw over other apps" and Accessibility before it can pull you back'
 };

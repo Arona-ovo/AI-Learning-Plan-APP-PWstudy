@@ -160,6 +160,21 @@ const noSwitch = mount({ search: true, switchable: false, value: '', mode: 'comm
 noSwitch.onModeTap();
 eq(noSwitch.emits.length, 0, 'switchable=false 的页面没有这颗键，点击不响应');
 
+console.log('== 11. 标题必须相对整颗胶囊居中（不被右边那颗键挤偏）==');
+// 回归：标题原来是 flex:1 + text-align:center，只在"剩下的那块空间"里居中 ——
+// 首页右侧多一颗管理键，左右槽不等宽，"PWstudy" 就整体偏左（2026-10-24）。
+const titleRule = style.match(/\.fnb-title\s*\{([^}]*)\}/);
+yes(!!titleRule && /position:\s*absolute/.test(titleRule[1]), '标题绝对定位（不占 flex 流）');
+yes(!!titleRule && /left:\s*0/.test(titleRule[1]) && /right:\s*0/.test(titleRule[1]),
+  '标题左右都归零（居中基准是整颗胶囊，不是剩余空间）');
+yes(!!titleRule && /text-align:\s*center/.test(titleRule[1]), '标题 text-align:center');
+// ⚠️ 绝对定位的标题盖在左槽之上：不穿透会把返回键点死
+yes(!!titleRule && /pointer-events:\s*none/.test(titleRule[1]), '标题 pointer-events:none（不挡住左槽点击）');
+// 标题脱离流之后，剩下的槽会一齐挤到左边 —— 必须有东西把它们撑开
+const fnbRule = style.match(/\.fnb\s*\{([^}]*)\}/);
+yes(!!fnbRule && /justify-content:\s*space-between/.test(fnbRule[1]),
+  '胶囊 space-between（标题脱流后右槽不会串到左边）');
+
 console.log('');
 console.log(fail === 0 ? '顶栏搜索胶囊全部通过' : '失败 ' + fail + ' 项');
 process.exitCode = fail ? 1 : 0;

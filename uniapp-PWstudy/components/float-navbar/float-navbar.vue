@@ -238,10 +238,14 @@ export default {
   pointer-events: none;
 }
 
+/* 标题是绝对定位的（不占流），所以左右槽之间**没有东西把它们撑开** ——
+   不加 space-between 的话所有槽会一齐挤到左边（右槽串到返回键旁边）。
+   搜索模式下输入框 flex:1 会吃掉全部剩余空间，这一条自然不生效。 */
 .fnb {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   height: 88rpx;
   padding: 0 8rpx;
   border-radius: 44rpx;
@@ -469,8 +473,21 @@ export default {
 
 .fnb-back-press { opacity: 0.5; transform: translateX(-4rpx); }
 
+/* 标题必须**相对整颗胶囊**居中，不能靠 flex:1 + text-align:center。
+   左右两槽的宽度并不相等（首页右侧多一颗管理键、返回键页左侧才有内容），
+   flex 只会让标题在**剩下的那块空间**里居中 —— 右槽越宽，标题越偏左，
+   "PWstudy" 看着就像被右上角那颗键挤跑了。
+   所以改成绝对定位铺满胶囊 + 对称内缩：不管左右各自多宽，视觉中心恒在屏幕中线。
+   ⚠️ pointer-events:none 是必须的：标题盖在左槽之上，不穿透会把返回键点死。 */
 .fnb-title {
-  flex: 1;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100%;
+  line-height: 88rpx;
+  padding: 0 88rpx;
+  box-sizing: border-box;
   text-align: center;
   font-size: 30rpx;
   font-weight: 500;
@@ -481,6 +498,7 @@ export default {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* 搜索模式：胶囊内嵌输入框（首页）

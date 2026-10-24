@@ -125,7 +125,55 @@ function flag(key) {
   }
 }
 
-/** 标记某一项用户已经处理过（电池/自启动这两项系统查不了，只能靠用户确认） */
+/**
+ * 第一次用 App 时那一屏「开始前的几件事」（`pkgManage/pages/start/start`）。
+ *
+ * 为什么单独要一屏：权限页是"事后补"，入口藏在「我的」里，等用户哪天发现
+ * "锁屏后计时断了"才可能摸过去。首启这一屏把**要系统放行的**和**要不要被管着**
+ * 一次摆平：用户可以选择当场全开，也可以一个都不开 —— 但至少知道有这些开关存在。
+ *
+ * ⚠️ 只在安卓上跳：别端没有这套清单（applicable() 已判），去了就是一屏空白。
+ * ⚠️ 已经在权限页点过「先不弄」的人不再拽一次 —— 那是明确的表态。
+ */
+export function firstRunDone() {
+  try {
+    const s = settings.get();
+    return !!(s && s.setup && s.setup.firstRun);
+  } catch (e) {
+    return true;          // 读不出来就当跑过了：宁可不跳，也不能每次开 App 都跳
+  }
+}
+
+export function markFirstRun() {
+  try {
+    const s = settings.get();
+    s.setup = Object.assign({ done: false, promptAt: 0 }, s.setup || {});
+    s.setup.firstRun = true;
+    settings.save();
+  } catch (e) {}
+}
+
+/** 首次进首页要不要先去那一屏 */
+export function shouldFirstRun() {
+  if (!applicable()) return false;
+  if (firstRunDone()) return false;
+  try {
+    const su = settings.get().setup || {};
+    if (su.done) return false;
+  } catch (e) {}
+  return true;
+}
+
+/** 设置页的「再看一遍开始前的几件事」：清掉记账，下次进首页再放一次 */
+export function resetFirstRun() {
+  try {
+    const s = settings.get();
+    s.setup = Object.assign({ done: false, promptAt: 0 }, s.setup || {});
+    s.setup.firstRun = false;
+    settings.save();
+  } catch (e) {}
+}
+
 export function markDone(key) {
   try {
     const s = settings.get();

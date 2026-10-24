@@ -202,5 +202,73 @@ const en = R('utils/i18n-en.js');
 const home = R('pages/home/home.vue');
 assert(/setup\.pendingNames\(\)/.test(home), '★ 首页弹窗按实际缺项生成文案（写死名单的话加一项就漏一条）');
 
+/* ---------- 7. 首启「开始前的几件事」 ---------- */
+// 权限页是"事后补"，入口藏在「我的」里 —— 用户往往是发现"锁屏后计时断了"才摸过去。
+// 首启这一屏把"要系统放行的"和"要不要被管着"一次摆平：可以全开，也可以一个都不开，
+// 但至少知道有这些开关存在。
+console.log('== 7. 首启：开始前的几件事 ==');
+{
+  const startSrc = R('pkgManage/pages/start/start.vue');
+  assert(startSrc.length > 0, '存在首启页 pkgManage/pages/start/start.vue');
+  // ⚠️ 匹配前先剥注释：data 里那行注释就写着 "setup.status()"，不剥的话
+  //   把真正的调用删掉照样匹配得上（反向测试第一轮抓到的假绿）。
+  const strip = (s) => String(s || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');
+  const startCode = strip(startSrc);
+  // 清单必须来自 setup.status()，页面里不许另写一份名单（各写一份必然分叉）
+  assert(/setup\.status\(\)/.test(startCode) && /setup\.fixItem\(/.test(startCode),
+    '首启页的权限清单走 setup.status()（唯一出处）');
+  assert(/onSwitch\('forced'/.test(startCode) && /onSwitch\('strict'/.test(startCode) &&
+    /onSwitch\('autoRest'/.test(startCode) && /onSwitch\('range'/.test(startCode),
+    '四个可选开关都接上了（强制 / 严格 / 自动休息 / 学习范围）');
+  assert(/loc\.turnOn\(v\)/.test(startCode), '学习范围那个开关走 location.turnOn（与学习范围页同一出口）');
+  // ★ 强制模式一开，悬浮窗 / 无障碍就从"用不到"变成必办项 —— 不重刷清单，
+  //   用户会以为强制模式开好了，其实那两项压根没出现在屏幕上。
+  const bSw = (startCode.match(/onSwitch\(key, e\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+  assert(/this\.refresh\(\)/.test(bSw), '★ 开关改完重刷权限清单（开强制模式会多出两项必办）');
+  // 「开始用」不能把还没办好的缺项一起静音：那几项是真会掉链子的
+  const bFin = (startCode.match(/finish\(\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+  assert(/pendingCount/.test(bFin) && /markPrompted/.test(bFin),
+    '★ 点「开始用」只在真的全办好时才不再提醒（缺项不许跟着静音）');
+
+  // ---- 真跑：状态机 ----
+  const reset = () => { try { settings.set({ setup: { done: false, firstRun: false } }) } catch (e) {} };
+  reset();
+  assert(setup.shouldFirstRun() === true, '★ 首次（没跑过也没跳过）→ 该放首启页');
+  setup.markFirstRun();
+  assert(setup.firstRunDone() === true && setup.shouldFirstRun() === false,
+    '跑过一次就不再自动跳（不记账的话每次开 App 都被拽走一次）');
+  // 在权限页点过「先不弄」的人是明确表态，别再拽一次
+  try { settings.set({ setup: { done: true, firstRun: false } }) } catch (e) {}
+  assert(setup.shouldFirstRun() === false, '点过「先不弄」的人不再被拽去首启页');
+  // 非安卓：没有这套清单，去了就是一屏空白
+  const realSupported = apptime.supported;
+  apptime.supported = () => false;
+  reset();
+  const onNonAndroid = setup.shouldFirstRun();
+  apptime.supported = realSupported;
+  assert(onNonAndroid === false, '非安卓不放首启页（那套清单是安卓专属）');
+  reset();
+
+  // ---- 首页接线 ----
+  const homeSrc = R('pages/home/home.vue');
+  const bFr = (homeSrc.match(/maybeFirstRun\(\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+  assert(bFr !== '', '首页有 maybeFirstRun');
+  const iM = bFr.indexOf('setup.markFirstRun()');
+  const iN = bFr.indexOf('safeNav(');
+  assert(iM > 0 && iN > 0 && iM < iN, '★ 先记账再跳（跳转失败也不会每次都跳）');
+  const iF = homeSrc.indexOf('this.maybeFirstRun()');
+  const iG = homeSrc.indexOf('this.maybeGuide()');
+  assert(iF > 0 && iG > 0 && iF < iG, '首启页排在新手引导之前（引导挖的洞得落在定下来的界面上）');
+
+  const pj = R('pages.json');
+  assert(/pages\/start\/start[\s\S]{0,200}custom/.test(pj), 'pages.json 注册了首启页（custom 导航）');
+  const setSrc = R('pkgManage/pages/settings/settings.vue');
+  assert(/goStart/.test(setSrc) && /pages\/start\/start/.test(setSrc), '设置页有「再看一遍」入口');
+  // ⚠️ 入口不许清记账：清了的话从首启页退回首页会被 shouldFirstRun 再拽回去，来回打转
+  assert(!/resetFirstRun/.test(setSrc), '设置页入口不清记账（否则退回首页会被再拽一次）');
+}
+
 console.log(fail === 0 ? '\n权限与首次引导校验全部通过' : '\n失败 ' + fail + ' 项 ✗');
 process.exit(fail ? 1 : 0);

@@ -748,6 +748,25 @@
       </view>
     </view>
 
+    <!-- ===== 开始前的几件事（首次用 App 时那一屏，随时可以重看） =====
+         收在这个分区里而不是塞进「关于」：它是"要做事"的入口，不是信息展示。 -->
+    <view class="sec" :class="{ open: openSec === 'start' }">
+      <view class="sec-head" data-k="start" @tap="toggleSec">
+        <text class="sec-name">{{ $t('开始前的几件事') }}</text>
+        <text v-if="openSec !== 'start'" class="sec-hint">{{ secHint('start') }}</text>
+        <text class="sec-arrow">›</text>
+      </view>
+      <view class="sec-body" v-if="openSec === 'start'">
+        <view class="row" @tap="goStart">
+          <view class="row-main">
+            <text class="row-title">{{ $t('再看一遍') }}</text>
+            <text class="row-desc">{{ $t('系统权限与「要不要被管着」那几个开关，一次性重新过一遍') }}</text>
+          </view>
+          <text class="row-value">›</text>
+        </view>
+      </view>
+    </view>
+
     <!-- ===== 关于（大胶囊） ===== -->
     <view class="sec" :class="{ open: openSec === 'about' }">
       <view class="sec-head" data-k="about" @tap="toggleSec">
@@ -907,6 +926,7 @@ import {
 } from '../../../utils/theme.js'
 import { hexToHsl, hslToHex, darkVariant } from '../../../utils/color.js'
 import * as perf from '../../../utils/perf.js'
+import * as setup from '../../../utils/setup.js'
 import { QUALITY, glassText, motionText, shadowText } from '../../../utils/perf.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
@@ -947,6 +967,8 @@ export default {
     return {
       // App 交流群（QQ 群号）：点一下复制，不跳外链
       qqGroup: '1127534463',
+      // 「开始前的几件事」收起时显示的缺项数（0 = 都已开启）
+      startPending: 0,
       // 危险确认（confirm 模式）与语言选择（sheet 模式）共用一张弹窗
       confirm: {
         show: false, mode: 'confirm', title: '', content: '',
@@ -1210,6 +1232,8 @@ export default {
     this.followSystem = currentFollowSystem()
     this.systemDark = systemPrefersDark()
     this.version = this.readVersion()
+    // 从「开始前的几件事」退回来要重数一次（可能刚在那边开了权限）
+    try { this.startPending = setup.pending().length } catch (e) { this.startPending = 0 }
   },
   methods: {
     // 背景色块：深色模式下显示压暗变体，与实际背景一致、各预设之间也能区分开
@@ -1217,6 +1241,11 @@ export default {
       return this.darkOn ? (b.darkCss || b.css) : b.css
     },
     // ---------- 大胶囊分组 ----------
+    /** 重看「开始前的几件事」：只是打开那一屏，不动 firstRun 记账 ——
+        清掉记账的话退回首页会被 shouldFirstRun 再拽回去一次，来回打转。 */
+    goStart() {
+      uni.navigateTo({ url: '/pkgManage/pages/start/start' })
+    },
     toggleSec(e) {
       const k = e.currentTarget.dataset.k
       this.openSec = this.openSec === k ? '' : k
@@ -1254,6 +1283,12 @@ export default {
       if (k === 'about') return 'v' + this.version
       if (k === 'cache') return this.cacheHint
       if (k === 'perf') return this.smooth ? t('已开启') : t('已关闭')
+      // 「开始前的几件事」：收起时直接说还差几项 —— 拆开看才知道缺权限的话，
+      // 这个分区就白摆在这了。
+      if (k === 'start') {
+        const n = Number(this.startPending) || 0
+        return n ? n + ' ' + t('项待处理') : t('都已开启')
+      }
       if (k === 'partner') {
         // 收起时一句话说清现在是哪一档；"未检测到"比"未安装"更准确 ——
         // 也有可能是装了但系统不让查（Android 11+ 包可见性），文案不给打包票

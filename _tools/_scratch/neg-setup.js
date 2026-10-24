@@ -15,6 +15,8 @@ const FILES = [
   'utils/settings.js',
   'utils/i18n-en.js',
   'pkgManage/pages/setup/setup.vue',
+  'pkgManage/pages/start/start.vue',
+  'pkgManage/pages/settings/settings.vue',
   'pages/home/home.vue',
   'pkgPlan/pages/wizard/wizard.vue',
   'pkgPlan/pages/goal-detail/goal-detail.vue'
@@ -103,7 +105,30 @@ const cases = [
       'return dis.length ? [] : pending()')],
   ['副标题又拼完整标题（一段排四行，把首屏压下去）', 'pages/home/home.vue',
     s => s.replace('const names = this.setupPending.map(x => setup.shortTitle(x.title))',
-      'const names = this.setupPending.map(x => x.title)')]
+      'const names = this.setupPending.map(x => x.title)')],
+
+  /* ---------- 首启「开始前的几件事」（2026-10-24 新增） ---------- */
+  ['首页不放首启页（第一次用的人看不到那屏）', 'pages/home/home.vue',
+    s => s.replace("    if (this.maybeFirstRun()) return\r\n", '')],
+  // 先跳后记账：跳转失败 / 被打断的话，每次开 App 都被拽走一次
+  ['先跳后记账（跳失败就每次开 App 都跳一次）', 'pages/home/home.vue',
+    s => s.replace("        setup.markFirstRun()\r\n        safeNav('/pkgManage/pages/start/start')",
+      "        safeNav('/pkgManage/pages/start/start')\r\n        setup.markFirstRun()")],
+  // 开了强制模式会多出两项必办，不重刷 = 用户以为开好了其实没看见那两项
+  // ⚠️ 这几个新文件是 LF（新建 / 插入的），老文件是 CRLF —— 换行写错就 SKIP
+  ['开关改完不重刷清单（开强制模式多出的两项看不见）', 'pkgManage/pages/start/start.vue',
+    s => s.replace(/this\.refresh\(\)\n      if \(key === 'forced'/, "      if (key === 'forced'")],
+  ['首启页自己写一份权限名单（必然与 setup 分叉）', 'pkgManage/pages/start/start.vue',
+    s => s.replace('this.items = setup.status()', 'this.items = []')],
+  ['少了学习范围那个开关（首启页漏一项）', 'pkgManage/pages/start/start.vue',
+    s => s.replace("onSwitch('range', e)", "onSwitch('rangeX', e)")],
+  // 点「开始用」把没办好的缺项一起静音：那几项是真会掉链子的
+  ['点「开始用」无条件静音（缺项也一起不提醒）', 'pkgManage/pages/start/start.vue',
+    s => s.replace('if (!this.pendingCount) setup.markPrompted()', 'setup.markPrompted()')],
+  // 设置页入口清记账 → 从首启页退回首页又被拽回去，来回打转
+  ['设置页入口清记账（退回首页会被再拽一次）', 'pkgManage/pages/settings/settings.vue',
+    s => s.replace(/    goStart\(\) \{\r?\n      uni\.navigateTo/,
+      "    goStart() {\n      setup.resetFirstRun()\n      uni.navigateTo")]
 ];
 
 function restoreAll() {
