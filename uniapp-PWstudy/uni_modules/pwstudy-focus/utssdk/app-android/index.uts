@@ -367,14 +367,15 @@ class PWFocusService extends Service {
   setWatch(on: boolean, allowCsv: string, untilSec: Int): void {
     this.watchOn = on;
     let allow = allowCsv == null ? '' : allowCsv!;
-    // 系统默认桌面单独再兜一道：JS 的名单里虽然列了主流 ROM 的桌面包，
-    // 但第三方桌面（Nova 之类）认不出来 —— 这里直接问系统"谁是 Home"。
-    // 遮罩是盖全屏的，桌面一旦被当成跑偏，用户按 Home 之后连桌面都点不动。
+    // ★ 桌面**不许**进白名单（2026-10-24 改）：
+    //   以前这里用 homePackage() 把系统默认 Home 并进 allow，理由是"遮罩盖住桌面
+    //   会把人锁死"。代价是：按 HOME 回桌面 = 合规 = 强制模式**永远不动手** ——
+    //   而"退出到桌面"恰恰是强制模式最该拦的那一下（番茄ToDo 就是这么做的：
+    //   回桌面立刻弹全屏拦截页，3 秒倒数自动回计时页）。
+    //   锁死的风险改由四道闸兜（拦截页可退 / 遮罩可点 / 拉回次数上限 / 逃逸 3 次作废），
+    //   详见 utils/apptime.js 的 NEUTRAL 注释。系统 Home 是哪个包只留给诊断看
+    //   （watchDiag 的 home=），不再拿来放行。
     if (on) {
-      let home = homePackage(UTSAndroid.getAppContext());
-      if (home.length > 0 && allow.indexOf(home) < 0) {
-        allow = allow.length > 0 ? allow + ',' + home : home;
-      }
       // 输入法也是"窗口"，但它是打字必需的中性界面；无障碍窗口事件比 UsageStats
       // 多看到这一类，认成跑偏就会在用户每次输入时把人拽回来。名单多加一道。
       let imes = imePackages(UTSAndroid.getAppContext());
@@ -1557,8 +1558,11 @@ export function watchDiag(): string {
   }
   let ctx = UTSAndroid.getAppContext();
   let fg = '';
+  let home = '';
   if (ctx != null) {
     try { fg = queryForeground(ctx!) } catch (e) {}
+    // 系统默认桌面是哪个包（只作诊断：桌面**不算**合规，见 setWatch 的注释）
+    try { home = homePackage(ctx!) } catch (e) {}
   }
   // 探测来源：护卫刚报过 = 无障碍事件；否则 = UsageStats；都拿不到 = 失明
   let src = 'blind';
@@ -1566,6 +1570,9 @@ export function watchDiag(): string {
   return '{"svc":' + (svcRef != null ? '1' : '0') +
     ',"watch":' + watch +
     ',"fg":"' + fg + '"' +
+    ',"home":"' + home + '"' +
+    // 前台是不是桌面：是就该拉回（以前桌面被当成合规，这条能一眼看出"为什么没拦"）
+    ',"atHome":' + (fg.length > 0 && home.length > 0 && fg == home ? '1' : '0') +
     ',"src":"' + src + '"' +
     ',"episode":' + episode +
     ',"tries":' + tries +

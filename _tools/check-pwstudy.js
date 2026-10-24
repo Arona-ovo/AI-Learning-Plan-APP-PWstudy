@@ -236,6 +236,20 @@ function ok(cond, msg) {
   ok(stg.profile.nickname === 'plana', '默认昵称 = plana');
 
   console.log('\n[9] 节假日感知（国务院 2026 年安排）');
+  // ⚠️ normalizePlan 的 totalDays 是 `deadline - new Date()`，于是同一份用例
+  //    在**不同日期**跑会得到不同的排期长度（2026-10-24 起这条开始红，与那天任何
+  //    改动无关）。把"今天"钉死，护栏才不会随日期漂移。
+  const RealDate = Date;
+  const pinToday = (iso) => {
+    const fixed = new RealDate(iso + 'T09:00:00').getTime();
+    class FixedDate extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [fixed])); }
+      static now() { return fixed; }
+    }
+    global.Date = FixedDate;
+  };
+  const unpinToday = () => { global.Date = RealDate; };
+
   const hol = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/holiday.js');
   ok(hol.dayType('2026-10-03') === 'holiday', '国庆期间判定为假期');
   ok(hol.holidayName('2026-10-03') === '国庆', '假期名 = 国庆');
@@ -244,6 +258,7 @@ function ok(cond, msg) {
   ok(hol.dayType('2026-02-20') === 'holiday', '春节连休中间也算假期');
   ok(hol.factorOf('2026-10-03') === 0.5 && hol.factorOf('2026-10-10') === 1, '假期半量 / 补班不减');
   ok(/国庆/.test(hol.summaryFor('2026-09-28', '2026-10-08')), 'prompt 摘要里带国庆');
+  pinToday('2026-09-29');
   const hp = planAgent.normalizePlan({
     strategy: 's',
     milestones: [{ title: 'A' }],
@@ -256,6 +271,7 @@ function ok(cond, msg) {
       { title: '收尾模考', ms: 1, day: 999, pomos: 4 }
     ]
   }, { title: 't', deadline: hol.addDays('2026-09-28', 40), dailyMin: 60, startDate: '2026-09-28' });
+  unpinToday();
   ok(hp.tasks[0].pomos === 2 && hp.tasks[0].light === '国庆', '撞假期的任务自动减半');
   ok(hp.tasks[1].pomos === 4 && !hp.tasks[1].light, '普通工作日任务不动');
   ok(hp.tasks[2].pomos === 3, '周末任务打八折（4 → 3）');
@@ -588,8 +604,18 @@ function ok(cond, msg) {
   ok(at.isAllowedPkg('com.demo.study') === true && at.isAllowedPkg('com.demo.video') === false,
     '两套判定同口径：isAllowedPkg 与 allowList 一致');
   ok(at.isAllowedPkg('com.some.unknown.app') === false, '没登记过的 App 算跑偏');
-  ok(at.isAllowedPkg('com.miui.home') === true && at.isAllowedPkg('com.huawei.android.launcher') === true,
-    '国产桌面在名单里（强制模式的遮罩不会把用户锁在屏幕外）');
+  // ★ 桌面**不算**合规（2026-10-24 改，改之前是 true）：
+  //   按 HOME 回桌面是"离开"里最典型的一种，把它列进白名单 = 强制模式最该响的那一下
+  //   永远不响。锁死桌面的风险改由四道闸兜（拦截页可退 / 遮罩可点 / 拉回次数上限 /
+  //   逃逸 3 次作废），见 utils/apptime.js 的 NEUTRAL 注释。
+  ok(at.isAllowedPkg('com.miui.home') === false && at.isAllowedPkg('com.huawei.android.launcher') === false,
+    '★ 桌面不算合规（回桌面要拉回；放行它 = 强制模式永远不响）');
+  ok(at.isHomePkg('com.miui.home') === true && at.isHomePkg('com.demo.study') === false,
+    'isHomePkg 只认桌面（诊断用：前台是桌面就该拉回）');
+  ok(allow.filter(p => at.isHomePkg(p)).length === 0, 'allowList 里一个桌面包都没有');
+  // 中性界面照旧放行：盖住设置/来电会让用户连权限都开不了，比拉不回来严重
+  ok(at.isAllowedPkg('com.android.settings') === true && at.isAllowedPkg('com.android.dialer') === true,
+    '设置页 / 来电界面仍然放行（盖住它们 = 用户永远开不了悬浮窗）');
   // 收尾：还原 dock，别影响后面的用例
   pw.get().dock = oldDock;
   pw.touch();

@@ -766,23 +766,36 @@ export function foregroundPackage(windowMs) {
   }
 }
 
-// 系统里"不算跑偏"的包：桌面、状态栏、设置、电话、输入法、安装器……
+// 系统里"不算跑偏"的包：状态栏、设置、电话、输入法、安装器、锁屏……
 // 用精确名单而不是关键词匹配——关键词里的 "android" 会把抖音之类一起放行。
 //
-// ⚠️ 国产 ROM 的**桌面**必须列全：强制模式的遮罩会盖在整个屏幕上，
-// 万一桌面被当成"跑偏"，用户按 Home 之后连桌面都点不动（只能重启）。
-// 原生侧另外还用 PackageManager 查了系统默认 Home 包兜底（见 index.uts 的 homePackage），
-// 这里是第二道保险 + 给 JS 兜底轮询用。
+// ★ 这里**没有桌面**（2026-10-24 改，改之前有整整一屏国产桌面包名）：
+//   强制模式的定义就是"离开学习这件事就把人拽回来"，按 HOME 回桌面是**最典型**的
+//   离开 —— 把桌面列进合规名单，等于强制模式最该起作用的那一下永远不响，
+//   用户看到的正是"开了强制模式，退出去一点反应都没有"（番茄ToDo 的行为：
+//   回桌面立刻弹全屏拦截页，3 秒倒数后自动回计时页）。
+//   不再放行桌面会不会把人锁在屏幕外？防死锁靠这四道闸，不靠"桌面免检"：
+//     ① 拦截页是自己 App 的 Activity，返回/HOME 都退得掉，且 3 秒自动跳回；
+//     ② 遮罩那层点一下就是"回 PWstudy"（PullOverlay.onTouchEvent）；
+//     ③ 连续拉回 OVERLAY_MAX_TRIES 次仍回不来 → 自动撤遮罩；
+//     ④ 连续逃逸 3 次 → 这次专注作废，整套收摊解锁。
+//   ⚠️ 原生侧 setWatch 也**不许**再把系统 Home 包并进白名单（index.uts 原来会加，
+//      已删）—— 两边任一处放行，人都能待在桌面不走。
 const NEUTRAL = [
   'android',
-  'com.android.launcher', 'com.android.launcher2', 'com.android.launcher3',
   'com.android.systemui', 'com.android.settings', 'com.android.dialer',
   'com.android.incallui', 'com.android.permissioncontroller',
   'com.google.android.permissioncontroller',
   'com.android.packageinstaller', 'com.google.android.packageinstaller',
   'com.android.documentsui', 'com.android.keyguard',
-  'com.google.android.inputmethod.latin', 'com.android.inputmethod.latin',
-  // 桌面（国产 ROM）
+  'com.google.android.inputmethod.latin', 'com.android.inputmethod.latin'
+];
+
+// 桌面包名只作**诊断/兼容**用，不参与任何判定（理由见 NEUTRAL 上方）。
+// 留着它是为了让自检读数能一眼看出"前台是桌面 → 该拉回"。
+export const HOME_PKGS = [
+  'com.android.launcher', 'com.android.launcher2', 'com.android.launcher3',
+  'com.android.launcher3u', 'com.tcl.launcher',
   'com.miui.home',                          // 小米 / Redmi
   'com.huawei.android.launcher',            // 华为 EMUI / HarmonyOS
   'com.hihonor.android.launcher',           // 荣耀
@@ -790,9 +803,13 @@ const NEUTRAL = [
   'com.bbk.launcher2', 'com.vivo.launcher',           // vivo / iQOO
   'com.meizu.flyme.launcher',               // 魅族
   'com.sec.android.app.launcher',           // 三星
-  'com.transsion.XOSLauncher',              // 传音
-  'com.android.launcher3u', 'com.tcl.launcher'
+  'com.transsion.XOSLauncher'               // 传音
 ];
+
+/** 这个包是桌面吗（诊断用：前台是桌面 = 该拉回，不该放行） */
+export function isHomePkg(pkg) {
+  return HOME_PKGS.indexOf(String(pkg || '')) >= 0;
+}
 
 /**
  * 严格模式判定：这个包算不算"还在学"。

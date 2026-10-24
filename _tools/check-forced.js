@@ -54,6 +54,25 @@ const fv = fs.readFileSync(FOCUS_VUE, 'utf8');
 const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 /**
+ * 按**签名**切方法体（配大括号）。
+ * ⚠️ 别只按函数名切：这个文件里 `setWatch` 有**两个** —— 服务类的成员方法（真正干活、
+ *    里面才是白名单拼装）和外面导出的包装函数。`fnBody` 会先命中 export 那个，
+ *    于是"白名单里有没有桌面"这种断言一直验的是包装函数 —— 假绿（2026-10-24 已踩）。
+ */
+function sigBody(src, sigRe) {
+  const m = sigRe.exec(src);
+  if (!m) return '';
+  const j = src.indexOf('{', m.index + m[0].length);
+  if (j < 0) return '';
+  let d = 0;
+  for (let k = j; k < src.length; k++) {
+    if (src[k] === '{') d++;
+    else if (src[k] === '}') { d--; if (d === 0) return src.slice(j, k + 1); }
+  }
+  return '';
+}
+
+/**
  * 切出函数体（配大括号）。
  * ⚠️ 别写有界窗口（第 22 条硬约束，多插两行就假红）。
  * ⚠️ 两种形态顺序不能反（第 25 条）：先 `export function name(`，再缩进 `    name() {`。
@@ -163,8 +182,20 @@ console.log('== 2. 原生：遮罩该盖时得盖、不该盖时别死锁 ==');
   assert(/com\.android\.settings/.test(uts), '中性名单含系统设置页 com.android.settings');
   assert(/com\.android\.permissioncontroller/.test(uts), '中性名单含权限授权页');
   assert(/com\.android\.systemui/.test(uts), '中性名单含系统界面（按最近任务那一下的前台是它）');
-  const sw = fnBody(s, 'setWatch') || fnBody(uts, 'setWatch');
-  assert(/NEUTRAL_CSV\.split/.test(uts), 'setWatch 里真的把中性名单并进了白名单');
+  // ⚠️ 必须按签名切到**类里那个** setWatch（同名的还有个 export 包装）
+  const sw = sigBody(s, /^[ \t]{2,6}setWatch\(on: boolean/m);
+  assert(sw.length > 0, '抽得到服务类里的 setWatch 方法体（别抽成外面的 export 包装）');
+  assert(/NEUTRAL_CSV\.split/.test(sw), 'setWatch 里真的把中性名单并进了白名单');
+  // ★ 桌面不许被放行：以前这里会 `homePackage()` 把系统 Home 并进 allow，
+  //   于是按 HOME 回桌面 = 合规 = 强制模式一动不动（用户反馈"退出去没拦截"）。
+  // ⚠️ 断言必须是"setWatch 里一个 homePackage 都不能有"，不能只盯着 `let home = ...`
+  //    那种老写法 —— 换个写法（`.concat([homePackage(ctx!)])`）就绕过去了（已踩）
+  assert(!/homePackage\s*\(/.test(sw),
+    '★ setWatch 不许把系统桌面并进白名单（那等于"回桌面不拦"，强制模式最该响的一下就没了）');
+  assert(/homePackage\(ctx!\)/.test(uts), '桌面包名只留给诊断（watchDiag 的 home=）');
+  // ⚠️ 别写成 /atHome/：改成 atHomeX 也照样命中，断言就成了摆设（已踩）
+  assert(/"atHome":/.test(uts) || /'atHome'/.test(uts),
+    '诊断里带 atHome（一眼看出"前台是桌面"）');
 
   // ③ 划掉卡片必须先撤遮罩
   const tr = fnBody(s, 'onTaskRemoved');

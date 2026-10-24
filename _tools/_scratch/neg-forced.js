@@ -12,20 +12,25 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
 const CHECK = path.join(ROOT, '_tools', 'check-forced.js');
+// 「桌面不许放行」这套断言写在 check-pwstudy.js 里（那边才真跑 apptime 的方法），
+// 所以本脚本要能跑两个护栏 —— 只跑一个的话那边改成假绿没人知道。
+const CHECK_PW = path.join(ROOT, '_tools', 'check-pwstudy.js');
 const U = path.join(ROOT, 'uniapp-PWstudy');
 const FORCED = path.join(U, 'utils', 'forced.js');
 const FGSVC = path.join(U, 'utils', 'fgsvc.js');
 const UTS = path.join(U, 'uni_modules', 'pwstudy-focus', 'utssdk', 'app-android', 'index.uts');
 const IFACE = path.join(U, 'uni_modules', 'pwstudy-focus', 'utssdk', 'interface.uts');
 const FV = path.join(U, 'pkgPlan', 'pages', 'focus', 'focus.vue');
+const APPTIME = path.join(U, 'utils', 'apptime.js');
 
-const FILES = [FORCED, FGSVC, UTS, IFACE, FV];
+const FILES = [FORCED, FGSVC, UTS, IFACE, FV, APPTIME];
 const backup = {};
 FILES.forEach(f => { backup[f] = fs.readFileSync(f); });
 function restore() { Object.keys(backup).forEach(f => fs.writeFileSync(f, backup[f])); }
 
-function runCheck() {
-  delete require.cache[require.resolve(CHECK)];
+function runCheck(file) {
+  const chk = file || CHECK;
+  delete require.cache[require.resolve(chk)];
   const realExit = process.exit;
   const realLog = console.log;
   const realErr = console.error;
@@ -36,13 +41,26 @@ function runCheck() {
   console.log = (...a) => buf.push(a.join(' '));
   console.error = (...a) => buf.push(a.join(' '));
   let crash = null;
-  try { require(CHECK); } catch (e) { if (!e || !e.__exit) crash = e; }
+  try { require(chk); } catch (e) { if (!e || !e.__exit) crash = e; }
   process.exit = realExit;
   console.log = realLog;
   console.error = realErr;
   const c = crash ? 99 : (code || process.exitCode || 0);
   process.exitCode = 0;
   return { code: c, buf: buf, crash: crash };
+}
+
+/**
+ * check-pwstudy.js 是 async（里面 `await import(...)` 动态加载 apptime），
+ * 同进程 require 拿不到它的结果 —— 输出永远是空的，会被误判成"没抓到"。
+ * 只能起子进程跑。⚠️ 判断成败看 exit code + 红条数，两条都要（崩了也可能 exit 0）。
+ */
+function runCheckSpawn(file) {
+  const { spawnSync } = require('child_process');
+  const r = spawnSync(process.execPath, [file], { encoding: 'utf8', cwd: ROOT });
+  const out = String(r.stdout || '') + '\n' + String(r.stderr || '');
+  if (r.error) return { code: 98, buf: out.split('\n'), crash: r.error };
+  return { code: r.status == null ? 97 : r.status, buf: out.split('\n'), crash: null };
 }
 
 let fail = 0;
@@ -54,7 +72,7 @@ const bad = (m) => { fail++; console.error('  ✗ ' + m); };
  * 红条数必须 > 0：一条都没有说明是脚本崩了，不是断言命中。
  * @param {(cur:Object)=>void} mutate 直接改 cur[file] 这个字符串字典
  */
-function shouldCatch(label, mutate, expect) {
+function shouldCatch(label, mutate, expect, checkFile) {
   restore();
   const cur = {};
   FILES.forEach(f => { cur[f] = fs.readFileSync(f, 'utf8'); });
@@ -69,7 +87,7 @@ function shouldCatch(label, mutate, expect) {
   FILES.forEach(f => fs.writeFileSync(f, cur[f]));
   let r;
   try {
-    r = runCheck();
+    r = checkFile ? runCheckSpawn(checkFile) : runCheck();
   } finally {
     restore();   // 无论如何都还原，别把改坏的源码留在工作区
   }
@@ -168,7 +186,8 @@ shouldCatch('interface.uts 不再声明 watchDiag', (cur) => {
 /* ---------- 第 4 节：引导与状态行 ---------- */
 
 shouldCatch('forceLine 删掉"一次都没拉回来"这一档（界面继续谎报已就绪）', (cur) => {
-  sub(cur, FV, /else if \(this\.forcedEscapes > 0 && this\.forcedPulls === 0\) s = '[^']*'\n/, '');
+  // ⚠️ 行尾必须是 `\r?\n`：.vue 是 CRLF，写成 `\n` 会连锚点都命中不了（硬约束 17）
+  sub(cur, FV, /else if \(this\.forcedEscapes > 0 && this\.forcedPulls === 0\) s = '[^']*'\r?\n/, '');
 }, '一次都没拉回来');
 
 shouldCatch('状态行又把人支去开无障碍', (cur) => {
@@ -192,6 +211,33 @@ shouldCatch('toggleForced 把悬浮窗分支挪回最后（又说成"可选"）'
 shouldCatch('又把悬浮窗说成"可选兜底"', (cur) => {
   sub(cur, FV, /'还差「显示在其他应用上层」，不开拉不回来'/g, "'可选：再开「显示在其他应用上层」做兜底'");
 }, '可选兜底');
+
+/* ---------- 第 5 节：桌面不许放行（2026-10-24） ----------
+   用户原话：「开始专注以后退出到主页，没有拦截」—— 根因就是桌面被当成合规包。
+   这四条一旦有人把桌面加回白名单，check-forced / check-pwstudy 必须红。 */
+
+shouldCatch('setWatch 又把 homePackage() 并进白名单（回桌面不拦的老写法）', (cur) => {
+  sub(cur, UTS, /let neutrals = NEUTRAL_CSV\.split\(','\);/,
+    "let neutrals = NEUTRAL_CSV.split(',').concat([homePackage(ctx!)]);");
+}, '桌面并进白名单');
+
+shouldCatch('watchDiag 丢掉 atHome（看不出前台是不是桌面）', (cur) => {
+  sub(cur, UTS, /"atHome":/g, '"atHomeX":');
+}, 'atHome');
+
+shouldCatch('apptime 又把桌面塞回 NEUTRAL（强制模式最该响的一下没了）', (cur) => {
+  sub(cur, APPTIME, /const NEUTRAL = \[/, "const NEUTRAL = [\n  'com.miui.home', 'com.huawei.android.launcher',");
+}, '桌面不算合规', CHECK_PW);
+
+shouldCatch('isHomePkg 被拿去参与放行判定（等于免检）', (cur) => {
+  sub(cur, APPTIME, /if \(NEUTRAL\.indexOf\(p\) >= 0\) return true;/,
+    'if (NEUTRAL.indexOf(p) >= 0 || isHomePkg(p)) return true;');
+}, '桌面不算合规', CHECK_PW);
+
+shouldCatch('allowList 里混进桌面包', (cur) => {
+  sub(cur, APPTIME, /const out = \[selfPkg\(\)\]\.concat\(NEUTRAL\);/,
+    "const out = [selfPkg()].concat(NEUTRAL).concat([HOME_PKGS[4]]);");
+}, 'allowList 里一个桌面包都没有', CHECK_PW);
 
 console.log('');
 if (fail === 0) console.log('反向测试全部通过：每一条都被 check-forced.js 抓住了 ✓');
