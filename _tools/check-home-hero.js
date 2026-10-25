@@ -43,13 +43,20 @@ const cssBlocks = (re) => blocks(re).map(s => s.replace(/\/\*[\s\S]*?\*\//g, '')
 // 同名选择器可能有多处（.mod-list 在"编辑"与"滚动流"两节各一条），取**最后**一条
 const cssBlock = (re) => { const a = cssBlocks(re); return a.length ? a[a.length - 1] : ''; };
 
-console.log('== 1. 首屏只放今天要用的三张卡 ==');
+console.log('== 1. 首屏只放今天要用的（合成一张「今天」面板）==');
 assert(/class="home-hero"/.test(home), '有首屏容器 .home-hero（撑满一屏，位移/渐隐都挂在它身上）');
-assert(/class="hcards"/.test(home) && at('class="hcards"') > at('class="home-hero"'),
-  '三张精简卡 .hcards 在 .home-hero 内');
-assert(/v-for="id in homeOrder"/.test(home), '首屏按 homeOrder 渲染');
+assert(/class="card today-panel"/.test(home) && at('class="card today-panel"') > at('class="home-hero"'),
+  '「今天」面板 .today-panel 在 .home-hero 内');
 assert(/const HOME_IDS = \['focus', 'task', 'urgency'\]/.test(home),
   'HOME_IDS = 专注 / 今日任务 / 紧迫度');
+// ★ 2026-10-25：三块不再 v-for（合成整板后顺序写死），但顺序本身必须守住 ——
+//   引导按 focus → task 的次序走，顺序错了高亮会指错地方。
+//   ⚠️ 锚点用「tp-block xxx-card」片段而不是完整 class 属性：给某区套上 .card
+//      （"card tp-block task-card"）时类名属性值会变，完整属性锚会消失 →
+//      顺序断言误伤、真正该红的"不各自套 card"反而不响。
+assert(at('tp-block focus-card') < at('tp-block task-card') &&
+  at('tp-block task-card') < at('tp-block urg-card'),
+  '板内顺序：开始专注 → 今日任务 → 紧迫度（写死，引导按这个次序定位）');
 const bHome = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/HOME_IDS\.indexOf\(id\) >= 0/.test(bHome), 'homeOrder 只留三件套');
 const bHomeOrder = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
@@ -59,26 +66,34 @@ assert(/HOME_IDS\.indexOf\(id\) < 0/.test(bRest), 'restOrder 是"首屏下面那
 // ★ 编辑态也必须排除：以前编辑态返回**全部**，于是首屏与下面各渲染一份
 //   focus / task / urgency —— 同一模块两套样式并存（"乱"的一条来源）。
 assert(!/if \(this\.editing\) return ids/.test(bRest),
-  '编辑态**也**排除首屏三张（不与首屏双份渲染、两套样式并存）');
+  '编辑态**也**排除首屏三块（不与首屏双份渲染、两套样式并存）');
 
-console.log('== 2. 首屏三块都是首页适配的精简版（每块一个焦点，★ 一律不套卡片）==');
-// ★ 2026-10-25：首屏**不许穿 .card 皮肤** —— 卡片是可收纳模块的皮肤，
-//   只有下面那摞（目标 / 日程 / 学习 App / AI）才穿。首屏套卡片会多出上下 36rpx
-//   内边距 + 边框 + 投影，内容被顶高，小屏上「今日收工」就压进底部胶囊底下。
-//   focus-card / task-card / urg-card 三个类名必须留着（新手引导靠它们定位）。
-assert(/class="hcard focus-card"/.test(home), '① 专注块（focus-card 保留，引导靠它定位）');
-assert(!/class="card hcard/.test(home), '★ 首屏三块不套 .card（套了会把内容顶进底部胶囊）');
+console.log('== 2. 「今天」面板：一张整板，内部三区发丝线分区 ==');
+// ★ 2026-10-25 重构（用户拍板）：两种旧形态都被否过 ——
+//   ① 三张并列小卡：割裂 + 上下 36rpx 内边距 ×6 把整组撑高，「今日收工」被底部胶囊压住；
+//   ② 只删外壳不重排：字直接压在背景上"飘"，可点区域丢了暗示。
+//   现在：玻璃底只此一份（字不飘），三区之间发丝线，收工按钮收在板内底部。
+//   卡片没消失、只是改了语义：卡片 = 可收纳模块的皮肤，首屏本体是一张整板。
+assert(/class="card today-panel"/.test(home), '首屏是一张整板（class="card today-panel"）');
+assert(/class="tp-sep"/.test(home), '三区之间用发丝线分区（tp-sep）');
+assert(/tp-block focus-card/.test(home), '① 专注区（focus-card 类名保留，引导靠它定位）');
 assert(/class="hc-ring"/.test(home) && /hc-ring-num/.test(home), '① 焦点：今日累计读数（环）');
 assert(/class="hc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(home), '① 焦点：唯一落点是那颗开始键');
-assert(/class="hcard task-card"/.test(home), '② 任务块（task-card 保留，引导靠它定位）');
+assert(/tp-block task-card/.test(home), '② 任务区（task-card 类名保留，引导靠它定位）');
 assert(/v-for="\(item, ti\) in homeQueue"/.test(home), '② 焦点：只列最该做的三条');
 assert(/v-if="hasMoreTask"[\s\S]{0,160}goCalendar/.test(home), '② 其余的去日历页看（不再假装有个抽屉能拉开）');
-assert(/class="hcard urg-card"/.test(home), '③ 紧迫度块');
+assert(/tp-block urg-card/.test(home), '③ 紧迫度区');
 assert(/class="hc-axis"/.test(home) && /hc-axis-need/.test(home), '③ 焦点：一条 24 小时时间轴 + 还要多久');
-// 去卡片后左右仍要留 36rpx：与下面那摞 .card 的内容边对齐同一条竖线
-const bHcardCss = cssBlock(/\.hcard \{[^}]*\}/);
-assert(/padding:\s*0\s+36rpx/.test(bHcardCss),
-  '首屏只留左右 36rpx（与那摞卡的内容同竖线，不再多出上下内边距）');
+// 读数不是交互目标：整块不可点，解释收进标题行右边的「?」（明确 affordance）
+assert(/class="hc-q"[^>]*@tap\.stop="explainUrgency/.test(home),
+  '紧迫度读数整块不可点，解释收进「?」（不再整块误触）');
+assert(!/<view class="tp-block urg-card" @tap/.test(home), '紧迫度区没有整块 @tap（读数不可点）');
+// 面板内边距节奏：左右 36rpx 与下面那摞卡同竖线，上下收窄（比三卡时代矮一截）
+const bPanelCss = cssBlock(/\.today-panel \{[^}]*\}/);
+assert(/padding:\s*26rpx\s+36rpx\s+30rpx/.test(bPanelCss),
+  '「今天」面板内边距 26/36/30（左右与那摞卡同竖线，上下比三卡时代收窄）');
+// 板内三区**不各自成卡**：任何一区再套 .card 就退回了三卡并列
+assert(!/<view class="card tp-block/.test(home), '板内三区不各自套 .card（否则退回三卡并列）');
 
 console.log('== 3. 下面那摞卡 = 页面正常滚动（★ 不再是 fixed 抽屉）==');
 // 抽屉时代的四个标识：任何一个回来都说明退版本了
@@ -190,7 +205,7 @@ console.log('== 4. 编辑入口在最后一卡下面 ==');
 assert(at('class="mod-list"') > 0 && at('class="home-foot"') > at('class="mod-list"'),
   '编辑入口排在卡片列表之后（滑到底才够得着）');
 assert(at('class="home-cta"') > 0 && at('class="home-cta"') < at('class="mod-list"'),
-  '收工留在首屏（在下面那摞卡之前）');
+  '收工留在首屏（在「今天」面板内、下面那摞卡之前）');
 
 console.log('== 5. 两处联动 ==');
 const bToggle = block(/toggleEdit\(\)\s*\{[\s\S]*?\n    \}/);
@@ -241,9 +256,9 @@ assert(ancMod !== null && ancMod.join(' | ').indexOf('page-slide') >= 0,
 const ancSheetHost = ancestorsOf('mod-sheet');
 assert(ancSheetHost !== null && ancSheetHost.join(' | ').indexOf('home-slide') >= 0,
   '底板 .mod-sheet 在 .home-slide 内（切 tab 时跟着首屏一起滑）');
-const ancHc = ancestorsOf('hcards');
-assert(ancHc !== null && ancHc.join(' | ').indexOf('page-slide') >= 0,
-  '首屏三卡仍留在 .page-slide 内（跟着切 tab 动画走）');
+const ancPanel = ancestorsOf('today-panel');
+assert(ancPanel !== null && ancPanel.join(' | ').indexOf('page-slide') >= 0,
+  '「今天」面板仍留在 .page-slide 内（跟着切 tab 动画走）');
 const ancSheet = ancestorsOf('sheet-mask');
 assert(ancSheet !== null && ancSheet.join(' | ').indexOf('page-slide') < 0,
   '「添加组件」浮层 (.sheet-mask) 在 .page-slide 外（fixed 参照不受切 tab 动画影响）');

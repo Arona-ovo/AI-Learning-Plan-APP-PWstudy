@@ -117,15 +117,21 @@ const cases = [
   ['卡片增减不重新对齐进度（收掉最后一张后整摞透明）',
     s => s.replace('restOrder() { this.syncReveal(-1) }', 'restOrder() {}')],
 
-  // ---- 8. 首屏不套卡片（2026-10-25）----
-  // 给首屏三块穿回 .card：多出来的上下内边距 + 边框 + 投影会把整组顶高，
-  // 小屏上「今日收工」又被压进底部胶囊底下。
-  ['首屏这块穿回 .card（内容被顶高，收工压进 tabbar）',
-    s => s.replace('class="hcard focus-card"', 'class="card hcard focus-card"')],
-  // ⚠️ 锚点必须带 `.hcard {` 这一行：文件里 .urg-card 也写着 `padding: 0 36rpx;`
-  //    且位置更靠前，只按 padding 替换会先改中它 → 护栏不红 → 假绿。
-  ['.hcard 内边距退回四边 36rpx（多出上下内边距）',
-    s => s.replace('.hcard {' + NL + '  padding: 0 36rpx;', '.hcard {' + NL + '  padding: 36rpx;')]
+  // ---- 8. 「今天」面板是一张整板（2026-10-25 重构，用户拍板）----
+  ['首屏拆回三卡并列（三盒并排 + 上下内边距 ×6，收工被 tabbar 压住）',
+    s => s.replace('class="card today-panel"', 'class="hcards"')],
+  ['紧迫度改回整块可点（读数不是交互目标，整块 @tap 会误触）',
+    s => s.replace('<view class="tp-block urg-card">', '<view class="tp-block urg-card" @tap="explainUrgency(u)">')],
+  ['「?」解释入口去掉 @tap（affordance 还在，点了却没反应）',
+    s => s.replace('class="hc-q" @tap.stop="explainUrgency(u)"', 'class="hc-q"')],
+  ['面板内边距退回上下 36rpx（整板又高出一截）',
+    s => s.replace('padding: 26rpx 36rpx 30rpx;', 'padding: 36rpx 36rpx;')],
+  ['板内一区自己套 .card（退回三卡并列的割裂感）',
+    s => s.replace('class="tp-block task-card"', 'class="card tp-block task-card"')],
+  // 任务区与紧迫度区互换类名：顺序断言（focus < task < urg）立刻红
+  // 紧迫度类名改成 task-card：板内出现两个 task、零个 urg → 顺序断言立刻红
+  ['板内顺序打乱（引导按 focus → task 的次序定位，错了会指错地方）',
+    s => s.replace('class="tp-block urg-card"', 'class="tp-block task-card"')]
 ];
 
 let bad = 0;
