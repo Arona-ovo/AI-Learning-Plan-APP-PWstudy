@@ -80,8 +80,9 @@
       </view>
     </view>
 
-    <!-- 学习要点弹层 -->
-    <view v-if="guideOpen" class="pop-mask" @tap="guideOpen = false">
+    <!-- 学习要点弹层
+         ⚠️ touchmove 在遮罩层截断（同上：fixed 不等于层级断开，滑动会滚背后的页面） -->
+    <view v-if="guideOpen" class="pop-mask" @tap="guideOpen = false" @touchmove.stop.prevent="noop">
       <view class="pop-card guide-card" @tap.stop>
         <view class="dlg-title">{{ guideTask ? guideTask.title : '学习要点' }}</view>
         <view v-if="guideLoading" class="gd-loading">
@@ -225,6 +226,8 @@ export default {
     if (this.__appsLater) { clearTimeout(this.__appsLater); this.__appsLater = 0 }
   },
   methods: {
+    // 占位：遮罩上的 @touchmove.stop.prevent 需要一个 handler 才能编译，本身什么也不做
+    noop() {},
     refresh() {
       // ⚠️ 必须浅拷贝后再赋值：pw.goalOf 返回的是库内**同一个引用**，
       //    this.g = 同引用 Vue 不重渲染 —— 改提醒时间后要退出重进才变，就是这里。

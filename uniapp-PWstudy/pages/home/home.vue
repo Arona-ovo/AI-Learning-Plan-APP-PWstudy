@@ -452,9 +452,19 @@
 
     <!-- 「添加组件」抽屉：收纳区里的模块，点一下加回首页。
          必须放在 .page-slide 之外 —— fixed 参照不能受切 tab 的滑动动画影响，
-         否则抽屉会跟着页面一起滑走（记忆约束 3）。 -->
-    <view v-if="sheetShow" class="sheet-mask" @tap="closeSheet">
-      <view class="sheet" @tap.stop="noop">
+         否则抽屉会跟着页面一起滑走（记忆约束 3）。
+
+         ⚠️ touch 必须在这一层截断（2026-10-26 修"上滑能控制背后首页"）：
+            fixed 只是**视觉**上盖住了首页，层级没被切断 —— touchmove 照样顺着
+            DOM 冒泡到 .container，被那里的 @touchmove 接住（切 tab 的手势在读它），
+            默认行为还会去滚背后的页面。于是"在抽屉里划一下，首页跟着动"。
+            · 遮罩（空白区）：touchmove.stop.prevent —— 既吞默认滚动也断冒泡；
+            · 抽屉本体：只 .stop 不 .prevent，保住 scroll-view 自己的滚动
+              （在父级 preventDefault 会把子滚动一起取消掉）；
+            · 本体滚到头之后的链式回弹交给 overscroll-behavior（见 .sheet-body）。
+            同一套处理在项目里已有先例：onboarding-mask 的全屏引导层。 -->
+    <view v-if="sheetShow" class="sheet-mask" @tap="closeSheet" @touchmove.stop.prevent="noop">
+      <view class="sheet" @tap.stop="noop" @touchmove.stop>
         <view class="sheet-head">
           <text class="sheet-title">{{ $t('添加组件') }}</text>
           <text class="sheet-close" @tap="closeSheet">{{ $t('关闭') }}</text>
@@ -516,8 +526,8 @@
          更深的几项（自定义时长 / 后台保活 / 通知提醒 / 试听）留在专注页，底部只给出口 ——
          这个面板的职责是"开表前顺手调一下"，不是把所有旋钮都搬到首页。
          专注进行中（locked）与编辑首页（editing）时入口不显示；点遮罩或 × 收起。 -->
-    <view v-if="focusSheet" class="fs-mask" @tap="toggleFocusSheet">
-      <view class="fs-card" @tap.stop>
+    <view v-if="focusSheet" class="fs-mask" @tap="toggleFocusSheet" @touchmove.stop.prevent="noop">
+      <view class="fs-card" @tap.stop @touchmove.stop>
         <view class="fs-head">
           <text class="fs-title">{{ $t('专注设置') }}</text>
           <view class="fs-close" @tap="toggleFocusSheet">×</view>
@@ -667,8 +677,8 @@
          右上角会挤成一排，标题还被挤得不居中（2026-10-24）。所以统一收在这里：
          顶栏**永远只有一颗键**，以后再多加管理项只是面板里多一行，不再动顶栏。
          专注设置仍排第一行（开表前最常用的一项），点了就地展开底下那张卡。 -->
-    <view v-if="manageOn" class="fs-mask" @tap="toggleManage">
-      <view class="fs-card" @tap.stop>
+    <view v-if="manageOn" class="fs-mask" @tap="toggleManage" @touchmove.stop.prevent="noop">
+      <view class="fs-card" @tap.stop @touchmove.stop>
         <view class="fs-head">
           <text class="fs-title">{{ $t('管理') }}</text>
           <view class="fs-close" @tap="toggleManage">×</view>
@@ -2865,7 +2875,13 @@ export default {
   color: #98a19b;
   color: var(--ink-3, #98a19b);
 }
-.sheet-body { max-height: 54vh; }
+/* overscroll-behavior: contain —— 与 .fs-body 同一条链：滚到头不再把余量传给
+   背后的首页（抽屉那一处的 touch 截断写在模板里的 .sheet-mask 上）。 */
+.sheet-body {
+  max-height: 54vh;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .sheet-item {
   display: flex;
   align-items: center;
@@ -3309,10 +3325,18 @@ export default {
 
 /* ★ 内容从 3 项扩到 10 项以后必须能滚：小屏上不滚的话下面几行永远点不到。
    ⚠️ 用 scroll-view + 限高，不用 overflow:auto —— App 端 view 的 overflow 在部分
-      机型上不吃，滚不动会**静默失效**（量节点那条路就是这样哑掉的）。 */
+      机型上不吃，滚不动会**静默失效**（量节点那条路就是这样哑掉的）。
+
+   overscroll-behavior: contain = 滚到顶 / 底就停在自己这儿，不把余量接着传给
+   背后的首页（"链式滚动"）。ts 层的 @touchmove.stop 只切断了**冒泡**，
+   默认的那条滚动链还在 —— 少了这一句，内容没占到 62vh 时（比如「管理」面板）
+   手指一划照样能把首页拉起来（2026-10-26）。iOS 15 及更早不认这个属性，
+   那一档由 mask 上的 preventDefault 兜底。 */
 .fs-body {
   max-height: 62vh;
   padding-bottom: 8rpx;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 /* 分组小标题：把"同类设置"显式分开 —— 一张卡里塞十行，不分组就是一堵墙 */
 .fc-group {

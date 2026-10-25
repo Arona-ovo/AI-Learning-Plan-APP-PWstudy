@@ -862,7 +862,7 @@
     <!-- ===== 彩蛋：连点「版本」触发 =====
          fixed 浮层，挂在页面最外层（不随内容滚动）。
          材质直接复用 App.vue 的 .pop-mask/.pop-card，这里只写内容层。 -->
-    <view v-if="eggShow" class="pop-mask egg-mask" @tap="closeEgg">
+    <view v-if="eggShow" class="pop-mask egg-mask" @tap="closeEgg" @touchmove.stop.prevent="noop">
       <view class="pop-card egg-card" @tap.stop="noop">
         <!-- 撒花：纯 view + transform 位移，不用 Canvas/SVG
              —— 各端支持不一致，且原生组件脱离 CSS transform（首页切 tab 要整体滑） -->

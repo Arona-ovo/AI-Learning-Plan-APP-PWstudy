@@ -167,8 +167,11 @@
 
     <view style="height: 40rpx"></view>
 
-    <!-- 编辑/添加弹窗 -->
-    <view v-if="editor.show" class="pop-mask" @tap="closeEditor">
+    <!-- 编辑/添加弹窗
+         ⚠️ touchmove 必须在遮罩这层截断：fixed 只是视觉上盖住页面，滑动照样会
+            冒泡上去、默认行为还会去滚背后的列表（2026-10-26，与 home.vue 的
+            .fs-mask 同一处毛病）。这张卡里没有可滚区域，整层吞掉即可。 -->
+    <view v-if="editor.show" class="pop-mask" @tap="closeEditor" @touchmove.stop.prevent="noop">
       <view class="edit-card" @tap.stop>
         <view class="edit-title">{{ editor.fromDock ? '编辑用途' : '添加学习 App' }}</view>
         <view class="edit-app">
@@ -306,6 +309,9 @@ export default {
     // 全量列表延迟到 adding 面板打开时（见上面的 watch）。
   },
   methods: {
+    // 占位：遮罩上的 @touchmove.stop.prevent 需要一个 handler 才能编译
+    // （写法与 home.vue 的 noop 一致），本身什么也不做
+    noop() {},
     refresh() {
       // 清一遍脏数据：早期版本可能存进过 pkg/name 为空的死行（真机截图出现过 null/undefined）
       const st = pw.get()

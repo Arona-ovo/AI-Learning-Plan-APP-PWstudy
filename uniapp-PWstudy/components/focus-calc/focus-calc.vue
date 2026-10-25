@@ -1,5 +1,7 @@
 <template>
-  <view class="fc-mask" v-if="show" @tap="close">
+  <!-- touchmove 在遮罩层截断：fixed 不等于层级断开，滑动照样会滚背后的页面
+       （2026-10-26，与 home.vue 的 .fs-mask 同一处毛病）。卡内没有可滚区域，整层吞掉。 -->
+  <view class="fc-mask" v-if="show" @tap="close" @touchmove.stop.prevent="noop">
     <view class="fc-card" @tap.stop="noop">
       <view class="fc-screen">
         <text class="fc-expr">{{ expr || '0' }}</text>

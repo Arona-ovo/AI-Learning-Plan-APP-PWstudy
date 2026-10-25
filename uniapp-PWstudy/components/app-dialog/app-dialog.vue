@@ -1,6 +1,11 @@
 <template>
-  <view class="pop-mask" v-if="show" @tap="onMaskTap">
-    <view class="pop-card" @tap.stop="noop">
+  <!-- touch 在遮罩层截断（2026-10-26，与 home.vue 的 .fs-mask 同一处毛病）：
+       fixed 只是视觉上盖住页面，touchmove 仍会冒泡到页面根、且默认行为会去滚
+       背后的页面 —— 表现为"在弹窗上划一下，底下的页面跟着动"。
+       · 遮罩（空白区）：stop + prevent，吞掉默认滚动也断掉冒泡；
+       · 卡片本体：只 stop 不 prevent，否则 .dlg-sheet 自己的滚动会被一起取消。 -->
+  <view class="pop-mask" v-if="show" @tap="onMaskTap" @touchmove.stop.prevent="noop">
+    <view class="pop-card" @tap.stop="noop" @touchmove.stop>
       <view class="dlg-title" v-if="title">{{ title }}</view>
       <view class="dlg-content" v-if="content">{{ content }}</view>
 
@@ -241,10 +246,14 @@ export default {
 .dlg-sheet {
   margin-top: 26rpx;
   /* 菜单项多了（或横屏屏高不够）不许把整张卡顶出屏幕：夹到 5 项多一点的高度，
-     超出的自己滚。overflow 同时负责圆角裁剪，所以是 hidden + auto 成对写。 */
+     超出的自己滚。overflow 同时负责圆角裁剪，所以是 hidden + auto 成对写。
+     overscroll-behavior: contain —— 滚到头就停在这儿，不把余量传给背后的页面
+     （少了这一句，菜单只有两三项时手指一划照样能把页面拖起来）。 */
   max-height: 540rpx;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   border-radius: 20rpx;
   border: 2rpx solid rgba(23, 32, 26, 0.07);
   border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.07));
