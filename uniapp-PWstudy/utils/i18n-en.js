@@ -937,6 +937,8 @@ export default {
   '专注已满': 'Pomos done',
   '今日紧迫程度': "Today's urgency",
   '今日任务': "Today's tasks",
+  '今日已专注 {n} 分钟': '{n} min focused today',
+  '去「目标」里定一个': 'Set one in Goals',
   '进行中的目标': 'Active goal',
   '日程表': 'Schedule',
   '学习 App': 'Study apps',

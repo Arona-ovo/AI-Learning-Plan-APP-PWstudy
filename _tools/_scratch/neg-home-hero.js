@@ -117,9 +117,9 @@ const cases = [
   ['卡片增减不重新对齐进度（收掉最后一张后整摞透明）',
     s => s.replace('restOrder() { this.syncReveal(-1) }', 'restOrder() {}')],
 
-  // ---- 8. 「今天」面板是一张整板（2026-10-25 重构，用户拍板）----
-  ['首屏拆回三卡并列（三盒并排 + 上下内边距 ×6，收工被 tabbar 压住）',
-    s => s.replace('class="card today-panel"', 'class="hcards"')],
+  // ---- 8. 「今天」面板：一张整板 + 大圆即开始键（2026-10-25 两轮重构）----
+  ['面板穿回 .card 皮肤（边框/投影/毛玻璃 = 卡片感本身，用户明确否过）',
+    s => s.replace('class="today-panel"', 'class="card today-panel"')],
   ['紧迫度改回整块可点（读数不是交互目标，整块 @tap 会误触）',
     s => s.replace('<view class="tp-block urg-card">', '<view class="tp-block urg-card" @tap="explainUrgency(u)">')],
   ['「?」解释入口去掉 @tap（affordance 还在，点了却没反应）',
@@ -128,10 +128,20 @@ const cases = [
     s => s.replace('padding: 26rpx 36rpx 30rpx;', 'padding: 36rpx 36rpx;')],
   ['板内一区自己套 .card（退回三卡并列的割裂感）',
     s => s.replace('class="tp-block task-card"', 'class="card tp-block task-card"')],
-  // 任务区与紧迫度区互换类名：顺序断言（focus < task < urg）立刻红
   // 紧迫度类名改成 task-card：板内出现两个 task、零个 urg → 顺序断言立刻红
   ['板内顺序打乱（引导按 focus → task 的次序定位，错了会指错地方）',
-    s => s.replace('class="tp-block urg-card"', 'class="tp-block task-card"')]
+    s => s.replace('class="tp-block urg-card"', 'class="tp-block task-card"')],
+  // ---- 8b. 大圆即开始键 + 紧迫度纯进度条 + 只留关键文字（第二轮）----
+  ['大圆不再直接开始（改回"点圆进页面"，按钮被融掉的意义就没了）',
+    s => s.replace('<view class="tp-block focus-card" @tap="quickStart()">',
+      '<view class="tp-block focus-card" @tap="goFocus()">')],
+  ['圆框缩回小环（用户明确要求"跟专注页里那个圆一样大"）',
+    s => s.replace('width: 480rpx;', 'width: 168rpx;')],
+  ['紧迫度加回标题 / 档位胶囊（说好简化成纯进度条）',
+    s => s.replace('<view class="tp-block urg-card">',
+      '<view class="tp-block urg-card"><text class="hc-lv">x</text>')],
+  ['收工按钮下方加回解释小字（理念：只留关键文字）',
+    s => s.replace("'今日收工' }}</button>", "'今日收工' }}</button><text class=\"cta-tip\">x</text>")]
 ];
 
 let bad = 0;

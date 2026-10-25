@@ -117,28 +117,27 @@
            「开始专注 / 今日任务 / 紧迫度」用发丝线分区，收工按钮收在板内底部。
            高度比三张卡还矮（省掉 4 份上下内边距 + 2 条边框），遮挡问题双保险。
            卡片仍是"可收纳模块"的皮肤 —— 只有下面那摞（目标/日程/学习 App/AI）穿。 -->
+      <!-- ★ 面板**不套 .card 皮肤**（2026-10-25 第二轮，用户拍板）：边框 / 投影 /
+           毛玻璃那套"浮起感"正是卡片感的来源，合到一起也还是卡片。现在只要一块
+           实色淡底（见 .today-panel），左右与下面那摞卡对齐同一条竖线。 -->
       <view class="hero-main">
-      <view class="card today-panel">
+      <view class="today-panel">
         <!-- 板头：一行小标签 + 日期，给整板一个"这是今天"的锚点 -->
         <view class="tp-head">
           <text class="tp-eyebrow">{{ $t('今天') }}</text>
           <text class="tp-date">{{ todayLabel }}</text>
         </view>
 
-        <!-- ① 开始专注 —— 视觉中心：环（今日累计）+ 开始键 + 一行上下文。
-             整块可点（进专注页看时长/设置），开始键自己 stop 冒泡 -->
-        <view class="tp-block focus-card" @tap="goFocus()">
+        <!-- ① 开始专注 —— **大圆本身就是开始键**（2026-10-25 第二轮，用户拍板）：
+             圈内写默认时段 + 默认任务名，点圆框任意处直接开计时，不再单设一颗按钮。
+             圆的尺寸与专注页同款（480rpx 外圈，见 .tp-block.focus-card .hc-ring）。
+             今日累计读数移到圈外小字（环内是"这一段多长"，不是"今天过了多久"）。 -->
+        <view class="tp-block focus-card" @tap="quickStart()">
           <view class="hc-ring" :class="{ 'hc-ring-run': running }">
-            <text class="hc-ring-num">{{ todayMin }}</text>
-            <text class="hc-ring-unit">{{ $t('分钟') }}</text>
+            <text class="hc-ring-num">{{ defTime }}</text>
+            <text class="hc-ring-task">{{ ringTask }}</text>
           </view>
-          <view class="hc-go" @tap.stop="quickStart()">{{ running ? $t('继续') : $t('开始') }}</view>
-          <text class="hc-title">{{ focusTitle }}</text>
-          <text class="hc-sub">{{ focusLead }}</text>
-          <!-- 跑着的时候顺手给个读数：必须走 lockTime 而非 remainSec —— 正计时段
-               remainSec 恒为 0，直接渲染会一直卡在 00:00，看着像计时坏了
-               （check-overrun 第 6 节守着这条）。 -->
-          <text v-if="running" class="hc-time">{{ lockTime }}</text>
+          <text class="hc-today-min">{{ $t('今日已专注 {n} 分钟', { n: todayMin }) }}</text>
         </view>
 
         <view class="tp-sep"></view>
@@ -152,7 +151,7 @@
           </view>
           <view class="hc-bar"><view class="hc-fill" :style="{ width: taskStat.pct + '%' }"></view></view>
           <view v-if="!queue.length" class="hc-empty">
-            <text class="hc-sub">{{ $t('到「目标」里定一个，AI 会帮你拆成每天的任务') }}</text>
+            <text class="hc-sub">{{ $t('去「目标」里定一个') }}</text>
           </view>
           <block v-else>
             <view
@@ -180,37 +179,26 @@
               <text class="hc-sub">{{ $t('查看全部 ›') }}</text>
             </view>
           </block>
+          <!-- ③ 收工与每日任务**同组**（2026-10-25 用户拍板）：收工就是"给今天记账"，
+               和任务清单是一回事，不单独占面板底部一层。
+               填过就变成「改一下」，不重复催促；编辑首页时让位给编辑按钮。 -->
+          <view v-if="!editing" class="home-cta">
+            <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
+          </view>
         </view>
 
         <view class="tp-sep"></view>
 
-        <!-- ③ 今日紧迫度 —— 焦点是"还剩多久"，一条时间轴说完，不摆完整仪表盘。
-             读数不是交互目标：整块不可点，解释收进标题行右边的「?」（有明确 affordance）。 -->
+        <!-- ④ 今日紧迫度 —— **简化成一条进度条**（2026-10-25 用户拍板）：
+             标题行 / 档位胶囊 / 两行读数全砍，就剩 24h 轴本身 ——
+             "今天过去多少、还需要多少"一眼读完，不再摆仪表盘。
+             想看懂这条轴在说什么，点旁边的小问号（解释性内容统一收进 ?，不占正文）。 -->
         <view class="tp-block urg-card">
-          <view class="hc-head">
-            <text class="hc-title">{{ $t('今日紧迫程度') }}</text>
-            <view class="hc-lv-wrap">
-              <text class="hc-lv" :style="{ background: u.soft, color: u.color }">{{ uLevelName }}</text>
-              <text class="hc-q" @tap.stop="explainUrgency(u)">?</text>
-            </view>
-          </view>
           <view class="hc-axis">
             <view class="hc-axis-past" :style="{ width: u.nowPct + '%' }"></view>
             <view class="hc-axis-need" :style="{ width: u.fillPct + '%' }"></view>
           </view>
-          <view class="hc-foot-row">
-            <text class="hc-sub">{{ $t('还剩 {n} 段专注', { n: u.leftPomos }) }}</text>
-            <text class="hc-sub">{{ $t('还要 {n} 分钟', { n: u.needMin }) }}</text>
-          </view>
-        </view>
-
-        <view class="tp-sep"></view>
-
-        <!-- 首页的核心操作：收工。按主按钮尺寸收在面板底部，
-             填过就变成「改一下」，不重复催促。编辑首页时让位给编辑按钮。 -->
-        <view v-if="!editing" class="home-cta">
-          <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
-          <text class="cta-tip">{{ checked ? '今天已经记过了，想改随时点开' : '花十几秒说说今天，明天的安排才排得准' }}</text>
+          <text class="hc-q" @tap.stop="explainUrgency(u)">?</text>
         </view>
       </view>
       </view>
@@ -1188,27 +1176,30 @@ export default {
       if (!lead) return q.slice(0, 3)
       return [lead].concat(q.filter(i => i !== lead)).slice(0, 3)
     },
-    /** 专注卡副标题：跑着就说在跑哪一段，空着就说点进去先看什么 */
-    focusLead() {
-      if (this.running) return this.cur.taskTitle || this.$t('自由专注')
-      if (this.focusTask) return this.focusTask.task.title
-      return this.$t('点这里先看清时长与设置')
+    /**
+     * 圆框里的默认时段（mm:ss）—— 与专注页同源：专注页选时长会 setCfg 写回
+     * pomoCfg.focus（focus.vue 648 行），所以这里读到的就是用户上次选的那档。
+     */
+    defTime() {
+      let m = 25
+      try {
+        const c = pw.get().pomoCfg
+        if (c && Number(c.focus) > 0) m = Math.round(Number(c.focus))
+      } catch (e) {}
+      const hh = Math.floor(m / 60)
+      const mm = m % 60
+      // 小时只在 >=60 分钟时才出现：25 分钟显示 "25:00"，90 分钟显示 "1:30:00"
+      const tail = (mm < 10 ? '0' : '') + mm + ':00'
+      return hh > 0 ? hh + ':' + tail : mm + ':00'
+    },
+    /** 圆框里的任务名：有主任务就写它，没有就「自由专注」 */
+    ringTask() {
+      const t = this.focusTask
+      return t && t.task ? t.task.title : this.$t('自由专注')
     },
     /** 任务卡还有没列出来的 */
     hasMoreTask() {
       return (this.queue || []).length > 3
-    },
-    /** 专注卡标题：跑着就说在跑哪一段，空着就是「开始专注」 */
-    focusTitle() {
-      if (this.running) return this.cur.phase === 'rest' ? this.$t('休息中') : this.$t('专注中')
-      return this.$t('开始专注')
-    },
-    /** 紧迫度档位名（来自 urgency.levelName，走 $t 才有英文） */
-    uLevelName() {
-      const v = this.u || {}
-      // 读一下 __lang 建立依赖，切语言时这一行会跟着重画
-      void this.__lang
-      return this.$t(urgency.levelName(v.level))
     },
     schedToday() {
       return pw.today()
@@ -3013,16 +3004,12 @@ export default {
 
 /* ===== 首页核心操作：今日收工 =====
    ⚠️ 类名必须叫 .home-cta：新手引导第 6 步的 target 是它（utils/onboarding.js），
-      check-schedule 也按这个名字断言。2026-10-25 改成 tp-cta 过一次，两个护栏当场红。 */
-/* 收工块与上方分区线之间：面板内不再有卡片 padding 当间距，这里自己接过来 ——
-   比分区线节奏（24rpx）再松一档，按钮才压得住面板底部 */
-.home-cta { margin: 24rpx 0 4rpx; }
+      check-schedule 也按这个名字断言。2026-10-25 改成 tp-cta 过一次，两个护栏当场红。
+   ⚠️ 按钮下方**不放解释小字**（2026-10-25 用户理念：只留关键文字）——
+      cta-tip 那两句引导删掉，按钮自己会说话。 */
+/* 收工与任务清单同组：上面是任务行，这里只需与列表拉开一档 */
+.home-cta { margin: 26rpx 0 2rpx; }
 .cta-btn { width: 100%; }
-.cta-tip {
-  display: block; margin-top: 16rpx; text-align: center;
-  font-size: 22rpx; line-height: 1.6;
-  color: #98a19b; color: var(--ink-3, #98a19b);
-}
 
 /* ===== 日程表卡（与日历页共用 components/schedule-list） ===== */
 .sc-nav { display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -3540,11 +3527,17 @@ export default {
      · 只删外壳不重排 → 字直接压在 App 背景上"飘"着，可点区域也丢了暗示
        （用户原话："只是把卡片删了，交互逻辑还是一样，字单独悬浮很怪"）。
    现在：玻璃底**只此一份**（字不飘），内部按「开始专注 / 今日任务 / 紧迫度」
-   用发丝线分区，收工按钮收在板内底部。总高仍比三张卡矮（省 4 份上下内边距 + 2 条边框）。
+   用发丝线分区，收工按钮与任务同组、紧迫度简化成一条进度条。
    ⚠️ 卡片没有消失，只是**改了语义**：卡片 = 可收纳模块的皮肤，
-      只有下面那摞（目标 / 日程 / 学习 App / AI）穿；首屏是 App 本体，一张整板。 */
+      只有下面那摞（目标 / 日程 / 学习 App / AI）穿；首屏是 App 本体，一张整板。
+   ⚠️ 第二轮（同日）：整板也**不穿 .card 皮肤** —— 边框 / 投影 / 毛玻璃那套"浮起感"
+      就是卡片感本身，合到一起也还是卡片（用户原话："本质并没有脱离卡片设计"）。
+      现在只要一块实色淡底，左右与那摞卡对齐同一条竖线。 */
 .today-panel {
-  /* .card 已给玻璃底 / 圆角 / 边框 / 投影；这里只管内部节奏 */
+  /* 实色淡底，不要 .card 的三件套（边框 / 投影 / backdrop-filter） */
+  background: rgba(255, 255, 255, 0.62);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.62);
+  border-radius: 36rpx;
   padding: 26rpx 36rpx 30rpx;
 }
 /* 板头：一行小标签 + 日期，给整板一个"这是今天"的锚点 */
@@ -3577,26 +3570,44 @@ export default {
   border-top: 2rpx solid rgba(23, 32, 26, 0.07);
   margin: 24rpx 0;
 }
-/* 收工按钮（.home-cta）收在板内底部，与上一条分区线共用 24rpx 节奏 */
 
-/* ① 开始专注：区内视觉中心 —— 环 + 开始键 + 一行上下文，全部居中 */
+/* ① 开始专注：**大圆本身就是开始键** —— 圈内默认时段 + 任务名，点圆框任意处
+      直接进专注页准备态。尺寸与专注页同款（480rpx，见 focus.vue 的 .ring）。 */
 .tp-block.focus-card {
   align-items: center;
   text-align: center;
   padding: 8rpx 0 4rpx;
 }
-.tp-block.focus-card .hc-ring { width: 168rpx; height: 168rpx; margin: 0 0 24rpx; }
-.tp-block.focus-card .hc-ring-num { font-size: 46rpx; }
-.tp-block.focus-card .hc-go {
-  margin: 28rpx 0 4rpx;
-  width: 248rpx;
-  height: 86rpx;
-  font-size: 30rpx;
-  font-weight: 600;
+.tp-block.focus-card .hc-ring {
+  width: 480rpx;
+  height: 480rpx;
+  margin: 0;
+  /* 两层圈：外扩散一圈极淡的红（box-shadow 不占布局），里面直接放字 */
+  box-shadow: 0 0 0 22rpx rgba(228, 23, 61, 0.045);
+  box-shadow: 0 0 0 22rpx rgba(var(--brand-rgb, 228, 23, 61), 0.045);
 }
-.tp-block.focus-card .hc-title { margin-top: 12rpx; }
-.tp-block.focus-card .hc-time { margin-top: 10rpx; }
-/* ② 任务区 / ③ 紧迫度区：通栏左对齐，与板头同一条内容边 */
+/* 按压：整圆缩一丁点（无边框区域不能整片变淡，会像"褪色"） */
+.tp-block.focus-card:active .hc-ring { transform: scale(0.965); }
+.tp-block.focus-card .hc-ring-num {
+  font-size: 72rpx;
+  font-weight: 600;
+  line-height: 1.1;
+}
+/* 圈内的任务名：默认时段下面一行小字 */
+.hc-ring-task {
+  margin-top: 10rpx;
+  font-size: 27rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+}
+/* 圈外的今日读数：环内是"这一段多长"，圈外才说"今天已经多久" */
+.hc-today-min {
+  margin-top: 30rpx;
+  font-size: 23rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+/* ② 任务区 / ④ 紧迫度区：通栏左对齐，与板头同一条内容边 */
 .tp-block.task-card,
 .tp-block.urg-card {
   align-items: stretch;
@@ -3630,12 +3641,6 @@ export default {
   color: #17201a;
   color: var(--ink-1, #17201a);
 }
-.hc-ring-unit {
-  margin-top: 2rpx;
-  font-size: 19rpx;
-  color: #98a19b;
-  color: var(--ink-3, #98a19b);
-}
 .hc-body { flex: 1; min-width: 0; }
 .hc-title {
   display: block;
@@ -3656,53 +3661,8 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.hc-time {
-  display: block;
-  margin-top: 8rpx;
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #bb1332;
-  color: var(--brand-strong, #bb1332);
-}
-.hc-go {
-  flex: 0 0 auto;
-  margin-left: 18rpx;
-  height: 72rpx;
-  padding: 0 34rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 27rpx;
-  font-weight: 600;
-  letter-spacing: 2rpx;
-  border-radius: 999rpx;
-  color: #bb1332;
-  color: var(--brand-strong, #bb1332);
-  background: rgba(228, 23, 61, 0.1);
-  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
-  border: 2rpx solid rgba(228, 23, 61, 0.4);
-  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
-}
 .hc-head { display: flex; align-items: baseline; justify-content: space-between; }
 .hc-count { font-size: 23rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
-/* 紧迫度档位胶囊 + 解释入口。读数本身不是交互目标（整块不可点），
-   解释收进标题行右边这个「?」—— 有明确 affordance，也不再整块误触。 */
-.hc-lv-wrap { display: flex; align-items: center; }
-.hc-q {
-  margin-left: 12rpx;
-  width: 38rpx;
-  height: 38rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22rpx;
-  font-weight: 600;
-  color: #98a19b;
-  color: var(--ink-3, #98a19b);
-  background: rgba(23, 32, 26, 0.07);
-}
-.hc-q:active { background: rgba(23, 32, 26, 0.14); }
 /* 进度条：实心色只用在进度条上（项目令牌：不给按钮上实心红） */
 .hc-bar {
   height: 8rpx;
@@ -3743,18 +3703,18 @@ export default {
 .hc-more { padding: 14rpx 4rpx 2rpx; text-align: right; }
 .hc-more .hc-sub { color: #98a19b; color: var(--ink-3, #98a19b); }
 
-/* ③ 今日紧迫度：一条 24 小时时间轴 + 两个读数 */
-.hc-lv {
-  flex: 0 0 auto;
-  padding: 4rpx 18rpx;
-  border-radius: 999rpx;
-  font-size: 21rpx;
-  font-weight: 600;
+/* ④ 今日紧迫度 = **一条进度条**（2026-10-25 简化）：标题 / 档位胶囊 / 读数全砍，
+   轴与一个小问号并排 —— 问号是"真需要解释"时的统一入口（用户的设计理念：
+   一处凸显、其余淡化、只留关键文字，解释性内容收进 ?）。 */
+.tp-block.urg-card {
+  flex-direction: row;
+  align-items: center;
 }
 .hc-axis {
   position: relative;
+  flex: 1;
   height: 12rpx;
-  margin: 20rpx 0 14rpx;
+  margin: 0;
   border-radius: 999rpx;
   background: rgba(23, 32, 26, 0.08);
   overflow: hidden;
@@ -3764,18 +3724,23 @@ export default {
 .hc-axis-past { height: 100%; background: rgba(23, 32, 26, 0.12); }
 /* 还要花多久（品牌色，跟着 accent 主题走） */
 .hc-axis-need { height: 100%; background: #e4173d; background: var(--brand, #e4173d); }
-/* "现在"这条竖线 */
-.hc-axis-now {
-  position: absolute;
-  top: -4rpx;
-  bottom: -4rpx;
-  width: 4rpx;
-  margin-left: -2rpx;
-  border-radius: 2rpx;
-  background: #17201a;
-  background: var(--ink-1, #17201a);
+/* 轴旁的问号：小、淡、不抢戏；点开看这条轴在说什么 */
+.hc-q {
+  flex: 0 0 auto;
+  margin-left: 14rpx;
+  width: 34rpx;
+  height: 34rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  background: rgba(23, 32, 26, 0.06);
 }
-.hc-foot-row { display: flex; align-items: baseline; justify-content: space-between; }
+.hc-q:active { background: rgba(23, 32, 26, 0.13); }
 
 /* ===== 首屏下面那一摞卡（正常滚动流 —— 不再是抽屉）=====
    两层的分工：

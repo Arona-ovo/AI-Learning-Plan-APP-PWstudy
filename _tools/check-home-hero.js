@@ -45,7 +45,7 @@ const cssBlock = (re) => { const a = cssBlocks(re); return a.length ? a[a.length
 
 console.log('== 1. 首屏只放今天要用的（合成一张「今天」面板）==');
 assert(/class="home-hero"/.test(home), '有首屏容器 .home-hero（撑满一屏，位移/渐隐都挂在它身上）');
-assert(/class="card today-panel"/.test(home) && at('class="card today-panel"') > at('class="home-hero"'),
+assert(/class="today-panel"/.test(home) && at('class="today-panel"') > at('class="home-hero"'),
   '「今天」面板 .today-panel 在 .home-hero 内');
 assert(/const HOME_IDS = \['focus', 'task', 'urgency'\]/.test(home),
   'HOME_IDS = 专注 / 今日任务 / 紧迫度');
@@ -68,28 +68,52 @@ assert(/HOME_IDS\.indexOf\(id\) < 0/.test(bRest), 'restOrder 是"首屏下面那
 assert(!/if \(this\.editing\) return ids/.test(bRest),
   '编辑态**也**排除首屏三块（不与首屏双份渲染、两套样式并存）');
 
-console.log('== 2. 「今天」面板：一张整板，内部三区发丝线分区 ==');
-// ★ 2026-10-25 重构（用户拍板）：两种旧形态都被否过 ——
+console.log('== 2. 「今天」面板：一张整板，大圆即开始键，任务与收工同组 ==');
+// ★ 2026-10-25 重构（用户拍板，两轮）：
 //   ① 三张并列小卡：割裂 + 上下 36rpx 内边距 ×6 把整组撑高，「今日收工」被底部胶囊压住；
-//   ② 只删外壳不重排：字直接压在背景上"飘"，可点区域丢了暗示。
-//   现在：玻璃底只此一份（字不飘），三区之间发丝线，收工按钮收在板内底部。
-//   卡片没消失、只是改了语义：卡片 = 可收纳模块的皮肤，首屏本体是一张整板。
-assert(/class="card today-panel"/.test(home), '首屏是一张整板（class="card today-panel"）');
+//   ② 只删外壳不重排：字直接压在背景上"飘"，可点区域丢了暗示；
+//   ③ 合成整板但还穿 .card 皮肤（边框/投影/毛玻璃）：用户原话"本质并没有脱离卡片设计"。
+//   现在：一块实色淡底（无浮起三件套），三区发丝线分区；
+//   设计理念：一处凸显（大圆）、其余淡化、只留关键文字，解释收进「?」。
+assert(/class="today-panel"/.test(home), '首屏是一张整板（class="today-panel"）');
 assert(/class="tp-sep"/.test(home), '三区之间用发丝线分区（tp-sep）');
-assert(/tp-block focus-card/.test(home), '① 专注区（focus-card 类名保留，引导靠它定位）');
-assert(/class="hc-ring"/.test(home) && /hc-ring-num/.test(home), '① 焦点：今日累计读数（环）');
-assert(/class="hc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(home), '① 焦点：唯一落点是那颗开始键');
+// ① 大圆本身就是开始键：没有独立开始按钮，点圆框任意处直接进专注页准备态
+assert(/<view class="tp-block focus-card" @tap="quickStart\(\)">/.test(home),
+  '① 大圆即开始键（点圆框 = quickStart，不再单设按钮）');
+assert(/class="hc-ring"/.test(home) && /class="hc-ring-num"/.test(home), '① 圈内是默认时段读数');
+assert(/class="hc-ring-task"/.test(home), '① 圈内写默认任务名（与时段同一圈）');
+assert(!/class="hc-go"/.test(home), '① 没有独立的开始按钮（hc-go 已删）');
+// 圆框尺寸与专注页同款（480rpx）—— 用户明确要求"跟专注页里那个圆一样大"
+const bRingCss = cssBlock(/\.tp-block\.focus-card \.hc-ring \{[^}]*\}/);
+assert(/width:\s*480rpx/.test(bRingCss) && /height:\s*480rpx/.test(bRingCss),
+  '① 圆框 480rpx（与专注页 .ring 同尺寸）');
+// ⚠️ 这里用类名片段（不用完整 class 属性锚）：某区被套上 .card 或加上 @tap 时
+//    类名属性值会变，完整锚会失配 → 误伤本条、真正该红的断言反而不响。
 assert(/tp-block task-card/.test(home), '② 任务区（task-card 类名保留，引导靠它定位）');
 assert(/v-for="\(item, ti\) in homeQueue"/.test(home), '② 焦点：只列最该做的三条');
 assert(/v-if="hasMoreTask"[\s\S]{0,160}goCalendar/.test(home), '② 其余的去日历页看（不再假装有个抽屉能拉开）');
-assert(/tp-block urg-card/.test(home), '③ 紧迫度区');
-assert(/class="hc-axis"/.test(home) && /hc-axis-need/.test(home), '③ 焦点：一条 24 小时时间轴 + 还要多久');
-// 读数不是交互目标：整块不可点，解释收进标题行右边的「?」（明确 affordance）
+// ③ 收工与任务同组：home-cta 必须嵌在 task-card 区块内（不再单独占面板底部一层）
+assert(at('class="home-cta"') > at('tp-block task-card') &&
+  at('class="home-cta"') < at('tp-block urg-card'),
+  '③ 收工与每日任务同组（home-cta 在任务区内、紧迫度之前）');
+assert(/tp-block urg-card/.test(home), '④ 紧迫度区');
+assert(/class="hc-axis"/.test(home) && /hc-axis-need/.test(home), '④ 焦点：一条 24 小时时间轴');
+// 紧迫度简化成纯进度条：标题行 / 档位胶囊 / 两行读数全砍（⚠️ 只扫模板段）
+// 只留关键文字：收工按钮下方不放解释小字
+const tplOnly = home.slice(0, home.indexOf('\n<script'));
+assert(!/hc-lv|hc-foot-row|uLevelName/.test(tplOnly), '④ 紧迫度砍成纯进度条（无标题/档位/读数）');
+assert(!/cta-tip/.test(tplOnly), '按钮下方无解释小字（只留关键文字）');
+// 读数不是交互目标：整块不可点，解释收进轴旁的「?」（明确 affordance）
 assert(/class="hc-q"[^>]*@tap\.stop="explainUrgency/.test(home),
   '紧迫度读数整块不可点，解释收进「?」（不再整块误触）');
 assert(!/<view class="tp-block urg-card" @tap/.test(home), '紧迫度区没有整块 @tap（读数不可点）');
-// 面板内边距节奏：左右 36rpx 与下面那摞卡同竖线，上下收窄（比三卡时代矮一截）
+// 面板皮肤：实色淡底，**不要** .card 的浮起三件套（边框 / 投影 / backdrop-filter）
+assert(!/class="card today-panel"/.test(home), '面板不穿 .card 皮肤（边框/投影/毛玻璃 = 卡片感本身）');
 const bPanelCss = cssBlock(/\.today-panel \{[^}]*\}/);
+assert(/background:\s*rgba\(var\(--surface-rgb/.test(bPanelCss) &&
+  !/border:/.test(bPanelCss) && !/box-shadow/.test(bPanelCss) && !/backdrop-filter/.test(bPanelCss),
+  '面板只要实色淡底（无边框 / 投影 / 毛玻璃）');
+// 面板内边距节奏：左右 36rpx 与下面那摞卡同竖线，上下收窄（比三卡时代矮一截）
 assert(/padding:\s*26rpx\s+36rpx\s+30rpx/.test(bPanelCss),
   '「今天」面板内边距 26/36/30（左右与那摞卡同竖线，上下比三卡时代收窄）');
 // 板内三区**不各自成卡**：任何一区再套 .card 就退回了三卡并列
