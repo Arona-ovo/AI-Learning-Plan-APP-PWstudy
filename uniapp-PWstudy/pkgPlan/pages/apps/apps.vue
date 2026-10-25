@@ -16,11 +16,18 @@
       <view v-else-if="isAndroid" class="pc-ok">系统统计已开启</view>
     </view>
 
+    <!-- 专注进行中：白名单锁死。专注中途把新 App 加进来 = 给逃跑开方便之门，
+         强制模式拦的就是这种"自己给自己开后门" —— 所以这段日子里只许用，不许改。 -->
+    <view v-if="focusLock" class="card pc-lock">
+      <view class="pc-lock-title">{{ $t('专注进行中，学习 App 暂时锁定') }}</view>
+      <view class="pc-lock-txt">{{ $t('现在不能添加、移除或改用途 —— 专注完了再来。') }}</view>
+    </view>
+
     <!-- 已添加的 App -->
     <view class="card" v-if="dock.length">
       <view class="card-head">
         <text class="card-title">我的学习 App（{{ dock.length }}）</text>
-        <text class="card-more" @tap="adding = !adding">＋ 添加</text>
+        <text class="card-more" @tap="tapAddToggle">＋ 添加</text>
       </view>
       <view v-for="a in dock" :key="a.pkg" class="dock-row" @tap="startEditDock(a)">
         <image v-if="iconMap[a.pkg]" class="dr-icon-img" :src="iconMap[a.pkg]" mode="aspectFit" />
@@ -40,7 +47,7 @@
     <view class="card" v-else>
       <view class="pc-title">还没添加 App</view>
       <view class="pc-txt">把背单词、刷题、看课用的 App 加进来，首页就能一键直达并自动计时。</view>
-      <button class="btn-primary pc-btn" @tap="adding = true">＋ 添加 App</button>
+      <button class="btn-primary pc-btn" @tap="tapAddToggle">＋ 添加 App</button>
     </view>
 
     <!-- 添加面板（kb-open：搜索框聚焦时给底部补空白，让页面有余地滚到键盘之上） -->
@@ -51,6 +58,32 @@
       </view>
 
       <template v-if="isAndroid">
+        <!-- AI 推荐：按当前目标从手机里挑学习 App（2026-10-25 真机反馈：
+             规划完目标却要自己在几百个应用里翻，让 AI 先挑一茬） -->
+        <view v-if="aiEnabled && !aiRec.items.length && !aiRec.loading" class="ai-rec-entry">
+          <text class="ai-rec-tip">{{ aiRec.err ? $t('AI 没推荐出来') : $t('不知道挑哪个？让 AI 按你的目标从手机里推荐') }}</text>
+          <text class="ai-rec-btn" @tap="aiRecommend">{{ aiRec.err ? $t('再试一次') : $t('让 AI 推荐') }}</text>
+        </view>
+        <view v-if="aiRec.loading" class="ai-rec-tip ai-rec-wait">{{ $t('AI 正在按你的目标挑学习 App…') }}</view>
+        <view v-if="aiRec.items.length" class="rec-list">
+          <view class="rec-head">{{ $t('按你的目标推荐') }}</view>
+          <view
+            v-for="r in aiRec.items"
+            :key="r.pkg"
+            class="cand"
+            :class="{ 'cand-added': isAdded(r) }"
+            @tap="startAdd(candOf(r) || r)"
+          >
+            <image v-if="iconMap[r.pkg]" class="dr-icon-img" :src="iconMap[r.pkg]" mode="aspectFit" />
+            <view v-else class="dr-icon">{{ (r.name || '?').slice(0, 1).toUpperCase() }}</view>
+            <view class="dr-main">
+              <view class="dr-name">{{ r.name }}</view>
+              <view class="rec-task" v-if="r.task">{{ r.task }}</view>
+              <view class="dr-pkg">{{ r.pkg }}</view>
+            </view>
+            <text class="cand-add">{{ isAdded(r) ? $t('已添加') : $t('添加') }}</text>
+          </view>
+        </view>
         <!-- cursor-spacing：让输入框比键盘上沿再高一点。
              光靠 adjust-position（默认开）系统只保证"刚好露出来"，输入框会贴着键盘边，
              打字时看着很局促，某些 ROM 上还会被候选词条压住。
@@ -200,6 +233,7 @@
 <script>
 import * as pw from '../../../utils/pwstore.js'
 import * as apptime from '../../../utils/apptime.js'
+import * as focusMod from '../../../utils/focus.js'
 import * as aiGuess from '../../../services/ai-app-guess.js'
 import { isAIEnabled } from '../../../services/config.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
@@ -212,6 +246,8 @@ export default {
       dock: [],
       permitted: false,
       isAndroid: false,
+      // 专注会话进行中 = 白名单锁死（见模板里 pc-lock 的说明）
+      focusLock: false,
       aiEnabled: false,
       adding: false,
       all: [],
@@ -238,7 +274,9 @@ export default {
       },
       // 统一弹窗（components/app-dialog）
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], pkg: '' },
-      manualOpen: false
+      manualOpen: false,
+      // AI 推荐：按当前目标从已安装应用里挑学习 App（结果本进程内缓存）
+      aiRec: { loading: false, err: '', items: [] }
     }
   },
   computed: {
@@ -282,7 +320,23 @@ export default {
       this.isAndroid = apptime.supported()
       this.aiEnabled = isAIEnabled()
       this.permitted = this.isAndroid && apptime.hasUsagePermission()
+      // 专注期间锁白名单：从专注页切过来时 onShow 会重算，专注一结束立刻解锁
+      try { this.focusLock = !!focusMod.current() } catch (e) { this.focusLock = false }
+      // 锁着的时候编辑面板/弹窗一律收起：不能留着半开的添加口
+      if (this.focusLock) {
+        this.adding = false
+        if (this.editor.show) this.editor.show = false
+      }
       this.dock.forEach(a => this.ensureIcon(a.pkg))
+    },
+    /** 添加面板开合的统一入口：专注期间只摇头不开门 */
+    tapAddToggle() {
+      if (this.focusLock) { this.lockToast(); return }
+      this.adding = !this.adding
+    },
+    /** 锁定期的统一提示：为什么点不动 */
+    lockToast() {
+      uni.showToast({ title: this.$t('专注进行中，学完这段再来改'), icon: 'none' })
     },
     /**
      * 打开添加面板：先把列表铺出来，再考虑要不要刷新。
@@ -396,15 +450,18 @@ export default {
     },
     startAdd(c) {
       if (this.isAdded(c)) return
+      if (this.focusLock) { this.lockToast(); return }
       this.openEditor({ pkg: c.pkg, name: c.name, purpose: 'study' })
     },
     startAddManual() {
+      if (this.focusLock) { this.lockToast(); return }
       const name = String(this.manual.name || '').trim()
       if (!name) { uni.showToast({ title: '先填个名字', icon: 'none' }); return }
       const pkg = String(this.manual.pkg || '').trim() || 'manual:' + name
       this.openEditor({ pkg, name, purpose: 'study' })
     },
     startEditDock(a) {
+      if (this.focusLock) { this.lockToast(); return }
       this.openEditor({ fromDock: true, pkg: a.pkg, name: a.name, purpose: a.purpose, task: a.task })
     },
     async aiGuessEditor() {
@@ -450,6 +507,54 @@ export default {
       this.refresh()
     },
 
+    // ---------- AI 推荐 ----------
+    /** 目标上下文：目标标题 + 各自待办的头部几条，喂给推荐用 */
+    goalsContext() {
+      try {
+        const lines = pw.activeGoals().map(g => {
+          const todos = (g.tasks || []).filter(t => t.status === 'todo').slice(0, 5).map(t => t.title)
+          return '- ' + g.title + (todos.length ? ('（要做：' + todos.join('；') + '）') : '')
+        })
+        return lines.join('\n') || '（还没有目标）'
+      } catch (e) { return '（还没有目标）' }
+    },
+    /** 推荐行反查完整候选（拿 name/图标兜底；AI 只回 pkg+task） */
+    candOf(r) {
+      return this.all.filter(a => a.pkg === r.pkg)[0] || null
+    },
+    /** 让 AI 按目标推荐一次；失败展示"再试一次"，绝不打断手动添加 */
+    async aiRecommend() {
+      if (this.focusLock) { this.lockToast(); return }
+      if (this.aiRec.loading) return
+      this.aiRec.loading = true
+      this.aiRec.err = ''
+      try {
+        // 全量名单可能还没读过（adding 的 watcher 只在面板打开时触发）——这里可能更早
+        if (!this.all.length) {
+          this.loadApps()
+          for (let i = 0; i < 40 && !this.all.length; i++) {
+            await new Promise(r => setTimeout(r, 100))
+          }
+        }
+        const have = {}
+        this.dock.forEach(a => { have[a.pkg] = true })
+        const cands = this.all.filter(a => !have[a.pkg])
+        const r = await aiGuess.recommendStudyApps(cands, this.goalsContext())
+        const byPkg = {}
+        this.all.forEach(a => { byPkg[a.pkg] = a })
+        this.aiRec.items = (r.picks || [])
+          .filter(p => byPkg[p.pkg])
+          .map(p => Object.assign({}, byPkg[p.pkg], { task: p.task }))
+        this.aiRec.items.forEach(x => this.ensureIcon(x.pkg))
+        if (!this.aiRec.items.length) this.aiRec.err = this.$t('AI 没推荐出来')
+      } catch (e) {
+        this.aiRec.items = []
+        this.aiRec.err = (e && e.message) ? e.message : this.$t('AI 没推荐出来')
+        if (e && e.notConfigured) this.aiRec.err = this.$t('AI 服务未启用')
+      }
+      this.aiRec.loading = false
+    },
+
     // ---------- 统一弹窗 ----------
     ask(cfg) {
       this.dlg = Object.assign(
@@ -469,6 +574,7 @@ export default {
       }
     },
     askRemove(a) {
+      if (this.focusLock) { this.lockToast(); return }
       this.ask({
         title: '移除 App',
         content: '「' + a.name + '」不再出现在首页，历史统计保留。',
@@ -517,6 +623,11 @@ export default {
   background: rgba(59, 109, 17, 0.1);
   font-size: 24rpx; color: #3b6d11;
 }
+
+/* 专注期锁定提示（琥珀色，与"系统统计未开启"同一套警示视觉） */
+.pc-lock { border: 2rpx solid rgba(247, 144, 9, 0.35); }
+.pc-lock-title { font-size: 27rpx; font-weight: 600; color: #8a5800; }
+.pc-lock-txt { margin-top: 8rpx; font-size: 23rpx; line-height: 1.7; color: #8a5800; opacity: 0.85; }
 
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -657,6 +768,30 @@ export default {
 .cand { display: flex; align-items: center; padding: 12rpx 0; }
 .cand-added { opacity: 0.45; }
 .cand-add { flex-shrink: 0; font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
+
+/* ===== AI 推荐区（按目标从已装应用里挑） ===== */
+.ai-rec-entry {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16rpx; padding: 16rpx 22rpx;
+  border-radius: 16rpx;
+  background: rgba(124, 58, 237, 0.08);
+}
+.ai-rec-tip { flex: 1; font-size: 23rpx; line-height: 1.6; color: #5a6560; color: var(--ink-2, #5a6560); }
+.ai-rec-wait { text-align: center; margin-bottom: 12rpx; }
+.ai-rec-btn {
+  flex-shrink: 0; margin-left: 16rpx;
+  font-size: 24rpx; font-weight: 600;
+  color: #7c3aed;
+  padding: 8rpx 22rpx;
+  border-radius: 999rpx;
+  background: rgba(124, 58, 237, 0.12);
+}
+.rec-head {
+  margin-bottom: 8rpx;
+  font-size: 23rpx; font-weight: 600;
+  color: #7c3aed;
+}
+.rec-task { margin-top: 2rpx; font-size: 22rpx; color: #7c3aed; }
 
 .m-row { display: flex; align-items: center; padding: 18rpx 0; }
 .m-label { width: 150rpx; font-size: 25rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }

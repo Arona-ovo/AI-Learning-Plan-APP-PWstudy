@@ -88,6 +88,10 @@ export default {
       if (r.done) this.$emit('done', row)
       // 勾完可能就不在这一天的列表里了（已完成的不进"待办"队列）→ 让父级重算
       this.$emit('changed')
+      // ⚠️ 自己也要强刷：rows 是父级 props，✓ 绑的是 pwstore 裸对象的 status ——
+      //    App 端父级就算重建了数组，本组件不保证重渲染（真机："取消完要退出
+      //    app 重进才刷新"，2026-10-25 实锤）。与 goal-detail / home 同一打法。
+      this.$forceUpdate && this.$forceUpdate()
     },
     shift(row, delta) {
       const r = schedule.move(row, delta)

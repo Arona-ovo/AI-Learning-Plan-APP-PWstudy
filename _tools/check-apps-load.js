@@ -180,6 +180,97 @@ try {
     'kb-open 真的补了底部空白（有地方可抬）'
   );
 
+  // == 9. 专注期间锁定白名单（2026-10-25 真机反馈）==
+  // 反馈原话："专注的时候不能改 app，不然强制等于摆设" —— 专注中途把娱乐 App
+  // 加成"学习 App"，强制模式（拦截非学习 App）就被从内部拆穿了。
+  // 锁的口径：focus.current() 非空即锁（专注/休息/暂停都算，暂停也是"这段还没完"）；
+  // 所有能改白名单的入口（添加面板、编辑器、删除、AI 推荐）一律先摇头。
+  console.log('== 9. 专注期间锁白名单（不让强制模式被从内部拆穿）==');
+  assert(/focusLock: false/.test(appsVue), 'data 里有 focusLock 标志');
+  assert(
+    /this\.focusLock = !!focusMod\.current\(\)/.test(appsVue),
+    'refresh 按 focus.current() 重算（专注中即锁）'
+  );
+  const refBody = fnBody(appsVue, '    refresh() {');
+  assert(
+    refBody.length > 0 && /if \(this\.focusLock\) \{[\s\S]{0,200}this\.adding = false/.test(refBody),
+    '锁着时编辑面板一律收起（不能留着半开的添加口）'
+  );
+  assert(
+    /v-if="focusLock" class="card pc-lock"/.test(appsVue),
+    '模板里有锁定横幅（用户看得见为什么点不动）'
+  );
+  // 每个能改白名单的入口都要先摇头。少一个 = 那条路还能改。
+  // ⚠️ 必须用「签名 + 紧邻 140 字符内有 guard」：fnBody 对 methods 里的函数
+  //    找不到边界（下一个 `\nfunction ` 在文件尾），会切到文件末尾 ——
+  //    那样任何后面函数的 guard 都能让前面这条变绿（假绿）。
+  // ⚠️ 签名要带参数列表和 `{`：只写 `startAdd(` 会先命中模板里的 @tap="startAdd(c)"。
+  const guardAt = (sig) => {
+    const i = appsVue.indexOf(sig);
+    if (i < 0) return false;
+    return /if \(this\.focusLock\) \{ this\.lockToast\(\); return \}/
+      .test(appsVue.slice(i, i + 140));
+  };
+  [
+    ['tapAddToggle() {', '添加面板开合'],
+    ['startAdd(c) {', '点候选行添加'],
+    ['startAddManual() {', '手动输包名添加'],
+    ['startEditDock(a) {', '编辑已添加的 App'],
+    ['async aiRecommend() {', 'AI 推荐'],
+    ['askRemove(a) {', '删除已添加的 App']
+  ].forEach(([sig, label]) => {
+    assert(guardAt(sig), '入口「' + label + '」专注期间摇头（lockToast 后 return）');
+  });
+  assert(
+    /lockToast\(\) \{[\s\S]{0,200}专注进行中，学完这段再来改/.test(appsVue),
+    '锁定提示说人话（为什么点不动 + 什么时候能改）'
+  );
+  // 从专注页切过来 onShow 会再跑一次 refresh → 专注一结束回来立刻解锁
+  assert(
+    /onShow\(\)[\s\S]{0,400}this\.refresh\(\)/.test(appsVue),
+    'onShow 走 refresh（专注结束后回到本页立刻解锁）'
+  );
+
+  // == 10. AI 按目标推荐学习 App（2026-10-25 真机反馈）==
+  // 反馈原话："ai 目标规划完，最好让用户一起把学习 app 设置了，并且最好 ai 能
+  // 根据目标智能推荐一栏展示手机内的学习 app" —— 几百个应用里自己翻太费劲。
+  console.log('== 10. AI 按目标推荐学习 App ==');
+  const aiGuess = read('services/ai-app-guess.js');
+  assert(
+    /export async function recommendStudyApps\(apps, goalsText\)/.test(aiGuess),
+    '服务层有 recommendStudyApps（名单 + 目标上下文）'
+  );
+  assert(/\.slice\(0, 120\)/.test(aiGuess), '名单封顶 120（太长又贵又容易让模型走神）');
+  assert(/\.slice\(0, 8\)/.test(aiGuess), '推荐封顶 8 个（一屏勾得完）');
+  assert(/aiRec: \{ loading: false, err: '', items: \[\] \}/.test(appsVue), 'data 里有推荐区状态');
+  assert(
+    /v-if="aiEnabled && !aiRec\.items\.length && !aiRec\.loading" class="ai-rec-entry"/.test(appsVue),
+    '模板有推荐入口（AI 关着时不显示，不挡手动添加的路）'
+  );
+  assert(
+    /ai-rec-wait/.test(appsVue) && /AI 正在按你的目标挑学习 App/.test(appsVue),
+    '有加载态文案（推荐要等十几秒，不能像卡死）'
+  );
+  assert(
+    /aiRec\.err \? \$t\('AI 没推荐出来'\)/.test(appsVue),
+    '失败时给"再试一次"（AI 挂不掉手动添加）'
+  );
+  assert(
+    /aiGuess\.recommendStudyApps\(cands, this\.goalsContext\(\)\)/.test(appsVue),
+    '推荐走 recommendStudyApps（候选名单 + 目标上下文）'
+  );
+  // ⚠️ 这条是命门：模型可能幻觉出不存在的包名（prompt 里写了"只准从名单里挑"
+  //    但不强制），不过滤就会把幽灵 App 加进白名单 —— 之后强制模式按包名拦截
+  //    永远命不中它，用户还以为设好了。
+  assert(
+    /\.filter\(p => byPkg\[p\.pkg\]\)/.test(appsVue),
+    '⚠️ 推荐结果按已安装名单过滤（幻觉包名不进白名单）'
+  );
+  assert(
+    /if \(e && e\.notConfigured\) this\.aiRec\.err = this\.\$t\('AI 服务未启用'\)/.test(appsVue),
+    '没配 AI 时说明白是"服务未启用"（不然用户以为坏了）'
+  );
+
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);
 } catch (e) {

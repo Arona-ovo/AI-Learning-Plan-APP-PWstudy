@@ -22,7 +22,8 @@ const CHECK = path.join(__dirname, '..', 'check-plan-agent.js');
 const FILES = {
   agent: path.join(ROOT, 'services', 'plan-agent.js'),
   wiz: path.join(ROOT, 'pkgPlan', 'pages', 'wizard', 'wizard.vue'),
-  detail: path.join(ROOT, 'pkgPlan', 'pages', 'goal-detail', 'goal-detail.vue')
+  detail: path.join(ROOT, 'pkgPlan', 'pages', 'goal-detail', 'goal-detail.vue'),
+  replan: path.join(ROOT, 'pkgPlan', 'pages', 'replan', 'replan.vue')
 };
 
 const backup = {};
@@ -158,6 +159,45 @@ async function shouldCatch(label, mutations) {
   ]);
   await shouldCatch('改成深拷贝整份库对象（目标改不动了）', [
     ['detail', 'Object.assign({}, g)', 'JSON.parse(JSON.stringify(g))']
+  ]);
+
+  realLog('\n== 6. 目标详情阶段折叠被拆（真机反馈：太长了，收不起来）==');
+  await shouldCatch('详情页阶段头点不了', [
+    ['detail', '@tap="toggleFold(gi)"', '']
+  ]);
+  await shouldCatch('折叠只改样式不真的移除节点', [
+    ['detail', '<view v-if="!folded(gi)">', '<view v-show="!folded(gi)">']
+  ]);
+  await shouldCatch('缺省展开写死第一个（排期未到的阶段也糊在脸上）', [
+    ['detail', "if (this.grouped[i].tasks.some(t => t.status === 'todo' && (t.day || 1) <= elapsed)) return i",
+      "if (this.grouped[i].tasks.some(t => t.status === 'todo')) return i"]
+  ]);
+  await shouldCatch('点过还跟着 defaultOpen 走（用户刚收起的又被弹开）', [
+    ['detail', 'this.fold[gi] = !this.folded(gi)', 'delete this.fold[gi]']
+  ]);
+  await shouldCatch('折叠头没有"N 个任务 · 第 x-y 天"摘要', [
+    ['detail', "{{ $t('阶段 {n} · {c} 个任务 · 第 {a}-{b} 天', { n: gi + 1, c: group.tasks.length, a: group.from, b: group.to }) }}",
+      "{{ $t('阶段 {n}', { n: gi + 1 }) }}"]
+  ]);
+
+  realLog('\n== 7. 重排页不能跟 AI 补话（真机反馈：规划好了没法再对话）==');
+  await shouldCatch('补话输入框被删', [
+    ['replan', 'v-model="hint"', 'v-model="hintX"']
+  ]);
+  await shouldCatch('补的话不进 extra（等于没补，还白问一次模型）', [
+    ['replan', "const extra = hint ? ('本人补充（重排时优先考虑这句话）：' + hint) : ''", "const extra = ''"]
+  ]);
+  await shouldCatch('常规重排不带 extra', [
+    ['replan', 'await replanGoal(g, reality, opt, extra)', 'await replanGoal(g, reality, opt)']
+  ]);
+  await shouldCatch('按今日记录重排不带 extra', [
+    ['replan', 'await replanFromToday(g, log, reality, opt, extra)', 'await replanFromToday(g, log, reality, opt)']
+  ]);
+  await shouldCatch('空话也能提交（多点一次调用，结果还一样）', [
+    ['replan', ':disabled="loading || !hint.trim()"', ':disabled="loading"']
+  ]);
+  await shouldCatch('出错态不留补话入口（用户想"换个说法再试"都没地方）', [
+    ['replan', 'class="hint-input hint-err"', 'class="hint-input"']
   ]);
 
   restore();

@@ -989,6 +989,32 @@ export default {
   '进行中目标': 'Active goals',
   '学习 App 管理': 'Manage study apps',
   '新建目标': 'New goal',
+
+  // ---------- 学习 App 页：AI 推荐 + 专注期锁定（2026-10-25） ----------
+  'AI 服务未启用': 'AI service is off',
+  '不知道挑哪个？让 AI 按你的目标从手机里推荐':
+    "Not sure which ones? Let the AI suggest study apps from your phone based on your goals",
+  '让 AI 推荐': 'Ask the AI',
+  '按你的目标推荐': 'Suggest by goal',
+  'AI 正在按你的目标挑学习 App…': 'Picking study apps based on your goals…',
+  'AI 没推荐出来': 'No suggestions this time',
+  '已添加': 'Added',
+  '专注进行中，学习 App 暂时锁定': 'Study apps are locked while focusing',
+  '现在不能添加、移除或改用途 —— 专注完了再来。':
+    "You can't add, remove or re-purpose apps until this focus session ends.",
+  '专注进行中，学完这段再来改': 'Finish this focus session first',
+
+  // ---------- 目标详情：阶段折叠摘要 ----------
+  '阶段 {n} · {c} 个任务 · 第 {a}-{b} 天': 'Stage {n} · {c} tasks · days {a}-{b}',
+
+  // ---------- 重新规划页：跟 AI 补一句话 ----------
+  '对结果不满意？跟 AI 说一声': "Not happy with it? Tell the AI what's off",
+  '例如：这周要补课，晚上才有空；数学想多排点……':
+    'e.g. catching up on class this week — evenings only; give math more slots…',
+  '想跟 AI 说点什么？（可不填，直接再试一次）':
+    'Anything to tell the AI? (optional — or just retry)',
+  '带这句话重新生成': 'Regenerate with this note',
+  'AI 正在重新生成…': 'Regenerating…',
   '权限与后台保活': 'Permissions & background',
   '数据备份': 'Data backup',
   '支持 PWstudy': 'Support PWstudy',

@@ -71,15 +71,25 @@ const cases = [
     s => s.replace("    s.setup.done = true;", "    s.setup.done = false;")],
 
   /* ---------- 新建目标 → 学习 App ---------- */
+  // ⚠️ 2026-10-25：wizard 跳转参数变成 &new=1&ask=1 两个都要在。
+  //    new=1 = "刚建的"（justCreated 的前提）；ask=1 = AI 规划落地必问
+  //    （绕过 appsAsked 全局一次的门槛）。掉哪个都有一条护栏断言盯着。
   ['wizard 建完不带 new=1（详情页没机会放引导）', 'pkgPlan/pages/wizard/wizard.vue',
-    s => s.replace(" + '&new=1'", "")],
+    s => s.replace(" + '&new=1&ask=1'", " + '&ask=1'")],
+  ['AI 规划落地不带 ask=1（那次又被全局一次的门槛憋没）', 'pkgPlan/pages/wizard/wizard.vue',
+    s => s.replace(" + '&new=1&ask=1'", " + '&new=1'")],
   ['详情页不认 new=1（刚建的也当老目标，引导永远不出现）', 'pkgPlan/pages/goal-detail/goal-detail.vue',
     s => s.replace("this.justCreated = !!(query && (query.new === '1' || query.new === 1))",
       "this.justCreated = false")],
   ['onShow 不放引导', 'pkgPlan/pages/goal-detail/goal-detail.vue',
     s => s.replace("    this.maybeAskApps()", "")],
   ['没判"只问一次"（每建一个目标都问一遍，话多）', 'pkgPlan/pages/goal-detail/goal-detail.vue',
-    s => s.replace("      if (setup.appsAsked()) return", "      if (false) return")],
+    s => s.replace("      if (!this.mustAskApps && setup.appsAsked()) return", "      if (false) return")],
+  ['ask=1 的旁路被拆（AI 规划完那次问都不问）', 'pkgPlan/pages/goal-detail/goal-detail.vue',
+    s => s.replace("      if (!this.mustAskApps && setup.appsAsked()) return",
+      "      if (setup.appsAsked()) return")],
+  ['mustAskApps 不重置（问过一次后从列表点进来也绕门槛）', 'pkgPlan/pages/goal-detail/goal-detail.vue',
+    s => s.replace("      mustAskApps: false,", "      mustAskApps: true,")],
   ['根本没记账（打断了下次又问一遍）', 'utils/setup.js',
     s => s.replace("    return !!(s && s.setup && s.setup.appsAsked);", "    return false;")],
   ['点「去添加」不跳学习 App 管理页', 'pkgPlan/pages/goal-detail/goal-detail.vue',

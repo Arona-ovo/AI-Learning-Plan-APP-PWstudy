@@ -234,6 +234,8 @@ const gc = pw.addGoal({ title: '勾选目标', dailyMin: 60 }, {
 });
 const mineRow = schedule.rowsOf(pw.today()).filter(r => r.goalId === gc.id)[0];
 assert(!!mineRow && mineRow.status === 'todo', '今天的事项默认待办');
+// 当日账的前后差值（前面章节已经往今天记过账，这里只能比差值不能比绝对值）
+const minBefore = ((pw.get().daily[pw.today()] || {}).focusMin) || 0;
 const r1 = schedule.toggleDone(mineRow);
 assert(r1.ok === true && r1.done === true, '勾一下 → 已完成（' + r1.msg + '）');
 const tc = () => pw.goalOf(gc.id).tasks.filter(x => x.id === mineRow.id)[0];
@@ -242,7 +244,14 @@ eq(tc().donePomos, 3, '勾完成把差的那 3 段专注补齐（进度条/热�
 const r2 = schedule.toggleDone({ goalId: gc.id, id: mineRow.id, status: 'done' });
 assert(r2.done === false, '再点一下 → 取消完成');
 assert(tc().status === 'todo', '状态回到待办');
-eq(tc().donePomos, 3, '取消完成不回滚已记的专注（做过就是做过）');
+// 2026-10-25 真机反馈改的口径：手工勾补记的专注要跟着退回去，紧迫度才能恢复
+// （手滑点到打勾又取消，首页却显示"还剩 0 段专注"）。真坐过的（计时路径）不退。
+eq(tc().donePomos, 0, '取消完成回滚手工勾补记的专注（紧迫度立刻恢复）');
+const d7 = pw.get().daily[pw.today()] || {};
+eq((d7.focusMin || 0) - minBefore, 0, '当日统计也跟着退（不然热力图记一笔没坐过的时长）');
+// 台账也要撤：重新勾上时"同天同任务只留一条"才成立（不然收工页把同一件事列两遍）
+const led7 = (pw.ledgerOf(pw.today()).items || []).filter(x => x.taskId === mineRow.id).length;
+eq(led7, 0, '取消完成同时撤掉台账那条（重新勾上只记一条）');
 assert(schedule.toggleDone(null).ok === false, '空行不炸');
 
 // UI：两张卡都要有勾选圈，且点击不会顺带触发"整行"的跳转
@@ -255,6 +264,17 @@ assert(/@tap\.stop="toggleTaskDone\(item\)"/.test(homeTpl7), '首页勾选 stop 
 const homeSc7 = home.slice(home.indexOf('\n<script'), home.indexOf('\n<style'));
 assert(/toggleTaskDone\s*\(item\)\s*\{[\s\S]{0,140}schedule\.toggleDone/.test(homeSc7),
   '首页勾选与日程表同一个 toggleDone 口径');
+// 2026-10-25 真机反馈："取消完以后要退出 app 重进，今日任务才会刷新" ——
+// pwstore 是裸对象，App 端不保证 refresh 换了新数组就重渲染（goal-detail 早已
+// 踩过并靠 $forceUpdate 治住）。三个挂勾选的地方都要补这一刀。
+const comSc = com.slice(com.indexOf('\n<script'), com.indexOf('\n<style'));
+const calSc = cal.slice(cal.indexOf('\n<script'), cal.indexOf('\n<style'));
+assert(/toggleTaskDone\s*\(item\)\s*\{[\s\S]{0,900}\$forceUpdate/.test(homeSc7),
+  '⚠️ 首页勾选后强刷（不然取消完要退出重进才刷新）');
+assert(/toggle\s*\(row\)\s*\{[\s\S]{0,1100}\$forceUpdate/.test(comSc || ''),
+  '⚠️ 日程表组件勾选后自己也要强刷（props 重建不保证子组件重渲染）');
+assert(/onListChanged\s*\(\)\s*\{[\s\S]{0,300}\$forceUpdate/.test(calSc || ''),
+  '⚠️ 日历页 changed 后强刷（同上）');
 assert(cal.indexOf('<schedule-list') >= 0 && !/:checkable="false"/.test(cal), '日历页也开着勾选');
 
 console.log(fail === 0 ? '\n日程表与收工校验全部通过' : '\n失败 ' + fail + ' 项 ✗');

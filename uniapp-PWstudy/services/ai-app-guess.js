@@ -70,3 +70,60 @@ export async function guessAppTask(name, pkg) {
     task: String(o.task || '').trim().slice(0, 30)
   };
 }
+
+/**
+ * 按当前目标从"手机里已安装的应用"里推荐学习 App（2026-10-25 真机反馈）：
+ * AI 规划完目标，下一步就是把配套的学习 App 登记进来 —— 但几百个应用里
+ * 让用户自己一个个翻太费劲，让 AI 按目标先挑一茬，用户勾一下就行。
+ *
+ * @param {{pkg:string,name:string}[]} apps 已安装且尚未添加的应用（name+pkg）
+ * @param {string} goalsText 目标上下文（目标标题 + 待办任务名，多行）
+ * @returns {Promise<{picks:{pkg:string,task:string}[]}>} 按可能性排序，最多 8 个
+ *   失败时抛错，由调用方兜底（展示"再试一次"，不打断手动添加）。
+ */
+export async function recommendStudyApps(apps, goalsText) {
+  if (!isAIEnabled()) {
+    const err = new Error('AI 服务未启用');
+    err.degradable = true;
+    err.notConfigured = true;
+    throw err;
+  }
+  if (!featureOn('appguess')) {
+    const err = new Error('「AI 猜 App 用途」已在设置里关闭');
+    err.degradable = true;
+    err.notConfigured = true;
+    throw err;
+  }
+  const list = (Array.isArray(apps) ? apps : [])
+    .filter(a => a && a.pkg && a.name)
+    .slice(0, 120)   // 封顶：名单太长又贵又容易让模型走神
+    .map(a => '- ' + a.name + '（' + a.pkg + '）')
+    .join('\n');
+  if (!list) return { picks: [] };
+  const prompt = [
+    '你是学习助手。学习者的目标如下：',
+    String(goalsText || '（未填写）'),
+    '',
+    '下面是他手机里已安装的应用名单。请挑出最可能**用于学习**的'
+    + '（背单词、网课、刷题、词典、笔记、错题、听力这类），最多 8 个，按可能性从高到低排。',
+    '',
+    '规则：',
+    '1. 只输出 JSON，不要任何解释。',
+    '2. 只准从名单里挑，pkg 必须与名单完全一致；拿不准的一律不选。',
+    '3. 娱乐 / 社交 / 视频 / 系统工具类不选（B 站这类学习视频 App 除外 —— 名单里有就选）。',
+    '4. task 是给这个 App 的用途说明，10 字内（如"背单词""看专升本网课"）。',
+    '5. 一个都挑不出就给空数组，不要硬凑。',
+    '',
+    '应用名单：',
+    list,
+    '',
+    '输出示例：{"picks":[{"pkg":"cn.xxx","task":"背单词"}]}'
+  ].join('\n');
+
+  const raw = await complete(prompt, { temperature: 0.3, timeout: 15000 });
+  const o = extractJSON(raw);
+  const picks = (o && Array.isArray(o.picks) ? o.picks : [])
+    .filter(p => p && p.pkg)
+    .map(p => ({ pkg: String(p.pkg), task: String(p.task || '').trim().slice(0, 20) }));
+  return { picks: picks.slice(0, 8) };
+}

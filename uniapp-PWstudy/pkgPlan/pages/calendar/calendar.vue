@@ -152,6 +152,9 @@ export default {
     onListChanged() {
       this.build()
       this.refreshList()
+      // ⚠️ 强刷：勾选圈绑的是 pwstore 裸对象的 status，App 端不保证重建数组就重渲染
+      //    （真机："取消完要退出 app 重进才刷新"，2026-10-25 实锤）。
+      this.$forceUpdate && this.$forceUpdate()
     },
     // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
     /** 勾掉一项 → 弹「恭喜你完成任务」（取消完成不弹） */

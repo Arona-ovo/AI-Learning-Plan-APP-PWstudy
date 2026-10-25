@@ -146,6 +146,37 @@ assert(!/this\.g = pw\.goalOf\(this\.id\)\s*$/.test(gd.replace(/\r?\n[^\n]*/g, '
 assert(/Object\.assign\(\{\}, g\)/.test(gd), 'refresh 里浅拷贝目标对象（同引用赋值 Vue 不重渲染）');
 assert(/this\.g = g \? Object\.assign\(\{\}, g\) : null/.test(gd), '空目标也要落到 this.g（关掉后卡片随之消失）');
 
+/* ---------- 5. 目标详情阶段折叠（goal-detail.vue） ---------- */
+// 真机反馈："这个页面无法把阶段收起来，太长了" —— 长方案一排几十条任务全糊在一屏。
+// 折叠UI 与 wizard 同一套，但缺省不一样：wizard 是预览（展开第一个），
+// 详情页是执行中（展开"当前该做的那个阶段"，全做完了退回第一个）。
+console.log('== 5. 目标详情阶段可折叠（goal-detail.vue）==');
+assert(/@tap="toggleFold\(gi\)"/.test(gd), '阶段卡头部可以点（toggleFold）');
+assert(/v-if="!folded\(gi\)"/.test(gd), '折叠真的藏起任务列表（v-if，不是只变样式）');
+assert(/folded\(gi\) \? \$t\('展开'\) : \$t\('收起'\)/.test(gd), '头部有展开 / 收起的字样');
+assert(/defaultOpen\(\)/.test(gd), '有 defaultOpen（缺省展开哪个阶段）');
+assert(/t\.status === 'todo' && \(t\.day \|\| 1\) <= elapsed/.test(gd),
+  '缺省展开"还有活干且排期已到"的阶段（不是死板的第一个）');
+assert(/this\.fold\[gi\] = !this\.folded\(gi\)/.test(gd),
+  '点过就显式写回（不再跟着 defaultOpen 走，用户意图优先）');
+assert(/\$t\('阶段 \{n\} · \{c\} 个任务 · 第 \{a\}-\{b\} 天'/.test(gd),
+  '折叠头上能看到"N 个任务 · 第 x-y 天"（与 wizard 同一口径）');
+
+/* ---------- 6. 重排页能跟 AI 补一句话（replan.vue） ---------- */
+// 真机反馈："假设目标已经规划好了，不能重新和 AI 对话，然后再生成" ——
+// 结果不合意时用户只能干选或不选。补一句话 = 最低成本的"再对话一次"。
+console.log('== 6. 重排页可对 AI 补一句话（replan.vue）==');
+const rp = R('pkgPlan/pages/replan/replan.vue');
+assert(/v-model="hint"/.test(rp), '有给 AI 补话的输入框（v-model=hint）');
+assert(/extra = hint \? \('本人补充（重排时优先考虑这句话）：' \+ hint\) : ''/.test(rp),
+  '补的话走 extra 通道追加给模型（与自动重排闭环同一入口，不另起一条）');
+assert(/await replanGoal\(g, reality, opt, extra\)/.test(rp), '常规重排带上 extra');
+assert(/await replanFromToday\(g, log, reality, opt, extra\)/.test(rp), '按今日记录重排也带上 extra');
+assert(/:disabled="loading \|\| !hint\.trim\(\)"/.test(rp),
+  '空话不能提交（不然等于没补，还多花一次调用）');
+// 出错时也要留着输入框：用户往往正是想"换个说法再试"
+assert(/class="hint-input hint-err"/.test(rp), '出错态也留着补话入口（换个说法再试）');
+
 console.log('');
 console.log(fail === 0 ? '全部通过 ✓' : '失败 ' + fail + ' 项 ✗');
 process.exit(fail === 0 ? 0 : 1);

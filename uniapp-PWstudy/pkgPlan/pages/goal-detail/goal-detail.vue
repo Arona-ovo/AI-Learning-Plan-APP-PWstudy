@@ -36,12 +36,18 @@
         <view v-if="slotOn" class="gd-tip">任务排了时段的，{{ slotStarts }} 还会各催一次。</view>
       </view>
 
-      <!-- 阶段与任务 -->
+      <!-- 阶段与任务：长方案一排几十条任务，一屏全糊上没法看（真机反馈"太长了"）。
+           头部可点：默认只展开"当前该做的那个阶段"，其余收起，
+           收起时头部能看到"N 个任务 · 第 x-y 天 · 已完成 m"。 -->
       <view class="card" v-for="(group, gi) in grouped" :key="gi">
-        <view class="card-head">
-          <text class="card-title">{{ group.title }}</text>
-          <text class="card-more">阶段 {{ gi + 1 }}</text>
+        <view class="card-head" @tap="toggleFold(gi)">
+          <view class="gd-stage-main">
+            <text class="card-title">{{ group.title }}</text>
+            <text class="gd-stage-sub">{{ $t('阶段 {n} · {c} 个任务 · 第 {a}-{b} 天', { n: gi + 1, c: group.tasks.length, a: group.from, b: group.to }) }}</text>
+          </view>
+          <text class="card-more gd-stage-toggle">{{ folded(gi) ? $t('展开') : $t('收起') }}</text>
         </view>
+        <view v-if="!folded(gi)">
         <view v-for="t in group.tasks" :key="t.id" class="task" @tap="toggle(t)">
           <view class="tk-check" :class="{ 'tk-check-on': t.status === 'done', 'tk-check-drop': t.status === 'dropped', 'tk-check-full': fullOf(t) }">
             {{ t.status === 'done' ? '✓' : '' }}
@@ -63,6 +69,7 @@
           </view>
           <text v-if="t.status === 'todo'" class="tk-drop-btn" @tap.stop="askDrop(t)">砍掉</text>
           <text class="tk-guide" @tap.stop="openGuide(t)">要点</text>
+        </view>
         </view>
       </view>
 
@@ -148,8 +155,14 @@ export default {
       // 统一弹窗（确认框）：页面里"要先问一句"的动作都走它，不再调系统 showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: t('确定'), cancelText: t('取消'), danger: false, value: '', placeholder: '', error: '', seq: 0, action: '' },
       dropTarget: null,
+      // 阶段折叠：fold 里没写的阶段按"是不是当前该做的阶段"缺省
+      // （当前阶段展开，其余收起 —— 长方案打开不至于一屏全糊上）
+      fold: {},
       // 这个目标是**刚建好**跳进来的（wizard 传 new=1）→ 放一次「顺便加学习 App」
       justCreated: false,
+      // wizard 传 ask=1 = AI 刚规划完落地 → 绕过 appsAsked 全局一次的门槛必问
+      //（规划完正是最想把学习 App 配齐的时刻，错过这次入口就没了）
+      mustAskApps: false,
       __appsLater: 0
     }
   },
@@ -165,6 +178,19 @@ export default {
     slotStarts() {
       return timeslot.SLOTS.map(s => s.name + ' ' + s.start).join('、')
     },
+    /**
+     * 缺省该展开哪个阶段：第一个"还有活干"的（todo 且排期已到）。
+     * 全做完了就退回第一个阶段 —— 头上总得有一个开着的。
+     */
+    defaultOpen() {
+      if (!this.g) return 0
+      const start = this.g.createdAt ? pw.dateStr(new Date(this.g.createdAt)) : pw.today()
+      const elapsed = pw.dayDiff(start, pw.today()) + 1
+      for (let i = 0; i < this.grouped.length; i++) {
+        if (this.grouped[i].tasks.some(t => t.status === 'todo' && (t.day || 1) <= elapsed)) return i
+      }
+      return 0
+    },
     progress() {
       return this.g ? pw.goalProgress(this.g) : { done: 0, total: 0, pct: 0 }
     },
@@ -178,6 +204,11 @@ export default {
         }
         while (out.length <= mi) out.push({ title: this.g.milestones[out.length] ? this.g.milestones[out.length].title : '阶段', tasks: [] })
         out[mi].tasks.push(t)
+      })
+      // 折叠头上的摘要：从第几天排到第几天（与 wizard 结果页同一口径）
+      out.forEach(gr => {
+        gr.from = gr.tasks.reduce((a, t) => Math.min(a, t.day || 1), 9999)
+        gr.to = gr.tasks.reduce((a, t) => Math.max(a, t.day || 1), 0)
       })
       return out
     }
@@ -216,6 +247,16 @@ export default {
       //    App 端不保证因为 refresh 的浅拷贝就重渲染 —— 与每日提醒是同一个坑
       //    （daily.vue 里四处 $forceUpdate 治的就是它）。真机上表现同样是
       //    "点了没反应，退出重进才变"。
+      this.$forceUpdate && this.$forceUpdate()
+    },
+    // ---------- 阶段折叠（头部点开 / 收起，缺省看 defaultOpen） ----------
+    folded(gi) {
+      if (this.fold[gi] === undefined) return gi !== this.defaultOpen
+      return !!this.fold[gi]
+    },
+    toggleFold(gi) {
+      // 显式取反后写回：一旦点过，这个阶段就不再跟着 defaultOpen 走
+      this.fold[gi] = !this.folded(gi)
       this.$forceUpdate && this.$forceUpdate()
     },
     /**
@@ -302,7 +343,10 @@ export default {
     maybeAskApps() {
       if (!this.justCreated) return
       this.justCreated = false              // 本次进程只放一次
-      if (setup.appsAsked()) return
+      // AI 规划落地的那次（wizard 传 ask=1）绕过全局一次的门槛：规划完正是把
+      // 学习 App 配齐的时刻，之前"全局只问一次"会把这次憋没（真机反馈）。
+      // 普通新建仍守 appsAsked，免得每建一个目标都念一遍。
+      if (!this.mustAskApps && setup.appsAsked()) return
       setup.markAppsAsked()                 // 先记账：不管他点哪个，这一轮都算问过了
       if (this.__appsLater) clearTimeout(this.__appsLater)
       this.__appsLater = setTimeout(() => {
@@ -372,6 +416,7 @@ export default {
   onLoad(query) {
     this.id = (query && query.id) || ''
     this.justCreated = !!(query && (query.new === '1' || query.new === 1))
+    this.mustAskApps = !!(query && (query.ask === '1' || query.ask === 1))
   }
 }
 </script>
@@ -417,6 +462,10 @@ export default {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 16rpx;
 }
+/* 折叠头：阶段名 + 摘要一行，右侧展开 / 收起（与 wizard 结果页同一套） */
+.gd-stage-main { flex: 1; min-width: 0; }
+.gd-stage-sub { display: block; margin-top: 4rpx; font-size: 21rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
+.gd-stage-toggle { color: #bb1332; color: var(--brand-strong, #bb1332); }
 .card-title { font-size: 28rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .card-more { font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 

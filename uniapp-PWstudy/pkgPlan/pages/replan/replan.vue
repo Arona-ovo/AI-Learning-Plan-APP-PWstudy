@@ -13,6 +13,15 @@
     <!-- 出错 -->
     <view v-else-if="error" class="state">
       <text class="error">{{ error }}</text>
+      <textarea
+        class="hint-input hint-err"
+        v-model="hint"
+        :maxlength="200"
+        :disabled="loading"
+        :placeholder="$t('想跟 AI 说点什么？（可不填，直接再试一次）')"
+        placeholder-style="color:#a8b0ab;font-size:25rpx"
+        :auto-height="true"
+      />
       <button class="btn-primary retry" @tap="run">再试一次</button>
     </view>
 
@@ -46,6 +55,25 @@
         <button class="btn-ghost act-btn" @tap="back">先不改</button>
         <button class="btn-primary act-btn" :disabled="!pickedCount" @tap="apply">应用选中的 {{ pickedCount }} 条</button>
       </view>
+
+      <!-- 对 AI 补一句话再重排（2026-10-25 真机反馈："目标规划好了，
+           却不能重新和 AI 说话再生成"）。这里就是那个说话的口子：
+           写点近况 / 新要求，AI 会把这句话当成本人意见一起看。 -->
+      <view class="card hint-card">
+        <view class="hint-title">{{ $t('对结果不满意？跟 AI 说一声') }}</view>
+        <textarea
+          class="hint-input"
+          v-model="hint"
+          :maxlength="200"
+          :disabled="loading"
+          :placeholder="$t('例如：这周要补课，晚上才有空；数学想多排点……')"
+          placeholder-style="color:#a8b0ab;font-size:25rpx"
+          :auto-height="true"
+        />
+        <button class="btn-primary hint-btn" :disabled="loading || !hint.trim()" @tap="run">
+          {{ loading ? $t('AI 正在重新生成…') : $t('带这句话重新生成') }}
+        </button>
+      </view>
     </view>
   </view>
 </template>
@@ -61,7 +89,9 @@ export default {
   data() {
     return {
       id: '', loading: false, error: '', result: null, pick: {},
-      overdueText: '', streakText: '', fromLog: false, logText: ''
+      overdueText: '', streakText: '', fromLog: false, logText: '',
+      // 用户想对 AI 补的话（可为空）：run() 会把它作为"本人最新意见"喂给模型
+      hint: ''
     }
   },
   computed: {
@@ -119,9 +149,12 @@ export default {
           : 0
         const opt = { maxDeferDays: maxDeferDays }
         const log = this.fromLog ? dailylog.logOf(pw.today()) : null
+        // 用户补的话 = 本人最新意见，走 extra 追加给模型（自动重排闭环用的同一入口）
+        const hint = String(this.hint || '').trim()
+        const extra = hint ? ('本人补充（重排时优先考虑这句话）：' + hint) : ''
         this.result = log
-          ? await replanFromToday(g, log, reality, opt)
-          : await replanGoal(g, reality, opt)
+          ? await replanFromToday(g, log, reality, opt, extra)
+          : await replanGoal(g, reality, opt, extra)
         this.pick = {}
         // 默认勾选：策略与内容类直接采纳；时间类（改期限/顺延）交给用户确认 —— 它是最后手段
         this.result.ops.forEach((op, i) => { this.pick[i] = op.op !== 'note' && op.level !== 'time' })
@@ -283,6 +316,26 @@ export default {
 .op-reason { margin-top: 8rpx; font-size: 23rpx; line-height: 1.6; color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .state-inline { padding: 40rpx 30rpx; }
+
+/* 补话重排（"跟 AI 说一声再生成"） */
+.hint-card { padding-bottom: 30rpx; }
+.hint-title { font-size: 27rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
+.hint-input {
+  margin-top: 16rpx;
+  width: 100%; min-height: 120rpx;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.7);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.7);
+  border: 2rpx solid rgba(255, 255, 255, 0.8);
+  border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.8));
+  border-radius: 16rpx;
+  padding: 18rpx 22rpx;
+  font-size: 26rpx; line-height: 1.6;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+.hint-err { margin-top: 24rpx; }
+.hint-btn { margin-top: 18rpx; height: 84rpx; font-size: 27rpx; }
 
 .actions { display: flex; margin: 10rpx 0 30rpx; }
 .act-btn { flex: 1; }

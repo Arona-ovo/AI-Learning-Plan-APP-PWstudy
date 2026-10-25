@@ -793,9 +793,10 @@ export default {
       planTask.reset()
       uni.showToast({ title: '目标已落地', icon: 'success' })
       setTimeout(() => {
-        // new=1 = "这个目标是刚建的"。详情页靠它放一次「顺便把学习 App 加上」的引导 ——
-        // 刚定完目标正是最想把背单词/刷题那几个 App 登记进来的时刻，过一会儿就忘了。
-        uni.redirectTo({ url: '/pkgPlan/pages/goal-detail/goal-detail?id=' + g.id + '&new=1' })
+        // new=1 = "这个目标是刚建的"；ask=1 = AI 刚规划完 → 详情页必问一次
+        //「顺便把学习 App 加上」（不受 appsAsked 全局一次的门槛限制 ——
+        // 规划完正是最想配齐学习 App 的时刻，真机反馈后加的）。
+        uni.redirectTo({ url: '/pkgPlan/pages/goal-detail/goal-detail?id=' + g.id + '&new=1&ask=1' })
       }, 600)
     }
   }

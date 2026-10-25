@@ -171,15 +171,25 @@ eq(setup.appsAsked(), true, '★ 问过一次就记下了（不会每建一个�
 eq(settings.defaults().setup.appsAsked, false, 'settings 默认值里有 appsAsked（老数据升级上来是 false）');
 
 const wiz = R('pkgPlan/pages/wizard/wizard.vue');
-assert(/goal-detail\?id=' \+ g\.id \+ '&new=1'/.test(wiz),
+// new=1 仍要在（详情页靠它认出"刚建的"）；ask=1 是 2026-10-25 加的"AI 规划落地必问"
+// 后缀参数，所以这里允许 &new=1 后面还挂着别的 query。
+assert(/goal-detail\?id=' \+ g\.id \+ '&new=1(&|')/.test(wiz),
   '★ wizard 建完目标跳转时带上 new=1（详情页靠它认出"刚建的"）');
+assert(/goal-detail\?id=' \+ g\.id \+ '&new=1&ask=1'/.test(wiz),
+  '★ AI 规划落地那次带 ask=1（绕过 appsAsked 全局一次的门槛，真机反馈）');
 
 const gd = R('pkgPlan/pages/goal-detail/goal-detail.vue');
 assert(/onLoad\(query\)[\s\S]{0,200}justCreated[\s\S]{0,120}query\.new/.test(gd),
   '详情页 onLoad 读了 new 参数');
 assert(/onShow\(\)[\s\S]{0,200}maybeAskApps\(\)/.test(gd), 'onShow 会放一次引导');
 assert(/if \(!this\.justCreated\) return/.test(gd), '没带 new=1 进来 → 不放（从列表点进来的不该被问）');
-assert(/if \(setup\.appsAsked\(\)\) return/.test(gd), '问过了就不再问');
+// 普通新建仍守"全局只问一次"；只有 wizard 传 ask=1（AI 规划落地）才绕过 ——
+// 不加 mustAskApps 这道门的话，每建一个目标都会念一遍（话多）；全绕过的话，
+// AI 规划完那次又被全局门槛憋没（真机反馈：规划完最好顺势把学习 App 设了）。
+assert(/if \(!this\.mustAskApps && setup\.appsAsked\(\)\) return/.test(gd),
+  '问过了就不再问（AI 规划落地 ask=1 除外）');
+assert(/mustAskApps: false/.test(gd), 'mustAskApps 每次进页面都重置（不然问过一次后从列表点进来也绕门槛）');
+assert(/query\.ask/.test(gd), 'onLoad 读 ask 参数');
 // 先记账再弹：不然用户还没点就被别的路径打断，下次又弹一遍。
 // ⚠️ 必须同时判 `iMark > 0`：把那行整个删掉的话 indexOf 是 -1，而 -1 小于任何
 //    下标 —— 那条用例会**通过**，于是"根本没记账"反倒成了绿的（假绿）。

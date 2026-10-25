@@ -2526,6 +2526,11 @@ export default {
       try { uni.showToast({ title: r.msg, icon: 'none' }) } catch (e) {}
       // 勾完就不在"今日待办"里了 → 队列、紧迫度、目标进度都要重算
       this.refresh()
+      // ⚠️ 补一刀强刷：勾选的 ✓ 走的是 queue → pwstore 里的**裸对象**，
+      //    App 端不保证因为 refresh 换了新数组就重渲染 —— 与 goal-detail.vue 的
+      //    toggle / daily.vue 是同一个坑（真机表现："点了没反应，退出重进才变"，
+      //    2026-10-25 用户实锤）。H5 上这行是空转，无害。
+      this.$forceUpdate && this.$forceUpdate()
       // 勾完成 → 弹「恭喜你完成任务」（取消完成不弹）
       if (r.done) {
         this.openDoneDialog({

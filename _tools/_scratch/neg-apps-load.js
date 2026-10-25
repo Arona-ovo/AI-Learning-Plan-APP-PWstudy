@@ -19,7 +19,8 @@ const ROOT = path.join(__dirname, '..', '..', 'uniapp-PWstudy');
 const CHECK = path.join(__dirname, '..', 'check-apps-load.js');
 const FILES = {
   apptime: path.join(ROOT, 'utils', 'apptime.js'),
-  appsVue: path.join(ROOT, 'pkgPlan', 'pages', 'apps', 'apps.vue')
+  appsVue: path.join(ROOT, 'pkgPlan', 'pages', 'apps', 'apps.vue'),
+  aiGuess: path.join(ROOT, 'services', 'ai-app-guess.js')
 };
 
 const backup = {};
@@ -153,6 +154,78 @@ async function shouldCatch(label, mutations) {
   ]);
   await shouldCatch('kb-open 不再补底部空白', [
     ['appsVue', '.add-card.kb-open { padding-bottom: 220rpx; }', '.add-card.kb-open { }']
+  ]);
+
+  realLog('\n== 7. 专注期锁定被拆（2026-10-25 真机反馈：不能改 app，否则强制等于摆设）==');
+  // 反馈原话："专注的时候不能改 app，不然强制等于摆设" —— 专注中途把娱乐 App
+  // 加成"学习 App"，强制模式就被从内部拆穿了。锁要长在**每个入口**上。
+  await shouldCatch('refresh 不重算 focusLock（锁永远停在初始 false）', [
+    ['appsVue', 'try { this.focusLock = !!focusMod.current() } catch (e) { this.focusLock = false }',
+      'try { this.focusLock = false } catch (e) { this.focusLock = false }']
+  ]);
+  await shouldCatch('锁着时编辑面板不收起（留着半开的添加口）', [
+    ['appsVue', 'if (this.focusLock) {\n        this.adding = false', 'if (false) {\n        this.adding = false']
+  ]);
+  await shouldCatch('删掉锁定横幅（用户不知道为什么点不动）', [
+    ['appsVue', '<view v-if="focusLock" class="card pc-lock">', '<view v-if="false" class="card pc-lock">']
+  ]);
+  await shouldCatch('「＋ 添加」不摇头（专注期间还能开添加面板）', [
+    ['appsVue', 'tapAddToggle() {\n      if (this.focusLock) { this.lockToast(); return }',
+      'tapAddToggle() {\n      void 0']
+  ]);
+  await shouldCatch('点候选行不摇头（专注期间还能往里加 App）', [
+    // ⚠️ startAdd 的第一句是 isAdded 检查，guard 在第二行 —— 锚点要带上前一行
+    ['appsVue', 'startAdd(c) {\n      if (this.isAdded(c)) return\n      if (this.focusLock) { this.lockToast(); return }',
+      'startAdd(c) {\n      if (this.isAdded(c)) return']
+  ]);
+  await shouldCatch('手动输包名不摇头', [
+    ['appsVue', 'startAddManual() {\n      if (this.focusLock) { this.lockToast(); return }',
+      'startAddManual() {\n      void 0']
+  ]);
+  await shouldCatch('编辑已添加 App 不摇头（能把娱乐 App 的用途改成"学习"）', [
+    ['appsVue', 'startEditDock(a) {\n      if (this.focusLock) { this.lockToast(); return }',
+      'startEditDock(a) {\n      void 0']
+  ]);
+  await shouldCatch('AI 推荐不摇头', [
+    ['appsVue', 'async aiRecommend() {\n      if (this.focusLock) { this.lockToast(); return }',
+      'async aiRecommend() {\n      void 0']
+  ]);
+  await shouldCatch('删除已添加 App 不摇头', [
+    ['appsVue', 'askRemove(a) {\n      if (this.focusLock) { this.lockToast(); return }',
+      'askRemove(a) {\n      void 0']
+  ]);
+  await shouldCatch('锁定提示不说人话（只看到"操作失败"之类）', [
+    ['appsVue', "uni.showToast({ title: this.$t('专注进行中，学完这段再来改'), icon: 'none' })",
+      "uni.showToast({ title: 'x', icon: 'none' })"]
+  ]);
+  await shouldCatch('onShow 不走 refresh（专注结束回到本页还锁着）', [
+    ['appsVue', 'onShow() {\n    this.refresh()', 'onShow() {\n    void 0']
+  ]);
+
+  realLog('\n== 8. AI 推荐被拆（2026-10-25 真机反馈：规划完顺势把学习 App 配齐）==');
+  await shouldCatch('不过滤幻觉包名（AI 编个不存在的 App 也进白名单）', [
+    ['appsVue', '.filter(p => byPkg[p.pkg])', '.filter(p => true)']
+  ]);
+  await shouldCatch('推荐不带目标上下文（AI 不知道挑什么，只能瞎猜）', [
+    ['appsVue', 'aiGuess.recommendStudyApps(cands, this.goalsContext())',
+      "aiGuess.recommendStudyApps(cands, '')"]
+  ]);
+  await shouldCatch('失败时不给"再试一次"（AI 挂了用户不知道还能再试）', [
+    ['appsVue', "{{ aiRec.err ? $t('AI 没推荐出来') : $t('不知道挑哪个？让 AI 按你的目标从手机里推荐') }}",
+      "{{ $t('不知道挑哪个？让 AI 按你的目标从手机里推荐') }}"]
+  ]);
+  await shouldCatch('AI 关着时也显示推荐入口（点了只会失败）', [
+    ['appsVue', 'v-if="aiEnabled && !aiRec.items.length && !aiRec.loading"',
+      'v-if="!aiRec.items.length && !aiRec.loading"']
+  ]);
+  await shouldCatch('名单不封顶（几百个 App 全塞给模型，又贵又走神）', [
+    ['aiGuess', '.slice(0, 120)', '']
+  ]);
+  await shouldCatch('推荐不封顶（一屏列几十个，还是得自己翻）', [
+    ['aiGuess', 'picks.slice(0, 8)', 'picks']
+  ]);
+  await shouldCatch('没配 AI 时不说原因（用户以为功能坏了）', [
+    ['appsVue', "if (e && e.notConfigured) this.aiRec.err = this.$t('AI 服务未启用')", 'void 0']
   ]);
 
   restore();

@@ -87,7 +87,9 @@ export function dateLabel(date) {
  *
  * 记专注数那一步在 pw.setTaskStatus 里：勾完成会**把差的那几段专注补上**
  * （走 creditPomo，不是直接改字段）—— 否则状态是"已完成"而进度还是 0%，
- * 和专注计时路径两套口径。取消完成不回滚已记的专注（做过就是做过）。
+ * 和专注计时路径两套口径。取消完成会回滚**手工勾补记**的那笔（2026-10-25 真机
+ * 反馈：手滑点到打勾又取消，紧迫度回不来）；真实坐过的专注（计时路径）不回滚，
+ * 见 pwstore.revertManualCredit 的口径说明。
  *
  * @returns {{ok:boolean, done:boolean, msg:string}}
  */

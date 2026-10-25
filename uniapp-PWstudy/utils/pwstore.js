@@ -310,6 +310,48 @@ function markTaskDone(g, t, src, date) {
   if (first) ledgerAdd(g.id, t.id, src || 'manual', date);
 }
 
+/**
+ * 取消完成时，回滚**手工勾**补记的那笔专注（2026-10-25 真机反馈）：
+ * 手滑点到打勾又取消，紧迫度却回不来 —— 因为勾的时候 creditPomo 把差的专注
+ * 全补齐了（donePomos、当日 focusMin/pomo、台账、合成 session 四处都记了账），
+ * 取消时只把 status 拨回去，账还挂着 → 首页"还剩 0 段专注 · 还要 0 分钟"。
+ *
+ * 回滚口径（只退"勾出来的"，真坐过的不动）：
+ *   · 只认 src='manual' 的合成 session（creditPomo 落的）—— 真实专注（pomo 路径）
+ *     和收工补记（log/chat）一律不退，做过就是做过；
+ *   · session 删掉，当日 focusMin / pomo 按这笔减回去；
+ *   · 台账 done.items 撤掉该任务那一条（重新勾上会再记，符合"同天同任务只留一条"）；
+ *   · donePomos 减回去 —— 紧迫度 / 今日队列立刻恢复"还有活"。
+ * 返回回滚的专注数（0 = 没有"勾出来的"账可退）。
+ */
+function revertManualCredit(g, t) {
+  const st = get();
+  let idx = -1;
+  for (let i = st.sessions.length - 1; i >= 0; i--) {
+    const s = st.sessions[i];
+    if (s && s.src === 'manual' && s.done && s.goalId === g.id && s.taskId === t.id) { idx = i; break; }
+  }
+  if (idx < 0) return 0;   // 没有"勾出来的"专注 —— 真做过的不动
+  const s = st.sessions[idx];
+  st.sessions.splice(idx, 1);
+  // 勾的时候 min = 补记段数 × 单段时长；按当时落账那天减
+  const add = Math.max(1, Math.round((s.min || 0) / Math.max(1, focusLen())));
+  const key = s.startAt ? dateStr(new Date(s.startAt)) : today();
+  const d = st.daily[key];
+  if (d) {
+    d.focusMin = Math.max(0, (d.focusMin || 0) - (s.min || 0));
+    d.pomo = Math.max(0, (d.pomo || 0) - add);
+  }
+  const l = ledgerOf(key);
+  if (l && Array.isArray(l.items)) {
+    const before = l.items.length;
+    l.items = l.items.filter(x => x.taskId !== t.id);
+    if (l.items.length !== before) l.updatedAt = Date.now();
+  }
+  t.donePomos = Math.max(0, (t.donePomos || 0) - add);
+  return add;
+}
+
 /** 任务状态流转 */
 export function setTaskStatus(goalId, taskId, status) {
   const g = goalOf(goalId);
@@ -328,6 +370,12 @@ export function setTaskStatus(goalId, taskId, status) {
     markTaskDone(g, t, 'manual');
     touch();
     return;
+  }
+  // done → todo（取消完成）：把"手工勾"补记的那笔账退回去，紧迫度才能恢复。
+  // 真实专注（计时路径）不受影响 —— 见 revertManualCredit 的口径说明。
+  if (t.status === 'done' && status === 'todo') {
+    revertManualCredit(g, t);
+    t.doneAt = 0;
   }
   t.status = status;
   touch();
