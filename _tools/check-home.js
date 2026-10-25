@@ -139,13 +139,11 @@ function eq(a, b, label) {
   MUST_IDS.forEach(id => {
     assert(tpl.indexOf("id === '" + id + "'") >= 0, '卡片分支 v-if="id === \'' + id + '\'"');
   });
-  // 紧迫度卡：只有排了任务才出现（u.empty = 今天一段专注都没排），
-  // 否则新用户进来会看到一张"全空"的环，不知道它在说什么。
-  // 这条判据现在在 cardVisible() 里，模板只管渲染 —— 少一层判断就会掉进
-  // "编辑态必须显形" 的坑，所以这里改成验脚本。
-  // 判据搬到脚本里了（cardVisible），这里拆开验两段：门槛是 !u.empty，且挂在 urgency 上
-  assert(/cardVisible\(id\)\s*\{[\s\S]*?id === 'urgency'[\s\S]*?!\s*this\.u\.empty/.test(sc0),
-    '紧迫度卡：今日无任务时不显示（cardVisible）');
+  // 紧迫度卡：2026-10-24 起改为常显（用户反馈"卡莫名其妙不见了"），
+  // 不再按 u.empty 隐藏；空态由卡片自己的占位文案兜底。编辑态仍全部显形（见下）。
+  // 判据在 cardVisible() 里；这里验它**不再**按 u.empty 隐藏。
+  assert(!/cardVisible\(id\)\s*\{[\s\S]*?id === 'urgency'[\s\S]*?!\s*this\.u\.empty/.test(sc0),
+    '紧迫度卡：改为常显（今日无任务也显示）');
   // 编辑态必须反过来：哪怕 u.empty 也要显形，否则收纳后永远捞不回来
   assert(/cardOrder\(\)\s*\{[\s\S]*?if\s*\(this\.editing\)\s*return ids/.test(sc0),
     '编辑态 cardOrder 返回全部（条件卡也显形）');

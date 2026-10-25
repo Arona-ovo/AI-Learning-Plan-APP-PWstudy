@@ -22,6 +22,7 @@
  */
 import Service from 'android.app.Service';
 import Activity from 'android.app.Activity';
+import ActivityOptions from 'android.app.ActivityOptions';
 import Intent from 'android.content.Intent';
 import IBinder from 'android.os.IBinder';
 import Build from 'android.os.Build';
@@ -86,13 +87,26 @@ const WINDOW_TYPE_PHONE: Int = 2002;
 // 所以那两处直接写字面量，见 WatchLoop.run()。
 const PULL_GAP_SEC: Int = 2;       // 两次"拉回"之间的最小间隔（秒），免得跟系统切前台打架
 const PULL_INTERCEPT_SEC: Int = 3; // 拦截页倒计时（秒）：给用户一个明确的"要被拉回"预期，到点自动跳回
-const ESC_TICKS: Int = 2;          // 连续几次判定为"非白名单前台"才算一次真逃逸（抗抖动）
+// ★ 1 = 第一次看见"非白名单前台"就动手（2026-10-24 从 2 改下来）。
+//   以前留 2 是"抗抖动"：多攒一个心跳，怕用户只是路过别的 App。
+//   代价是轮询那条路上凭空多等一整拍 —— 用户按 HOME 回桌面，屏幕上先**真的**出现
+//   桌面，1.5~2.3 秒后拦截页才姗姗来迟，观感就是"强制模式反应慢"（用户原话：
+//   "那个页面最好弹出再快一点"）。桌面现在明确算逃逸，这一拍没有存在价值了：
+//   真误判的代价只是一次拉回（人还在合规 App 里的话，下一拍 seen() 就复位）。
+const ESC_TICKS: Int = 1;
+// 拦截页刚 startActivity 出去之后的"遮罩静默期"（秒）。
+// 遮罩和拦截页都是全屏黑，谁后到谁盖住谁 —— 拦截页才是要的那条（3 秒倒数自动回），
+// 遮罩只是它被 ROM 拦掉时的兜底。拉回那一拍立刻判定前台的话，拦截页还没抢到焦点，
+// needOverlay() 必然为真 → 遮罩当场盖在拦截页上面，用户就得自己点一下。
+// 给拦截页这段时间先把前台抢过来；真被拦掉的话静默期一过，下一拍照样上遮罩。
+const INTERCEPT_GRACE_SEC: Int = 2;
 const FG_WINDOW_MS: Int = 5000;    // 事件配对那条的回溯窗口（毫秒）—— 只当**辅助**用，见 queryForeground
 const WATCH_MAX_SEC: Int = 43200;  // 看门狗自动收手上限：12 小时
 const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24 次（约 50 秒）还没成功就先撤下来
 // 连续几次"查不出前台是谁"才算真的瞎了（瞎了就撤遮罩收手，别把人锁在看不清的屏幕上）。
-// 冷态一跳 1.5 秒，20 次 ≈ 30 秒，足够趟过锁屏 / 切桌面这类短暂查不到的窗口。
-const BLIND_MAX_TICKS: Int = 20;
+// 冷态一跳 0.6 秒（见 WatchLoop.run），50 次 ≈ 30 秒，足够趟过锁屏 / 切桌面这类短暂查不到的窗口。
+// ⚠️ 这个数字是按"跳数"算的，改 WatchLoop 的节奏必须同步折算，否则静默期会缩放。
+const BLIND_MAX_TICKS: Int = 50;
 // 无障碍事件"静默"多久之后，不再无条件信它报上来的包名，而是拿 UsageStats 交叉验证（秒）。
 //
 // ⚠️ 注意它**不是**"过期就丢弃"的判据。窗口事件是"变化才发"，用户切到微信然后一直
@@ -165,10 +179,11 @@ let mainHandler: Handler | null = null;
  * 看门狗负责按同一套策略决定拉不拉、拉多狠。
  */
 let svcRef: PWFocusService | null = null;   // 看门狗服务的实例（护卫要靠它跑同一套判定）
-// 无障碍服务的实例。**拉回必须经它** —— 见 pullFromGuard() 的注释：
-// 安卓 10+ "后台启动 Activity" 的官方豁免只给被系统绑定的无障碍服务，
-// 应用进程里怎么调 startActivity 都还是会被拦。以前没这条通路，
-// 于是"无障碍开了、状态条说已就绪、切走以后毫无反应"。
+// 无障碍服务的实例。它提供两样东西：① **眼睛**（前台包名由系统事件直推，比轮询
+// UsageStats 又快又准）② 一条"最短路径"的拉回（见 pullFromGuard 的注释）。
+// ⚠️ 它**不是**"拉回来"的保证 —— 老结论"服务内 startActivity 能拿到后台启动豁免"是错的：
+//    无障碍服务属于**自己 App** 的组件，不是"被另一个可见应用绑定"，AMS 照样静默拦。
+//    唯一的豁免入口是 SYSTEM_ALERT_WINDOW（悬浮窗），那是准入条件，不是兜底。
 let guardRef: PFGuardService | null = null;
 let guardOn = false;                // 无障碍服务是否已连上（系统绑定成功）
 let guardPkg = '';                  // 护卫最近一次报上来的"应用窗口"包名
@@ -176,6 +191,12 @@ let guardAtSec = 0;                 // 上报时刻（秒），过期就不再�
 let guardEvents = 0;                // 护卫累计收到的窗口事件数（诊断用）
 let guardConnAtSec = 0;             // 护卫最近一次连上的时刻（判断"这次稳不稳"用）
 let kickWanted = false;             // 有"人刚切走"的信号 → 让看门狗线程立刻醒一次，别等满一轮
+// 拦截页刚被拉起来时的时间戳（秒）：这段时间内先别盖遮罩，让拦截页把前台抢过去。
+// 见 INTERCEPT_GRACE_SEC 的注释 —— 遮罩和拦截页都是全屏黑，谁后到谁盖住谁，
+// 而我们要的是拦截页（3 秒倒数自动回），遮罩只是它被 ROM 拦掉时的兜底。
+// ⚠️ 必须显式 `: Int`：裸 `let x = 0` 会被推成 **Number**，而 nowSec() 返回 Int，
+//    Kotlin 里 `Int < Number` 没有 compareTo 重载 → 云打包直接编译不过。
+let interceptGraceUntilSec: Int = 0;
 
 /* -------- 保险丝：服务被反复 bind = 服务在崩，不能再让它崩 --------
  *
@@ -541,7 +562,14 @@ class PWFocusService extends Service {
     //    那条路永远只能报"没抛异常"），而是**再看一眼前台**：还是别人就说明没拉回来。
     //    早期版本写的是 `pullTries >= 2`，等于白等一个来回（约 2 秒）才上遮罩，
     //    用户那 2 秒里是彻底自由的 —— 这正是"切走以后什么都没发生"的观感来源之一。
-    if (!ok || this.needOverlay()) postOverlay(true);
+    //
+    // ★ 但刚拉过拦截页的那一下要留一段静默期（INTERCEPT_GRACE_SEC）：
+    //   拦截页是 startActivity 出去的，此刻前台**还没**切过去，needOverlay() 必然为真。
+    //   立刻盖遮罩的话，遮罩会压在拦截页上面，用户得自己点一下才回去 ——
+    //   等于把"3 秒倒数自动回"废掉，观感还更差（黑屏闪一下再换一张黑屏）。
+    //   静默期内不盖；拦截页真被 ROM 拦掉的话，静默期一过下一拍照样盖。
+    let inGrace = now < interceptGraceUntilSec;
+    if (!ok || (this.needOverlay() && !inGrace)) postOverlay(true);
     // 安全阀：连续拉了很多次还回不来（多半是遇到了我们没认出来的桌面/输入法，
     // 或某个 ROM 把前台事件吞了），先把遮罩撤掉，免得把人锁在屏幕外面。
     // 拉回动作本身照旧继续（下面还在跑），下一轮逃逸会重新盖上。
@@ -589,17 +617,21 @@ class WatchLoop extends Thread {
       } catch (e) {
         hot = false;
       }
-      // 400 = 已经判定跑偏，高频重试（人一回来就能立刻撤遮罩）；
-      // 1500 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
+      // 300 = 已经判定跑偏，高频重试（人一回来就能立刻撤遮罩）；
+      // 600 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
       // 而 UTS 的 Int 常量不会自动放宽成 Long。
+      // ★ 2026-10-24：正常态 1500 → 600。用户实测"按 HOME 回桌面，桌面先静止在那儿
+      //   一秒多，拦截页才弹"。机身自己在正常态只是 0.6 秒查一次前台，代价很小
+      //   （一次 UsageStats 查询，专注期间才跑，最长也就一轮专注那么久），
+      //   换来的是"一按 HOME 几乎立刻被盖住"——这才是强制模式该有的手感。
       // 切成 100ms 小段睡：无障碍事件一报"用户切走了"就置 kickWanted，
-      // 这样最迟 100ms 内就会重判一次（否则最坏要等满 1.5 秒才知道人跑了）。
+      // 这样最迟 100ms 内就会重判一次（否则最坏要等满一轮）。
       // 小段的代价只是一次标志位判断，不建对象、不抢锁。
       //
       // ⚠️ 这里是"睡几轮"而不是"睡多少毫秒"：Thread.sleep 收 Long，
       // 而 UTS 的 Int 变量**不会**自动放宽成 Long（Kotlin 里 Int→Long 也不隐式转换），
       // 把算出来的毫秒数传进去会编译失败。字面量 100 才是安全的。
-      let rounds = hot ? 4 : 15;
+      let rounds = hot ? 3 : 6;
       for (let i = 0; i < rounds; i++) {
         if (kickWanted) {
           kickWanted = false;
@@ -643,8 +675,11 @@ function uiPost(task: Runnable) {
  * 用户点不到下面的内容 —— 这是唯一"绕不过去"的一层，代价是需要用户授权
  * 「显示在其他应用上层」（SYSTEM_ALERT_WINDOW）。
  *
- * 安全阀：遮罩只在"前台确实是那个非白名单 App"时挂着。用户按 Home 回桌面（中性包）
- * 或被拉回 PWstudy，下一次心跳（热态 400ms）就把遮罩撤掉，不会把手机锁死。
+ * 安全阀：遮罩只在"前台确实是那个非白名单 App"时挂着。用户被拉回 PWstudy
+ * 或被系统界面接管（设置 / 来电 / 最近任务）时，下一次心跳（热态 300ms）就把遮罩撤掉，
+ * 不会把手机锁死。
+ * ⚠️ 桌面**不在这张保险网里**（2026-10-24）：回桌面是强制模式最该拦的一下，
+ *    放行它等于强制模式永远不响。锁死风险改由四道闸兜（见 utils/apptime.js 的 NEUTRAL 注释）。
  */
 class PullOverlay extends TextView {
   constructor(ctx: Context) {
@@ -1301,7 +1336,11 @@ function pullSelf(round: Int): boolean {
   //    自动跳回计时页。没授权（或 MIUI 的「后台弹出界面」没开）时它会被**静默**拦掉、
   //    返回 true 是假的 —— 所以只在奇数轮先走它，偶数轮照旧走下面两条老路，
   //    假 true 不会把 moveTaskToFront / launch 永远堵死；遮罩由 needOverlay 兜底照盖。
-  if ((round % 2) == 1 && pullByIntercept()) return true;
+  if ((round % 2) == 1 && pullByIntercept()) {
+    // 刚把拦截页拉起来 → 进入遮罩静默期，别让遮罩抢在它前面盖住（见 INTERCEPT_GRACE_SEC）
+    interceptGraceUntilSec = nowSec() + INTERCEPT_GRACE_SEC;
+    return true;
+  }
 
   // ⓪ 无障碍豁免通路（2026-10-14 新增，且必须排第一）：
   //    护卫被系统绑定时，从服务内部启动 Activity 才拿得到后台启动豁免 ——
@@ -1343,7 +1382,15 @@ function pullByIntercept(): boolean {
     // PWPullActivity 由系统创建、源码里没有第二个 new，这里就是那个钉住它的引用
     let i = new Intent(ctx!, (new PWPullActivity()).javaClass)
     i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-    ctx!.startActivity(i)
+    // ★ 0,0 = 不要窗口切换动画（2026-10-24）。默认那套缩放/淡入要 200~300ms，
+    //   而这一页存在的意义就是"在用户看到桌面之前把它盖住" —— 慢慢淡入等于白做。
+    //   拿不到 ActivityOptions（极老 ROM）就退回普通 startActivity，不影响功能。
+    try {
+      let opts = ActivityOptions.makeCustomAnimation(ctx!, 0, 0)
+      ctx!.startActivity(i, opts.toBundle())
+    } catch (e) {
+      ctx!.startActivity(i)
+    }
     return true
   } catch (e) {
     return false

@@ -89,15 +89,15 @@ assert(dSlide >= 0 && dList > dSlide && dFoot > dSlide,
 
 /* ---------- 2. 条件卡编辑态必须显形 ---------- */
 console.log('== 2. 条件卡编辑态显形（否则收纳后捞不回来） ==');
-// 紧迫度 / 目标这两张卡平时是有条件才显示的（今天没任务 = 空环，没目标 = 空列表）。
-// 如果编辑态也按这个口径过滤，用户一旦把它们收起来，它们就同时满足
-// "不在布局里" 和 "平时不显示" —— 收纳区里根本不会出现，等于永久丢失。
+// 2026-10-24 起首页三卡与下面一摞卡统一常显（cardVisible 兜底 true），
+// 空态由卡片自己的占位文案兜底，因此不再有"按 u.empty / goals.length 隐藏"的判据。
+// 编辑态仍返回全部（下面 cardOrder 断言），收纳后照常能在「添加组件」里捞回来。
 assert(/cardOrder\(\)\s*\{[\s\S]*?if\s*\(this\.editing\)\s*return ids/.test(sc),
   'cardOrder 编辑态返回全部注册表卡片');
-assert(/cardVisible\(id\)\s*\{[\s\S]*?id === 'urgency'[\s\S]*?!\s*this\.u\.empty/.test(sc),
-  '浏览态紧迫度卡：u.empty（今天一段专注都没排）时不显示');
-assert(/cardVisible\(id\)\s*\{[\s\S]*?id === 'goal'[\s\S]*?goals\.length/.test(sc),
-  '浏览态目标卡：没有进行中的目标时不显示');
+assert(!/cardVisible\(id\)\s*\{[\s\S]*?id === 'urgency'[\s\S]*?!\s*this\.u\.empty/.test(sc),
+  '浏览态紧迫度卡：改为常显（u.empty 也显示）');
+assert(!/cardVisible\(id\)\s*\{[\s\S]*?id === 'goal'[\s\S]*?goals\.length/.test(sc),
+  '浏览态目标卡：改为常显（没有进行中的目标也显示占位文案）');
 
 /* ---------- 3. 不能把首页收成白板 ---------- */
 console.log('== 3. 至少留一个组件 ==');

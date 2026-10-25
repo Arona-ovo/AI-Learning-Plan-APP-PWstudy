@@ -103,6 +103,11 @@
            下面那摞卡从折叠线下被推上来 —— 两层不同速，才有"另一层被拉上来"的景深。 -->
       <view class="home-hero" :style="heroCardStyle">
       <view class="hero-body" :style="heroBodyStyle">
+      <!-- 首屏内容整组（三张卡 + 收工按钮）：整组用 auto margin 在首屏里垂直居中。
+           内容比首屏高时 auto margin 自动归零、从顶部顺排 —— 不会把卡片顶部裁到导航栏下。
+           组内一律 20rpx 等距；不再让「开始专注」单独居中、把任务卡甩到屏幕底，
+           那样中间会空出一大截，看着割裂（2026-10-24 反馈"大量的缝隙和空间"）。 -->
+      <view class="hero-main">
       <view class="hcards">
         <block v-for="id in homeOrder" :key="id">
 
@@ -188,6 +193,7 @@
       </view>
       </view>
       </view>
+      </view>
       </block>
     <!-- ===== 其余组件：跟在首屏后面正常滚动 =====
          以前这是一层 fixed 的"抽屉"：非得上滑手势才拉得出来，而那个手势在屏幕
@@ -203,7 +209,7 @@
             拆两层后：.mod-sheet 只吃 transform（建 stacking context，但**不建** backdrop
             root）→ 底板能一路糊到首页背景与首屏内容。 -->
     <view class="mod-throw" :class="popCls">
-    <view class="mod-sheet" :style="sheetRevealStyle">
+    <view class="mod-sheet" :class="{ 'mod-empty': !restOrder.length }" :style="sheetRevealStyle">
     <view class="mod-list" :style="listRevealStyle" @touchmove="dragMove" @touchend="dragEnd" @touchcancel="dragEnd">
           <view
           v-for="(id, i) in restOrder"
@@ -1409,12 +1415,11 @@ export default {
     },
     /** 这张卡平时该不该显示（浏览态口径；编辑态一律显形，理由见 cardOrder） */
     cardVisible(id) {
-      // 今天没排任务时紧迫度卡是个空环，没有信息量 → 平时不出现
-      if (id === 'urgency') return !!(this.u && !this.u.empty)
-      // 没有进行中的目标 → 整张卡是空的
-      if (id === 'goal') return !!(this.goals && this.goals.length)
-      // 日程表由目标派生：没有目标就没有日程可言
-      if (id === 'schedule') return !!(this.goals && this.goals.length)
+      // 2026-10-24 改为统一常显：空状态由卡片自己的占位文案兜底，不再整张消失。
+      // 之前按 u.empty / goals.length 隐藏带来两个问题（用户反馈）：
+      //   ① 紧迫度卡"莫名其妙不见了"——今天没排任务就整张消失；
+      //   ② 底部抽屉因 goal/schedule 被藏，只剩 dock / coach 两张，显得空荡还"只能看到两张"。
+      // 卡片各自的空态文案（"暂时没有进行中的目标" / "今天没有日程" / 紧迫度进度条 0%）已能兜住。
       return true
     },
     // ---------- 日程表卡 ----------
@@ -2482,6 +2487,15 @@ export default {
   display: flex;
   flex-direction: column;
 }
+/* 首屏内容整组（三卡 + 收工）：auto margin 做垂直居中，且**溢出安全** ——
+   内容比首屏高时 auto margin 自动归零、从顶部顺排，不会把卡片顶部裁到导航栏下。
+   组内一律 20rpx 等距（见 .hcards gap），不再让某一张单独居中撑开大缝隙。 */
+.hero-main {
+  width: 100%;
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+}
 
 
 /* 正在拖的那张：抬起来一点 + 加投影，跟底下静止的卡分开 */
@@ -2556,8 +2570,10 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 28rpx;
-  margin-bottom: 40rpx;
+  /* 收紧上下留白：之前 40rpx 的底部外边距 + page-tabbar 的兜底，让抽屉滑到底后
+     露出一大段空白（2026-10-24 反馈"滑到底有空白区域"）。 */
+  margin-top: 20rpx;
+  margin-bottom: 16rpx;
 }
 .foot-btn {
   height: 76rpx;
@@ -2693,9 +2709,9 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 
-/* 紧迫度卡：卡片头那行字是组件自己画的（标题 + 档位胶囊 + ?），
-   所以这里不用再套一层 .card-head，留白比通用卡紧一点。 */
-.urg-card { padding: 30rpx 36rpx 32rpx; }
+/* 紧迫度卡：不再单独设内边距，首页里继承 .hcard（36rpx）、底部抽屉里继承 .card（36rpx），
+   三处边距统一（2026-10-24）。卡片头那行标题 + 档位胶囊 + ? 由组件自己画，无需 .card-head。 */
+.urg-card { padding: 36rpx; }
 
 /* ===== 专注进行中：首页被倒计时"硬控" =====
    这一屏刻意只留三样东西：还剩多久、在为谁计时、继续/停下。
@@ -2824,7 +2840,8 @@ export default {
 .rc-go { font-size: 25rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; }
 
 /* ===== 首页核心操作：今日收工 ===== */
-.home-cta { margin: 8rpx 0 4rpx; }
+/* 收工按钮与上方卡片的间距对齐 20rpx 的组内节奏（原先 8rpx 贴太近） */
+.home-cta { margin: 20rpx 0 4rpx; }
 .cta-btn { width: 100%; }
 .cta-tip {
   display: block; margin-top: 16rpx; text-align: center;
@@ -3344,9 +3361,14 @@ export default {
    ① 开始专注：焦点只有那颗键
    ② 今日任务：焦点是"下一条做什么"，只列三条
    ③ 今日紧迫度：焦点是"还剩多久"，一条时间轴说完 */
-.hcards { display: flex; flex-direction: column; gap: 20rpx; flex: 1 1 auto; min-height: 0; }
+/* 不再 flex:1 撑满首屏（那会把三张卡拉开、中间空一大截）——
+   组的高度由卡片自身决定，整组交给 .hero-main 居中。 */
+.hcards { display: flex; flex-direction: column; gap: 20rpx; flex: 0 0 auto; min-height: 0; }
+/* 首页三卡统一内边距：与底部抽屉的 .card（40rpx 36rpx）对齐到同一条水平边，
+   不再各写一套 → 不同卡片的内容起点不齐、看着像"宽度不一致"（2026-10-24 反馈）。
+   rpx 本身随屏幕动态缩放，这里只消掉"写死的不同 padding"这一层差异。 */
 .hcard {
-  padding: 30rpx 28rpx;
+  padding: 36rpx;
   display: flex;
   align-items: center;
 }
@@ -3356,11 +3378,12 @@ export default {
      周边两张卡（任务 / 紧迫度）各自退到上下边缘并淡化，不抢"开始专注"的焦点 */
 .hcard.focus-card {
   flex: 0 0 auto;
-  margin: auto 0;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 40rpx 32rpx;
+  /* 与 .hcard 同款 36rpx 内边距，确保三张首页卡左右边距完全一致 */
+  padding: 36rpx;
+  /* 不再 margin:auto 0 单独居中 —— 整组由 .hero-main 统一居中，组内 20rpx 等距 */
 }
 .hcard.focus-card .hc-ring { width: 168rpx; height: 168rpx; margin: 0 0 24rpx; }
 .hcard.focus-card .hc-ring-num { font-size: 46rpx; }
@@ -3373,13 +3396,12 @@ export default {
 }
 .hcard.focus-card .hc-title { margin-top: 12rpx; }
 .hcard.focus-card .hc-time { margin-top: 10rpx; }
-/* 周边两张：退到上下边缘并淡化，强化"中心聚焦"的视觉关系 */
+/* 周边两张：不再缩放/淡化 —— 之前 scale(0.97) 会把卡片整体缩窄 3%，
+   与「开始专注」卡、收工按钮的宽度肉眼可见不一致，首页显得割裂（2026-10-24 反馈）。
+   现在三张卡都按 100% 宽度平铺，焦点靠"中心卡更大"本身表达，不靠缩小邻居。 */
 .hcard.task-card,
 .hcard.urg-card {
   flex: 0 0 auto;
-  opacity: 0.74;
-  transform: scale(0.97);
-  transform-origin: center;
 }
 
 /* ① 开始专注：环是今日累计读数；在 .focus-card 里被放大并居中（见上文 .hcard.focus-card） */
@@ -3570,9 +3592,11 @@ export default {
 .mod-sheet::before {
   content: '';
   position: absolute;
-  /* 撑到屏幕两边：底板比卡片宽，边缘才像"抽屉的边" */
-  left: -28rpx;
-  right: -28rpx;
+  /* 与卡片左右边缘对齐：之前 left/right: -28rpx 让底板比卡片宽 56rpx，
+     底部抽屉看起来比首屏三卡"宽出一截"，是首页割裂感的主要来源（2026-10-24 反馈）。
+     现在底板只比卡片上下各探出 24rpx（做"另一层被推上来"的景深），左右严格齐边。 */
+  left: 0;
+  right: 0;
   top: -24rpx;
   bottom: -24rpx;
   z-index: -1;
@@ -3583,6 +3607,9 @@ export default {
   box-shadow: 0 -8rpx 32rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.16);
   border-top: 2rpx solid rgba(255, 255, 255, 0.55);
 }
+/* 极端情况：底部抽屉一张卡都没有（goal/schedule 被收纳且无 dock/coach），
+   只剩一块空玻璃底板，看着很怪 —— 直接不画底板，留「编辑首页」入口即可。 */
+.mod-sheet.mod-empty::before { display: none; }
 /* Q 弹：拉到位瞬间播一次过冲（先冲过头、再回落）。
    ⚠️ 两份**内容完全一样**的 keyframes 交替挂：同名动画摘了再戴，Vue 会在同一次
      渲染里合并掉 → 第二次不播。交替挂才能每次都重触发。 */

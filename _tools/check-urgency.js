@@ -129,7 +129,8 @@ function at(hh, mm) {
   eq(late.availMin, 30, '23:58 可用分钟夹到下限 30');
   eq(late.empty, false, '有任务就不算空');
 
-  // 一段专注都没排：整张卡不出现（首页 v-if="!u.empty"）
+  // 一段专注都没排：u.empty=true（compute 仍正常返回所有字段；首页不再因此隐藏整卡，
+  // 改为由卡片自己的占位文案兜底 —— 2026-10-24 起 cardVisible 统一常显）
   const none2 = scenario({ now: at(12, 0), tasks: [] });
   eq(none2.totalPomos, 0, '空：总专注 0');
   eq(none2.empty, true, '空：empty=true（首页整卡隐藏）');
@@ -273,9 +274,13 @@ function at(hh, mm) {
   console.log('== 9. 首页接线 ==');
   const home = R('pages/home/home.vue');
   // 首页改成自定义布局（注册表 + cardVisible）之后，"显不显示"不再写在模板的 v-if 上，
-  // 而是 cardVisible 里那句判据 —— 断言跟着实现走，别再盯那个早就不存在的 show('urgency')。
-  assert(/if \(id === 'urgency'\) return !!\(this\.u && !this\.u\.empty\)/.test(home),
-    '首页：排了任务才显示紧迫度卡（cardVisible 判据）');
+  // 而是 cardVisible 里那句判据 —— 断言跟着实现走。
+  // 2026-10-24 起紧迫度卡改为常显（用户反馈"卡莫名其妙不见了"），不再按 u.empty 隐藏；
+  // 空态由卡片自己的占位文案兜底。
+  assert(!/if \(id === 'urgency'\) return !!\(this\.u && !this\.u\.empty\)/.test(home),
+    '首页：紧迫度卡改为常显（不再按 u.empty 隐藏）');
+  assert(/cardVisible\(id\)\s*\{[\s\S]*?return true/.test(home),
+    'cardVisible 统一常显（浏览态兜底 true）');
   assert(/<urgency-meter :u="u" @help="explainUrgency" \/>/.test(home), '首页：绑定数据与 ? 事件');
   assert(/this\.u = urgency\.compute\(\)/.test(home), 'refresh 里重算（剩余时间是走动的）');
   const hl = R('utils/home-layout.ts');
