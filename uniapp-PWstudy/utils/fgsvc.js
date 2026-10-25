@@ -461,6 +461,64 @@ export function interceptCount() {
   return 0;
 }
 
+/* ==================== 悬浮灵动岛倒计时胶囊 ====================
+ *
+ * 一条**独立**的悬浮窗（与强制模式遮罩解耦）。用户授了悬浮窗权限 + 打开「灵动岛」开关、
+ * 且本 App 退到后台时，就挂出专注倒计时胶囊；点一下胶囊 = 把 PWstudy 拉回前台
+ * （复用强制模式的 PullNowTask 拉回链路）。
+ *
+ * 权限：和强制模式遮罩共用 SYSTEM_ALERT_WINDOW，这里直接复用 overlayGranted() 探，
+ * 不另引 apptime（apptime 已反过来依赖本模块，避免成环 —— 见 utils/apptime.js 头部）。
+ * 真正的挂/撤/权限自检在原生侧（applyCapsule 里还会再核一次 canDrawOverlays）。
+ */
+
+/** 用户是否授权了"显示在其他应用上层"（胶囊的准入条件） */
+export function capsuleGranted() {
+  return overlayGranted();
+}
+
+/**
+ * 挂出胶囊（已是挂出态则刷新文案）。
+ * @param {string} text   JS 侧算好的即时文案（兜底 / 首帧）
+ * @param {number} endAt  倒计时终点 ms；0 = 不让原生自转（暂停 / 正计时段由 JS 静态显示）
+ * @param {string} label  阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
+ */
+export function capsuleShow(text, endAt, label) {
+  if (!capsuleGranted()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.showCapsule === 'function') return !!fgs.showCapsule(String(text || ''), Number(endAt) || 0, String(label || ''));
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/**
+ * 刷新胶囊文案与终点（已挂则改字，未挂则按 show 处理）。
+ * @param {string} text
+ * @param {number} endAt
+ * @param {string} label
+ */
+export function capsuleUpdate(text, endAt, label) {
+  if (!capsuleGranted()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.updateCapsule === 'function') return !!fgs.updateCapsule(String(text || ''), Number(endAt) || 0, String(label || ''));
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 撤掉胶囊（本 App 回到前台 / 专注结束 / 开关关掉时调） */
+export function capsuleHide() {
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.hideCapsule === 'function') return !!fgs.hideCapsule();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
 function pushWatch() {
   // 服务没在跑就别去推：随便 startService 会把它又拽起来（放弃专注后重启前台服务，
   // 用户会看到一条莫名其妙的常驻通知）

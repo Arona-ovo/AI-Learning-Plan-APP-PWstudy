@@ -12,6 +12,7 @@ import * as usage from './utils/usage.js'
 import * as sfx from './utils/sfx.js'
 import { flush as pwFlush } from './utils/pwstore.js'
 import * as apptime from './utils/apptime.js'
+import * as focus from './utils/focus.js'
 import * as link from './utils/link.js'
 import * as updater from './utils/updater.js'
 import * as loc from './utils/location.js'
@@ -71,6 +72,8 @@ export default {
     try { usage.start() } catch (e) {}
     // 从 AppDock 跳去别的 App 后回到前台：结算那段前台计时
     try { apptime.onAppShow() } catch (e) {}
+    // 回到前台：撤掉灵动岛胶囊（前台已有圆盘倒计时，不重复显示）
+    try { focus.syncCapsule() } catch (e) {}
     // 打开 App / 从后台切回前台：看一眼人在不在学习范围。
     // 不 force —— 交给 location 里那 5 分钟的节流，别每次切回来都唤醒一次定位；
     // 开关关着或没圈地点时它自己就返回了，一个权限都不会问。
@@ -87,6 +90,9 @@ export default {
     // 切后台是唯一能保证来的一次时机，之后随时可能被系统杀掉
     try { aiCache.flush() } catch (e) {}
     try { pwFlush() } catch (e) {}
+    // 应用退到后台：标记"不在前台"并评估是否挂出灵动岛胶囊（用户跑去别的 App 时显示倒计时）
+    try { apptime.onAppHide() } catch (e) {}
+    try { focus.syncCapsule() } catch (e) {}
   }
 }
 </script>

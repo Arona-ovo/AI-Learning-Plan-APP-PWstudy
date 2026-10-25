@@ -606,6 +606,17 @@
 
           <view class="fc-row">
             <view class="fc-info">
+              <text class="fc-title">{{ $t('灵动岛') }}</text>
+              <text class="fc-sub">{{ $t('退到别的 App 时显示专注倒计时') }}</text>
+            </view>
+            <view class="fc-switch" :class="{ 'fc-on': capsuleOn }" @tap="tapCapsule">
+              <view class="fc-knob" :class="{ 'fc-knob-on': capsuleOn }"></view>
+            </view>
+          </view>
+          <view v-if="capsuleOn && !capsuleOk" class="fc-warn" @tap="openCapsulePerm">{{ $t('灵动岛需开启「显示在其他应用上层」') }}</view>
+
+          <view class="fc-row">
+            <view class="fc-info">
               <text class="fc-title">{{ $t('拦截通知') }}</text>
               <!-- 开关开着却没检测到授权 = 一条也拦不住。给个"重新检测"的出口，
                    别让用户只能对着一个打不开的开关干瞪眼（2026-10-24） -->
@@ -808,6 +819,8 @@ export default {
       focusSheet: false,     // 首页「专注设置」卡片是否弹出
       manageOn: false,       // 顶栏那颗键点开的「管理」面板（所有管理入口的唯一出口）
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
+      capsuleOn: false,      // 首页「专注设置」卡片：退到后台时挂悬浮灵动岛倒计时
+      capsuleOk: false,      // 「显示在其他应用上层」权限：灵动岛的准入条件（与强制模式共用）
       // ---- 「专注设置」卡片新增的三组 ----
       // ⚠️ 时长那份配置在 pwstore 的 pomoCfg（focus.setCfg 写），**不在** settings.focus：
       //    两处各存一份就会出现"首页改了 25、专注页还是 45"。
@@ -999,14 +1012,14 @@ export default {
         用户一眼知道"我现在是被管着的"，不用点进去看。 */
     focusSetOn() {
       return !!(this.forcedOn || this.blockNotifOn || this.autoRestOn ||
-        this.strictOn || this.noiseOn)
+        this.strictOn || this.noiseOn || this.capsuleOn)
     },
     // ---- 管理面板四行的副标题 ----
     // 每一行都要"不看进去也知道现在是什么状态"：副标题写状态，不写功能说明
     // （功能说明在目标页里讲，这里重复一遍只会把卡片撑长）。
     manageFocusSub() {
       const n = [this.soundOn, this.vibeOn, this.noiseOn, this.strictOn,
-        this.forcedOn, this.blockNotifOn, this.autoRestOn].filter(Boolean).length
+        this.forcedOn, this.blockNotifOn, this.autoRestOn, this.capsuleOn].filter(Boolean).length
       const base = this.focusMin + ' ' + this.$t('分钟')
       return n ? base + ' · ' + this.$t('{n} 项开着', { n }) : base
     },
@@ -1435,6 +1448,8 @@ export default {
       this.focusMin = pc.focus || 25
       this.restMin = pc.rest || 5
       this.overlayOk = apptime.canDrawOverlays()
+      this.capsuleOn = !!f.capsule
+      this.capsuleOk = apptime.canDrawOverlays()
       if (this.locked) this.focusSheet = false
     },
     // ---------- 首页模块显隐 ----------
@@ -2239,6 +2254,29 @@ export default {
     openOverlayHome() {
       try { apptime.openOverlaySettings() } catch (e) {}
       setTimeout(() => { this.overlayOk = apptime.canDrawOverlays() }, 1200)
+    },
+    /** 面板里的"灵动岛"开关：与强制模式**完全解耦** —— 没开强制模式、甚至没开无障碍，
+        只要授了悬浮窗权限 + 打开这个开关，退到后台就会挂出专注倒计时胶囊。
+        关掉开关时立刻撤掉可能还挂着的胶囊。 */
+    tapCapsule() {
+      const next = !this.capsuleOn
+      this.capsuleOn = next
+      this.saveFocus('capsule', next)
+      if (next) {
+        this.capsuleOk = apptime.canDrawOverlays()
+        // 悬浮窗是胶囊的准入条件：没开就直接给路去授权
+        if (!this.capsuleOk) {
+          uni.showToast({ title: this.$t('灵动岛需开启「显示在其他应用上层」'), icon: 'none' })
+          setTimeout(() => this.openCapsulePerm(), 900)
+        }
+      } else {
+        // 关掉开关：立刻撤掉可能还挂着的胶囊（focus.syncCapsule 下一秒也会撤，这里更快）
+        try { fgsvc.capsuleHide() } catch (e) {}
+      }
+    },
+    openCapsulePerm() {
+      try { apptime.openOverlaySettings() } catch (e) {}
+      setTimeout(() => { this.capsuleOk = apptime.canDrawOverlays() }, 1200)
     },
     // ---------- 统一弹窗 ----------
     // 全 App 只有一套弹窗（components/app-dialog）：系统弹窗在 App 端样式管不到，

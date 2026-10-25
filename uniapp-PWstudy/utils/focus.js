@@ -9,6 +9,7 @@ import * as settings from './settings.js';
 import * as fgsvc from './fgsvc.js';
 import * as ambient from './ambient.js';
 import * as loc from './location.js';
+import * as apptime from './apptime.js';
 import { t } from './i18n.js';
 
 // phase: idle | focus | rest | paused（paused 只在 focus/rest 上叠加）
@@ -101,10 +102,10 @@ function isMissed(s) {
 
 function fcfg() {
   try {
-    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true },
+    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: false },
       (settings.get() && settings.get().focus) || {});
   } catch (e) {
-    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true };
+    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: false };
   }
 }
 
@@ -129,6 +130,80 @@ function ongoingPair() {
     : ' · 剩 ' + mmss(state.paused ? state.remainSec : (state.endAt - Date.now()) / 1000);
   const text = head + (state.taskTitle || (state.phase === 'focus' ? '自由专注' : '休息一下')) + tail;
   return { title, text };
+}
+
+/* ---------- 悬浮灵动岛倒计时胶囊 ----------
+ *
+ * 与强制模式遮罩**完全独立**：用户授了悬浮窗权限 + 打开「灵动岛」开关，且本 App 退到后台时，
+ * 就挂出一条倒计时胶囊；点一下胶囊 = 把 PWstudy 拉回前台（复用强制模式的 PullNowTask 拉回链路）。
+ * 本 App 在前台时立刻撤掉（前台已有圆盘倒计时，不重复显示）。
+ *
+ * 文案现算：倒计时永远在，阶段标签（专注中/休息中/已暂停/超时）按长度动态取舍；
+ * 胶囊装不下就只留倒计时（+超时后缀），不硬塞。
+ * 但 App 退到后台后 WebView 的 JS 计时器被系统挂起、tick 不跑了，所以**倒计时交给原生自转**：
+ * 把终点 endAt 与阶段前缀 label 交给原生，原生每秒拼 "label + mmss(剩余)"。
+ * 暂停 / 正计时这类 JS 才动得了的状态，endAt 传 0 —— 原生不自转，只显示 JS 算好的静态文案。
+ */
+
+let capsuleShown = false;   // 上次实际想要的状态：避免每秒都重挂 / 重撤
+
+/**
+ * 算出胶囊该显示的 { txt, label, endAt }：
+ *   txt    —— 即时兜底文案（首帧 / 静态态直接显示）
+ *   label  —— 阶段前缀（"专注中 " / "休息中 "），原生自转时拼在剩余时间前
+ *   endAt  —— 倒计时终点（ms）；0 表示不让原生自转（暂停 / 正计时段由 JS 静态显示）
+ */
+function capsuleContent() {
+  if (!state) return { txt: '', label: '', endAt: 0 };
+  const focusWord = t('专注中');
+  const restWord = t('休息中');
+  const pauseWord = t('已暂停');
+  const overWord = t('超时');
+  const phaseWord = state.phase === 'focus' ? focusWord : restWord;
+  let timeStr;
+  let endAt = 0;
+  if (state.overrun) {
+    timeStr = mmss(overSecOf(state));   // 正计时：JS 不在后台也数不动，静态显示
+  } else if (state.paused) {
+    timeStr = mmss(state.remainSec);    // 暂停冻结：endAt=0，不自转
+  } else {
+    endAt = state.endAt;                 // 正常倒计时：交给原生自己数秒
+    timeStr = mmss(Math.max(0, Math.round((state.endAt - Date.now()) / 1000)));
+  }
+  const overSuffix = state.overrun ? (' · ' + overWord) : '';
+  const head = state.paused ? (pauseWord + ' · ' + phaseWord + ' ') : (phaseWord + ' ');
+  const full = head + timeStr + overSuffix;
+  const txt = full.length <= 16 ? full : (timeStr + overSuffix);  // 太长就退化为只留倒计时
+  return { txt, label: head, endAt };
+}
+
+/**
+ * 把胶囊该不该显示对齐到当前状态（幂等）。四个闸门全开才显示：
+ *   ① 设置里「灵动岛」开关打开；② 有专注 / 休息在进行；
+ *   ③ 本 App 此刻在后台（前台有圆盘，不重复）；④ 用户授了悬浮窗权限。
+ * 任何一处不满足都撤掉。App.vue 的 onShow / onHide 与每秒 tick 都会调它。
+ */
+export function syncCapsule() {
+  let want = false;
+  let txt = '', label = '', endAt = 0;
+  try {
+    want = !!fcfg().capsule
+      && !!state
+      && (state.phase === 'focus' || state.phase === 'rest')
+      && !apptime.isAppForeground()
+      && fgsvc.capsuleGranted();
+  } catch (e) { want = false; }
+  if (want) {
+    const r = capsuleContent();
+    txt = r.txt; label = r.label; endAt = r.endAt;
+  }
+  if (want) {
+    if (capsuleShown) fgsvc.capsuleUpdate(txt, endAt, label);
+    else { fgsvc.capsuleShow(txt, endAt, label); capsuleShown = true; }
+  } else if (capsuleShown) {
+    fgsvc.capsuleHide();
+    capsuleShown = false;
+  }
 }
 
 /**
@@ -210,6 +285,7 @@ export function current() {
   // 强制模式就会持续把 App 拉回前台并累加违规，第 3 次自动作废还会按超长时长落一条账。
   // 专注同理不能一直挂着"剩 0"：要么进正计时（overrun），要么（休息）直接收摊。
   if (state && !state.paused && !state.overrun && Date.now() >= state.endAt) onDue(isMissed(state));
+  syncCapsule();
   return state ? snapshot() : null;
 }
 
@@ -243,6 +319,7 @@ function enterOverrun(s, missed) {
   clearWatchdog();          // 正计时没有终点，闹钟留着只会白响
   lastNotifyText = '';
   dueAlert('focus', !!missed, true);
+  syncCapsule();
   try { uni.$emit(FINISH_EVENT, { kind: 'focus', missed: !!missed, overrun: true }); } catch (e) {}
 }
 
@@ -254,6 +331,7 @@ export function stopOverrun() {
   if (!state || !state.overrun) return null;
   const s = state;
   state = null;
+  syncCapsule();
   persist();
   clearWatchdog();
   lastNotifyText = '';
@@ -277,6 +355,7 @@ function finishExpired(missed) {
   const late = !!missed;
   if (kind === 'focus') finishFocus(s);
   state = null;
+  syncCapsule();
   persist();
   lastNotifyText = '';
   notifLeave(kind === 'focus');
@@ -341,6 +420,7 @@ export function startFocus(opt) {
   notifEnter();
   armWatchdog();
   rangeMark();
+  syncCapsule();
   return snapshot();
 }
 
@@ -472,6 +552,7 @@ export function pause() {
   // 强制模式看门狗也要跟着停：暂停是"我主动想歇会儿"，这时候还把人从别的 App
   // 拽回来就太不讲道理了。恢复时 resume() 会再打开。
   fgsvc.pauseWatch();
+  syncCapsule();
 }
 
 export function resume() {
@@ -488,6 +569,7 @@ export function resume() {
   if (state.phase === 'focus') notifEnter();
   pushOngoing();
   fgsvc.resumeWatch();
+  syncCapsule();
 }
 
 /** 手动放弃：满 1 分钟按实际分钟记一条中断会话，不足 1 分钟不记 */
@@ -495,6 +577,7 @@ export function giveUp() {
   if (!state) return null;
   const s = state;
   state = null;
+  syncCapsule();
   persist();
   clearWatchdog();
   lastNotifyText = '';
@@ -529,6 +612,7 @@ export function finishEarly() {
   if (!state) return null;
   const s = state;
   state = null;
+  syncCapsule();
   persist();
   clearWatchdog();
   lastNotifyText = '';
@@ -553,6 +637,7 @@ export function finishEarly() {
 export function abort() {
   const had = !!state;
   state = null;
+  syncCapsule();
   persist();
   clearWatchdog();
   lastNotifyText = '';
@@ -570,6 +655,7 @@ export function abort() {
 //   justOverrun  = 专注跑满预设时长、刚转入正计时（人还在继续，UI 不用弹"完成"面板）
 export function tick() {
   restoreIfNeeded();
+  syncCapsule();
   if (!state || state.paused) return { state: state ? snapshot() : null, justFinished: null, justOverrun: false };
   const now = Date.now();
   if (now >= state.endAt && !state.overrun) {
@@ -699,6 +785,7 @@ function restoreIfNeeded() {
     // 已经在休息就让它随上面的 dndLeave 自然还原
     if (state.phase === 'focus' && !state.paused) notifEnter();
     armWatchdog();      // 恢复现场后接着看时间
+    syncCapsule();
   }
 }
 

@@ -16,6 +16,8 @@ import * as pw from './pwstore.js';
 import * as fgsvc from './fgsvc.js';
 
 let launchMark = null;   // { pkg, at }  从 AppDock 拉起别的 App 的现场
+let appForeground = true; // 本 App 是否在前台（onAppShow 置 true / onAppHide 置 false）。
+                          // 胶囊只在"用户跑去别的 App"时挂出，本 App 回到前台立刻撤掉。
 
 export function supported() {
   // #ifdef APP-PLUS
@@ -973,6 +975,7 @@ export function openA11ySettings() {
 
 /** App 回到前台时由 App.vue onShow 调用：结算刚才从 AppDock 出去的那段时长 */
 export function onAppShow() {
+  appForeground = true;
   if (!launchMark) return;
   const mark = launchMark;
   launchMark = null;
@@ -983,4 +986,14 @@ export function onAppShow() {
       if (isDock) pw.addAppMinutes(pw.today(), mark.pkg, min);
     } catch (e) {}
   }
+}
+
+/** 本 App 当前是否在前台（胶囊据此决定挂/撤） */
+export function isAppForeground() {
+  return appForeground;
+}
+
+/** App 退到后台时由 App.vue onHide 调用：胶囊可以挂出来了 */
+export function onAppHide() {
+  appForeground = false;
 }

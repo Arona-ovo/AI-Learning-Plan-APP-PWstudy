@@ -1151,6 +1151,10 @@ export default {
   '专注时收起别家通知': "Tuck away other apps' notifications while focusing",
   '专注结束自动休息': 'Rest automatically when a focus ends',
   '强制模式需开启「显示在其他应用上层」': 'Forced mode needs "Display over other apps"',
+  '灵动岛': 'Dynamic Island',
+  '退到别的 App 时显示专注倒计时': 'Show the focus countdown when you switch to another app',
+  '灵动岛需开启「显示在其他应用上层」': 'Dynamic Island needs "Display over other apps"',
+  '超时': 'Overtime',
   '强制模式：先把这段专注跑完': 'Forced mode: finish this focus session first',
   // 触感反馈（设置 › 触感反馈）
   '触感反馈': 'Haptics',

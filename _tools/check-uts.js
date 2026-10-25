@@ -556,5 +556,45 @@ console.log('== 11. 拦截页 PWPullActivity ==');
     '拦截页有 goBack（launch intent + finish，倒计时到点自动跳回）');
 }
 
+console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮窗） ==');
+{
+  // interface.uts 在 utssdk/ 根目录（不是 app-android/ 子目录）
+  const iface = read(path.join(PLUGIN, '..', 'interface.uts'));
+  // 12.1 interface 与 index 的胶囊函数声明必须一致：不声明 = 调用方拿不到，静默降级
+  ['showCapsule', 'updateCapsule', 'hideCapsule'].forEach((fn) => {
+    if (new RegExp('export function ' + fn + '\\s*\\(').test(iface)) ok('interface.uts 声明了 ' + fn + '()');
+    else bad('interface.uts 缺 ' + fn + '() 声明 —— fgsvc 调不到会静默降级');
+    if (new RegExp('export function ' + fn + '\\s*\\(').test(uts)) ok('index.uts 实现了 ' + fn + '()');
+    else bad('index.uts 没实现 ' + fn + '()');
+  });
+  // 12.2 胶囊复用拉回链路：点一下 = PullNowTask（回前台）
+  if (/class CapsuleView extends TextView/.test(uts) && /CapsuleView[\s\S]{0,300}new PullNowTask\(\)/.test(uts)) ok('胶囊点击复用 PullNowTask 拉回链路（点一下回前台）');
+  else bad('胶囊没接到 PullNowTask 拉回链路');
+  // 12.3 非阻塞：要 FLAG_NOT_FOCUSABLE + FLAG_NOT_TOUCH_MODAL，否则会吞掉别家 App 的操作
+  if (/FLAG_NOT_FOCUSABLE/.test(uts) && /FLAG_NOT_TOUCH_MODAL/.test(uts)) ok('胶囊是 FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCH_MODAL（非阻塞，不吞别家操作）');
+  else bad('胶囊缺少非阻塞 flags —— 浮在别家 App 上会吞掉用户操作');
+  // 12.4 权限独立：applyCapsule 自判 canDrawOverlays（不依赖强制模式）
+  if (/function applyCapsule[\s\S]{0,260}canDrawOverlays/.test(uts)) ok('applyCapsule 自带 canDrawOverlays 检查（胶囊权限独立授权）');
+  else bad('applyCapsule 没检查悬浮窗权限 —— 没授权也会尝试挂窗');
+  // 12.5 JS 侧桥：fgsvc 把四个胶囊能力都暴露了（包裹 UTS，调用炸不炸都被兜住）
+  ['capsuleShow', 'capsuleUpdate', 'capsuleHide', 'capsuleGranted'].forEach((fn) => {
+    if (new RegExp('export function ' + fn + '\\s*\\(').test(fgsvc)) ok('fgsvc 暴露了 ' + fn + '()');
+    else bad('fgsvc 缺 ' + fn + '() 桥');
+  });
+  // 12.6 focus.js 把胶囊挂/撤编排进专注生命周期（幂等）
+  if (/export function syncCapsule/.test(fjs) && /syncCapsule\(\)/.test(fjs)) ok('focus.js 有 syncCapsule 并已接入生命周期（挂/撤幂等）');
+  else bad('focus.js 没接入 syncCapsule —— 胶囊不会随专注状态自动挂撤');
+  // 12.7 前台/后台标志驱动：apptime 暴露 isAppForeground / onAppHide
+  if (/export function isAppForeground/.test(apptime) && /export function onAppHide/.test(apptime)) ok('apptime 暴露 isAppForeground / onAppHide（胶囊靠它判前后台）');
+  else bad('apptime 缺 isAppForeground / onAppHide');
+  // 12.8 设置开关 + UI：home.vue 有灵动岛开关与引导
+  if (/tapCapsule/.test(homeVue) && /capsuleOn/.test(homeVue) && /openCapsulePerm/.test(homeVue)) ok('home.vue 有灵动岛开关 tapCapsule + 引导 openCapsulePerm');
+  else bad('home.vue 缺少灵动岛开关/引导');
+  // 12.9 设置默认值：未开胶囊不影响现有行为
+  const setSrc = read(path.join(ROOT, 'utils', 'settings.js'));
+  if (/capsule:\s*false/.test(setSrc)) ok('settings.focus.capsule 默认 false（新功能默认关，零打扰）');
+  else bad('settings.focus.capsule 没给默认 false —— 新功能可能默认开启');
+}
+
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;

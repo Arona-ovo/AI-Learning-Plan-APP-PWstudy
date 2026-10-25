@@ -142,3 +142,29 @@ export function resetA11y(): boolean
  * JS 侧不需要调用它。
  */
 export function keepGuardClass(): boolean
+
+/**
+ * ==================== 悬浮灵动岛倒计时胶囊 ====================
+ *
+ * 一条**独立**的悬浮窗（TYPE_APPLICATION_OVERLAY），和强制模式遮罩复用同一套
+ * SYSTEM_ALERT_WINDOW 权限与 WindowManager 机制，但**完全解耦**于强制模式：
+ * 没开强制模式、甚至没开无障碍，只要用户授了悬浮窗权限并打开了「灵动岛」开关，
+ * 胶囊就能在用户离开本 App 时显示专注倒计时。
+ *
+ * 行为（由 utils/focus.js 的 syncCapsule 统一编排）：
+ *   · 仅本 App 在后台（用户在别的应用里）才显示；
+ *   · 本 App 在前台时立刻撤掉（前台已有圆盘倒计时，不重复）；
+ *   · 点一下胶囊 = 把 PWstudy 拉回前台（复用强制模式的 PullNowTask 拉回链路）；
+ *   · 强制模式下用户在「学习 App」里时，也能靠胶囊回前台（给一个不靠遮罩的出口）。
+ *
+ * 文案由 JS 侧算好传进来（"专注中 24:13" 这种），原生只负责挂/撤/刷新 + 点击拉回。
+ */
+
+/** 挂出胶囊（若未授权或已挂则按刷新处理） */
+export function showCapsule(text: string, endAt: number, label: string): boolean
+
+/** 刷新胶囊文案与终点（已挂则改字，未挂则先挂） */
+export function updateCapsule(text: string, endAt: number, label: string): boolean
+
+/** 撤掉胶囊 */
+export function hideCapsule(): boolean

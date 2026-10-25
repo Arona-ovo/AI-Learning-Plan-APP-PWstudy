@@ -763,6 +763,8 @@ function postOverlay(want: boolean) {
 let capsuleView: TextView | null = null;
 let capsuleWanted = false;
 let capsuleText = '';
+let capsuleEndAt = 0;   // 倒计时终点（ms）；0 = 不自转（暂停 / 正计时由 JS 静态显示）
+let capsuleLabel = '';  // 阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
 
 class CapsuleView extends TextView {
   constructor(ctx: Context) {
@@ -776,10 +778,33 @@ class CapsuleView extends TextView {
   }
 }
 
+// 原生每秒自转一次：App 在后台时 WebView 的 JS 计时器被系统挂起，胶囊倒计时会冻住；
+// 但进程因为有前台服务还活着，主线程 Handler 能继续跑 —— 所以倒计时交给原生自己数。
+class CapsuleTickTask implements Runnable {
+  override run(): void {
+    if (!capsuleWanted || capsuleView == null) return;
+    if (capsuleEndAt > 0) {
+      let remain = Math.floor((capsuleEndAt - System.currentTimeMillis()) / 1000);
+      if (remain < 0) remain = 0;
+      try { capsuleView!.setText(capsuleLabel + capsuleMmss(remain)); } catch (e) {}
+    }
+    if (capsuleWanted) mainHandler!.postDelayed(new CapsuleTickTask(), 1000);
+  }
+}
+
 class CapsuleApplyTask implements Runnable {
   override run(): void {
     applyCapsule(UTSAndroid.getAppContext());
   }
+}
+
+function capsuleMmss(sec: number): string {
+  let s = Math.floor(sec);
+  if (s < 0) s = 0;
+  let m: Int = (s / 60).toInt();
+  let r: Int = (s % 60).toInt();
+  let rs = r < 10 ? '0' + r.toString() : r.toString();
+  return m.toString() + ':' + rs;
 }
 
 function applyCapsule(ctx: Context | null) {
@@ -812,6 +837,8 @@ function applyCapsule(ctx: Context | null) {
       lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
       wm.addView(v, lp)
       capsuleView = v
+      // 启动原生自转：App 后台时 WebView 不跑 tick，倒计时由这里数（endAt=0 时也不更新，只等停止）
+      mainHandler!.postDelayed(new CapsuleTickTask(), 1000)
     } catch (e) {
       capsuleView = null
       capsuleWanted = false
@@ -828,27 +855,29 @@ function applyCapsule(ctx: Context | null) {
   }
 }
 
-function postCapsule(want: boolean, text: string) {
+function postCapsule(want: boolean, text: string, endAt: number, label: string) {
   capsuleText = text
+  capsuleEndAt = endAt
+  capsuleLabel = label
   capsuleWanted = want
   uiPost(new CapsuleApplyTask())
 }
 
-/** 显示 / 刷新悬浮胶囊（text = 要显示的倒计时文案）。返回是否成功排进主线程任务 */
-export function showCapsule(text: string): boolean {
-  postCapsule(true, text)
+/** 显示 / 刷新悬浮胶囊（text = 即时文案兜底，endAt = 倒计时终点 ms，label = 阶段前缀供原生自转拼接） */
+export function showCapsule(text: string, endAt: number, label: string): boolean {
+  postCapsule(true, text, endAt, label)
   return true
 }
 
-/** 只刷新胶囊文案（已显示时更新倒计时，没显示时也排上） */
-export function updateCapsule(text: string): boolean {
-  postCapsule(true, text)
+/** 只刷新胶囊文案与终点（已显示时更新倒计时，没显示时也排上） */
+export function updateCapsule(text: string, endAt: number, label: string): boolean {
+  postCapsule(true, text, endAt, label)
   return true
 }
 
 /** 撤掉胶囊 */
 export function hideCapsule(): boolean {
-  postCapsule(false, '')
+  postCapsule(false, '', 0, '')
   return true
 }
 
