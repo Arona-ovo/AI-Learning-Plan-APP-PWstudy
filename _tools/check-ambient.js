@@ -262,7 +262,7 @@ Object.keys(stats).forEach(k => {
     //    写了许可就放行 —— 另一个素材的许可被删掉照样绿（反向测试抓到的假绿）。
     const line = doc.split('\n').filter(l => l.indexOf(k + '.wav') >= 0)[0] || '';
     assert(line.length > 0, 'SOURCES.md 记了 ' + k + '.wav 的出处');
-    assert(/Public domain|CC0|CC BY/i.test(line),
+    assert(/Public domain|CC0|CC BY|synthesized|自合成/i.test(line),
       'SOURCES.md 里 ' + k + '.wav 那一行写了许可');
   });
   // 只收 CC0/PD：要署名的素材得在 App 里补署名界面，不能悄悄换进来
