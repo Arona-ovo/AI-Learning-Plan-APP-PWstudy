@@ -227,7 +227,8 @@ function eq(a, b, label) {
     'goFocus 只进准备页（不带起表参数）');
   // quickStart 现在先播"圆放大"转场再 navigateTo（共享元素动画），落点没变：
   // 仍是准备页那颗确认按钮起表。断言跟着从"必须调 goFocus"放宽为"必须进准备页"。
-  assert(bQuick && /navigateTo\(\{ url: this\.focusUrl\(true\) \}\)/.test(bQuick) && !/auto/.test(bQuick),
+  // ⚠️ navigateTo 的参数现在是多行对象（多了 animationType），正则不能贴着 `{ url:` 写死
+  assert(bQuick && /navigateTo\(\{[\s\S]{0,200}?url: this\.focusUrl\(true\)/.test(bQuick) && !/auto/.test(bQuick),
     'quickStart 落点仍是准备页（先播圆圈转场再跳，不起表）');
   // 全页不许再出现 auto=1：目标详情 / 通知深链（utils/link.js）也都得走准备页。
   // 先剥注释再扫 —— 注释里要写清楚"为什么没有 auto=1"，不剥会被自己的注释命中。

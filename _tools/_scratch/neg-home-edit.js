@@ -35,27 +35,43 @@ const cases = [
   ['把手 z-index 低于遮罩', s => s.replace('z-index: 11;', 'z-index: 9;')],
   ['硬控起不退编辑态', s => s.replace('if (v) this.finishEdit()', 'if (v) {}')],
   ['收纳后不同步布局', s => s.replace('try { layout.stash(id) } catch (e) {}\n      this.syncLayout()', 'try { layout.stash(id) } catch (e) {}')],
-  ['抽屉挪进 .page-slide', s => s.replace('</view>\n\n    <!-- 「添加组件」抽屉', '\n    <!-- 「添加组件」抽屉')],
+  // 少收一层 </view> = 抽屉变成 .page-slide 的子节点（fixed 参照会被 tab 切换的
+  // 滑动动画带着走）—— 现在这一层前面是三行空行，锚点跟着改过
+  ['抽屉挪进 .page-slide', s => s.replace('    </view>\n\n\n\n    <!-- 「添加组件」抽屉', '\n\n\n    <!-- 「添加组件」抽屉')],
   ['遮罩与把手同层（把手被挡住）', s => s.replace('z-index: 11;', 'z-index: 10;')],
   ['onHide 不退编辑态', s => s.replace('onHide() {\n    // 离开首页一律退出编辑态，保证回来时界面是简洁的\n    this.finishEdit()', 'onHide() {\n    // 离开首页一律退出编辑态，保证回来时界面是简洁的')]
 ];
+
+// ⚠️ 源码是 CRLF，多行锚点一律按 LF 写会让 3 条用例整条失效（静默 SKIP，看着像通过）。
+//    这里统一兜一层：LF 版本命中后按 CRLF 还原 —— 整转换只动行尾，不改内容。
+const applyMut = (mut, src) => {
+  const direct = mut(src);
+  if (direct !== src) return direct;
+  const lf = src.split('\r\n').join('\n');
+  const changed = mut(lf);
+  if (changed === lf) return src; // 真没命中
+  return changed.split('\n').join('\r\n');
+};
 
 let bad = 0;
 const base = runCheck();
 console.log('基线：exit=' + base.code + '（应为 0）');
 if (base.code !== 0) { console.log('基线就不是绿的，先修好再来 ✗'); process.exit(1); }
 
-for (const [name, mut] of cases) {
-  const next = mut(orig);
-  if (next === orig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
-  fs.writeFileSync(FILE, next);
-  const r = runCheck();
-  const hit = r.code !== 0;
-  console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0] : ''));
-  if (!hit) bad++;
+// ⚠️ 还原必须放在 finally 里：某个变异把护栏自己搞崩时，进程会带着被改坏的源码一起死
+try {
+  for (const [name, mut] of cases) {
+    const next = applyMut(mut, orig);
+    if (next === orig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
+    fs.writeFileSync(FILE, next);
+    const r = runCheck();
+    const hit = r.code !== 0;
+    console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0] : ''));
+    if (!hit) bad++;
+  }
+} finally {
+  fs.writeFileSync(FILE, orig);
 }
-
-fs.writeFileSync(FILE, orig);
 const back = runCheck();
 console.log(back.code === 0 ? '还原后仍是绿 ✓' : '还原后不绿 ✗ ' + back.fails.join(' | '));
 if (back.code !== 0) bad++;

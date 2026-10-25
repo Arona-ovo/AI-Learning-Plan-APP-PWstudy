@@ -413,9 +413,19 @@ export default {
       const deg = Math.round(pct * 360)
       const run = this.active && !this.paused
       const c1 = this.isRest ? '#3b6d11' : (run ? '#e5484d' : '#98a19b')
-      return {
+      const st = {
+        // ⚠️ 这条纯色必须先写：老安卓 WebView 认不出 conic-gradient 时会**整条丢掉**
+        //    background 简写（不抛错、不回落），圆环当场消失 —— 有它兜着，至少还有
+        //    一圈灰环在，不会被当成"圆盘坏了"。
+        backgroundColor: 'rgba(23,32,26,0.08)',
         background: 'conic-gradient(' + c1 + ' ' + deg + 'deg, rgba(23,32,26,0.08) ' + deg + 'deg)'
       }
+      // ★ intro 的放大起点同时写成**行内值**：CSS 那份走的是 var(--cover-scale)，
+      //   要过一轮自定义属性 resolve，个别 App 端内核在内联变量上不稳（变量没写
+      //   进去 → 只能吃 fallback 2.8，倍数就和首页对不上，衔接处会错位）。
+      //   行内值是硬承诺，CSS 那份留着兜底（兜住首帧 class 还没写进去的那一下）。
+      if (this.ringIntro) st.transform = 'scale(' + this.coverScale + ')'
+      return st
     },
     taskTitle() {
       if (this.cur) return this.cur.taskTitle || '自由专注'
@@ -538,16 +548,10 @@ export default {
     this.applySuggest()
   },
   onShow() {
-    // ★ 圆圈衔接转场收尾：等两帧再移除 ringIntro。
-    //   为什么要等：同一帧里"加 class 又删 class"浏览器不会跑 transition ——
-    //   圆会闪一下直接归位，动画就没了。两帧是让 intro 态先真正画出来。
-    if (this.ringIntro) {
-      try {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => { this.ringIntro = false })
-        })
-      } catch (e) { this.ringIntro = false }
-    }
+    // ★ 圆圈衔接转场收尾（为什么不能在 onShow 里直接写双 rAF，见 armIntro 的注释：
+    //   安卓基座上 rAF 会被节流甚至不回调 —— 正对应"手机上没动画、电脑端正常"。
+    //   ⚠️ 整段包 try：armIntro 炸了也不能把后面的 refresh 拖下水（项目保命姿势）。）
+    try { this.armIntro() } catch (e) { this.ringIntro = false }
     this.refreshToday()
     this.cur = focus.current()
     this.refreshRound()
@@ -595,9 +599,14 @@ export default {
   },
   onHide() {
     this.stopTick()
+    // 转场 probe 必须跟着收：页面都切走了，260ms 那颗不该还留着去摘 intro
+    clearTimeout(this._introProbeT); this._introProbeT = null
     // 注意：严格模式故意不在这儿停 —— 人切走才是它该干活的时候
   },
-  onUnload() { this.stopTick() },
+  onUnload() {
+    this.stopTick()
+    clearTimeout(this._introProbeT); this._introProbeT = null
+  },
   // 强制模式 + 正在专注：返回键不放行。不然"按一下返回就出去了"，模式等于没有。
   // 暂停 / 休息阶段照常放行 —— 拦人是为了专注，不是把人困死。
   onBackPress() {
@@ -608,6 +617,56 @@ export default {
     return true
   },
   methods: {
+    /**
+     * ★ 圆圈衔接转场的收尾：把 ringIntro 摘掉，圆从"放大盖满全屏"缩回就位。
+     *
+     * 为什么要这么绕：同一帧里"加上又摘掉"引出的 transform 变化，浏览器不会跑
+     * transition —— 圆会闪一下直接归位，动画等于没有。得先让 intro 态作为独立
+     * 的一帧真正上屏，再摘 class。
+     *
+     * ⚠️ 不能只用双 rAF（以前就是这样写的）：**App 端新页面自带窗口动画**。首页圆
+     *    放大退出 260ms 后 navigateTo，新 webview 跑起来了但其实还没真正可见 ——
+     *    rAF 会被节流、甚至完全不回调（H5 一进页面就可见，所以电脑端看着正常）。
+     *    回调到得晚，过渡要么在不可见的那段里已经跑完了（观感＝没有动画），要么
+     *    拖到窗口动画结束才起步（观感＝慢半拍/跳一下）。这就是"安卓基座进来没
+     *    动画、电脑端正常"的来处。
+     *
+     * 三条信号竞速，谁先证明 intro 态已经上屏，谁就把动画踢起来：
+     *   ① rAF ×2 —— 浏览器标准做法，最快路径（H5 走这条）；
+     *   ② selectQuery.exec —— 回调在视图层渲染之后才到达，是 App 端唯一可靠的
+     *      "已上屏"信号（与 measureChromes / measureScrollable 同一姿势）。⚠️ exec
+     *      一到就摘，不再往里多退一帧 —— 理由见代码里那段注释。
+     *   ③ setTimeout —— 前两条都哑掉时（内核不支持 / class 改名了）也不会永久
+     *      停在放大态把整个屏幕盖住。
+     * ⚠️ 三条都要收口到"只踢一次"，并及时清掉定时器 —— 否则 intro 会被摘两遍，
+     *    第二次那遍是在已经就位的圆上重放一次"缩回"。
+     */
+    armIntro() {
+      if (!this.ringIntro) return
+      const self = this
+      let fired = false
+      const kick = () => {
+        if (fired || !self.ringIntro) return
+        fired = true
+        clearTimeout(self._introProbeT)
+        self._introProbeT = null
+        self.ringIntro = false
+      }
+      // ① 标准路径
+      try { requestAnimationFrame(() => requestAnimationFrame(kick)) } catch (e) {}
+      // ② App 端可靠路径（抛点在 exec 里 → nextTick 回调内部也要包 try）
+      //    ⚠️ exec 到达就摘，**别往里再套一层 rAF**：这一路的全部意义就是"rAF 可能
+      //    靠不住"，套一层等于把这件事又交回给它 —— 安卓上这条路会一直不响，
+      //    只剩 setTimeout 兜底，照样是慢半拍。exec 的语义本来就是"视图层已经把
+      //    这一帧渲染出来了"，够用。
+      this.$nextTick(() => {
+        try {
+          uni.createSelectorQuery().in(self).select('.ring').boundingClientRect().exec(kick)
+        } catch (e) {}
+      })
+      // ③ 兜底
+      self._introProbeT = setTimeout(kick, 260)
+    },
     refreshToday() {
       const ov = pw.overview()
       this.todayMin = ov.todayMin
@@ -1566,6 +1625,11 @@ export default {
   width: 480rpx; height: 480rpx;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
+  /* ★ 基态必须**显式**写 scale(1)，不能指望默认的 none：intro 走的是
+     scale(N) → scale(1) 这条插值，从 none 起算时，部分安卓 WebView 不去补中间
+     帧而是直接跳到终点 —— 症状就是"手机上没动画、电脑上有"（none 与矩阵之间的
+     插值各家实现松紧不一）。两端都写成 scale() 就没有解释的余地。 */
+  transform: scale(1);
 }
 .ring-inner {
   width: 420rpx; height: 420rpx;
@@ -1603,11 +1667,23 @@ export default {
 .fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
 .focus-body > * { transition: opacity 220ms ease 60ms; }
 .time {
-  font-size: 96rpx; font-weight: 500;
+  /* ★ 圆盘读数必须与首页大圆**同源**（home.vue 的 .hc-ring-num）：
+     这两个圈是同一个视觉主体的两个状态（点进去放大 → 落回来），字体一旦不同，
+     转场中间那一下就看得出来"换了一个东西"。
+     ⚠️ 这里之前写的是 Georgia —— iOS/macOS 有的衬线体，**安卓上一套都没有**，
+     会一路退到 Noto Serif：圆盘衬线、首页无衬线，两边就不一样了；电脑上看着
+     一样是因为电脑有 Georgia，安卓没有。所以干脆不写具体族名。
+     不写 = 走 App.vue 的继承链（.container 的 font-family: var(--app-font)），
+     用户在设置里换的字体也跟得上；写了任何具体族名都会把这根继承掐断。 */
+  font-size: 96rpx;
+  /* 500 → 600：衬线换无衬线后同一字号会视觉变轻一档，96rpx 需要补回来 */
+  font-weight: 600;
   color: #17201a;
   color: var(--ink-1, #17201a);
-  font-family: Georgia, "Times New Roman", serif;
   letter-spacing: 2rpx;
+  /* letter-spacing 会在**最后一个字符后面**也留一份，整串看着偏左；
+     补等量缩进推回来（写法同 .phase，也与首页 .hc-ring-num 同一组） */
+  text-indent: 2rpx;
 }
 .task-title {
   margin-top: 16rpx;

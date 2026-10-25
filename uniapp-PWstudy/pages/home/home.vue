@@ -2658,7 +2658,17 @@ export default {
       this.launchRing = true
       // 260ms 与 CSS 里 .ring-launch 的 transition 时长对齐（改一处要改两处）
       setTimeout(() => {
-        uni.navigateTo({ url: this.focusUrl(true) })
+        uni.navigateTo({
+          url: this.focusUrl(true),
+          // ★ App 端必须把**系统那层窗口动画**关掉：这一跳走的是共享元素转场
+          //   （圆放大盖屏 → 新页同一个圆缩回就位），再叠一层 slide-in-right 就成了
+          //   两个动画同时各跑各的 —— 整页从右往左平移，圆却在原地缩放，看着就是
+          //   "抖了一下 / 圆跟不上页面"。H5 压根没有这层窗口动画，所以电脑端一切
+          //   正常、安卓基座一进来就觉得这段动画有问题。
+          //   ⚠️ 只在这唯一一处带 zoom=1 的入口上关：别的入口进专注页没有这个转场，
+          //      照旧用系统动画（那里如果也没了动画，反而显得断片）。
+          animationType: 'none'
+        })
       }, 260)
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
@@ -3079,9 +3089,14 @@ export default {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .lock-time {
-  font-size: 102rpx; font-weight: 500;
-  font-family: Georgia, "Times New Roman", serif;
+  /* ★ 与 .hc-ring-num / focus.vue 的 .time 同属"计时读数"（同一串 MM:SS），
+     字族必须同源 —— 安卓上没有 Georgia / Times New Roman，写了就会退到 Noto Serif，
+     和旁边无衬线的正文分家。不写 → 走 App.vue 的 --app-font 继承链（用户选的字体跟得上）。 */
+  font-size: 102rpx;
+  /* 500 → 600：衬线换无衬线后同一字号视觉轻一档，大号要补回来 */
+  font-weight: 600;
   letter-spacing: 2rpx;
+  text-indent: 2rpx;
   color: #17201a;
   color: var(--ink-1, #17201a);
 }
@@ -3271,7 +3286,8 @@ export default {
   font-size: 34rpx; font-weight: 600;
   color: #17201a;
   color: var(--ink-1, #17201a);
-  font-family: Georgia, "Times New Roman", serif;
+  /* ★ 同属"计时读数"，理由同 .lock-time / focus.vue 的 .time：不写具体族名，
+     免得安卓上没有 Georgia、一路退到 Noto Serif，与别处的读数分家。 */
 }
 .fc-info { flex: 1; min-width: 0; margin-left: 28rpx; }
 .fc-title {
@@ -3761,9 +3777,20 @@ export default {
 /* 按压：整圆缩一丁点（无边框区域不能整片变淡，会像"褪色"） */
 .tp-block.focus-card:active .hc-ring { transform: scale(0.965); }
 .tp-block.focus-card .hc-ring-num {
+  /* ★ 与专注页圆盘里的 .time 是**同一个读数**（两个圆只是它的两个状态），
+     字体必须同源：这一处没写具体族名 —— 走 App.vue 的继承链（.container:
+     font-family: var(--app-font)），用户在设置里换的字体也跟得上。
+     ⚠️ 谁要给某个圆单独加 Georgia / 任何具体族名，两边就得一起加：安卓上
+     一套衬线字体都没有，加了的那边会退到 Noto Serif，两个圆当场分家
+     （focus.vue 的 .time 以前就是这样踩的）。 */
   font-size: 72rpx;
   font-weight: 600;
   line-height: 1.1;
+  /* 与 focus.vue 的 .time 对齐：同一串 "25:00"，字间距也得一样 */
+  letter-spacing: 2rpx;
+  /* letter-spacing 会在**最后一个字符后面**也留一份，整串看着偏左；
+     补等量缩进往右推回来（写法同 .phase）。 */
+  text-indent: 2rpx;
 }
 /* 圈内的任务名：默认时段下面一行小字 */
 .hc-ring-task {
