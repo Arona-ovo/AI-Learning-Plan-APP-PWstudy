@@ -989,7 +989,6 @@ export default {
   '进行中目标': 'Active goals',
   '学习 App 管理': 'Manage study apps',
   '新建目标': 'New goal',
-  'AI 对话助手': 'AI assistant',
   '权限与后台保活': 'Permissions & background',
   '数据备份': 'Data backup',
   '支持 PWstudy': 'Support PWstudy',

@@ -90,13 +90,6 @@
         <text class="menu-title">{{ $t('新建目标') }}</text>
         <text class="menu-arrow">›</text>
       </view>
-      <view class="menu-item" :class="{ 'menu-disabled': !aiEnabled }" @tap="goChat">
-        <view class="menu-main">
-          <text class="menu-title">{{ $t('AI 对话助手') }}</text>
-          <text class="menu-hint" v-if="!aiEnabled">{{ aiReason }}</text>
-        </view>
-        <text class="menu-arrow">›</text>
-      </view>
       <view class="menu-item" @tap="go('/pkgManage/pages/settings/settings')">
         <text class="menu-title">{{ $t('设置') }}</text>
         <view class="dot-update" v-if="updateDot"></view>
@@ -129,7 +122,6 @@ import * as settings from '../../utils/settings'
 import * as pw from '../../utils/pwstore.js'
 import * as auth from '../../services/auth'
 import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
-import { aiGateReason } from '../../services/config.js'
 import * as updater from '../../utils/updater.js'
 import * as setup from '../../utils/setup.js'
 import * as forced from '../../utils/forced.js'
@@ -150,8 +142,6 @@ export default {
       overview: { todayMin: 0, pomo: 0, goals: 0 },
       editing: false,
       draft: { nickname: '', bio: '' },
-      aiEnabled: false,
-      aiReason: '',
       account: { logged: false, username: '' },
       setupPending: 0,
       // 「学习范围」那一项的副标题：只在开关打开后才有话说
@@ -229,9 +219,6 @@ export default {
         pomo: ov.pomo,
         goals: ov.activeGoals
       }
-      const r = aiGateReason()
-      this.aiReason = r
-      this.aiEnabled = !r
     },
     startEdit() {
       this.draft = { nickname: this.profile.nickname, bio: this.profile.bio }
@@ -250,13 +237,6 @@ export default {
       this.editing = false
       this.refresh()
       uni.showToast({ title: t('已保存'), icon: 'success' })
-    },
-    goChat() {
-      if (!this.aiEnabled) {
-        uni.showToast({ title: '请先在设置中完成 AI 配置（' + this.aiReason + '）', icon: 'none' })
-        return
-      }
-      this.go('/pkgManage/pages/chat/chat')
     },
     // 跳转失败要能看见：uni 的默认行为是静默失败，之前"点了没反应"排查半天没有线索，
     // 这里把 fail 的原因直接 toast 出来。
