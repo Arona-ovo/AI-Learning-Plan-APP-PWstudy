@@ -1,5 +1,5 @@
 <template>
-  <view class="container page-nav focus-page" :class="appTheme" :style="appBgStyle">
+  <view class="container page-nav focus-page" :class="[appTheme, { 'fr-intro': ringIntro }]" :style="[appBgStyle, introVars]">
     <float-navbar title="专注" />
 
     <view class="focus-body">
@@ -293,6 +293,10 @@ export default {
     return {
       minutesOptions: [15, 20, 25, 30, 45, 60],
       minutes: 25,
+      // 圆圈衔接转场：从首页大圆点进来（?zoom=1）时，ring 先处于"放大盖满全屏"
+      // 态，两帧后移除 ringIntro 缩回就位 —— 与首页圆放大退出是同一视觉主体。
+      ringIntro: false,
+      coverScale: 2.8,   // intro 态的放大倍数（onLoad 实测：盖满屏宽与屏高的较大者）
       titleOpen: false,      // 圆盘里的任务名是否展开（默认单行，点一下展开到 3 行）
       presetTask: null,      // {taskId, goalId, title}
       cur: null,
@@ -395,6 +399,10 @@ export default {
     /** 环心的大号读数：正计时段显示"+MM:SS"（多坐了多久），其余显示"还剩多久" */
     timeText() {
       return this.overrun ? '+' + this.fmtMMSS(this.overSec) : this.fmtMMSS(this.remainSec)
+    },
+    /** 圆圈衔接转场的 CSS 变量（--cover-scale 由 .fr-intro .ring 消费） */
+    introVars() {
+      return { '--cover-scale': String(this.coverScale) }
     },
     // conic-gradient 比例（正计时段恒为满环 —— 目标已经达成了）
     ringStyle() {
@@ -507,6 +515,19 @@ export default {
       const m = Number(query.minutes)
       if (m && this.minutesOptions.indexOf(m) >= 0) this.minutes = m
     }
+    // ★ 圆圈衔接转场（zoom=1，首页 quickStart 带过来）：ring 从"放大盖满全屏"
+    //   态缩回就位。实测放大倍数 —— 与首页 launchScale 同一算法（480rpx 圆
+    //   放大到盖住屏宽/屏高的较大者），两边不一致就会在对齐处错位。
+    if (query && query.zoom) {
+      this.ringIntro = true
+      try {
+        const si = uni.getSystemInfoSync()
+        const w = si.windowWidth || 375
+        const h = si.windowHeight || 667
+        const ringPx = 480 * w / 750
+        this.coverScale = Math.ceil(Math.max(w, h) / ringPx * 102) / 100
+      } catch (e) { this.coverScale = 2.8 }
+    }
     const cfg = pw.get().pomoCfg || {}
     if (cfg.focus && this.minutesOptions.indexOf(cfg.focus) >= 0) this.minutes = cfg.focus
     // ⚠️ 这里**没有**"带 auto=1 就直接起表"的分支（曾经有过，已删）：
@@ -516,6 +537,16 @@ export default {
     this.applySuggest()
   },
   onShow() {
+    // ★ 圆圈衔接转场收尾：等两帧再移除 ringIntro。
+    //   为什么要等：同一帧里"加 class 又删 class"浏览器不会跑 transition ——
+    //   圆会闪一下直接归位，动画就没了。两帧是让 intro 态先真正画出来。
+    if (this.ringIntro) {
+      try {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { this.ringIntro = false })
+        })
+      } catch (e) { this.ringIntro = false }
+    }
     this.refreshToday()
     this.cur = focus.current()
     this.refreshRound()
@@ -1520,6 +1551,28 @@ export default {
   box-shadow: 0 16rpx 48rpx rgba(23, 32, 26, 0.1);
   box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
 }
+/* ★ 圆圈衔接转场（2026-10-25，与首页 .ring-launch 是一对）：
+   从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，两帧后缩回就位。
+   intro 期间 ring-inner 换成**首页大圆的皮肤**（淡红底 + 红边、去掉玻璃投影），
+   收缩过程中再渐变回玻璃盘 —— 两个圆之间是同一视觉主体，对齐且不跳色。
+   ⚠️ coverScale 由 onLoad 实测（与首页 launchScale 同一算法：480rpx 圆放大到
+      盖住屏宽/屏高的较大者）；两边倍数不一致，收缩终点就会和首页圆对不上。 */
+.ring { transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+.fr-intro .ring { transform: scale(var(--cover-scale, 2.8)); }
+.fr-intro .ring-inner {
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border-color: rgba(228, 23, 61, 0.28);
+  border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+  box-shadow: none;
+  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+}
+/* 盘内文字与圆外内容在 intro 期让位，随圆收缩一起淡入（稍晚 60ms 起步，
+   先看出"圆在归位"，再看出"页面内容回来了"） */
+.fr-intro .ring-inner .time,
+.fr-intro .ring-inner .task-title { opacity: 0; }
+.fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
+.focus-body > * { transition: opacity 220ms ease 60ms; }
 .time {
   font-size: 96rpx; font-weight: 500;
   color: #17201a;

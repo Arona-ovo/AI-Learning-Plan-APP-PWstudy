@@ -120,7 +120,10 @@
       <!-- ★ 面板**不套 .card 皮肤**（2026-10-25 第二轮，用户拍板）：边框 / 投影 /
            毛玻璃那套"浮起感"正是卡片感的来源，合到一起也还是卡片。现在只要一块
            实色淡底（见 .today-panel），左右与下面那摞卡对齐同一条竖线。 -->
-      <view class="hero-main">
+      <!-- 点大圆进专注页的转场动画：圆先放大到盖满全屏，其余内容淡出，
+           260ms 后 navigateTo —— 专注页的圆从同一放大态缩回就位（focus.vue fr-intro）。
+           scale 由 launchScale 实测（写死 1.56 只能盖满屏宽，屏高的上下会露背景）。 -->
+      <view class="hero-main" :class="{ 'ring-launch': launchRing }">
       <view class="today-panel">
         <!-- 板头：一行小标签 + 日期，给整板一个"这是今天"的锚点 -->
         <view class="tp-head">
@@ -133,7 +136,11 @@
              圆的尺寸与专注页同款（480rpx 外圈，见 .tp-block.focus-card .hc-ring）。
              今日累计读数移到圈外小字（环内是"这一段多长"，不是"今天过了多久"）。 -->
         <view class="tp-block focus-card" @tap="quickStart()">
-          <view class="hc-ring" :class="{ 'hc-ring-run': running }">
+          <view
+            class="hc-ring"
+            :class="{ 'hc-ring-run': running, 'ring-launch': launchRing }"
+            :style="ringVars"
+          >
             <text class="hc-ring-num">{{ defTime }}</text>
             <text class="hc-ring-task">{{ ringTask }}</text>
           </view>
@@ -867,6 +874,8 @@ export default {
       _parallaxPx: 0,
       _heroLiftPx: 0,
       winH: 667,          // 视口高度（onShow 实测）：进编辑态要滚到那一摞卡
+      winW: 375,          // 视口宽度（onShow 实测）：算大圆转场的放大倍数
+      launchRing: false,  // 大圆转场播放中（点圆 → 放大盖住全屏 → 跳专注页）
       // ---------- 上下胶囊实测占位（measureChromes 里量；0 = 还没量到，走 CSS 老值）----------
       // 为什么要实测：App.vue 的 .page-nav / .page-tabbar 预留（136 / 220rpx）是**写死的**，
       // 悬浮胶囊的真实高度跟着机型 / 字体缩放走 —— 预留偏小时「今日收工」会压进
@@ -1197,6 +1206,23 @@ export default {
       const t = this.focusTask
       return t && t.task ? t.task.title : this.$t('自由专注')
     },
+    /**
+     * 大圆转场的放大倍数：把 480rpx 的圆放大到盖满**整屏**（宽、高的较大者）。
+     * 为什么实测而不写死：480rpx = 屏宽的 64%，写死 750/480 只能盖满屏宽，
+     * 屏高方向的上下会露出背景 —— 转场中间态露出一圈底色，两个圆就"对不齐"了。
+     */
+    launchScale() {
+      const w = this.winW || 375
+      const h = this.winH || 667
+      const ringPx = 480 * w / 750     // 480rpx 在当前机型的像素直径
+      const s = Math.max(w, h) / ringPx
+      // 留 2% 余量：个别机型圆边缘抗锯齿会露出一丝背景缝
+      return Math.ceil(s * 102) / 100
+    },
+    /** 大圆的 CSS 变量（--launch-scale 由 .ring-launch 规则消费） */
+    ringVars() {
+      return { '--launch-scale': String(this.launchScale) }
+    },
     /** 任务卡还有没列出来的 */
     hasMoreTask() {
       return (this.queue || []).length > 3
@@ -1255,6 +1281,9 @@ export default {
     // ⚠️ 这些都是纯辅助动作，绝不能连累后面：onShow 里断一处，refresh / startTick
     //    全不执行，首页就停在旧数据上（H5 未挂载时实测确实会抛，2026-10-23 实锤）。
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
+    try { this.winW = uni.getSystemInfoSync().windowWidth || 375 } catch (e) { this.winW = 375 }
+    // 从专注页返回：转场标志复位，下次点圆还能再播一遍
+    this.launchRing = false
     try { this.remeasure() } catch (e) {}
     // 实测上下胶囊的真实占位（动态让位；内部自带退拍重试，H5 未挂载也不会抛）
     try { this.measureChromes() } catch (e) {}
@@ -2475,7 +2504,7 @@ export default {
      * 起表是有成本的动作：首页立刻被硬控、严格模式开始记账、强制模式开始拦截。
      * 让人先在准备态看清时长与配置、自己按下确认，才谈得上"这一轮是我决定的"。
      */
-    focusUrl() {
+    focusUrl(zoom) {
       const q = []
       try {
         const first = pw.todayQueue(1)[0]
@@ -2485,6 +2514,8 @@ export default {
           q.push('title=' + encodeURIComponent(first.task.title || '任务'))
         }
       } catch (e) {}
+      // zoom=1：告诉专注页「从首页大圆点进来的」，播圆圈衔接转场（见 fr-intro）
+      if (zoom) q.push('zoom=1')
       return '/pkgPlan/pages/focus/focus' + (q.length ? '?' + q.join('&') : '')
     },
     /**
@@ -2499,9 +2530,16 @@ export default {
      * 卡片上的「开始」按钮：与点卡片同一个落点 —— 进准备页，**不直接起表**。
      *（2026-10-14 真机反馈："一点开始就直接倒计时了，我还没看清是几分钟"。）
      * 计时逻辑本身没动，收窄的只是入口：起表仍然只有准备页那颗确认按钮。
+     * 2026-10-25：点大圆先播"圆放大盖住全屏"再跳转（共享元素转场），
+     * 专注页的圆从同一放大态缩回就位 —— 两个圆之间是同一视觉主体，不错位。
      */
     quickStart() {
-      this.goFocus()
+      if (this.launchRing) return   // 转场播放中不重复触发（连点只会跳一次）
+      this.launchRing = true
+      // 260ms 与 CSS 里 .ring-launch 的 transition 时长对齐（改一处要改两处）
+      setTimeout(() => {
+        uni.navigateTo({ url: this.focusUrl(true) })
+      }, 260)
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
     taskMenu(item) {
@@ -3606,6 +3644,32 @@ export default {
   font-size: 23rpx;
   color: #98a19b;
   color: var(--ink-3, #98a19b);
+}
+/* ★ 点大圆 → 专注页的共享元素转场（2026-10-25 用户拍板"两个圆之间要有动画、
+   并且要对齐"）：圆先放大到盖满整屏（倍数由 launchScale 实测，不写死 ——
+   480rpx 只等于屏宽 64%，写死 750/480 盖不满屏高，中间态会露一圈底色），
+   首屏其余内容同时淡出；260ms 后 navigateTo，专注页的圆从同一放大态缩回
+   就位（focus.vue 的 .fr-intro）—— 两页之间是同一个视觉主体，不会跳变错位。
+   ⚠️ 下面两条必须排在 .tp-block.focus-card:active .hc-ring（scale(0.965)）
+   **之后**：特异性打平（0,3,0），位置靠后才赢；排到前面去按压态会把转场压住，
+   圆停在 0.965 倍直接跳页。 */
+.hero-main.ring-launch .tp-head,
+.hero-main.ring-launch .tp-sep,
+.hero-main.ring-launch .tp-block:not(.focus-card),
+.hero-main.ring-launch .home-cta,
+.hero-main.ring-launch .hc-today-min {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.tp-block.focus-card .hc-ring.ring-launch {
+  transform: scale(var(--launch-scale, 1.6));
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+/* 圈内文字先让位：放大 2.8 倍后 72rpx 的字会变成巨大两团糊在屏幕上 */
+.tp-block.focus-card .hc-ring.ring-launch .hc-ring-num,
+.tp-block.focus-card .hc-ring.ring-launch .hc-ring-task {
+  opacity: 0;
+  transition: opacity 140ms ease;
 }
 /* ② 任务区 / ④ 紧迫度区：通栏左对齐，与板头同一条内容边 */
 .tp-block.task-card,

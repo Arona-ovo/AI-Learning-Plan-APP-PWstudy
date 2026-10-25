@@ -217,14 +217,18 @@ function eq(a, b, label) {
     const i = sc.indexOf(sig);
     return i < 0 ? '' : sc.slice(i, sc.indexOf('\n    }', i));
   };
-  const bUrl = body('focusUrl() {');
+  const bUrl = body('focusUrl(zoom) {');
   const bGo = body('goFocus() {');
   const bQuick = body('quickStart() {');
   assert(bUrl && !/auto/.test(bUrl), 'focusUrl 不带任何 auto 起表参数');
+  // zoom=1 是圆圈衔接转场标记（2026-10-25），告诉专注页从放大态缩回 —— 不是起表参数
+  assert(/if \(zoom\) q\.push\('zoom=1'\)/.test(bUrl), 'focusUrl 带 zoom=1 转场标记（非起表参数）');
   assert(bGo && /navigateTo\(\{ url: this\.focusUrl\(\) \}\)/.test(bGo),
     'goFocus 只进准备页（不带起表参数）');
-  assert(bQuick && /this\.goFocus\(\)/.test(bQuick) && !/auto/.test(bQuick),
-    'quickStart 与点卡片同一落点（进准备页，不直接起表）');
+  // quickStart 现在先播"圆放大"转场再 navigateTo（共享元素动画），落点没变：
+  // 仍是准备页那颗确认按钮起表。断言跟着从"必须调 goFocus"放宽为"必须进准备页"。
+  assert(bQuick && /navigateTo\(\{ url: this\.focusUrl\(true\) \}\)/.test(bQuick) && !/auto/.test(bQuick),
+    'quickStart 落点仍是准备页（先播圆圈转场再跳，不起表）');
   // 全页不许再出现 auto=1：目标详情 / 通知深链（utils/link.js）也都得走准备页。
   // 先剥注释再扫 —— 注释里要写清楚"为什么没有 auto=1"，不剥会被自己的注释命中。
   assert(!/auto=1/.test(sc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')),

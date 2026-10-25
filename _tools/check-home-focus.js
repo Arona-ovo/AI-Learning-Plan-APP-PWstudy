@@ -149,6 +149,58 @@ console.log('== 5. fgsvc 仍提供拦截授权依赖 ==');
 assert(/notifGranted/.test(fgsvc), 'fgsvc 提供 notifGranted（授权判定）');
 assert(/openNotifSettings/.test(fgsvc), 'fgsvc 提供 openNotifSettings（跳设置页）');
 
+console.log('== 6. 圆圈衔接转场（点首页大圆 → 专注页，两个圆对齐不错位）==');
+// 2026-10-25 用户拍板："点击圆圈，到专注那个页面最好有一个动画，两个圆圈之间并且要对齐。"
+// 实现是共享元素思路：首页圆放大盖住全屏 → 跳转 → 专注页圆从同一放大态缩回就位。
+// ① 首页侧：先播动画再跳，且倍数实测
+const bQuick = block(home, /quickStart\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.launchRing = true/.test(bQuick), '点圆先置 launchRing（播放大动画，不裸跳页）');
+assert(/setTimeout/.test(bQuick) && /this\.focusUrl\(true\)/.test(bQuick), '动画后带 zoom=1 跳专注页');
+assert(/if \(this\.launchRing\) return/.test(bQuick), '转场播放中连点不重复跳');
+assert(/if \(zoom\) q\.push\('zoom=1'\)/.test(home), 'focusUrl 支持 zoom 参数');
+assert(/this\.launchRing = false/.test(home), '回首页复位 launchRing（下次点圆还能再播）');
+// ② 模板接线
+assert(/class="hero-main" :class="\{ 'ring-launch': launchRing \}"/.test(home),
+  'hero-main 挂 ring-launch（首屏其余内容同步淡出）');
+assert(/hc-ring-run': running, 'ring-launch': launchRing/.test(home), '大圆挂 ring-launch');
+assert(/:style="ringVars"/.test(home), '大圆绑 ringVars（--launch-scale）');
+// ③ 放大倍数必须实测：480rpx 只等于屏宽 64%，写死 750/480 盖不满屏高，
+//   转场中间态上下露一圈底色，两个圆就"对不齐"了（用户原话就是要对齐）
+const bScale = block(home, /launchScale\(\)\s*\{[\s\S]*?\n    \}/);
+assert(/Math\.max\(w, h\) \/ ringPx/.test(bScale) && /480 \* w \/ 750/.test(bScale),
+  'launchScale 实测：480rpx 圆放大到盖住屏宽/屏高的较大者（不写死）');
+// ④ CSS：过渡要在，且规则顺序必须排在按压态之后（特异性打平，位置定胜负）
+assert(/\.tp-block\.focus-card \.hc-ring\.ring-launch \{[\s\S]*?transition: transform 260ms/.test(home),
+  '放大带 260ms transition（没过渡就是硬切，没有"动画"）');
+// ⚠️ 必须先剥注释再比位置：CSS 注释里写着"必须排在 :active 之后"，不剥的话
+//    indexOf 永远先命中注释里的 :active —— 断言恒真，排反了也抓不到（假绿实锤）。
+const cssNoCmt = home.replace(/\/\*[\s\S]*?\*\//g, '');
+assert(cssNoCmt.indexOf('.tp-block.focus-card:active .hc-ring {') <
+  cssNoCmt.indexOf('.tp-block.focus-card .hc-ring.ring-launch {'),
+  '转场规则排在按压态之后（排前面会被 :active 的 scale(0.965) 压住，圆停在原地直接跳页）');
+assert(/\.hero-main\.ring-launch [\s\S]*?opacity: 0/.test(home), '首屏其余内容同步淡出（只剩圆）');
+// ⑤ 专注页侧：从同一放大态缩回就位
+assert(/query && query\.zoom/.test(focusPage), 'focus onLoad 认 zoom=1');
+const bLoad = block(focusPage, /onLoad\(query\)\s*\{[\s\S]*?\n  \}/);
+assert(/this\.ringIntro = true/.test(bLoad), 'zoom 进来先置 ringIntro（初始就是放大态）');
+assert(/480 \* w \/ 750/.test(bLoad), 'coverScale 与首页同一算法（两边倍数不一致，收缩终点对不上）');
+const bShow = block(focusPage, /onShow\(\)\s*\{[\s\S]*?\n  \}/);
+assert(/requestAnimationFrame[\s\S]{0,160}requestAnimationFrame[\s\S]{0,160}this\.ringIntro = false/.test(bShow),
+  'onShow 双 rAF 后移除 intro（同帧加减 class 不会触发 transition，圆会闪一下归位）');
+assert(/\{ 'fr-intro': ringIntro \}/.test(focusPage), 'focus 根节点挂 fr-intro');
+assert(/:style="\[appBgStyle, introVars\]"/.test(focusPage), 'focus 根绑 introVars（--cover-scale）');
+// ⑥ 收缩过程不跳色：intro 期 ring-inner 换成首页大圆的皮肤，渐变回玻璃盘
+const cssRingInner = blockCss(focusPage, /\.fr-intro \.ring-inner \{[\s\S]*?\n\}/);
+// ⚠️ 断言要精确到属性：块里 border-color 也写着 brand-rgb，只查"块内有没有
+//    brand-rgb"的话，删掉 background 那行照样算过（假绿）。
+assert(/background: rgba\(var\(--brand-rgb/.test(cssRingInner) &&
+  /border-color: rgba\(var\(--brand-rgb/.test(cssRingInner),
+  'intro 期 ring-inner 换首页大圆皮肤（淡红底 + 红边，收缩中渐变回玻璃）');
+const cssRing = blockCss(focusPage, /\.fr-intro \.ring \{[\s\S]*?\n\}/);
+assert(/scale\(var\(--cover-scale/.test(cssRing), 'intro 态 ring 放大到全屏');
+assert(/\.fr-intro \.focus-body > \*:not\(\.ring-wrap\) \{ opacity: 0/.test(focusPage),
+  '圆外内容 intro 期让位（随圆收缩一起淡入）');
+
 console.log('');
 console.log(fail === 0 ? '首页专注设置卡片校验全部通过 ✓' : ('失败 ' + fail + ' 项 ✗'));
 process.exit(fail === 0 ? 0 : 1);
