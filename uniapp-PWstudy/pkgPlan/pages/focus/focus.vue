@@ -7,9 +7,13 @@
       <!-- 阶段标签 -->
       <text class="phase" :class="{ 'phase-rest': isRest }">{{ phaseText }}</text>
 
-      <!-- 计时环：conic-gradient 纯 CSS 实现（不用 Canvas，理由同打卡走势） -->
-      <view class="ring-wrap">
-        <view class="ring" :style="ringStyle">
+      <!-- 计时环：conic-gradient 纯 CSS 实现（不用 Canvas，理由同打卡走势）。
+           ★ 圆盘就是开始键（2026-10-25 用户拍板）：原来下面那颗「开始专注 N 分钟」
+           按钮整体删掉 —— 页面里已经有时长选择，按钮纯粹是多余的一层。
+           空闲态点圆盘任意处直接起表（播放轻跳 + 震动）；跑起来之后圆盘只是读数，
+           点它不起表也不放弃（防误触）。 -->
+      <view class="ring-wrap" @tap="onRingTap">
+        <view class="ring" :style="ringStyle" :class="{ 'ring-pulse': ringPulse }">
           <view class="ring-inner">
             <!-- 正计时段：数字前面加个「+」，一眼看出这是"多坐了多久"而不是"还剩多久" -->
             <text class="time">{{ timeText }}</text>
@@ -19,21 +23,13 @@
             <text
               class="task-title"
               :class="{ 'task-title-open': titleOpen }"
-              @tap="toggleTitle"
+              @tap.stop="toggleTitle"
             >{{ taskTitle }}</text>
           </view>
         </view>
       </view>
 
-      <!-- 开始按钮：空闲态的唯一入口（以前只有"暂停/放弃"那排按钮，
-           而它只在计时开始后才出现 —— 从首页点"开始"进来压根没有能按的键，
-           看起来就是"点了开始没有倒计时"） -->
-      <view v-if="!active" class="start-wrap">
-        <button class="btn-primary start-btn" @tap="beginFocus">开始专注 {{ minutes }} 分钟</button>
-        <text class="start-sub">按下去才开始计时</text>
-      </view>
-
-      <!-- 空闲态：时长选择 + 任务提示 -->
+      <!-- 空闲态：时长选择 + 任务提示（开始按钮已融进圆盘，见 onRingTap） -->
       <view v-if="!active" class="config">
         <text class="cfg-label">专注时长</text>
         <view class="cfg-row">
@@ -283,6 +279,7 @@ import { t } from '../../../utils/i18n.js'
 import * as notify from '../../../utils/notify.js'
 import * as ambient from '../../../utils/ambient.js'
 import * as audio from '../../../utils/audio.js'
+import { tick as hapticTick } from '../../../utils/haptic.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 import FocusCalc from '../../../components/focus-calc/focus-calc.vue'
@@ -297,6 +294,8 @@ export default {
       // 态，两帧后移除 ringIntro 缩回就位 —— 与首页圆放大退出是同一视觉主体。
       ringIntro: false,
       coverScale: 2.8,   // intro 态的放大倍数（onLoad 实测：盖满屏宽与屏高的较大者）
+      // 点圆盘起表的反馈：跳一下（ring-pulse 动画）+ 震一下（haptic）
+      ringPulse: false,
       titleOpen: false,      // 圆盘里的任务名是否展开（默认单行，点一下展开到 3 行）
       presetTask: null,      // {taskId, goalId, title}
       cur: null,
@@ -389,7 +388,9 @@ export default {
       //（写成两个分支会多出一条静态中文，i18n 阈值正卡满 —— 能省就省）
       if (this.finished || this.overrun) return '专注完成'
       if (this.restDone) return '休息结束'
-      if (!this.cur) return '准备开始'
+      // 空闲态这行是**唯一的起表提示**（开始按钮已融进圆盘）：写成动作而不是状态，
+      // 人一看就知道点哪儿。phaseText 的消费方统一走 $t，译文在 i18n-en。
+      if (!this.cur) return '点圆盘开始'
       if (this.paused) return '已暂停'
       return this.isRest ? '休息中' : '专注中'
     },
@@ -668,6 +669,22 @@ export default {
     lastSession() {
       const ss = pw.get().sessions
       return ss.length ? ss[ss.length - 1] : null
+    },
+    /**
+     * 点圆盘 = 起表（2026-10-25 用户拍板："把开始专注融入到圆圈里面，不需要单独的
+     * Button 按钮。直接点击中间那个圆圈就可以了，并且同样要有跳动（略微的放大缩小）
+     * 的动画，有震动。"）
+     * 反馈先行：动画 + 震动在 beginFocus 之前就播出去 —— 后面 mayBeAskForced
+     * 可能弹引导框，反馈不该等它。跑起来之后圆盘只是读数，点它不起表也不放弃。
+     */
+    onRingTap() {
+      if (this.active) return
+      this.ringPulse = true
+      clearTimeout(this._pulseT)
+      // 360ms 与 CSS 里 .ring-pulse 的动画时长对齐（改一处要改两处）
+      this._pulseT = setTimeout(() => { this.ringPulse = false }, 360)
+      hapticTick('switch')
+      this.beginFocus()
     },
     beginFocus() {
       // 换一轮 / 换任务就把展开态收回：留着上一条的展开，下一条短任务名会顶着一块空
@@ -1518,9 +1535,21 @@ export default {
 .focus-body { flex: 1; display: flex; flex-direction: column; align-items: center; padding-top: 30rpx; }
 
 /* 开始按钮：空闲态的主操作，宽度固定，跟着计时环居中 */
-.start-wrap { width: 100%; margin-top: 40rpx; display: flex; flex-direction: column; align-items: center; }
-.start-btn { width: 86%; }
-.start-sub { margin-top: 16rpx; font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
+/* ★ 点圆盘起表的反馈动画（2026-10-25 用户拍板"要有跳动的动画"）：
+   略微放大缩小一跳（320ms）。
+   必须用 keyframes 而不是 transition —— 点击一次只播**一轮**（1 → 1.045 → 1），
+   transition 只会从 A 滑到 B 停住，回不去，那就不是"跳一下"而是"变大不回"。
+   ⚠️ 与 .ring 常驻的 transform transition（圆圈衔接转场用）不冲突：animation
+      播放期间优先级高于 transition，且两者不会同时出现。 */
+.ring-pulse { animation: ring-pulse 320ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes ring-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+/* 按下即缩一丁点：pulse 是"点了之后"的反馈，这是"按下当时"的反馈，
+   两层叠加（外层 ring-wrap 按内圈、ring 播 pulse）才不会互抢 */
+.ring-wrap:active .ring-inner { transform: scale(0.97); }
 
 .phase {
   font-size: 26rpx;

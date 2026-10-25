@@ -63,7 +63,21 @@ const cases = [
   ['intro 态 ring 不放大（没有"从全屏缩回"的起点）', 'focus',
     s => s.replace('.fr-intro .ring { transform: scale(var(--cover-scale, 2.8)); }', '')],
   ['圆外内容不让位（收缩完成前页面文字已经糊在屏幕上）', 'focus',
-    s => s.replace('.fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }', '')]
+    s => s.replace('.fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }', '')],
+  // ---- 圆盘即开始键（第 7 节）----
+  ['圆盘不接管点击（ring-wrap 丢了 @tap，按钮删了又没替身）', 'focus',
+    s => s.replace('class="ring-wrap" @tap="onRingTap"', 'class="ring-wrap"')],
+  ['起表按钮又回来了（start-wrap  resurrection）', 'focus',
+    s => s.replace('<view class="ring-wrap" @tap="onRingTap">',
+      '<view class="ring-wrap" @tap="onRingTap">\n      <view v-if="!active" class="start-wrap"><button class="btn-primary start-btn" @tap="beginFocus">开始专注</button></view>')],
+  ['点圆没有震动（hapticTick 丢了）', 'focus',
+    s => s.replace('hapticTick(\'switch\')', '/* haptic gone */')],
+  ['点圆不跳（ring-pulse 动画规则删了）', 'focus',
+    s => s.replace(/\.ring-pulse \{ animation: ring-pulse[^}]*\}/, '')],
+  ['圆盘内任务名点开会误触发起表（.stop 丢了）', 'focus',
+    s => s.replace('@tap.stop="toggleTitle"', '@tap="toggleTitle"')],
+  ['点圆不起表（onRingTap 没调 beginFocus）', 'focus',
+    s => s.replace('this.beginFocus()', '/* no begin */')]
 ];
 
 let bad = 0;

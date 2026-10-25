@@ -201,6 +201,29 @@ assert(/scale\(var\(--cover-scale/.test(cssRing), 'intro 态 ring 放大到全�
 assert(/\.fr-intro \.focus-body > \*:not\(\.ring-wrap\) \{ opacity: 0/.test(focusPage),
   '圆外内容 intro 期让位（随圆收缩一起淡入）');
 
+console.log('== 7. 圆盘即开始键（2026-10-25 用户拍板：删掉「开始专注 N 分钟」按钮）==');
+// 用户："把开始专注融入到圆圈里面，不需要单独的 Button 按钮。直接点击中间那个圆圈就可以了，
+//       并且同样要有跳动（略微的放大缩小）的动画，有震动。"
+// ① 开始按钮必须彻底消失 —— 它纯粹是多余的一层（页面里已经有时长选择）
+assert(!/start-btn/.test(focusPage) && !/class="start-wrap"/.test(focusPage),
+  '开始按钮整体删除（无 start-wrap / start-btn）');
+assert(!/开始专注 \{\{ minutes/.test(focusPage), '模板里不再有「开始专注 N 分钟」按钮文案');
+// ② 圆盘承接点击：ring-wrap 直接 @tap 到 onRingTap
+assert(/class="ring-wrap" @tap="onRingTap"/.test(focusPage), 'ring-wrap 接 @tap="onRingTap"（点圆任意处起表）');
+const bRingTap = block(focusPage, /onRingTap\(\)\s*\{[\s\S]*?\n    \}/);
+assert(bRingTap !== '', 'onRingTap 方法存在');
+assert(/if \(this\.active\) return/.test(bRingTap), '跑起来之后点圆不起表也不放弃（防误触）');
+assert(/hapticTick\(/.test(bRingTap), '点圆有震动反馈（hapticTick）');
+assert(/this\.beginFocus\(\)/.test(bRingTap), '点圆直接起表（调 beginFocus）');
+// ③ 跳动动画：ring-pulse keyframes（1 → 1.045 → 1，不能用 transition，否则变大不回）
+const cssPulse = blockCss(focusPage, /\.ring-pulse \{[\s\S]*?\n\}/);
+assert(/\.ring-pulse \{ animation: ring-pulse/.test(focusPage) &&
+  /@keyframes ring-pulse \{[\s\S]*?scale\(1\.045\)[\s\S]*?scale\(1\)/.test(focusPage),
+  '点圆有跳动动画（ring-pulse：略微放大缩小一跳，keyframes 而非 transition）');
+assert(/:class="\{ 'ring-pulse': ringPulse \}"/.test(focusPage), 'ring 挂 ring-pulse（onRingTap 置位）');
+// ④ 圆盘内任务名点开不误触发起表：toggleTitle 必须 .stop，否则冒泡到 ring-wrap 起表
+assert(/@tap\.stop="toggleTitle"/.test(focusPage), '圆盘内任务名点开用 .stop（不冒泡误起表）');
+
 console.log('');
 console.log(fail === 0 ? '首页专注设置卡片校验全部通过 ✓' : ('失败 ' + fail + ' 项 ✗'));
 process.exit(fail === 0 ? 0 : 1);
