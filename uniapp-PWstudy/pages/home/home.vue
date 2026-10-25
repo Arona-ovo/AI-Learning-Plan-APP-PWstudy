@@ -2,7 +2,7 @@
   <view
     class="container page-tabbar page-nav"
     :class="appTheme"
-    :style="appBgStyle"
+    :style="[appBgStyle, chromePadStyle]"
     @touchstart="onSlideStart"
     @touchmove="onSlideMove"
     @touchend="onSlideEnd"
@@ -18,7 +18,7 @@
 
     <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="focusSetOn" @open-focus="toggleManage" />
 
-    <view class="page-slide home-slide" :class="slideCls" :style="slideStyle">
+    <view class="page-slide home-slide" :class="slideCls" :style="[slideStyle, viewMinStyle]">
 
       <!-- ===== 专注进行中：首页被"硬控"，只剩倒计时 =====
            计时一旦开始，首页不再显示任务列表 / 目标 / Dock 这些会让人分心的东西；
@@ -101,7 +101,7 @@
            靠 JS 算初值的话，脚本一环没跑卡片就永久不见（同类实现已经踩过）。
            上滑时整块首屏随滚动上抬、缩小、渐隐（heroCardStyle / heroBodyStyle），
            下面那摞卡从折叠线下被推上来 —— 两层不同速，才有"另一层被拉上来"的景深。 -->
-      <view class="home-hero" :style="heroCardStyle">
+      <view class="home-hero" :style="[heroCardStyle, viewMinStyle]">
       <view class="hero-body" :style="heroBodyStyle">
       <!-- 首屏内容整组（三张卡 + 收工按钮）：整组用 auto margin 在首屏里垂直居中。
            内容比首屏高时 auto margin 自动归零、从顶部顺排 —— 不会把卡片顶部裁到导航栏下。
@@ -842,6 +842,15 @@ export default {
       _parallaxPx: 0,
       _heroLiftPx: 0,
       winH: 667,          // 视口高度（onShow 实测）：进编辑态要滚到那一摞卡
+      // ---------- 上下胶囊实测占位（measureChromes 里量；0 = 还没量到，走 CSS 老值）----------
+      // 为什么要实测：App.vue 的 .page-nav / .page-tabbar 预留（136 / 220rpx）是**写死的**，
+      // 悬浮胶囊的真实高度跟着机型 / 字体缩放走 —— 预留偏小时「今日收工」会压进
+      // 底部胶囊底下（2026-10-25 真机截图实锤）。量到之后：
+      //   · 根容器 padding 用实测值覆盖（chromePadStyle）
+      //   · 首屏可视高度 = 底部胶囊顶边 - 顶部胶囊底边（viewMinStyle）
+      // 必须显示的卡片就永远落在两个胶囊之间，滚到底也不会被 tabbar 盖住。
+      navBottomPx: 0,     // 顶部胶囊（float-navbar）底边 y（px，含状态栏）
+      tabTopPx: 0,        // 底部胶囊（float-tabbar）顶边 y（px）
       // ---------- 首页编辑（顺序 / 收纳 / 拖拽）----------
       // editing 是唯一开关：进编辑态才显示把手、遮罩、底部两个按钮
       editing: false,
@@ -1108,6 +1117,29 @@ export default {
         pointerEvents: fade > 0.9 ? 'none' : 'auto'
       }
     },
+    // ---------- 上下胶囊动态让位（配 measureChromes）----------
+    // 根容器的 padding：量到真实胶囊位置就用实测值覆盖 App.vue 里写死的
+    // 136 / 220rpx —— 底部再给 8px 呼吸，滚到底时「今日收工」正好抬到胶囊上方。
+    // 量不到（老机型 / 量节点那环哑了）就返回 {}，走 CSS 老值 —— 不比改前差。
+    chromePadStyle() {
+      const pad = {}
+      if (this.navBottomPx > 0) pad.paddingTop = this.navBottomPx + 'px'
+      if (this.tabTopPx > 0) {
+        const bottom = (this.winH || 667) - this.tabTopPx + 8
+        if (bottom > 0) pad.paddingBottom = Math.round(bottom) + 'px'
+      }
+      return pad
+    },
+    // 首屏可视高度 = 底部胶囊顶边 - 顶部胶囊底边。.home-slide 与 .home-hero
+    // 的 min-height 原来按 100vh 减写死的 rpx 算，胶囊真实高度一偏，
+    // 首屏底边就掉进 tabbar 区域 —— 收工按钮被盖住就是从这来的。
+    viewMinStyle() {
+      if (!(this.navBottomPx > 0) || !(this.tabTopPx > 0)) return {}
+      const h = this.tabTopPx - this.navBottomPx
+      // 至少留 320px 内容区：极矮屏 / 折叠小窗上量出个离谱值也不至于把页面压没
+      if (!(h >= 320)) return {}
+      return { minHeight: Math.round(h) + 'px' }
+    },
     /**
      * 主页任务卡只列最该做的三条 —— 第一行永远是主任务
      * （超期优先，其次剩余专注最多），后面按原队列顺序补齐。
@@ -1192,6 +1224,8 @@ export default {
     //    全不执行，首页就停在旧数据上（H5 未挂载时实测确实会抛，2026-10-23 实锤）。
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
     try { this.remeasure() } catch (e) {}
+    // 实测上下胶囊的真实占位（动态让位；内部自带退拍重试，H5 未挂载也不会抛）
+    try { this.measureChromes() } catch (e) {}
     // 回首页立刻把滚动进度对齐一次（不碰 DOM，H5 未挂载也不会抛）：
     // revealOn 一旦亮起来就必须配一个**真实**进度 —— 等用户先滑一下才算是错的，
     // 那一帧会是"首屏已退场、卡片还没进来"，整页看着像空的。
@@ -1468,9 +1502,77 @@ export default {
       // 下限仍是 REVEAL_SPAN_RPX：极矮的屏（横屏 / 折叠小窗）也得走完。
       let ins = 0
       try { ins = (insets.statusBar() || 0) + (insets.safeBottom() || 0) } catch (e) { ins = 0 }
-      const heroPx = (this.winH || 667) - ins - this.upx(PAGE_NAV_RPX) - this.upx(PAGE_TAB_RPX)
+      // 首屏可视高：量到胶囊真实位置就用实测（tabTopPx - navBottomPx），
+      // 没量到再退回写死的 rpx 预算（PAGE_NAV_RPX / PAGE_TAB_RPX）
+      let heroPx = 0
+      if (this.navBottomPx > 0 && this.tabTopPx > this.navBottomPx) {
+        heroPx = this.tabTopPx - this.navBottomPx
+      } else {
+        heroPx = (this.winH || 667) - ins - this.upx(PAGE_NAV_RPX) - this.upx(PAGE_TAB_RPX)
+      }
       const byScreen = heroPx > 0 ? Math.round(heroPx * 0.96) : 0
       this._spanPx = Math.max(this.upx(REVEAL_SPAN_RPX), byScreen)
+    },
+    /**
+     * 实测上下两个悬浮胶囊的真实占位（首页动态让位的唯一数据源）。
+     *
+     * ⚠️ 与"量面板高度"同一套保命姿势（H5 KeepAlive 下 onShow 可能早于挂载）：
+     *   · 判 H5 用 uniPlatform（platform 在 H5 上返回宿主系统，恒不等于 'h5'）；
+     *   · 抛点在 q.exec() 里，不在 .in(this) 里 —— 所以**整段**（select + exec）包 try，
+     *     只包 .in(this) 等于没兜；exec 回调里再包一层，量不到就退一拍重试（≤6 拍）。
+     *   · 回调结果先过合理性夹逼再入库：量出离谱值（横屏 / 折叠窗 / 节点没渲染）
+     *     宁可扔掉走 CSS 老值，也不能把页面压没。
+     */
+    measureChromes(tryN) {
+      const n = tryN || 0
+      if (n > 6) return
+      // 两套量法：先带 .in(this)（H5 需要组件作用域），两个节点都选不到时
+      // 退回页面级全局 query —— App-vue 的渲染层就是同一棵 DOM 树，
+      // 子组件根节点（.fnb-wrap / .ftb-wrap）在全局 query 下照样能选到。
+      const self = this
+      const runQuery = (useIn, attempt) => {
+        let q
+        try { q = useIn ? uni.createSelectorQuery().in(self) : uni.createSelectorQuery() } catch (e) { q = uni.createSelectorQuery() }
+        if (!q) return
+        try {
+          q.select('.fnb-wrap').boundingClientRect()
+          q.select('.ftb-wrap').boundingClientRect()
+          q.exec((res) => {
+            try {
+              const nav = res && res[0]
+              const tab = res && res[1]
+              // 两节点都没选到 + 还没用过全局 query → 换全局再来一次
+              if (!nav && !tab && useIn && attempt === 0) {
+                runQuery(false, 1)
+                return
+              }
+              const wh = self.winH || 667
+              const navB = nav && nav.bottom ? Math.round(nav.bottom) : 0
+              const tabT = tab && tab.top ? Math.round(tab.top) : 0
+              // 合理性夹逼：顶部胶囊底边要落在上半屏且不是 0；底部胶囊顶边要落在
+              // 下半屏且没贴到屏幕底；两者之间至少要剩 320px 给内容。
+              const navOk = navB >= 20 && navB <= wh * 0.5
+              const tabOk = tabT >= wh * 0.5 && tabT <= wh - 20
+              if (navOk && tabOk && tabT - navB >= 320) {
+                const changed = navB !== self.navBottomPx || tabT !== self.tabTopPx
+                self.navBottomPx = navB
+                self.tabTopPx = tabT
+                // 视口实际可用高度变了 → 滚动视差的跨度跟着重算（remeasure 用实测值）
+                if (changed) { try { self.remeasure() } catch (e) {} }
+              } else if (n < 6) {
+                // 多半是还没挂载完 / 胶囊还没渲染 —— 退一拍再量
+                setTimeout(() => { self.measureChromes(n + 1) }, 120)
+              }
+            } catch (e) {
+              setTimeout(() => { self.measureChromes(n + 1) }, 120)
+            }
+          })
+        } catch (e) {
+          // H5 未挂载时 exec 同步抛 —— 退一拍重试，绝不能连累 onShow 后面的 refresh
+          setTimeout(() => { self.measureChromes(n + 1) }, 120)
+        }
+      }
+      runQuery(true, 0)
     },
     /**
      * 算"下面那摞卡淡入 / 首屏退场"的进度，并把它推进响应式数据
@@ -3087,7 +3189,10 @@ export default {
   background: rgba(var(--neutral-rgb, 23, 32, 26), 0.16);
   transition: background 200ms ease;
 }
-.fc-switch-on {
+/* ⚠️ 模板绑的类名是 `fc-on`（:class="{ 'fc-on': xxx }"），这里选择器必须对得上 ——
+   2026-10-25 实锤：以前定义在 .fc-switch-on 上，类名对不上 → 开关打开后
+   滑块会动（.fc-knob-on 对得上）但轨道永远不变红，用户眼中就是"按键没颜色"。 */
+.fc-switch.fc-on {
   background: rgba(228, 23, 61, 0.9);
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.9);
 }

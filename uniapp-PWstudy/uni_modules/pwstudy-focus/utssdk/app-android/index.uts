@@ -50,6 +50,7 @@ import ViewGroup from 'android.view.ViewGroup';
 import Gravity from 'android.view.Gravity';
 import Color from 'android.graphics.Color';
 import PixelFormat from 'android.graphics.PixelFormat';
+import GradientDrawable from 'android.graphics.drawable.GradientDrawable';
 import MotionEvent from 'android.view.MotionEvent';
 import AccessibilityService from 'android.accessibilityservice.AccessibilityService';
 import AccessibilityEvent from 'android.view.accessibility.AccessibilityEvent';
@@ -59,6 +60,7 @@ import InputMethodManager from 'android.view.inputmethod.InputMethodManager';
 import SharedPreferences from 'android.content.SharedPreferences';
 import NotificationListenerService from 'android.service.notification.NotificationListenerService';
 import StatusBarNotification from 'android.service.notification.StatusBarNotification';
+import Uri from 'android.net.Uri';
 
 // 必须与 uniapp-PWstudy/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
@@ -71,6 +73,13 @@ const CHANNEL_ID = 'pw_focus_ongoing';
 // 强制模式"拉回"专用通知（与 notify.js 的 ID_ALERT = 8802 错开）
 const PULL_NOTIFY_ID: Int = 8803;
 const CHANNEL_PULL = 'pw_focus_pull';
+
+// 无障碍护卫掉线提醒（2026-10-25：用户实锤"无障碍开一段时间会断"）。
+// 断开应用侧救不回来 —— 无障碍开关只有用户在系统设置里能扳；能做的是
+// **立刻喊人**：发一条高优先级通知，点按回 App，状态条会提示重新打开。
+const GUARD_NOTIFY_ID: Int = 8804;
+const CHANNEL_GUARD = 'pw_focus_guard';
+const GUARD_NOTIFY_GAP_SEC: Int = 300;   // 节流：5 分钟内最多提醒一次（重绑风暴别刷屏）
 
 // PendingIntent 标志位（数值与 android.app.PendingIntent 常量一致）
 const PI_FLAGS: Int = 0x08000000 | 0x04000000;   // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
@@ -735,6 +744,114 @@ function postOverlay(want: boolean) {
   uiPost(new OverlaySyncTask());
 }
 
+/* ==================== 悬浮灵动岛胶囊（专注时后台倒计时） ====================
+ *
+ * 仿番茄时钟那种「左上角/顶部悬浮倒计时胶囊」：专注进行中、App 退到后台时，在别的 App 上方
+ * 顶部居中悬浮一个圆角小胶囊，显示剩余时间；点一下把 PWstudy 拉回前台（复用
+ * PullNowTask 那条现成的拉回链路）。
+ *
+ * 与强制模式遮罩的区别：
+ *   · 遮罩是**全屏、阻塞、盖住那个 App** 的保活手段（强制模式专用）；
+ *   · 胶囊是**小、非阻塞、只显示倒计时**的便利显示 —— 用户一眼看到还在计时，点一下回来。
+ *   · 用的还是同一套 SYSTEM_ALERT_WINDOW（canDrawOverlays 检查 + TYPE_APPLICATION_OVERLAY），
+ *     只是权限**独立授权**：没开强制模式也能单独开胶囊。
+ *
+ * 非阻塞关键：FLAG_NOT_FOCUSABLE（不抢焦点）+ FLAG_NOT_TOUCH_MODAL（窗口外点击透传），
+ * 这样它浮在别家 App 上不会吞掉人家的操作，只截获自己这一小块上的点击（用来拉回）。
+ * 挂/撤必须在主线程（同遮罩，见 uiPost）。
+ */
+let capsuleView: TextView | null = null;
+let capsuleWanted = false;
+let capsuleText = '';
+
+class CapsuleView extends TextView {
+  constructor(ctx: Context) {
+    super(ctx);
+  }
+
+  override onTouchEvent(event: MotionEvent): boolean {
+    // 点一下 = 回到 PWstudy（复用强制模式那条现成的拉回链路）
+    uiPost(new PullNowTask());
+    return true;
+  }
+}
+
+class CapsuleApplyTask implements Runnable {
+  override run(): void {
+    applyCapsule(UTSAndroid.getAppContext());
+  }
+}
+
+function applyCapsule(ctx: Context | null) {
+  if (ctx == null) return;
+  if (capsuleWanted && capsuleView == null) {
+    if (!canDrawOverlays(ctx!)) { capsuleWanted = false; return; }
+    try {
+      let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+      let v = new CapsuleView(ctx!)
+      v.setText(capsuleText)
+      v.setTextSize(15.0.toFloat())
+      v.setTextColor(Color.WHITE)
+      let bg = new GradientDrawable()
+      bg.setColor(Color.argb(232, 23, 25, 38))
+      bg.setCornerRadius(999.0.toFloat())
+      v.setBackground(bg)
+      v.setGravity(Gravity.CENTER)
+      v.setPadding(34, 12, 34, 12)
+      let lp = new WindowManager.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+      )
+      lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
+      lp.format = PixelFormat.TRANSLUCENT
+      lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
+      // 顶栏下方一点（40dp），避开状态栏
+      let dm = ctx!.getResources().getDisplayMetrics()
+      lp.y = ((40 * dm.density) as Number).toInt()
+      // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）
+      lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+      wm.addView(v, lp)
+      capsuleView = v
+    } catch (e) {
+      capsuleView = null
+      capsuleWanted = false
+    }
+  } else if (!capsuleWanted && capsuleView != null) {
+    try {
+      let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+      wm.removeView(capsuleView!)
+    } catch (e) {}
+    capsuleView = null
+  } else if (capsuleWanted && capsuleView != null) {
+    // 只刷新文案（胶囊常驻，倒计时每秒变）
+    try { capsuleView!.setText(capsuleText) } catch (e) {}
+  }
+}
+
+function postCapsule(want: boolean, text: string) {
+  capsuleText = text
+  capsuleWanted = want
+  uiPost(new CapsuleApplyTask())
+}
+
+/** 显示 / 刷新悬浮胶囊（text = 要显示的倒计时文案）。返回是否成功排进主线程任务 */
+export function showCapsule(text: string): boolean {
+  postCapsule(true, text)
+  return true
+}
+
+/** 只刷新胶囊文案（已显示时更新倒计时，没显示时也排上） */
+export function updateCapsule(text: string): boolean {
+  postCapsule(true, text)
+  return true
+}
+
+/** 撤掉胶囊 */
+export function hideCapsule(): boolean {
+  postCapsule(false, '')
+  return true
+}
+
 /* ==================== 拦截页（2026-10-15，参照番茄ToDo 严格模式实测录像） ====================
  * 竞品实测（用户录屏）：按 HOME/切走 → 弹出一个**自己的全屏黑页**（"您已禁止访问桌面和
  * 多任务，3 秒后跳转至计时"），倒计时结束自动跳回计时页。整个流程用户几乎看不到桌面。
@@ -963,6 +1080,62 @@ function cancelPullNotify(ctx: Context | null) {
   } catch (e) {}
 }
 
+/* ---------- 无障碍护卫掉线提醒 ---------- */
+
+let guardDropAtSec: Int = 0;   // 上次发掉线提醒的时刻（节流用）
+
+function ensureGuardChannel(ctx: Context) {
+  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    try {
+      let manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      let channel = new NotificationChannel(
+        CHANNEL_GUARD,
+        '专注护卫状态',
+        NotificationManager.IMPORTANCE_HIGH
+      )
+      channel.setDescription('无障碍护卫掉线时提醒你回来重新打开')
+      try { channel.setSound(null, null) } catch (e) {}
+      manager.createNotificationChannel(channel)
+    } catch (e) {}
+  }
+}
+
+function buildGuardDropNotification(ctx: Context): Notification {
+  ensureGuardChannel(ctx)
+  let builder = new NotificationCompat.Builder(ctx, CHANNEL_GUARD)
+  builder.setContentTitle('专注护卫掉线了')
+  builder.setContentText('无障碍被系统停掉了，强制 / 严格模式看不住 —— 点这里回 PWstudy 重新打开')
+  builder.setSmallIcon(ctx.getApplicationInfo().icon)
+  builder.setWhen(System.currentTimeMillis())
+  builder.setPriority(1)          // PRIORITY_HIGH
+  builder.setCategory('alarm')
+  builder.setOngoing(false)
+  builder.setAutoCancel(true)
+  let launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName())
+  if (launch != null) {
+    launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    let pi = PendingIntent.getActivity(ctx, 2, launch, PI_FLAGS)
+    builder.setContentIntent(pi)
+  }
+  return builder.build();
+}
+
+/**
+ * 发"护卫掉线"提醒。GUARD_NOTIFY_GAP_SEC 内只发一次：
+ * onUnbind 在重绑风暴里可能连着来好几次，提醒刷屏比掉线本身还烦。
+ */
+function postGuardDropNotify() {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return;
+  try {
+    let now = nowSec();
+    if (now - guardDropAtSec < GUARD_NOTIFY_GAP_SEC) return;
+    guardDropAtSec = now;
+    let nm = ctx!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    nm.notify(GUARD_NOTIFY_ID, buildGuardDropNotification(ctx!))
+  } catch (e) {}
+}
+
 /* ==================== 无障碍护卫服务 ====================
  * 它解决的是"看门狗看不见"这件事上的两处硬伤：
  *
@@ -1099,6 +1272,12 @@ class PFGuardService extends AccessibilityService {
       guardRef = null;        // 服务不在了 → 豁免通路随之失效，别再让 pullSelf 走它
       guardPkg = '';
       kickWanted = true;      // 让看门狗立刻重判一次（判定依据变了）
+      // ★ 掉线喊人（2026-10-25）：强制 / 严格模式的"眼睛"没了，应用侧救不回来
+      //   （无障碍开关只有用户能扳）—— 只能立刻提醒，别让人以为还看得住。
+      //   条件收得很紧：看门狗（前台服务）还在跑 = 强制模式还开着，才有喊的必要；
+      //   日常手动关无障碍 / 重绑间隙不算。
+      let s = svcRef;
+      if (s != null && s.watchOn) postGuardDropNotify();
     } catch (e) {}
     try { return super.onUnbind(intent) } catch (e) { return false }
   }
@@ -1820,18 +1999,46 @@ export function notifGranted(): boolean {
   }
 }
 
-/** 跳系统的「通知使用权」设置页 */
+/**
+ * 跳系统的「通知使用权」设置页。
+ *
+ * ⚠️ 2026-10-25 真机实锤：只给一条路时部分 ROM（MIUI / 澎湃等对设置页跳转有白名单）
+ * 会 resolve 失败或直接吞掉 → startActivity 抛异常 → JS 层弹"没跳过去"，
+ * 用户眼里就是这个开关开不了。跟白噪音 srcCandidates 同一条教训：
+ * **必须给多条路径，且某条失败不吐错就换下一条**。
+ *
+ * 三级兜底：
+ *   ① 直达「通知使用权」列表页（标准 action，绝大多数机型到这就够了）；
+ *   ② 退到系统设置主页 —— 用户按弹窗文案自己点两下（设置 → 通知 → 通知使用权）；
+ *   ③ 再退到本 App 的应用详情页 —— 有的 ROM 把"通知使用权"也挂在详情页入口下。
+ * 只要有一条走通就返回 true；三条全挂才让 JS 层去说"跳不过去"。
+ */
 export function openNotifSettings(): boolean {
   let ctx = UTSAndroid.getAppContext();
   if (ctx == null) return false;
+  // ① 直达「通知使用权」
   try {
     let it = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     ctx!.startActivity(it);
     return true;
-  } catch (e) {
-    return false;
-  }
+  } catch (e) {}
+  // ② 系统设置主页
+  try {
+    let it2 = new Intent(Settings.ACTION_SETTINGS);
+    it2.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    ctx!.startActivity(it2);
+    return true;
+  } catch (e) {}
+  // ③ 本 App 的应用详情页（package: 前缀的 data，不依赖任何 ROM 私有 action）
+  try {
+    let it3 = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+    it3.setData(Uri.parse('package:' + ctx!.getPackageName()));
+    it3.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    ctx!.startActivity(it3);
+    return true;
+  } catch (e) {}
+  return false;
 }
 
 /** 开始拦截。没授权返回 false —— JS 层据此绝不承诺"已经帮你挡住了" */
