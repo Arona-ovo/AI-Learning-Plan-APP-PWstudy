@@ -205,6 +205,40 @@ assert(/Math\.max\(this\.upx\(REVEAL_SPAN_RPX\)/.test(bRemeasure),
 assert(/const PAGE_NAV_RPX = 136/.test(home) && /const PAGE_TAB_RPX = 220/.test(home),
   '顶栏 / 底栏留白常量与 App.vue 的 .page-nav / .page-tabbar 同值');
 assert(/try \{ this\.remeasure\(\) \} catch/.test(home), 'onShow 里 remeasure 自带 try（不许打断 refresh / startTick）');
+
+// ===== 可滚行程 ÷ 淡入距离（2026-10-26：两张卡时滑不到进度 1）=====
+// 症结：p = (scrollTop - dead) / span，span 按"一屏"给，可页面能滚多远是文档
+// 说了算的。下面只有两张卡时文档没那么高，划到底也凑不满一屏的行程 →
+// p 停在 0.5 上下 → 卡片半透明、底板还往下偏着（看着就是"没滑出来、缺一块"）。
+// 所以：① 分母要被实测行程收敛；② 划到尽头一律当拉到位；③ 行程只能在一个地方量。
+const bMeas = block(/measureScrollable\(tryN, force\)\s*\{[\s\S]*?\n    \},/);
+assert(bMeas !== '', '存在 measureScrollable（实测能滚多远）');
+assert(/select\('\.container'\)\.boundingClientRect/.test(bMeas), '量根容器高度（= 文档总高）');
+assert(/box\.height - win/.test(bMeas), '可滚行程 = 文档高 - 视口高');
+assert(/max < 0 \|\| max > 20000/.test(bMeas), '量出来的行程要过合理性夹逼（离谱值退回重试）');
+// ⚠️ 两个 / 一行：这文件混着 CRLF，含换行的锚点写 \n 会在 CRLF 段落上落空（老坑）
+assert(/\.exec\(\(res\) => \{[\s\S]*?catch/.test(bMeas) && /try \{\r?\n\s*let q/.test(bMeas),
+  '整段（select + exec）都包 try —— 抛点在 exec 里，只包 .in(this) 等于没兜');
+assert(/n \+ 1/.test(bMeas) && /n > 4/.test(bMeas), '量不到就退一拍重试，且有次数上限');
+assert(/if \(changed\)[\s\S]{0,340}?syncReveal\(-1\)/.test(bMeas),
+  '行程变了要立刻按新分母对齐进度（不然要等用户再滑一下才纠正）');
+assert(/gap < 900/.test(bMeas), '重复测量有节流（tick / 刷新会反复来叫）');
+// ⚠️ 这条最要紧：App 端在 syncReveal / onPageScroll 里量不到东西，会静默失效成
+//    "上滑什么都没发生"。所以 DOM 只允许出现在 measureScrollable 这一个地方。
+assert(/createSelectorQuery|getBoundingClientRect|document\./.test(bMeas),
+  'measureScrollable 是唯一允许碰尺寸的地方');
+assert(!/getBoundingClientRect|document\.|createSelectorQuery/.test(bSync),
+  'syncReveal 仍然不碰 DOM（它只读 _scrollablePx 这个量好的数）');
+assert(!/getBoundingClientRect|document\.|createSelectorQuery/.test(bScrollHook),
+  'onPageScroll 仍然不碰 DOM');
+assert(/this\._scrollablePx/.test(bRemeasure), 'remeasure 用实测行程收敛分母');
+assert(/Math\.min\([\s\S]*?capped\)/.test(bRemeasure), 'span = min(按屏算的距离, 实测可滚行程)');
+// 拉伸回弹 / 取整误差会让最后几 px 报不上来 —— 少了这一句又会停在 0.9x
+assert(/this\._scrollTop >= avail - 6/.test(bSync), '已经划到页面尽头就判满（不靠最后几像素）');
+assert(/try \{ this\.measureScrollable\(\) \} catch/.test(home.slice(home.indexOf('onShow()'))),
+  'onShow 里 measureScrollable 自带 try（不许打断 refresh / startTick）');
+assert(/clearTimeout\(this\.__scrollableT\)/.test(block(/onUnload\(\)\s*\{[\s\S]*?\n  \}/)),
+  'onUnload 清掉待跑的测量计时器');
 // 拉到位的震动 + Q 弹：一次来回只响一声
 const bBuzz = block(/buzzDrawer\(\)\s*\{[\s\S]*?\n    \}/);
 assert(bBuzz !== '' && /haptic\.tick\('drawer'\)/.test(bBuzz) && /catch/.test(bBuzz), 'buzzDrawer 震 drawer 档且包 catch');
@@ -242,7 +276,18 @@ assert(/uni\.pageScrollTo/.test(bScrollTo) && /catch/.test(bScrollTo), 'scrollTo
 const bGuide = block(/maybeGuide\(\)\s*\{[\s\S]*?\n {4}\}/);
 assert(/pageScrollTo\(\{ scrollTop: 0/.test(bGuide), '放引导前先滚回顶（目标卡在首屏，滑走了就量不到）');
 const bWatch = block(/watch: \{[\s\S]*?\n  \},/);
-assert(/restOrder\(\) \{ this\.syncReveal\(-1\) \}/.test(bWatch), '卡片增减要重新对齐进度（否则最后一张收掉后整摞透明）');
+// ⚠️ 必须按**函数体**判，不能用 "restOrder() 之后 N 个字符内出现 xxx" 那种写法：
+//    窗口一宽就跨到紧挨着的 locked() 那条上 —— 把 restOrder 改成空函数照样绿
+//    （反向测试抓出来过一次，2026-10-26）。
+// ⚠️ 再谨慎一层：全文件里有**两个** restOrder —— computed 里还有一个（那一摞卡的
+//    顺序），从头往后的第一次 match 会抠到它上面去，断言就地失灵。必须先在 watch
+//    块里搜。
+const bRestWatch = (bWatch.match(/ {4}restOrder\(\) \{[\s\S]*?\n {4}\}/) || [''])[0];
+assert(bRestWatch !== '', '能抠出 restOrder 的 watcher 函数体（真判前置）');
+assert(/this\.syncReveal\(-1\)/.test(bRestWatch), '卡片增减要重新对齐进度（否则最后一张收掉后整摞透明）');
+// ★ 2026-10-26：张数一变文档高度就变，"能滚多远"必须重量 —— 分母停留在旧行程上，
+//    四张减到两张之后的观感和没修一样（票数不够，滑不到进度 1，卡片半透明）。
+assert(/measureScrollable\(\)/.test(bRestWatch), '卡片增减要重测可滚行程（分母跟着收敛；不重测 = 张数一变又复发）');
 assert(/locked\(\) \{ this\.syncReveal\(-1\) \}/.test(bWatch), '进出硬控要重新对齐进度');
 
 console.log('== 6. 层级归属（真跑标签栈）==');
@@ -370,6 +415,30 @@ console.log('== 10. 真跑 syncReveal（静态断言说"算对了"不算数）==
       '_scrollTop 未初始化时当顶部（revealOn=true, p=' + h.revealP + '；NaN 会让首屏淡成 0）');
     const h2 = make(); h2._scrollTop = NaN; h2.syncReveal(-1);
     assert(h2.revealP === 0, '_scrollTop 是 NaN 时同样归 0（p=' + h2.revealP + '）');
+
+    // I. ★ 2026-10-26 真机反馈的那一枪：下面只有两张卡时滑不到进度 1。
+    //    remeasure 之后分母已按实测行程收敛（300 - dead 8 = 292），这里验证
+    //    在这种情况下滑到尽头必须是满的 —— 这就是"不再半透明"的直接凭据。
+    const i = make(); i._spanPx = 292; i._scrollablePx = 300;
+    i.syncReveal(0); i.syncReveal(300);
+    assert(i.revealP === 1, '两张卡（行程 300 / 分母收敛到 292）：滑到尽头进度满（实际 ' + i.revealP + '）');
+    assert(i.buzz === 1 && i.pop === 1, '两张卡拉到底同样震一下 + 弹一次（buzz=' + i.buzz + ' pop=' + i.pop + '）');
+    // ★ 对照：分母**没有**跟着收敛（老写法，四张卡时量出来的 491）会怎样 ——
+    //   同样的 300px 行程只能喂出 0.59，卡片停在六成透明度：真机上"看不全"就是它。
+    //   这条盯着 remeasure 里那个 min，也顺带证明上面的 1 不是蒙出来的。
+    const i2 = make(); i2._spanPx = 491; i2._scrollablePx = 0;
+    i2.syncReveal(0); i2.syncReveal(300);
+    assert(i2.revealP > 0.4 && i2.revealP < 0.75,
+      '对照：分母不收敛时 300px 只能到半透明（实际 ' + i2.revealP + '）');
+    // 还差一截时不许提前判满（否则四张卡会变成"没拉到位就全显"）
+    const i3 = make(); i3._spanPx = 292; i3._scrollablePx = 300;
+    i3.syncReveal(0); i3.syncReveal(240);
+    assert(i3.revealP < 1, '没滑到尽头不判满（240/300，实际 ' + i3.revealP + '）');
+    // 判满那条容差：最后一帧少报几 px（回弹 / 取整）时兜住它。
+    //   span 还停在旧值 340（remeasure 还没跑到），不判满就是 0.85 —— 又是半透明。
+    const i4 = make(); i4._spanPx = 340; i4._scrollablePx = 300;
+    i4.syncReveal(0); i4.syncReveal(296);
+    assert(i4.revealP === 1, '到底最后几 px 报不上来时靠判满兜住（296/300，实际 ' + i4.revealP + '）');
   }
 }
 

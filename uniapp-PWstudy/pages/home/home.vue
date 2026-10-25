@@ -883,6 +883,11 @@ export default {
       _deadPx: 0,
       _parallaxPx: 0,
       _heroLiftPx: 0,
+      // 这一屏**实际能滚多远**（px，实测 container 高 - 视口高；0 = 还没量到）。
+      // ★ 淡入所需的滚动距离不能比它长 —— 下面只有两张卡时文档根本撑不出
+      //   一屏来滚，进度永远到不了 1：卡片停在半透明、底板也还往下偏着
+      //   （2026-10-26 真机："两张卡看不全，四张就没事"）。见 measureScrollable。
+      _scrollablePx: 0,
       winH: 667,          // 视口高度（onShow 实测）：进编辑态要滚到那一摞卡
       winW: 375,          // 视口宽度（onShow 实测）：算大圆转场的放大倍数
       launchRing: false,  // 大圆转场播放中（点圆 → 放大盖住全屏 → 跳专注页）
@@ -1267,7 +1272,15 @@ export default {
     },
     // 卡片增减 / 进出硬控都要重新对齐滚动进度：否则"刚收纳掉最后一张卡"时
     // 进度还停在 0，剩下那摞卡会整个透明。
-    restOrder() { this.syncReveal(-1) },
+    // ⚠️ 张数一变，文档高度就变 —— 能滚多远也得重量（分母跟着收敛的那个值），
+    //    否则"从四张减到两张"之后分母还带着四张时的行程，又变回看不全。
+    restOrder() {
+      this.syncReveal(-1)
+      clearTimeout(this.__scrollableT)
+      this.__scrollableT = setTimeout(() => {
+        try { this.measureScrollable() } catch (e) {}
+      }, 260)
+    },
     locked() { this.syncReveal(-1) }
   },
   /**
@@ -1297,6 +1310,9 @@ export default {
     try { this.remeasure() } catch (e) {}
     // 实测上下胶囊的真实占位（动态让位；内部自带退拍重试，H5 未挂载也不会抛）
     try { this.measureChromes() } catch (e) {}
+    // 实测这一屏能滚多远（同一套退拍重试）：卡片张数不同文档高度不同，
+    // 抽屉淡入的分母要跟着收敛，不然两张卡时滑到底也只能到半透明。
+    try { this.measureScrollable() } catch (e) {}
     // 回首页立刻把滚动进度对齐一次（不碰 DOM，H5 未挂载也不会抛）：
     // revealOn 一旦亮起来就必须配一个**真实**进度 —— 等用户先滑一下才算是错的，
     // 那一帧会是"首屏已退场、卡片还没进来"，整页看着像空的。
@@ -1336,6 +1352,8 @@ export default {
   },
   onUnload() {
     this.stopTick()
+    clearTimeout(this.__scrollableT)
+    clearTimeout(this.__throttleT)
   },
   /**
    * 硬控期间拦返回键 —— 首页原来没有这一层，于是"回到首页按一下返回"就能退出 App，
@@ -1509,6 +1527,12 @@ export default {
       this.capsuleOn = !!f.capsule
       this.capsuleOk = apptime.canDrawOverlays()
       if (this.locked) this.focusSheet = false
+      // 内容变了 → 下面那摞卡的文档高度也变了（目标卡今天一项 vs 三项，高度就不一样），
+      // 能滚多远随之变化。抽稀重测一次，抽屉淡入的分母跟着走（见 measureScrollable）。
+      clearTimeout(this.__scrollableT)
+      this.__scrollableT = setTimeout(() => {
+        try { this.measureScrollable() } catch (e) {}
+      }, 320)
     },
     // ---------- 首页模块显隐 ----------
     // 出厂默认只放三张；用户可在「首页自定义」里加回来。layout 为空时
@@ -1584,7 +1608,16 @@ export default {
         heroPx = (this.winH || 667) - ins - this.upx(PAGE_NAV_RPX) - this.upx(PAGE_TAB_RPX)
       }
       const byScreen = heroPx > 0 ? Math.round(heroPx * 0.96) : 0
-      this._spanPx = Math.max(this.upx(REVEAL_SPAN_RPX), byScreen)
+      // ★ 分母必须跟着"实际能滚多远"收敛：
+      //   卡片只有两张时，文档高度 = 首屏一屏 + 两张卡 —— 减去视口之后剩下的
+      //   可滚行程常常只有两三百 px，比 byScreen（≈一屏）短得多。分母照旧给一屏，
+      //   分子最多只能滑到两三百 → 进度卡在 0.5 上下，卡片永远停在半透明、
+      //   底板也还往下偏着（看着就像"没滑到位、缺一块"）。四张卡时行程够长，
+      //   分子能跑满分母，所以没事 —— 这正是"张数不同手感不同"的来源。
+      //   量不到（0）才退回一屏，保持旧行为。
+      const avail = this._scrollablePx || 0
+      const capped = avail > 0 ? Math.max(1, avail - this._deadPx) : Infinity
+      this._spanPx = Math.max(1, Math.min(Math.max(this.upx(REVEAL_SPAN_RPX), byScreen), capped))
     },
     /**
      * 实测上下两个悬浮胶囊的真实占位（首页动态让位的唯一数据源）。
@@ -1631,7 +1664,12 @@ export default {
                 self.navBottomPx = navB
                 self.tabTopPx = tabT
                 // 视口实际可用高度变了 → 滚动视差的跨度跟着重算（remeasure 用实测值）
-                if (changed) { try { self.remeasure() } catch (e) {} }
+                if (changed) {
+                  try { self.remeasure() } catch (e) {}
+                  // 顶/底让位的 padding 也变了 = 文档高度变了 = 能滚多远跟着变
+                  // （自身带节流，连着量不会开一窝花）
+                  try { self.measureScrollable() } catch (e) {}
+                }
               } else if (n < 6) {
                 // 多半是还没挂载完 / 胶囊还没渲染 —— 退一拍再量
                 setTimeout(() => { self.measureChromes(n + 1) }, 120)
@@ -1646,6 +1684,70 @@ export default {
         }
       }
       runQuery(true, 0)
+    },
+    /**
+     * 实测"这一屏还能滚多远"（= 文档总高 - 视口高）。
+     *
+     * 为什么需要它：卡片淡入的进度是 scrollTop / span 这个比值，span 以前固定按
+     * "一屏"给；可页面能滚多远是**文档说了算**的 —— 下面那摞卡只有两张时文档
+     * 根本没多高，划到底也凑不满一屏的行程，比值就永远停在 0.5：卡片半透明、
+     * 底板还偏着，看着就是"没滑出来 / 缺一块"（四张卡时行程够，没事）。
+     * 所以分母要跟着实际行程收敛，而这个行程只能量出来。
+     *
+     * ⚠️ 与 measureChromes 同一套保命姿势（H5 KeepAlive 下 onShow 可能早于挂载）：
+     *   抛点在 q.exec() 里 → 整段（select + exec）包 try；量不到就退一拍重试；
+     *   结果先过合理性夹逼再入库。
+     * ⚠️ 只在**这一个**地方碰尺寸：syncReveal / onPageScroll 必须保持"不碰 DOM"
+     *   （App 端在那里量不到东西，会静默失效成"上滑什么都没发生"）。这里量完
+     *   落到一个 data 上，syncReveal 只读这个数 —— 把 DOM 依赖收进一个能被
+     *   重试、能被兜住的地方，别散进每帧都要跑的那条链里。
+     */
+    measureScrollable(tryN, force) {
+      const n = tryN || 0
+      if (n > 4) return
+      const self = this
+      // 节流：tick / 数据刷新会反复来叫，隔着量够了 —— 每帧都跑一次查询纯属浪费。
+      // ⚠️ 节流只对"外部第一次叫"生效：重试（n>0）与 force 直接放行，否则会被掐死。
+      const now = Date.now()
+      const gap = self.__measAt ? now - self.__measAt : 9999
+      if (!force && n === 0 && gap < 900) {
+        clearTimeout(self.__throttleT)
+        self.__throttleT = setTimeout(() => {
+          try { self.measureScrollable(0, true) } catch (e) {}
+        }, 900 - gap + 30)
+        return
+      }
+      self.__measAt = now
+      const retry = () => setTimeout(() => {
+        try { self.measureScrollable(n + 1) } catch (e) {}
+      }, 180)
+      try {
+        let q
+        try { q = uni.createSelectorQuery().in(self) } catch (e) { q = uni.createSelectorQuery() }
+        q.select('.container').boundingClientRect()
+        q.exec((res) => {
+          try {
+            const box = res && res[0]
+            const win = self.winH || 0
+            if (!box || !box.height || !win) return retry()
+            const max = Math.round(box.height - win)
+            // 合理性夹逼：页面至少要能滚出一段才算"有下面那摞"；
+            // 超过两万 px 的一定是量串了（横屏 / 折叠窗），扔掉走旧值
+            if (max < 0 || max > 20000) return retry()
+            const changed = Math.abs(max - (self._scrollablePx || 0)) > 1
+            self._scrollablePx = max
+            if (changed) {
+              // 行程变了 = 分母要重算 = 当前这一帧的进度也要按新分母对齐
+              try { self.remeasure() } catch (e) {}
+              try { self.syncReveal(-1) } catch (e) {}
+            }
+          } catch (e) {
+            retry()
+          }
+        })
+      } catch (e) {
+        retry()
+      }
     },
     /**
      * 算"下面那摞卡淡入 / 首屏退场"的进度，并把它推进响应式数据
@@ -1680,6 +1782,14 @@ export default {
         const dead = this._deadPx || 0
         p = (this._scrollTop - dead) / span
         p = !isFinite(p) ? 0 : p < 0 ? 0 : p > 1 ? 1 : p
+        // ★ 已经划到页面尽头：不管算出来多少，一律当"拉到位"。
+        //   分母是按实测行程收敛过的（见 remeasure），但那是一次性量出来的：
+        //   弹性回弹会让最后几 px 报不上来、两侧取整也不一致（容器高度含 padding，
+        //   实际可滚上限可能比它短一点点）—— 任何一种都会让"明明划到底了"却停在
+        //   0.9x，而 0.9x 和 0.5 在观感上是同一件坏事：卡片差一层透明度没补满。
+        //   容差取 6px：小于这个数已经摸不到别的解释，只会是上面的两种误差。
+        const avail = this._scrollablePx || 0
+        if (avail > 0 && this._scrollTop >= avail - 6) p = 1
         // 拉到位 → 震一下 + Q 弹过冲（一次来回只响一声；滑回去再拉才会再响）
         if (p > 0.985) {
           if (!this._buzzed) {

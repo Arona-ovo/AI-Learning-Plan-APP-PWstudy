@@ -79,7 +79,8 @@ const cases = [
   ['onShow 不对齐进度（回首页第一帧像空的）',
     s => s.replace('    try { this.syncReveal(this._scrollTop) } catch (e) {}' + NL, '')],
   ['淡入距离退回固定 520rpx（大屏上首屏已透明、卡片还没铺满 → 中间空一片）',
-    s => s.replace('this._spanPx = Math.max(this.upx(REVEAL_SPAN_RPX), byScreen)', 'this._spanPx = this.upx(REVEAL_SPAN_RPX)')],
+    s => s.replace('this._spanPx = Math.max(1, Math.min(Math.max(this.upx(REVEAL_SPAN_RPX), byScreen), capped))',
+      'this._spanPx = this.upx(REVEAL_SPAN_RPX)')],
   // ★ 要**替换**掉 opacity:1，不是在上面再插一条 opacity:0 ——
   //   两条都在块里时 /opacity:\s*1/ 依然命中，等于没改（假绿）。
   ['.mod-list 静态兜底改成透明',
@@ -115,7 +116,41 @@ const cases = [
   ['放引导前不回顶（目标卡在首屏，滑走了量不到）',
     s => s.replace(/uni\.pageScrollTo\(\{ scrollTop: 0, duration: 0 \}\)/, 'this.noop()')],
   ['卡片增减不重新对齐进度（收掉最后一张后整摞透明）',
-    s => s.replace('restOrder() { this.syncReveal(-1) }', 'restOrder() {}')],
+    s => s.replace('    restOrder() {' + NL + '      this.syncReveal(-1)', '    restOrder() {' + NL + '      this.noop()')],
+
+  // ---- 7b. 可滚行程 ÷ 淡入距离（2026-10-26：两张卡滑不到进度 1）----
+  // 分母不跟着实测行程收敛 = 回到"两张卡半透明"（真跑对照 I2 会掉回 0.6）
+  ['分母不按实测行程收敛（两张卡的行程喂不满分母 → 卡片停在半透明）',
+    s => s.replace('this._spanPx = Math.max(1, Math.min(Math.max(this.upx(REVEAL_SPAN_RPX), byScreen), capped))',
+      'this._spanPx = Math.max(this.upx(REVEAL_SPAN_RPX), byScreen)')],
+  // 能滚多远就够做题 —— measureScrollable 不存在时整组断言红的
+  ['去掉 measureScrollable（不再知道这一屏能滚多远）',
+    s => s.replace('    measureScrollable(tryN, force) {' + NL + '      const n = tryN || 0' + NL + '      if (n > 4) return',
+      '    measureScrollableOld_() {' + NL + '      const n = 0' + NL + '      return')],
+  ['量错对象（改去别的地方，量出来的不是文档总高）',
+    s => s.replace("q.select('.container').boundingClientRect()", "q.select('.today-panel').boundingClientRect()")],
+  ['可滚行程算错（忘了减视口高）',
+    s => s.replace('const max = Math.round(box.height - win)', 'const max = Math.round(box.height)')],
+  ['行程不过合理性夹逼（量串了也照用，会把页面算没）',
+    s => s.replace('if (max < 0 || max > 20000) return retry()', 'if (false) return retry()')],
+  ['测量没有退拍重试（首帧没挂载就永远量不到）',
+    s => s.replace('      self.__measAt = now' + NL + '      const retry = () => setTimeout(() => {' + NL + '        try { self.measureScrollable(n + 1) } catch (e) {}' + NL + '      }, 180)',
+      '      self.__measAt = now' + NL + '      const retry = () => {}')],
+  // ⚠️ 这条最关键：syncReveal 会被护栏抠出来**真跑**，在里面塞 document 会让护栏崩。
+  //    崩溃 ≠ 抓到（那是假绿），所以这里改成往**调用链上游**（onPageScroll 之外、
+  //    并且不会被执行到的地方）…… 不行的话就退一步：改 measureScrollable 里的选择器
+  //    为一个"看起来像 DOM API"的用法，验证"唯一允许碰尺寸的地方"这条断言真的在盯。
+  ['syncReveal 里偷偷量节点（App 端那条路会静默失效）',
+    s => s.replace('        const avail = this._scrollablePx || 0' + NL + '        if (avail > 0 && this._scrollTop >= avail - 6) p = 1',
+      '        const avail = typeof document !== \'undefined\' ? document.body.scrollHeight : (this._scrollablePx || 0)' + NL + '        if (avail > 0 && this._scrollTop >= avail - 6) p = 1')],
+  ['行程变了不重新对齐进度（要等用户再滑一下才纠正）',
+    s => s.replace('              try { self.remeasure() } catch (e) {}' + NL + '              try { self.syncReveal(-1) } catch (e) {}',
+      '              try { self.remeasure() } catch (e) {}')],
+  ['卡片张数变了不重测行程（四张减到两张，分母还停在旧值）',
+    s => s.replace('      this.__scrollableT = setTimeout(() => {' + NL + '        try { this.measureScrollable() } catch (e) {}' + NL + '      }, 260)',
+      '      this.__scrollableT = setTimeout(() => {' + NL + '        try { this.noop() } catch (e) {}' + NL + '      }, 260)')],
+  ['onShow 不量行程（进页面时分母永远是"没量到"）',
+    s => s.replace('    try { this.measureScrollable() } catch (e) {}' + NL, '')],
 
   // ---- 8. 「今天」面板：一张整板 + 大圆即开始键（2026-10-25 两轮重构）----
   ['面板穿回 .card 皮肤（边框/投影/毛玻璃 = 卡片感本身，用户明确否过）',
