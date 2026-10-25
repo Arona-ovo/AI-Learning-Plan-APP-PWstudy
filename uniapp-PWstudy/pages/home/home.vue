@@ -112,9 +112,12 @@
         <block v-for="id in homeOrder" :key="id">
 
           <!-- ① 开始专注 —— 这一屏唯一的视觉中心：竖向居中（环 + 开始键 + 极简上下文），
-               借 .hcards 的弹性空间用上下 auto margin 推到视口正中；
-               周边两张卡（任务 / 紧迫度）各自退到上下边缘并淡化，整屏只剩中心一处焦点 -->
-          <view v-if="id === 'focus'" class="card hcard focus-card" hover-class="hcard-press" @tap="goFocus()">
+               借 .hcards 的弹性空间用上下 auto margin 推到视口正中。
+               ⚠️ 首屏三块**一律不套 .card**（2026-10-25 定的规矩）：
+                 卡片是"可收纳模块"的皮肤，只有下面那摞（目标/日程/学习 App/AI）才穿；
+                 首屏是 App 本体，内容直接压在背景上 —— 少一层 padding + 边框 + 投影，
+                 高度立刻矮一截，小屏上也就不会再被底部胶囊压住（"今日收工被遮挡"的根源）。 -->
+          <view v-if="id === 'focus'" class="hcard focus-card" @tap="goFocus()">
             <view class="hc-ring" :class="{ 'hc-ring-run': running }">
               <text class="hc-ring-num">{{ todayMin }}</text>
               <text class="hc-ring-unit">{{ $t('分钟') }}</text>
@@ -128,8 +131,10 @@
             <text v-if="running" class="hc-time">{{ lockTime }}</text>
           </view>
 
-          <!-- ② 今日任务 —— 焦点是"下一条做什么"，只列最该做的三条 -->
-          <view v-else-if="id === 'task'" class="card hcard task-card">
+          <!-- ② 今日任务 —— 焦点是"下一条做什么"，只列最该做的三条。
+               不套卡片：标题行 + 进度条 + 三条清单直接融进首页，块与块之间靠间距分组，
+               任务行之间只有一条发丝线（不是"一张卡里塞三行"） -->
+          <view v-else-if="id === 'task'" class="hcard task-card">
             <view class="hc-head">
               <text class="hc-title">{{ $t('今日任务') }}</text>
               <text class="hc-count">{{ taskStat.done }}/{{ taskStat.total }}</text>
@@ -166,8 +171,9 @@
             </block>
           </view>
 
-          <!-- ③ 今日紧迫度 —— 焦点是"还剩多久"，一条时间轴说完，不摆完整仪表盘 -->
-          <view v-else-if="id === 'urgency'" class="card hcard urg-card" @tap="explainUrgency(u)">
+          <!-- ③ 今日紧迫度 —— 焦点是"还剩多久"，一条时间轴说完，不摆完整仪表盘。
+               同样不套卡片：标题 + 档位胶囊 + 24h 轴 + 两行读数，平铺在背景上 -->
+          <view v-else-if="id === 'urgency'" class="hcard urg-card" @tap="explainUrgency(u)">
             <view class="hc-head">
               <text class="hc-title">{{ $t('今日紧迫程度') }}</text>
               <text class="hc-lv" :style="{ background: u.soft, color: u.color }">{{ uLevelName }}</text>
@@ -2849,9 +2855,8 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 
-/* 紧迫度卡：不再单独设内边距，首页里继承 .hcard（36rpx）、底部抽屉里继承 .card（36rpx），
-   三处边距统一（2026-10-24）。卡片头那行标题 + 档位胶囊 + ? 由组件自己画，无需 .card-head。 */
-.urg-card { padding: 36rpx; }
+/* 紧迫度：不套卡片后同样只留左右内边距（与首屏另外两块、下面那摞卡同竖线） */
+.urg-card { padding: 0 36rpx; }
 
 /* ===== 专注进行中：首页被倒计时"硬控" =====
    这一屏刻意只留三样东西：还剩多久、在为谁计时、继续/停下。
@@ -2981,7 +2986,9 @@ export default {
 
 /* ===== 首页核心操作：今日收工 ===== */
 /* 收工按钮与上方卡片的间距对齐 20rpx 的组内节奏（原先 8rpx 贴太近） */
-.home-cta { margin: 20rpx 0 4rpx; }
+/* 收工块与上面任务块之间：不套卡片后没有了卡片 padding 当间距，
+   这里自己接过来 —— 比块间距（.hcards 的 30rpx）再松一档，按钮才压得住整个首屏底部 */
+.home-cta { margin: 40rpx 0 4rpx; }
 .cta-btn { width: 100%; }
 .cta-tip {
   display: block; margin-top: 16rpx; text-align: center;
@@ -3506,16 +3513,19 @@ export default {
    ③ 今日紧迫度：焦点是"还剩多久"，一条时间轴说完 */
 /* 不再 flex:1 撑满首屏（那会把三张卡拉开、中间空一大截）——
    组的高度由卡片自身决定，整组交给 .hero-main 居中。 */
-.hcards { display: flex; flex-direction: column; gap: 20rpx; flex: 0 0 auto; min-height: 0; }
-/* 首页三卡统一内边距：与底部抽屉的 .card（40rpx 36rpx）对齐到同一条水平边，
-   不再各写一套 → 不同卡片的内容起点不齐、看着像"宽度不一致"（2026-10-24 反馈）。
-   rpx 本身随屏幕动态缩放，这里只消掉"写死的不同 padding"这一层差异。 */
+/* 块间距：不套卡片后**边框不再替我们分组**，间距要自己把这个活接过来 ——
+   20rpx 在"卡挨着卡"时够用，纯内容块之间会糊成一片，这里放到 30rpx。 */
+.hcards { display: flex; flex-direction: column; gap: 30rpx; flex: 0 0 auto; min-height: 0; }
+/* ★ 首屏三块**不穿卡片皮肤**（2026-10-25）：.card 的半透明底 / 边框 / 投影 / 圆角
+   全部不要，内容直接压在背景上 —— 省掉上下 36rpx 内边距后整组矮一大截，
+   小屏上也就不会再顶进底部胶囊里。
+   左右仍留 36rpx：与下面那摞 .card 的内容边（40rpx 36rpx）对齐同一条竖线，
+   "卡片内外内容起点不齐"那条老毛病不能因为去卡片又回来。 */
 .hcard {
-  padding: 36rpx;
+  padding: 0 36rpx;
   display: flex;
   align-items: center;
 }
-.hcard-press { opacity: 0.86; }
 
 /* ① 开始专注：在 .hcards 里用上下 auto margin 推到正中；竖向居中排布，做整屏唯一视觉中心。
      周边两张卡（任务 / 紧迫度）各自退到上下边缘并淡化，不抢"开始专注"的焦点 */
@@ -3524,9 +3534,9 @@ export default {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  /* 与 .hcard 同款 36rpx 内边距，确保三张首页卡左右边距完全一致 */
-  padding: 36rpx;
-  /* 不再 margin:auto 0 单独居中 —— 整组由 .hero-main 统一居中，组内 20rpx 等距 */
+  /* 与 .hcard 同款左右 36rpx，确保三块内容的左右边界完全一致 */
+  padding: 0 36rpx;
+  /* 不再 margin:auto 0 单独居中 —— 整组由 .hero-main 统一居中，组内等距 */
 }
 .hcard.focus-card .hc-ring { width: 168rpx; height: 168rpx; margin: 0 0 24rpx; }
 .hcard.focus-card .hc-ring-num { font-size: 46rpx; }
@@ -3654,6 +3664,8 @@ export default {
   border-bottom: 2rpx solid rgba(23, 32, 26, 0.05);
 }
 .hc-task-lead .hc-task-title { font-weight: 600; }
+/* 最后一行别拖条尾巴：不套卡片时那条线会被当成"下面还有东西"的分隔 */
+.hc-task:last-of-type { border-bottom: 0; }
 /* 按下的反馈：只压一点底色，不用实心红（实心红留给进度条 / 开关 / 选中态） */
 .hc-task-press { background: rgba(23, 32, 26, 0.04); }
 .hc-task-col { flex: 1; min-width: 0; margin-left: 14rpx; }

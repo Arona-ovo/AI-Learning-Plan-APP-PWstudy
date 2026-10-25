@@ -115,7 +115,17 @@ const cases = [
   ['放引导前不回顶（目标卡在首屏，滑走了量不到）',
     s => s.replace(/uni\.pageScrollTo\(\{ scrollTop: 0, duration: 0 \}\)/, 'this.noop()')],
   ['卡片增减不重新对齐进度（收掉最后一张后整摞透明）',
-    s => s.replace('restOrder() { this.syncReveal(-1) }', 'restOrder() {}')]
+    s => s.replace('restOrder() { this.syncReveal(-1) }', 'restOrder() {}')],
+
+  // ---- 8. 首屏不套卡片（2026-10-25）----
+  // 给首屏三块穿回 .card：多出来的上下内边距 + 边框 + 投影会把整组顶高，
+  // 小屏上「今日收工」又被压进底部胶囊底下。
+  ['首屏这块穿回 .card（内容被顶高，收工压进 tabbar）',
+    s => s.replace('class="hcard focus-card"', 'class="card hcard focus-card"')],
+  // ⚠️ 锚点必须带 `.hcard {` 这一行：文件里 .urg-card 也写着 `padding: 0 36rpx;`
+  //    且位置更靠前，只按 padding 替换会先改中它 → 护栏不红 → 假绿。
+  ['.hcard 内边距退回四边 36rpx（多出上下内边距）',
+    s => s.replace('.hcard {' + NL + '  padding: 0 36rpx;', '.hcard {' + NL + '  padding: 36rpx;')]
 ];
 
 let bad = 0;

@@ -61,15 +61,24 @@ assert(/HOME_IDS\.indexOf\(id\) < 0/.test(bRest), 'restOrder 是"首屏下面那
 assert(!/if \(this\.editing\) return ids/.test(bRest),
   '编辑态**也**排除首屏三张（不与首屏双份渲染、两套样式并存）');
 
-console.log('== 2. 三张卡都是首页适配的精简版（每张一个焦点）==');
-assert(/class="card hcard focus-card"/.test(home), '① 专注卡（focus-card 保留，引导靠它定位）');
+console.log('== 2. 首屏三块都是首页适配的精简版（每块一个焦点，★ 一律不套卡片）==');
+// ★ 2026-10-25：首屏**不许穿 .card 皮肤** —— 卡片是可收纳模块的皮肤，
+//   只有下面那摞（目标 / 日程 / 学习 App / AI）才穿。首屏套卡片会多出上下 36rpx
+//   内边距 + 边框 + 投影，内容被顶高，小屏上「今日收工」就压进底部胶囊底下。
+//   focus-card / task-card / urg-card 三个类名必须留着（新手引导靠它们定位）。
+assert(/class="hcard focus-card"/.test(home), '① 专注块（focus-card 保留，引导靠它定位）');
+assert(!/class="card hcard/.test(home), '★ 首屏三块不套 .card（套了会把内容顶进底部胶囊）');
 assert(/class="hc-ring"/.test(home) && /hc-ring-num/.test(home), '① 焦点：今日累计读数（环）');
 assert(/class="hc-go"[^>]*@tap\.stop="quickStart\(\)"/.test(home), '① 焦点：唯一落点是那颗开始键');
-assert(/class="card hcard task-card"/.test(home), '② 任务卡（task-card 保留，引导靠它定位）');
+assert(/class="hcard task-card"/.test(home), '② 任务块（task-card 保留，引导靠它定位）');
 assert(/v-for="\(item, ti\) in homeQueue"/.test(home), '② 焦点：只列最该做的三条');
 assert(/v-if="hasMoreTask"[\s\S]{0,160}goCalendar/.test(home), '② 其余的去日历页看（不再假装有个抽屉能拉开）');
-assert(/class="card hcard urg-card"/.test(home), '③ 紧迫度卡');
+assert(/class="hcard urg-card"/.test(home), '③ 紧迫度块');
 assert(/class="hc-axis"/.test(home) && /hc-axis-need/.test(home), '③ 焦点：一条 24 小时时间轴 + 还要多久');
+// 去卡片后左右仍要留 36rpx：与下面那摞 .card 的内容边对齐同一条竖线
+const bHcardCss = cssBlock(/\.hcard \{[^}]*\}/);
+assert(/padding:\s*0\s+36rpx/.test(bHcardCss),
+  '首屏只留左右 36rpx（与那摞卡的内容同竖线，不再多出上下内边距）');
 
 console.log('== 3. 下面那摞卡 = 页面正常滚动（★ 不再是 fixed 抽屉）==');
 // 抽屉时代的四个标识：任何一个回来都说明退版本了
