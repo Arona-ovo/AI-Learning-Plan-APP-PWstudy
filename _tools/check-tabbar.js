@@ -4,7 +4,9 @@
 //  1) sync() 会被调用两次（mounted + 页面 onShow），第二次不能把正在跑的滑动掐断
 //  2) tab 页常驻 → 起点必须取模块级 lastIndex，否则第二次进入动画直接消失（没反馈）
 //  3) 跳到起点时必须关掉过渡，否则会先朝反方向滑一下（指示器错位）
-//  4) 缓存实例里残留的 pending 会让高亮与页面不同步
+//  4) 缓存实例里残留的 pending 会让高亮与页面不同步 —— 页面可见 ⇒ 必清
+//     （旧实现"连点锁期间保留"被真机截图证伪：胶囊与红色选中态分裂）
+//  5) switchTab 被路由锁静默拒绝（快速连点）时：歇一拍重试，再失败退回即时高亮
 const fs = require('fs');
 const path = require('path');
 
@@ -33,7 +35,15 @@ const fakeClear = () => {};
 function flush() { const list = timers; timers = []; list.forEach((f) => f()); }
 
 const navCalls = [];
-const uniMock = { switchTab: (o) => navCalls.push(o && o.url) };
+// failNext > 0 时接下来 N 次 switchTab 走 fail（模拟路由锁拒绝）——
+// 快速连点时上一次导航没落地，uni 会静默拒掉本次跳转，组件必须自己兜
+let failNext = 0;
+const uniMock = {
+  switchTab: (o) => {
+    if (failNext > 0) { failNext--; if (o && o.fail) o.fail(); return; }
+    navCalls.push(o && o.url);
+  }
+};
 
 // 注入 utils/tab-slide.js 的真实次序，并记下 markSwitch 的方向
 const { load } = require('./lib/load');
@@ -124,13 +134,14 @@ eq(libCached.indIndex, 1, '再滑回 ' + K[1]);
 eq(libCached.indAnim, true, '过渡已恢复（真正可见的这一段有动画）');
 eq(api.getLast(), 1, 'lastIndex 回到 ' + K[1]);
 
-console.log('== 7. 残留 pending 必须清掉（选中态与页面同步） ==');
+console.log('== 7. 残留 pending 必须清掉（页面可见 ⇒ 必清，连点锁也拦不住） ==');
 const stale = mount(0, { pending: K[2] });
 stale.sync();
 eq(stale.pending, '', '回到缓存页面时残留的 pending 已清空');
 const fresh = mount(0, { pending: K[2], __navLock: true });
 fresh.sync();
-eq(fresh.pending, K[2], '导航在途时的 pending 保留（点击反馈不被 sync 吃掉）');
+eq(fresh.pending, '', '连点锁窗口内回到本页也清（真机截图：胶囊与红色选中态分裂）');
+eq(fresh.__navLock, false, '过期的连点锁一并解除（否则回来后第一次点 tab 被吞）');
 
 console.log('== 8. 点击：即时高亮 + 记录方向 + 只导航一次 ==');
 navCalls.length = 0;
@@ -155,6 +166,28 @@ console.log('== 9. activeKey：pending 优先于页面传入的 current ==');
 const comp = api.COMP;
 const vm = { pending: K[2], current: K[0], tabs: tabSlide.TABS };
 eq(comp.computed.activeKey.call(vm), K[2], 'pending 生效');
+
+console.log('== 9b. switchTab 被路由锁拒绝：歇一拍重试，再失败退回即时高亮 ==');
+// 场景复现（真机截图实锤）：快速连点时上一次导航未落地 → uni 静默 fail →
+// pending 残留在本页 → 指示胶囊停在 A、红色选中态挂在 B，且再点 B 会被
+// "点当前 tab"拦掉（点了没反应）。
+navCalls.length = 0; failNext = 1;
+const r1 = mount(3);
+r1.go({ currentTarget: { dataset: { k: K[0] } } });
+eq(navCalls.length, 0, '第一次 switchTab 被路由锁拒绝（fail，不导航）');
+eq(r1.pending, K[0], '重试期间即时高亮保留（手指反馈还在）');
+flush();                                                // 350ms 重试定时器到点
+eq(navCalls.length, 1, '歇一拍自动重试成功（用户意图明确，不必让手指再点一次）');
+eq(navCalls[0], '/pages/home/home', '重试目标路径不变');
+// 两次都被拒：退回高亮 —— 页面留在原 tab，红色选中态不许挂在别人身上
+navCalls.length = 0; failNext = 2;
+const r2 = mount(3);
+r2.go({ currentTarget: { dataset: { k: K[0] } } });
+flush();
+eq(navCalls.length, 0, '重试仍被拒（不导航）');
+eq(r2.pending, '', '两次都失败把即时高亮退回去（选中态不残留）');
+eq(r2.activeKey, K[3], 'activeKey 回到本页 tab（再点各 tab 都正常）');
+failNext = 0;
 
 console.log('== 10. 指示器用 transform 平移，时长落在"跟手"区间 ==');
 const style = src.slice(src.lastIndexOf('<style'));

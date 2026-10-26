@@ -55,8 +55,9 @@
 //  ① 每个页面各有一个本组件实例，实例里记的"当前位置"在切回来时是**上一个停留的 tab**
 //     而不是"本页面自己的位置"——起点必须统一取模块级 lastIndex，否则第二次进入
 //     会变成"位置本来就在目标上"，动画直接消失（看起来就是没反馈）。
-//  ② 同理 pending（点击时的即时高亮）会残留在缓存的实例里，回来时不清理就会
-//     高亮到别人身上（选中态与页面不同步）。
+//  ② 同理 pending（点击时的即时高亮）会残留在缓存的实例里。页面可见的这一刻，
+//     本实例的 pending 一定是过期的 —— sync() 里无条件清掉（下面的 sync 有详细推导），
+//     否则就是真机截图那种"指示胶囊在目标、红色选中态却在我的"的分裂。
 
 import { TABS, tabIndex, markSwitch, tabText } from '../../utils/tab-slide.js';
 // 触感反馈：点 tab 震一下（跟着设置 › 触感反馈的总开关走，utils/haptic.js）
@@ -100,6 +101,7 @@ export default {
     this.__sliding = -1;
     this.__timer = 0;
     this.__navLock = false;   // 连点保护，同时标记"导航在途"
+    this.__navLockT = 0;      // 连点锁的定时器 id（sync 提前解锁时要用）
   },
   mounted() {
     this.sync();
@@ -109,6 +111,7 @@ export default {
   },
   beforeUnmount() {
     if (this.__timer) { clearTimeout(this.__timer); this.__timer = 0; }
+    if (this.__navLockT) { clearTimeout(this.__navLockT); this.__navLockT = 0; }
   },
   methods: {
     // 底栏文案走 i18n：读一下 __lang 建立渲染依赖，切语言后自动重画
@@ -124,7 +127,16 @@ export default {
     // 重复的 sync 直接返回，动画就能稳定播完。
     sync() {
       const target = this.curIndex < 0 ? 0 : this.curIndex;
-      this.clearStalePending();
+      // ★ 页面可见 ⇒ 本实例的 pending / navLock 一定是过期的，无条件清。
+      //   为什么不再看 navLock 的脸色（旧实现"锁着就先不清"）：pending 的合法生命期
+      //   是"点下 → 导航落地"，它活在**被离开**的那个页面实例上；sync() 只会在
+      //   mounted / onShow 里被调，而这两刻页面必然可见 —— 挂在本实例上的 pending
+      //   只能是残留。快速切回（onShow 落在 350ms 锁窗口内）旧判断就漏了：
+      //   胶囊停在 A、红色选中态挂在 B（真机截图实锤），而且再点 B 会被
+      //   go() 的"点当前 tab"拦掉 —— 点了没反应。过期的锁一并解除，理由相同。
+      this.pending = '';
+      this.__navLock = false;
+      if (this.__navLockT) { clearTimeout(this.__navLockT); this.__navLockT = 0; }
       if (this.__sliding === target) return;          // 已经在滑向这个位置，别打断
 
       // 起点统一用模块级 lastIndex：tab 页常驻，实例自己的 indIndex 不可信
@@ -149,19 +161,19 @@ export default {
       this.__sliding = -1;
       lastIndex = target;
     },
-    // 缓存实例里残留的 pending 会在回到本页时把高亮指到别的 tab。
-    // 只有"刚点过、导航还没落地"这一种情况 pending 才是有效反馈（__navLock 期间），
-    // 其余一律清掉 —— 选中态始终与当前页面保持一致。
-    clearStalePending() {
-      if (this.pending && !this.__navLock) this.pending = '';
-    },
+    // 缓存实例里残留的 pending 由 sync() 无条件清理（见 sync 内注释）——
+    // "导航在途时保留"的判断已被真机截图证伪：sync 只在页面可见时被调，
+    // 那一刻任何 pending 都是残留。
     go(e) {
       const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.k : '';
       const t = this.tabs.find(x => x.key === key);
       if (!t || t.key === this.activeKey) return;      // 点当前 tab：不重复导航、不重播动画
       if (this.__navLock) return;                      // 连点保护
       this.__navLock = true;
-      setTimeout(() => { this.__navLock = false; }, 350);
+      // 记下定时器 id：切页很快落地时 sync() 会提前清它（见 sync 内注释），
+      // 不记 id 的话那把清不掉，得等 350ms 自己过期
+      if (this.__navLockT) clearTimeout(this.__navLockT);
+      this.__navLockT = setTimeout(() => { this.__navLock = false; this.__navLockT = 0; }, 350);
       // 震一下（tap 档，最轻）。⚠️ 必须在"点当前 tab / 连点"都拦掉之后 ——
       // 那两种情况不该有反馈。震不动也要把页切了，所以包 catch。
       try { haptic.tick('tap') } catch (err) { /* 忽略 */ }
@@ -169,7 +181,24 @@ export default {
       this.pending = t.key;
       // 记下方向，目标页据此决定从左还是从右滑入
       markSwitch(this.current, t.key);
-      uni.switchTab({ url: t.path });
+      // ⚠️ switchTab 会**静默**失败：上一次路由还没落地（快速连点 / 手势快滑切页
+      //    刚松手又点）时，uni 直接拒绝本次跳转。不接 fail 的话 pending 就挂在
+      //    本页实例上 —— 指示胶囊停在原地、红色选中态却到了别的 tab（真机截图
+      //    实锤），而且再点那个 tab 会被上面的"点当前 tab"拦掉：点了没反应。
+      //    歇一拍重试一次（同 nav.js safeNav 的 locked 思路；350ms 在 markSwitch
+      //    的 1500ms 方向 TTL 之内，重试落地动画照播）；再失败才把即时高亮退回去。
+      const self = this;
+      uni.switchTab({
+        url: t.path,
+        fail: () => {
+          setTimeout(() => {
+            uni.switchTab({
+              url: t.path,
+              fail: () => { self.pending = ''; }
+            });
+          }, 350);
+        }
+      });
     },
     // 供新手引导测量组件内元素（视口坐标）；拿不到给 null。
     // 页面级的 createSelectorQuery 选不进自定义组件内部，必须组件自己量。
