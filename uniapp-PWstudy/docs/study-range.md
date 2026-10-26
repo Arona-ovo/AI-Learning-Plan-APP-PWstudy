@@ -170,11 +170,15 @@ daily['2026-10-23'].range = [
   改范围 = 滑块（连续 30–5000 米）+ 100/200/500/1000 快捷档。
   **代价（当初否决它的原因现在接受了）**：`manifest.json` 要配 `sdkConfigs.maps.amap` 的 key，
   且必须云打包 APK（wgt 包不住原生地图）。
-  - **高德 Android key 申请**（包名 `com.PWstudy`，签名 SHA1 来自 `C:/Users/33156/PWstudy.keystore` 别名 `plana`）：
-    1. 取签名 SHA1：`keytool -list -v -keystore C:/Users/33156/PWstudy.keystore -alias plana`
-       （中文 Windows 输出 GBK，加 `-J-Duser.language=en`；密码在同仓库外的 `PWstudy.keystore.info.txt`）；
-    2. 去高德开放平台 console 建应用 → 添加 key → 选「Android 平台」→ 填包名 `com.PWstudy` + 上面 SHA1；
-    3. 把拿到的 key 填进 `manifest.json` 的 `distribute.sdkConfigs.maps.amap.android`（替换 `REPLACE_WITH_AMAP_ANDROID_KEY`）。
+  - **高德 Android key：已申请并填好**（2026-10-26）。包名 `com.PWstudy`
+    + 发布版 SHA1 `34:9C:FF:87:15:E6:FF:03:85:74:94:D8:B0:2B:C5:64:3C:B9:D5:42`
+    → key 名 `PWstudy-map`，已写进 `distribute.sdkConfigs.maps.amap.android`。
+    ⚠️ **换证书就得重申请**：key 是"包名 + 签名 SHA1"绑死的，证书一换地图立刻白屏。
+  - 证书信息（申请 / 复查时用，2026-10-26 校正）：文件 `C:/Users/33156/Plana.keystore`
+    —— **不是** `PWstudy.keystore`（2026-10-14 改过名，旧文档写的是老路径）；别名 `plana`
+    （keytool 会把 `Plana` 存成小写）；密码在仓库外的 `PWstudy.keystore.info.txt`。
+    取 SHA1：`keytool -list -v -keystore C:/Users/33156/Plana.keystore -alias plana -storepass <密码> -J-Duser.language=en`
+    （中文 Windows 输出是 GBK，不加 `-J-Duser.language=en` 会乱码）。
   - iOS 暂不发，ios 段保留占位字符串即可。
   - 图钉素材：`uniapp-PWstudy/static/pin.png`（`_tools/gen-pin.py` 生成）。**必须存在**：
     marker 的 `iconPath` 是必填项，指向不存在的文件时高德取不到 bitmap、图钉整个不画，
