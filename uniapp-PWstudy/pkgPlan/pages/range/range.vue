@@ -34,7 +34,7 @@
     <view class="card" v-if="on">
       <view class="card-head">
         <text class="card-title">学习地点（{{ places.length }}）</text>
-        <text class="card-more" @tap="addHere">{{ locating ? $t('定位中…') : $t('＋ 用我现在的位置') }}</text>
+        <text class="card-more" @tap="openAdd">{{ locating ? $t('定位中…') : $t('＋ 加地点') }}</text>
       </view>
 
       <view v-if="!places.length" class="pc-txt">
@@ -45,7 +45,7 @@
         <view class="pl-main">
           <view class="pl-name">{{ p.name }}</view>
           <view class="pl-meta">
-            <text class="pl-chip" @tap="pickRadius(p)">{{ p.r }} 米 ›</text>
+            <text class="pl-chip" @tap="openEdit(p)">{{ p.r }} 米 ›</text>
           </view>
         </view>
         <text class="pl-rename" @tap.stop="askRename(p)">{{ $t('改名') }}</text>
@@ -83,6 +83,17 @@
       @confirm="onDlgYes"
       @cancel="dlg.show = false"
     />
+
+    <!-- 自绘小地图：加地点 / 微调位置与范围（零地图 SDK） -->
+    <range-map
+      :show="map.show"
+      :center-lat="map.lat"
+      :center-lng="map.lng"
+      :init-radius="map.r"
+      :you-here="map.youHere"
+      @confirm="onMapConfirm"
+      @close="map.show = false"
+    />
   </view>
 </template>
 
@@ -92,9 +103,10 @@ import * as pw from '../../../utils/pwstore.js'
 import * as loc from '../../../utils/location.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
+import RangeMap from '../../../components/range-map/range-map.vue'
 
 export default {
-  components: { FloatNavbar, AppDialog },
+  components: { FloatNavbar, AppDialog, RangeMap },
   data() {
     return {
       on: false,
@@ -106,6 +118,8 @@ export default {
       checking: false,      // 正在刷新状态
       // 待建的地点：取到定位后先存这儿，等用户起完名字再落库
       draft: null,
+      // 小地图编辑器：show / 中心参考 GPS / 初始半径 / 是否"你在这"模式
+      map: { show: false, lat: 0, lng: 0, r: 200, youHere: false, editId: '' },
       dlg: {
         show: false, mode: 'confirm', title: '', content: '', confirmText: '',
         danger: false, action: '', id: '', items: [], value: '', placeholder: '', seq: 0
@@ -121,24 +135,6 @@ export default {
     },
     sampling() {
       return t('不会一直在后台定位：最多 5 分钟看一次，关掉下面的开关就彻底停。')
-    },
-    /**
-     * 半径档位（米）。30 米是楼下便利店、5000 米是整个城区，两头都没意义。
-     *
-     * ⚠️ 文案必须写在 t() 里、且要放在 computed（不是模块级常量）：
-     *    ① 模块加载时 i18n 还没 init，那时翻译拿不到英文；
-     *    ② check-i18n 会把"没套 t 的静态中文"算成漏网，条目多了就顶破阈值。
-     */
-    radiusSteps() {
-      return [
-        { m: 100, label: t('100 米（一个房间）') },
-        { m: 200, label: t('200 米（一栋楼 / 一个院子）') },
-        { m: 500, label: t('500 米（一个小区 / 校区一角）') },
-        { m: 1000, label: t('1000 米（整个校区）') }
-      ]
-    },
-    radiusItems() {
-      return this.radiusSteps.map(x => x.label)
     },
     todayOutText() {
       const m = Math.round(this.todayOutMin || 0);
@@ -191,10 +187,10 @@ export default {
     },
 
     /**
-     * 「用我现在的位置」加一个地点。
-     * 取到定位先不落库 —— 先问名字（弹窗），用户取消了就什么都不留。
+     * 「＋ 加地点」：先取当前 GPS 当中心，再开小地图让用户拖动图钉微调位置、拖圆环改半径。
+     * 取到定位先不落库 —— 小地图确认后再问名字（弹窗），用户取消了就什么都不留。
      */
-    addHere() {
+    openAdd() {
       if (this.locating) return;
       if (!loc.granted()) {
         this.granted = false;
@@ -204,15 +200,7 @@ export default {
       this.locating = true;
       loc.fetch().then((pos) => {
         this.locating = false;
-        this.draft = { lat: pos.lat, lng: pos.lng, r: loc.DEFAULT_RADIUS };
-        this.ask({
-          mode: 'input',
-          title: t('给这个地点起个名'),
-          placeholder: t('例如：家 / 图书馆 / 自习室'),
-          value: '',
-          confirmText: t('保存'),
-          action: 'addPlace'
-        });
+        this.map = { show: true, lat: pos.lat, lng: pos.lng, r: loc.DEFAULT_RADIUS, youHere: true };
       }).catch((err) => {
         this.locating = false;
         // 失败要说得清是哪一类：没权限 / 定位服务关着 / 超时，三件事修法完全不同
@@ -223,14 +211,31 @@ export default {
       });
     },
 
-    pickRadius(p) {
-      this.ask({
-        mode: 'sheet',
-        title: p.name,
-        items: this.radiusItems,
-        action: 'radius',
-        id: p.id
-      });
+    /** 微调已有地点：以地点自身坐标为中心开小地图（图钉=地点，可拖动精修） */
+    openEdit(p) {
+      this.map = { show: true, lat: p.lat, lng: p.lng, r: p.r, youHere: false, editId: p.id };
+    },
+
+    /** 小地图确认：加地点 → 存草稿并问名字；微调 → 直接改写位置与半径 */
+    onMapConfirm(res) {
+      const add = this.map.youHere;
+      const id = this.map.editId;
+      this.map.show = false;
+      if (add) {
+        // 加地点模式：用 draft 承接坐标+半径，再问名字
+        this.draft = { lat: res.lat, lng: res.lng, r: res.r };
+        this.ask({
+          mode: 'input',
+          title: t('给这个地点起个名'),
+          placeholder: t('例如：家 / 图书馆 / 自习室'),
+          value: '',
+          confirmText: t('保存'),
+          action: 'addPlace'
+        });
+      } else {
+        loc.setPlaceGeom(id, res);
+        this.refresh();
+      }
     },
 
     askRename(p) {
@@ -293,10 +298,6 @@ export default {
       } else if (act === 'rename') {
         const name = String(payload || '').trim();
         if (name) loc.renamePlace(id, name);
-        this.refresh();
-      } else if (act === 'radius') {
-        const step = this.radiusSteps[Number(payload)];
-        if (step) loc.setRadius(id, step.m);
         this.refresh();
       } else if (act === 'remove') {
         loc.removePlace(id);

@@ -121,8 +121,21 @@ daily['2026-10-23'].range = [
 
 - **我的 › 学习范围**（`pkgPlan/pages/range/range.vue`）
 - 总开关在页面第一张卡；关着不申请权限
-- 地点：站到常学习的地方 → 点「＋ 用我现在的位置」→ 起个名
-- 半径四档：100 / 200 / 500 / 1000 米
+- 加地点：点「＋ 加地点」→ 取到当前 GPS 后开**真地图**（高德底图）→ 点地图 / 拖图钉定位置、拖滑块 / 快捷档定半径 → 起个名
+- 微调已有地点：点地点行的「半径 米 ›」→ 进小地图改位置与半径
+- 半径：自由连续 30–5000 米（滑块）+ 100 / 200 / 500 / 1000 米四档快捷
+- **归中（2026-10-26 补）**：
+  - 地图右下角「定位」cover-view 钮：取一次当前 GPS，图钉 + 视野一起归中到当前位置；
+    失败按错误码说人话（没权限 / 定位服务没开 / 定位失败）。原生地图层级最高，
+    地图内的浮动控件只能用 `cover-view`（普通 view 盖不住，这是 app-vue 的硬规矩）；
+  - 编辑模式下图钉挪离了地点原坐标 → 读数行出现「回到原位」（撤销手滑）；
+  - 视野回图钉统一走 `centerMap()` → `moveToLocation({lat, lng})`（App 2.6.8+ 支持
+    传坐标）：「原地再定位」与「拖走地图再点回来」两种场景 latitude/longitude prop
+    看不出变化，光靠 prop 拉不回视野；
+  - `<map>` 同时开了 `show-location`（蓝点标出"我在哪"；平台不支持时自动忽略，无害）。
+- 图钉素材：`static/pin.png`（`_tools/gen-pin.py` 生成，绯红水滴 + 白描边）。
+  **必须存在** —— marker 的 `iconPath` 是必填项，文件缺失时高德取不到 bitmap，
+  图钉整个不画（2026-10-26 前一直缺这张图，用户看到"地图上一个点都没有"）。
 
 ## 打包相关
 
@@ -131,9 +144,11 @@ daily['2026-10-23'].range = [
 - `manifest.json` 的 `distribute.android.permissions` 加了
   `ACCESS_COARSE_LOCATION` / `ACCESS_FINE_LOCATION`；
 - `app-plus.modules` 勾了 `Geolocation`（不勾的话云打包出来 `uni.getLocation`
-  会报模块未配置）。
+  会报模块未配置）；
+- `distribute.sdkConfigs.maps.amap` 配了高德 key（android 必填，ios 占位即可，
+  **不填真 key 地图会加载失败**）。
 
-所以它**必须跟着一次云打包 APK 发**，wgt 装不进去。
+所以它**必须跟着一次云打包 APK 发**，wgt 装不进去（地图 SDK 是原生模块，wgt 包不住）。
 
 ## 护栏
 
@@ -147,7 +162,22 @@ daily['2026-10-23'].range = [
   一行 daily 都不读。要让"人不在"也影响本地铺开，得改它的 `span` 计算 ——
   那是另一笔改动，先不做。
 - **不加"出去时提醒"**：判定出去后不做任何打扰。等有人真提出想要再说。
-- **不用地图选点**：uni 的 map 组件要接高德/百度 SDK 的 key，为了"圈个圈"
-  引入一整套地图依赖不划算。"站在那儿点一下"够用。
+- **高德真地图（2026-10-26 推翻"自绘小地图"）**：原先为避开地图 SDK，用 `components/range-map/range-map.vue`
+  **纯自绘**一张示意小图（拖动图钉+圆环改半径）。但真机上图钉错位、圆环比例与读数不符、
+  且完全没有真实底图，体验不可接受。改回 uni 内置 `<map>` 组件（App 端走高德 SDK）：
+  marker 是真实经纬度（不再错位），circle 半径按真实米画（比例永远准），底图有真实道路/地块。
+  选位置 = 点地图任意处（`@tap` 拿经纬度，App 端可靠）+ 拖图钉（`@markerdrag` 增强）；
+  改范围 = 滑块（连续 30–5000 米）+ 100/200/500/1000 快捷档。
+  **代价（当初否决它的原因现在接受了）**：`manifest.json` 要配 `sdkConfigs.maps.amap` 的 key，
+  且必须云打包 APK（wgt 包不住原生地图）。
+  - **高德 Android key 申请**（包名 `com.PWstudy`，签名 SHA1 来自 `C:/Users/33156/PWstudy.keystore` 别名 `plana`）：
+    1. 取签名 SHA1：`keytool -list -v -keystore C:/Users/33156/PWstudy.keystore -alias plana`
+       （中文 Windows 输出 GBK，加 `-J-Duser.language=en`；密码在同仓库外的 `PWstudy.keystore.info.txt`）；
+    2. 去高德开放平台 console 建应用 → 添加 key → 选「Android 平台」→ 填包名 `com.PWstudy` + 上面 SHA1；
+    3. 把拿到的 key 填进 `manifest.json` 的 `distribute.sdkConfigs.maps.amap.android`（替换 `REPLACE_WITH_AMAP_ANDROID_KEY`）。
+  - iOS 暂不发，ios 段保留占位字符串即可。
+  - 图钉素材：`uniapp-PWstudy/static/pin.png`（`_tools/gen-pin.py` 生成）。**必须存在**：
+    marker 的 `iconPath` 是必填项，指向不存在的文件时高德取不到 bitmap、图钉整个不画，
+    并不存在"不传就用默认红图钉"的兜底。
 - **国内没有 GMS，`GeofencingClient` 用不了**：系统级地理围栏回调这条路
   在国内 ROM 上不通，所以才走"定时取一次 + 算距离"。

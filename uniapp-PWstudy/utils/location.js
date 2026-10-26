@@ -119,6 +119,24 @@ export function setRadius(id, r) {
   return list;
 }
 
+/**
+ * 在小地图上微调某地点的位置与半径（零 SDK 的自绘编辑器用）。
+ * 经纬度只在设置里存，不进 daily、不上网 —— 这条红线在 check-range 第 1/3 节守着。
+ * @param {string} id
+ * @param {{lat:number,lng:number,r:number}} g
+ */
+export function setPlaceGeom(id, g) {
+  const list = places();
+  const hit = list.filter(x => x.id === id)[0];
+  if (!hit) return list;
+  const lat = Number(g && g.lat);
+  const lng = Number(g && g.lng);
+  if (isFinite(lat) && isFinite(lng)) { hit.lat = lat; hit.lng = lng; }
+  if (g && g.r != null) hit.r = Math.max(30, Math.min(5000, Math.round(Number(g.r) || DEFAULT_RADIUS)));
+  patch({ places: list });
+  return list;
+}
+
 /* ---------------- 权限 ---------------- */
 
 function appPlus() {
@@ -169,7 +187,9 @@ export function fetch() {
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
-      reject({ code: 12, msg: '定位超时' });
+      // ⚠️ 不能复用 uni 的 12：那是"没授权"的码（2 / 12 同类），超时挤进去会被
+      // 界面误报成"没拿到定位权限"，用户白去设置页翻一圈。超时单独占 14。
+      reject({ code: 14, msg: '定位超时' });
     }, FETCH_TIMEOUT);
     uni.getLocation({
       type: 'gcj02',

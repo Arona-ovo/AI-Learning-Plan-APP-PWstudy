@@ -163,7 +163,7 @@ assert(/loc\.on\(\) \? loc\.places\(\)\.length : -1/.test(profileSrc),
 
 /* ---------- 6. 页面 ---------- */
 console.log('== 6. range 页面 ==');
-assert(/components: \{ FloatNavbar, AppDialog \}/.test(pageSrc), '弹窗走统一的 app-dialog');
+assert(/components: \{[^}]*FloatNavbar[^}]*AppDialog[^}]*\}/.test(pageSrc), '弹窗走统一的 app-dialog');
 assert(!/uni\.showModal|uni\.showActionSheet/.test(pageSrc),
   '页面里没有系统原生弹窗（样式管不到，一律走 app-dialog）');
 assert(/switch :checked="on"/.test(pageSrc), '有总开关');

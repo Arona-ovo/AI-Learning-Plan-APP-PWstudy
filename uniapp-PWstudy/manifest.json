@@ -47,7 +47,14 @@
             "ios" : {
                 "dSYMs" : false
             },
-            "sdkConfigs" : {},
+            "sdkConfigs" : {
+                "maps" : {
+                    "amap" : {
+                        "android" : "REPLACE_WITH_AMAP_ANDROID_KEY",
+                        "ios" : "REPLACE_WITH_AMAP_IOS_KEY"
+                    }
+                }
+            },
             "icons" : {
                 "android" : {
                     "mdpi" : "static/icons/icon-48.png",
