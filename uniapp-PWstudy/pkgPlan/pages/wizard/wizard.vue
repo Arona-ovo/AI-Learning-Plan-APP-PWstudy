@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav wizard-page" :class="appTheme" :style="appBgStyle">
-    <float-navbar title="AI 目标规划" :busy="task.running" />
+    <float-navbar title="AI 目标规划" :back="true" :busy="task.running" />
 
     <!-- ============ 第一步：目标 + 截止日期 + 每天投入（不弹系统日期框） ============ -->
     <view v-if="stage === 'form'" class="stage">

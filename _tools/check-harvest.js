@@ -598,9 +598,15 @@ console.log('== 12. 完成弹窗与额外收获页的接线 ==');
     const src = i ? cal : home;
     const b = fnBody(src, 'onBackPress');
     assert(b.length > 0, n + '.vue 有 onBackPress');
-    assert(/doneDlg/.test(b) && /close\(\)/.test(b), '  ' + n + '：返回键先收完成弹窗');
+    // 日历页把"收弹窗"抽成了 closeDoneDlg()（顶栏返回键要复用同一份）
+    const pool = i ? b + fnBody(src, 'closeDoneDlg') : b;
+    assert(/doneDlg/.test(pool) && /close\(\)/.test(pool), '  ' + n + '：返回键先收完成弹窗');
     assert(/<task-done-dialog/.test(src), '  ' + n + '：挂了 task-done-dialog');
   });
+  // 顶栏返回键与系统返回键同一个规矩（不然点左上角会直接离开页面、弹窗被连带跳过）
+  assert(/closeDoneDlg\(\)/.test(fnBody(cal, 'onNavBack')) && /veto\(\)/.test(fnBody(cal, 'onNavBack')),
+    'calendar：顶栏返回键先收完成弹窗');
+  assert(/@before-back="onNavBack"/.test(cal), 'calendar：顶栏挂了 before-back 否决口');
 
   // 勾选完成要抛出来（取消完成不抛 —— 那是撤销，不是完成）
   // ⚠️ 匹配 `if (r.done)` 这条**语句**而不是 `r.done` 这个词：toggle() 上面那行注释里

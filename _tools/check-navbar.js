@@ -96,7 +96,11 @@ eq(titleBar.isFlat, false, '非搜索模式不收起（返回键槽保持 72rpx�
 eq(titleBar.showBack, true, '栈深 > 1 显示返回键');
 titleBar.onLeftTap();
 yes(uniCalls.indexOf('navigateBack') >= 0, '点击走 navigateBack');
-eq(titleBar.emits.length, 0, '没有抛出 search');
+// 返回键现在会先问一次页面（before-back，给强制模式留否决口），
+// 要守的是"没把这次点击当成搜索"，不是"什么都不抛"
+const leftEmits = titleBar.emits.map(e => e.n);
+eq(leftEmits.indexOf('search'), -1, '没有抛出 search');
+yes(leftEmits.indexOf('before-back') >= 0, '返回前先问页面（before-back）');
 uniCalls.length = 0;
 backPages.length = 0;      // 栈深 1
 const rootBar = mount({ search: false, value: '', title: '词库' });
@@ -174,6 +178,103 @@ yes(!!titleRule && /pointer-events:\s*none/.test(titleRule[1]), '标题 pointer-
 const fnbRule = style.match(/\.fnb\s*\{([^}]*)\}/);
 yes(!!fnbRule && /justify-content:\s*space-between/.test(fnbRule[1]),
   '胶囊 space-between（标题脱流后右槽不会串到左边）');
+
+/* ---------- 12. 返回键：页面必须显式声明，不许靠"页面栈深度"自动判断 ---------- */
+// 回归点（2026-10-26）：只有 7 个页面写了 :back="true"，其余全靠组件里
+// "getCurrentPages().length > 1" 自动判断 —— 而页面组件**创建时**拿到的栈里常常
+// 还没算上自己，于是"从底栏页直接点进来的页面"全被判成栈深 1 = 没有返回键。
+// 结果就是同一个 App 里有的页面左上角有 ‹ 有的没有，用户只能靠猜。
+// 规矩：tabBar 那 4 个根页写 :back="false"，其余一律 :back="true"（各写各的，
+// 谁也不许省 —— 省了就退回看运气的自动判定）。
+console.log('== 12. 返回键：每个页面显式声明 ==');
+const APP = path.join(__dirname, '..', 'uniapp-PWstudy');
+// pages.json 有 JSON5 注释，先剥（CRLF 按 /\r?\n/ 断行，理由见 check-pages-json.js）
+const pjText = fs.readFileSync(path.join(APP, 'pages.json'), 'utf8')
+  .split(/\r?\n/).map(l => l.replace(/\/\/.*$/, '')).join('\n');
+let pj = null;
+try { pj = JSON.parse(pjText); } catch (e) { bad('pages.json 解析失败：' + e.message); }
+
+if (pj) {
+  const tabSet = {};
+  ((pj.tabBar && pj.tabBar.list) || []).forEach(it => { if (it && it.pagePath) tabSet[it.pagePath] = true; });
+  eq(Object.keys(tabSet).length, 4, 'tabBar 4 个根页');
+
+  // 收集所有用到 <float-navbar> 的页面（主包 + 分包，跟着 pages.json 走）
+  const pagePaths = (pj.pages || []).map(p => p.path);
+  (pj.subPackages || []).forEach(sp => {
+    (sp.pages || []).forEach(p => pagePaths.push(String(sp.root || '').replace(/^\//, '') + '/' + p.path));
+  });
+  const noBack = [], wrongBack = [], missNav = [];
+  // cover 是启动图落下去之后的全屏门面，刻意不挂顶栏（压一道白条反而毁了开屏）
+  const NO_BAR = { 'pages/cover/cover': 1 };
+  pagePaths.forEach(p => {
+    if (NO_BAR[p]) return;
+    const f = path.join(APP, p + '.vue');
+    if (!fs.existsSync(f)) return;
+    const src = fs.readFileSync(f, 'utf8');
+    // 只取模板里的用法（脚本里的 import / components 声明不算）
+    const tpl = src.slice(0, src.indexOf('\n</template>') > 0 ? src.indexOf('\n</template>') : src.length);
+    const m = /<float-navbar\b[^>]*\/?>/.exec(tpl);
+    if (!m) { missNav.push(p); return; }
+    const tag = m[0];
+    const isTab = !!tabSet[p];
+    if (!/:back="true"|:back="false"/.test(tag)) { noBack.push(p + (isTab ? '(tab)' : '')); return; }
+    if (isTab && !/:back="false"/.test(tag)) wrongBack.push(p + ' 写了 true（tab 根页不该有返回键）');
+    if (!isTab && !/:back="true"/.test(tag)) wrongBack.push(p + ' 写了 false（子页必须有返回键）');
+  });
+  eq(missNav.length, 0, '每个页面都挂了顶栏' + (missNav.length ? '（缺：' + missNav.join(', ') + '）' : ''));
+  eq(noBack.length, 0, '每个页面都显式声明了 :back' + (noBack.length ? '（漏：' + noBack.join(', ') + '）' : ''));
+  eq(wrongBack.length, 0, 'tab 页 = false、子页 = true' + (wrongBack.length ? '（' + wrongBack.join('；') + '）' : ''));
+}
+
+console.log('== 12b. 忙碌时返回键仍要在（转圈挪去右槽）==');
+// 回归点：转圈原来挤在左槽且优先级排在返回键之前 —— replan / wizard 在跑 AI 时
+// 左槽变成转圈，"加载完才冒出返回键"，正是"时有时无"的另一个来源。
+yes(/v-if="!search && showBack"[^>]*class="fnb-back"/.test(tpl), '非搜索页左槽第一优先是返回键');
+yes(!/v-else-if="busy"/.test(tpl), '忙碌不再顶掉左槽（左槽恒为返回键）');
+yes(/v-else-if="search && busy"/.test(tpl), '搜索态的忙碌指示仍在左槽（首页没有返回键，槽不冲突）');
+yes(/v-else-if="!search && busy"/.test(tpl), '非搜索态的忙碌指示挂在右槽');
+
+console.log('== 12c. 返回前先问页面（强制模式能按住人）==');
+// 回归点：顶栏返回走的是 uni.navigateBack，**绕不开页面的 onBackPress** ——
+// 专注页正是靠 onBackPress 在强制模式下把人按住的，少了这层顶栏就成了后门。
+function mountAt(props, emit) {
+  const ctx = Object.assign({}, api.COMP.data(), api.COMP.methods, props);
+  ctx.$emit = emit;
+  Object.keys(api.COMP.computed).forEach((k) => {
+    Object.defineProperty(ctx, k, { get: () => api.COMP.computed[k].call(ctx), configurable: true });
+  });
+  return ctx;
+}
+backPages.length = 0;
+backPages.push({}, {});
+uniCalls.length = 0;
+const asked = [];
+// 页面否决（模拟专注页强制模式）
+const blocked = mountAt({ search: false, back: true, title: '专注' }, (n, cb) => {
+  asked.push(n);
+  if (n === 'before-back' && typeof cb === 'function') cb();
+});
+blocked.onBack();
+eq(asked.length, 1, '点击返回先问页面（只问这一次）');
+eq(asked[0], 'before-back', '问的是 before-back');
+eq(uniCalls.length, 0, '页面否决 → 不导航（人被按住）');
+// 页面不否决 → 正常返回
+uniCalls.length = 0;
+const allowed = mountAt({ search: false, back: true, title: '设置' }, (n) => asked.push(n));
+allowed.onBack();
+yes(uniCalls.indexOf('navigateBack') >= 0, '页面不拦 → 正常 navigateBack');
+// 栈深测量：创建时量到 1（页面还没进栈），挂载后再量 → 2，返回键跟着出现
+backPages.length = 0;
+const late = mountAt({ search: false, back: null, title: '设置' }, () => {});
+late.measureStack();            // 模拟 created：这时当前页还没进栈
+eq(late.showBack, false, '创建时量到栈深 1 → 暂时没有返回键');
+backPages.push({}, {});         // 页面进栈
+late.measureStack();            // 模拟 mounted：再量一次
+eq(late.showBack, true, '挂载后重新量到栈深 2 → 返回键出现（不靠创建时机）');
+// 行为对了还不够：那次"再量一次"必须是 mounted 里真的调了，不是碰巧
+const mountedSrc = /mounted\(\)\s*\{([\s\S]*?)\n  \}/.exec(script);
+yes(mountedSrc && /this\.measureStack\(\)/.test(mountedSrc[1]), 'mounted 里确实会再量一次栈深');
 
 console.log('');
 console.log(fail === 0 ? '顶栏搜索胶囊全部通过' : '失败 ' + fail + ' 项');

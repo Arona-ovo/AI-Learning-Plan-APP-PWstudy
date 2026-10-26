@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar :title="$t('支持 PWstudy')" />
+    <float-navbar :title="$t('支持 PWstudy')" :back="true" />
 
     <!-- 开场卡片 -->
     <view class="card hero-card">

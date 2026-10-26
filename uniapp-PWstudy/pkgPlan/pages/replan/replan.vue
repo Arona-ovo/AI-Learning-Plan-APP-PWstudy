@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar title="AI 重新规划" :busy="loading" />
+    <float-navbar title="AI 重新规划" :back="true" :busy="loading" />
 
     <!-- 加载中 -->
     <view v-if="loading" class="state">

@@ -141,7 +141,12 @@ assert(/v-if="active && overrun"[^>]*>\s*<button[^>]*@tap="exitOverrun"/.test(fv
   '正计时段单独一屏：只给退出，不给暂停/放弃');
 assert(/over-hint/.test(fv), '有一行说明（不然用户只当"倒计时卡在 00:00"）');
 assert(/focus\.stopOverrun\(\)/.test(fnBody(fv, 'exitOverrun')), 'exitOverrun 走状态机的唯一出口');
-assert(/cur\.overrun/.test(fnBody(fv, 'onBackPress')), '正计时段返回键放行（不能再把人按在页面里）');
+// 判定搬到 backBlocked() 之后，两条返回路径共用一份（不许各判各的）
+assert(/cur\.overrun/.test(fnBody(fv, 'backBlocked')), '正计时段返回键放行（不能再把人按在页面里）');
+assert(/backBlocked\(\)/.test(fnBody(fv, 'onBackPress')), '物理返回键走共用判定');
+assert(/backBlocked\(\)/.test(fnBody(fv, 'onNavBack')) && /veto\(\)/.test(fnBody(fv, 'onNavBack')),
+  '顶栏返回键走同一份判定（否则左上角的键成了强制模式的后门）');
+assert(/@before-back="onNavBack"/.test(fv), '顶栏挂了 before-back 否决口');
 assert(/justOverrun/.test(fnBody(fv, 'tick')), '页面 tick 认得 justOverrun');
 assert(/this\.\$t\('已跑满预设时长，不再拉回'\)/.test(fnBody(fv, 'forceLine')),
   '状态条在正计时段改口（不许再说"已就绪 · 离开立刻拉回"）');

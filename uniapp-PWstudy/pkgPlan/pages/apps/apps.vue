@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar title="学习 App" />
+    <float-navbar title="学习 App" :back="true" />
 
     <!-- 权限说明与引导 -->
     <view class="card">

@@ -5,9 +5,13 @@
          上下始终与胶囊同高 —— 收缩 / 还原都走 width 过渡动画。
          例外：最右侧的模式键不参与收起（常驻），理由见下面那颗键的注释。 -->
     <view class="fnb" :class="{ 'fnb-search-mode': search, 'fnb-cmd-mode': isCommand }">
+      <!-- 左槽：非搜索模式**恒为返回键**（忙不忙都在），搜索模式才是放大镜 / 转圈。
+           ⚠️ 转圈以前也挤在左槽：AI 忙碌时左槽被转圈顶掉，同一个页面"加载完才冒出
+           返回键"，看着就像返回键时有时无。转圈改挂右槽（右槽在非搜索态本就空着），
+           两种状态互不顶掉 —— 返回键才是这一槽的主职，忙碌只是告知。 -->
       <view class="fnb-side" :class="{ 'fnb-side-flat': isFlat }" @tap="onLeftTap">
         <text v-if="!search && showBack" class="fnb-back" hover-class="fnb-back-press" hover-start-time="0" hover-stay-time="70">‹</text>
-        <view v-else-if="busy" class="fnb-spin" hover-start-time="0" hover-stay-time="70"></view>
+        <view v-else-if="search && busy" class="fnb-spin" hover-start-time="0" hover-stay-time="70"></view>
         <view v-else-if="search && isCommand" class="fnb-wand" hover-class="fnb-mag-press" hover-start-time="0" hover-stay-time="70">
           <view class="wand-v"></view>
           <view class="wand-h"></view>
@@ -35,6 +39,8 @@
 
       <view class="fnb-side" :class="{ 'fnb-side-flat': isFlat }" @tap="onClear">
         <text v-if="search && value" class="fnb-clear">×</text>
+        <!-- 非搜索态的忙碌指示放这儿（AI 重排 / 目标规划在跑）：左槽留给返回键 -->
+        <view v-else-if="!search && busy" class="fnb-spin"></view>
       </view>
 
       <!-- 首页专属：专注设置入口。放在胶囊右侧、常驻（非搜索态才显示）。
@@ -105,12 +111,22 @@ export default {
     focusOn: { type: Boolean, default: false }
   },
   data() {
-    return { barH: 0, focused: false }
+    // stackN: -1 = 还没量过（先沿用实时栈）；量过之后以量到的值为准
+    return { barH: 0, focused: false, stackN: -1 }
   },
   computed: {
+    /**
+     * 返回键显示与否。
+     * ⚠️ 页面栈**不能只在创建时问一次**：页面组件创建时 getCurrentPages() 常常
+     *   还没把当前页算进去（栈里只有上一页），于是"从底栏页直接点进来的页面"全部
+     *   判定成栈深 1 = 没有返回键 —— 这就是"有的页面有箭头、有的没有"的来处。
+     *   两道保险：① 页面显式声明 :back="true/false"（推荐，绝对确定）；
+     *   ② 不声明时挂载后再量一次栈深（那时当前页已在栈里），且是响应式的。
+     */
     showBack() {
       if (this.back === true) return true
       if (this.back === false) return false
+      if (this.stackN >= 0) return this.stackN > 1
       try {
         const pages = getCurrentPages()
         return Array.isArray(pages) && pages.length > 1
@@ -138,8 +154,11 @@ export default {
     // 比只读 uni.getSystemInfoSync().statusBarHeight 稳 —— 那个在部分机型上返回 0，
     // 胶囊就会整个顶进状态栏，看起来像"搜索框消失了"，而且那一带点不动。
     this.barH = insets.statusBar()
+    this.measureStack()
   },
   mounted() {
+    // 挂载后再量一次栈深：这时当前页一定已经在栈里了（创建时未必）
+    this.measureStack()
     // 冷启动兜底：极个别端首帧拿不到，挂载后补取一次（insets 内部有缓存，很便宜）
     if (this.barH) return
     setTimeout(() => {
@@ -213,13 +232,32 @@ export default {
       if (!this.search || !this.switchable) return
       this.$emit('mode-toggle', this.mode === 'command' ? 'search' : 'command')
     },
+    /**
+     * 返回。⚠️ 不能直接 navigateBack —— 那样会绕开页面的 onBackPress：
+     * 专注页正是靠 onBackPress 在强制模式下把人按住的，顶栏要是自己走一条路，
+     * "点左上角就跑出去了"，强制模式等于没有。
+     * 所以先同步 emit 一次 veto 回调：页面想拦就当场调用它（emit 是同步的，
+     * 页面拿到回调时还没导航），没拦才真的返回。
+     */
     onBack() {
       if (!this.showBack) return
+      let vetoed = false
+      this.$emit('before-back', () => { vetoed = true })
+      if (vetoed) return
       const pages = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
       if (pages.length > 1) {
         uni.navigateBack()
       } else {
         uni.switchTab({ url: '/pages/home/home' })
+      }
+    },
+    /** 把当前页面栈深度记进响应式字段（栈还没建好时记 -1，保持"没量过"） */
+    measureStack() {
+      try {
+        const pages = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
+        this.stackN = Array.isArray(pages) ? pages.length : -1
+      } catch (e) {
+        this.stackN = -1
       }
     }
   }

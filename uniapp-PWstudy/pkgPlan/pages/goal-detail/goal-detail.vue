@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar title="目标详情" />
+    <float-navbar title="目标详情" :back="true" />
 
     <view v-if="g" class="body">
       <!-- 概览 -->

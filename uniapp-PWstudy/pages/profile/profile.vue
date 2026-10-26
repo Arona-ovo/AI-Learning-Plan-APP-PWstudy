@@ -8,7 +8,7 @@
     @touchend="onSlideEnd"
     @touchcancel="onSlideEnd"
   >
-    <float-navbar :title="$t('我的')" />
+    <float-navbar :title="$t('我的')" :back="false" />
 
     <!-- 内容区：切 tab 时整体左右滑动 -->
     <view class="page-slide" :class="slideCls" :style="slideStyle">

@@ -1,6 +1,7 @@
 <template>
   <view class="container page-nav cal-page" :class="appTheme" :style="appBgStyle">
-    <float-navbar title="日程" :back="true" />
+    <!-- 完成弹窗开着时，顶栏返回先收弹窗（与物理返回键同一个规矩） -->
+    <float-navbar title="日程" :back="true" @before-back="onNavBack" />
 
     <!-- 月历 -->
     <view class="card">
@@ -112,10 +113,19 @@ export default {
    * 这一层不做拦截 —— 收完就放行，日历页没有"硬控"那回事。
    */
   onBackPress() {
-    if (this.doneDlgOn && this.$refs.doneDlg) { this.$refs.doneDlg.close(); return true }
-    return false
+    return this.closeDoneDlg()
   },
   methods: {
+    /** 完成弹窗开着就收掉并回报 true（收完就放行，日历页不做硬控） */
+    closeDoneDlg() {
+      if (this.doneDlgOn && this.$refs.doneDlg) { this.$refs.doneDlg.close(); return true }
+      return false
+    },
+
+    /** 顶栏返回键：与物理返回键同一条规矩（先收弹窗，收掉那一下不离开页面） */
+    onNavBack(veto) {
+      if (this.closeDoneDlg() && typeof veto === 'function') veto()
+    },
     build() {
       const first = new Date(this.year, this.month - 1, 1)
       const daysInMonth = new Date(this.year, this.month, 0).getDate()

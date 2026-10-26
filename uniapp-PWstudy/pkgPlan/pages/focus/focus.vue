@@ -1,6 +1,8 @@
 <template>
   <view class="container page-nav focus-page" :class="[appTheme, { 'fr-intro': ringIntro }]" :style="[appBgStyle, introVars]">
-    <float-navbar title="专注" />
+    <!-- 返回键跟着页面的 onBackPress 走同一套判定（强制模式按住人不放），
+         所以挂 @before-back：页面当场否决时这次点击就不导航 -->
+    <float-navbar title="专注" :back="true" @before-back="onNavBack" />
 
     <view class="focus-body">
 
@@ -607,16 +609,39 @@ export default {
     this.stopTick()
     clearTimeout(this._introProbeT); this._introProbeT = null
   },
-  // 强制模式 + 正在专注：返回键不放行。不然"按一下返回就出去了"，模式等于没有。
+  // 强制模式 + 正在专注：返回不放行。不然"按一下返回就出去了"，模式等于没有。
   // 暂停 / 休息阶段照常放行 —— 拦人是为了专注，不是把人困死。
+  // ⚠️ 判定只写这一份：物理返回键（onBackPress）与顶栏返回键（onNavBack）共用，
+  //    不然会出现"按返回被按住、点左上角却能跑出去"的窟窿。
   onBackPress() {
-    if (!this.forcedOn) return false
-    // 正计时段放行：专注已经跑满了，这时候再把人按在页面里就是"拦人不放"
-    if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false
-    uni.showToast({ title: '强制模式：先把这段专注跑完', icon: 'none' })
+    if (!this.backBlocked()) return false
+    this.sayBlocked()
     return true
   },
   methods: {
+    /** 强制模式正在计时：这会儿不许离开本页（暂停 / 休息 / 正计时都放行） */
+    backBlocked() {
+      if (!this.forcedOn) return false
+      if (!this.cur || this.cur.paused || this.cur.overrun || this.cur.phase !== 'focus') return false
+      return true
+    },
+
+    /** 被拦住时说一句（物理返回键与顶栏返回键共用，不许各写一句） */
+    sayBlocked() {
+      uni.showToast({ title: '强制模式：先把这段专注跑完', icon: 'none' })
+    },
+
+    /**
+     * 顶栏返回键的否决口：导航栏点返回时同步问一次，被拦就当场否决。
+     * ⚠️ 顶栏那个键走的是 uni.navigateBack，**绕不开页面的 onBackPress** ——
+     *    少了这一层，"强制模式按住的人"点一下左上角就跑了。
+     */
+    onNavBack(veto) {
+      if (!this.backBlocked()) return
+      this.sayBlocked()
+      if (typeof veto === 'function') veto()
+    },
+
     /**
      * ★ 圆圈衔接转场的收尾：把 ringIntro 摘掉，圆从"放大盖满全屏"缩回就位。
      *

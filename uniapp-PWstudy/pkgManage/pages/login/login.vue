@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar :title="$t('登录')" />
+    <float-navbar :title="$t('登录')" :back="true" />
 
     <view class="card auth-card">
       <!-- 模式切换 -->

@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar :title="$t('设置')" />
+    <float-navbar :title="$t('设置')" :back="true" />
 
     <!-- ===== 外观：深色 / 主题色 / 背景（大胶囊，默认收起） ===== -->
     <view class="sec" :class="{ open: openSec === 'appearance' }">

@@ -8,7 +8,7 @@
     @touchend="onSlideEnd"
     @touchcancel="onSlideEnd"
   >
-    <float-navbar title="统计" />
+    <float-navbar title="统计" :back="false" />
 
     <view class="page-slide" :class="slideCls" :style="slideStyle">
 

@@ -1,6 +1,6 @@
 <template>
   <view class="container page-nav" :class="appTheme" :style="appBgStyle">
-    <float-navbar :title="$t('学习范围')" />
+    <float-navbar :title="$t('学习范围')" :back="true" />
 
     <!-- 这功能是什么 / 不做什么 -->
     <view class="card">

@@ -16,7 +16,7 @@
          这里挂在 .container 下、自身 opacity 由内联单独控制，安全。 -->
     <view class="hero-glass" :style="heroGlassStyle"></view>
 
-    <float-navbar title="PWstudy" :focus-btn="!locked" :focus-on="focusSetOn" @open-focus="toggleManage" />
+    <float-navbar title="PWstudy" :back="false" :focus-btn="!locked" :focus-on="focusSetOn" @open-focus="toggleManage" />
 
     <view class="page-slide home-slide" :class="slideCls" :style="[slideStyle, viewMinStyle]">
 
