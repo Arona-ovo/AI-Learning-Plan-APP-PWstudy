@@ -9,6 +9,7 @@
 import * as agent from '../services/plan-agent.js';
 import * as settings from './settings.js';
 import * as timeslot from './timeslot.js';
+import * as pw from './pwstore.js';
 
 const KEY = 'fj_pw_plan_v1';
 export const CHANGE_EVENT = 'plan:task-change';
@@ -194,6 +195,13 @@ export async function generate() {
     // 时段安排（早/中/晚）：默认开。关掉后 input.slots 不再下发，规划就是原来的纯任务模式
     input.slotOn = timeslot.enabled();
     input.slots = (st.seed && st.seed.slots) || [];
+    // 从今天 / 明天开始（向导里选的）：决定 AI 排程的起始日。
+    // startFrom 没传（老会话）默认今天；normalizePlan 也会兜底成今天。
+    if (input.startFrom === 'tomorrow') {
+      input.startDate = pw.addDays(pw.today(), 1);
+    } else {
+      input.startDate = pw.today();
+    }
     const plan = await agent.planGoal(input);
     if (stopFlag) { set({ running: false, paused: true }); return st; }
     set({ stage: 'done', running: false, plan });

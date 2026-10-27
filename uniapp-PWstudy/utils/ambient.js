@@ -18,6 +18,7 @@
 // 这里只管"该不该响"和"什么时候响"。
 
 import * as audio from './audio.js';
+import * as fgsvc from './fgsvc.js';
 
 // ⚠️ 这里加/删音色时，三处名单要一起动（各写一份必然分叉）：
 //   utils/ambient.js 的 KINDS（唯一权威：播放前按它校验 kind）
@@ -41,7 +42,8 @@ const VOLUME = 0.32;
 // 起播后多久还没见 onPlay 就认为"没响"（界面据此提示，而不是一直静默）
 const START_MS = 2500;
 
-let ctx = null;
+let ctx = null;          // uni.createInnerAudioContext（兜底 / 非 App 端 / 标准基座）
+let nativeOn = false;    // 当前是否走原生 MediaPlayer（后台不中断、单路音量）
 let cur = '';
 let lastErr = '';      // 最近一次播放错误（界面可以据此提示"播不出来"）
 
@@ -63,12 +65,25 @@ function relOf(kind) {
  */
 export function start(kind) {
   if (!KINDS.some(x => x.k === kind)) return false;
-  if (ctx && cur === kind) {
-    try { ctx.play(); } catch (e) {}
+  // 已在播同一音色：等价于 resume（原生 / InnerAudioContext 各自续上）
+  if (cur === kind) {
+    if (nativeOn) { try { fgsvc.ambientResume(); } catch (e) {} }
+    else if (ctx) { try { ctx.play(); } catch (e) {} }
     return true;
   }
   stop();
   lastErr = '';
+  // ① 优先走原生 MediaPlayer（自定义基座 + 插件可用）：App 退后台 WebView 被回收时
+  //    不会像 InnerAudioContext 那样报 -5，且能单独压音量（0.32 这种"垫底背景音"必须压得住）。
+  const abs = audio.localUrl(relOf(kind));
+  if (abs && fgsvc.ambientStart(abs, VOLUME, true)) {
+    nativeOn = true;
+    cur = kind;
+    lastErr = '';
+    return true;
+  }
+  // ② 兜底：uni.createInnerAudioContext（标准基座 / H5 / 开发期）。
+  //    只能在 App 前台稳播；切到后台可能 -5 —— 但至少能响，且自带路径重试。
   let c = null;
   try {
     c = uni.createInnerAudioContext();
@@ -77,6 +92,7 @@ export function start(kind) {
     return false;
   }
   ctx = c;
+  nativeOn = false;
   cur = kind;
   const paths = audio.srcCandidates(relOf(kind));
   let pi = 0;
@@ -135,18 +151,21 @@ export function preview(kind, ms, cb) {
 }
 
 export function pause() {
+  if (nativeOn) { try { fgsvc.ambientPause(); } catch (e) {} return; }
   if (ctx) {
     try { ctx.pause(); } catch (e) {}
   }
 }
 
 export function resume() {
+  if (nativeOn && cur) { try { fgsvc.ambientResume(); } catch (e) {} return; }
   if (ctx && cur) {
     try { ctx.play(); } catch (e) {}
   }
 }
 
 export function stop() {
+  if (nativeOn) { try { fgsvc.ambientStop(); } catch (e) {} nativeOn = false; }
   if (!ctx) return;
   const c = ctx;
   ctx = null;

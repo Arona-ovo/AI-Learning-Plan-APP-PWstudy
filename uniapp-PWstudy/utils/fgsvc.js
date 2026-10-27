@@ -461,6 +461,77 @@ export function interceptCount() {
   return 0;
 }
 
+/* ==================== 把系统级 Service 类钉进编译产物 ====================
+ *
+ * ⚠️ 这是「消息拦截还是不生效」的根因：UTS 编译器会剪掉"代码里没人引用"的声明，
+ *   而 PFGuardService（强制模式无障碍护卫）/ PWNotifListener（专注期拦截通知）都是
+ *   **系统按清单创建**的服务，源码里从不被 new —— 若这两个 keep 函数不被真正调用，
+ *   整个类（连同只被它用到的私有方法）就被整块剪掉，打出的 dex 里没有这个类，
+ *   但清单里却声明了它 → 用户在系统设置里打开开关只会拿到 ClassNotFoundException，
+ *   表现为"开关开了、权限也给了，通知照样弹 / 强制模式拉不回来"。
+ *
+ * 判据见 _tools/check-uts.js §9.2（源码里必须有 new <Cls>(）。本函数两个 new 都在，
+ * 但只有被调用，才会进入可达代码路径，防止被 DCE 剪掉。App 启动调一次即可
+ * （见 App.vue onLaunch），重入安全（插件不可用 / 标准基座下静默跳过）。 */
+export function keepNativeClasses() {
+  if (!available()) return;
+  // #ifdef APP-PLUS
+  try { if (typeof fgs.keepGuardClass === 'function') fgs.keepGuardClass(); } catch (e) {}
+  try { if (typeof fgs.keepNotifClass === 'function') fgs.keepNotifClass(); } catch (e) {}
+  // #endif
+}
+
+/* ==================== 白噪音原生播放（后台不中断）====================
+ *
+ * 原生 android.media.MediaPlayer 播循环白噪音，替代 WebView 系的
+ * uni.createInnerAudioContext（后者在 App 退后台时音频上下文被回收，报 -5）。
+ * 仅自定义基座（available() = true）下走原生；否则 ambient.js 自动回退 InnerAudioContext。
+ * 所有调用都 try 兜住 —— 插件不可用 / 调用炸了就当作"不支持原生"，让 ambient.js 走兜底。 */
+
+/** 开始/切换循环播放。absPath 本地 wav 绝对路径；vol 0~1；loop 是否循环。返回 true=发起成功 */
+export function ambientStart(absPath, vol, loop) {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.ambientStart === 'function') {
+      const r = Number(fgs.ambientStart(absPath, vol, !!loop)) || 0;
+      return r === 0;
+    }
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+export function ambientPause() {
+  if (!available()) return;
+  // #ifdef APP-PLUS
+  try { if (typeof fgs.ambientPause === 'function') fgs.ambientPause(); } catch (e) {}
+  // #endif
+}
+
+export function ambientResume() {
+  if (!available()) return;
+  // #ifdef APP-PLUS
+  try { if (typeof fgs.ambientResume === 'function') fgs.ambientResume(); } catch (e) {}
+  // #endif
+}
+
+export function ambientStop() {
+  if (!available()) return;
+  // #ifdef APP-PLUS
+  try { if (typeof fgs.ambientStop === 'function') fgs.ambientStop(); } catch (e) {}
+  // #endif
+}
+
+/** 最近一次错误描述（'' = 无错误） */
+export function ambientError() {
+  if (!available()) return '';
+  // #ifdef APP-PLUS
+  try { if (typeof fgs.ambientError === 'function') return String(fgs.ambientError() || ''); } catch (e) {}
+  // #endif
+  return '';
+}
+
 /* ==================== 悬浮灵动岛倒计时胶囊 ====================
  *
  * 一条**独立**的悬浮窗（与强制模式遮罩解耦）。用户授了悬浮窗权限 + 打开「灵动岛」开关、

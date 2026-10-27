@@ -36,6 +36,21 @@ function main() {
   return null;
 }
 
+// 当前 Activity 是否处于多窗口（分屏 / 自由窗口）模式。
+// 强制模式下，用户在分屏里放「PWstudy + 别的 App」，会反复触发"离开"判定、
+// 连着 3 次把这一轮专注作废（用户反馈的"触发三次然后退出"）。
+// 手机上已由 AndroidManifest 的 resizeableActivity=false 从系统层面关掉多窗口；
+// 但平板上的强制多窗口系统可能仍会强制 —— 这里给一个 JS 侧探测，
+// 让 forced.js 在分屏里只拉回、不记违规（见 utils/forced.js detectJs）。
+export function isInMultiWindow() {
+  if (!supported()) return false;
+  try {
+    const act = main();
+    if (act && typeof act.isInMultiWindowMode === 'function') return !!act.isInMultiWindowMode();
+  } catch (e) {}
+  return false;
+}
+
 // ---------- 权限 ----------
 export function hasUsagePermission() {
   if (!supported()) return false;

@@ -144,6 +144,42 @@ export function resetA11y(): boolean
 export function keepGuardClass(): boolean
 
 /**
+ * ⚠️ 同 keepGuardClass：把 PWNotifListener（专注期拦截通知的 NotificationListenerService）
+ *   钉在编译产物里。它也是系统按清单创建、源码里没人 new 就会整块被剪掉的服务类；
+ *   实现里 new 一次只为编译期引用。与 keepGuardClass 不同，本函数**需要**被 JS 调用
+ *   （见 utils/fgsvc.js keepNativeClasses → App.vue onLaunch），否则 PWNotifListener
+ *   不在 dex 里，用户在「通知使用权」里打开开关也只有 ClassNotFoundException，
+ *   表现就是"消息拦截开了却完全不挡" —— 这正是 2026-10 那版"还是这样"的根因。
+ */
+export function keepNotifClass(): boolean
+
+/**
+ * ==================== 白噪音原生播放（后台不中断）====================
+ *
+ * 用原生 android.media.MediaPlayer 播循环白噪音，替代 WebView 系
+ * 的 uni.createInnerAudioContext（后者在 App 退后台时音频上下文被回收，
+ * 会报 errCode -5）。详见 index.uts 顶部该段注释。
+ *
+ * 仅在自定义基座（APP-PLUS + 插件可用）下有意义；标准基座下
+ * utils/ambient.js 会自动回退到 InnerAudioContext。
+ */
+
+/** 开始/切换循环播放。absPath 本地 wav 绝对路径；volume 0~1；loop 是否循环。返回 0 成功 */
+export function ambientStart(absPath: string, volume: number, loop: boolean): number
+
+/** 暂停（保留进度/实例，可 resume） */
+export function ambientPause(): void
+
+/** 恢复播放 */
+export function ambientResume(): void
+
+/** 停止并释放 */
+export function ambientStop(): void
+
+/** 最近一次错误描述（空串 = 无错误） */
+export function ambientError(): string
+
+/**
  * ==================== 悬浮灵动岛倒计时胶囊 ====================
  *
  * 一条**独立**的悬浮窗（TYPE_APPLICATION_OVERLAY），和强制模式遮罩复用同一套

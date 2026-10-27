@@ -131,6 +131,20 @@
           <text class="tp-date">{{ todayLabel }}</text>
         </view>
 
+        <!-- ④ 今日紧迫度 —— **提到最顶**（2026-10-27 用户要求）：短屏首页一屏装不下时，
+             底部那条轴容易被推到折叠线之下看不见；放到日期正下方、大圆之上，保底先看见。
+             仍是简化的一条进度条：今天过去多少 / 还需要多少一眼读完。
+             想看懂这条轴在说什么，点旁边的小问号（解释性内容统一收进 ?，不占正文）。 -->
+        <view class="tp-block urg-card">
+          <view class="hc-axis">
+            <view class="hc-axis-past" :style="{ width: u.nowPct + '%' }"></view>
+            <view class="hc-axis-need" :style="{ width: u.fillPct + '%' }"></view>
+          </view>
+          <text class="hc-q" @tap.stop="explainUrgency(u)">?</text>
+        </view>
+
+        <view class="tp-sep"></view>
+
         <!-- ① 开始专注 —— **大圆本身就是开始键**（2026-10-25 第二轮，用户拍板）：
              圈内写默认时段 + 默认任务名，点圆框任意处直接开计时，不再单设一颗按钮。
              圆的尺寸与专注页同款（480rpx 外圈，见 .tp-block.focus-card .hc-ring）。
@@ -192,20 +206,6 @@
           <view v-if="!editing" class="home-cta">
             <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
           </view>
-        </view>
-
-        <view class="tp-sep"></view>
-
-        <!-- ④ 今日紧迫度 —— **简化成一条进度条**（2026-10-25 用户拍板）：
-             标题行 / 档位胶囊 / 两行读数全砍，就剩 24h 轴本身 ——
-             "今天过去多少、还需要多少"一眼读完，不再摆仪表盘。
-             想看懂这条轴在说什么，点旁边的小问号（解释性内容统一收进 ?，不占正文）。 -->
-        <view class="tp-block urg-card">
-          <view class="hc-axis">
-            <view class="hc-axis-past" :style="{ width: u.nowPct + '%' }"></view>
-            <view class="hc-axis-need" :style="{ width: u.fillPct + '%' }"></view>
-          </view>
-          <text class="hc-q" @tap.stop="explainUrgency(u)">?</text>
         </view>
       </view>
       </view>
@@ -1292,6 +1292,19 @@ export default {
    */
   onPageScroll(e) {
     this.syncReveal(e && typeof e.scrollTop === 'number' ? e.scrollTop : -1)
+  },
+  // 下拉刷新（2026-10-27 加）：有些设备屏短，每日任务不退出重进就不刷新；
+  // 现在从上往下滑就能直接刷新「今天」的数据（任务 / 紧迫度 / 收工）。
+  onPullDownRefresh() {
+    try {
+      this.refresh()
+      this.startTick()
+      if (this.$refs.coach && this.$refs.coach.refresh) this.$refs.coach.refresh()
+    } catch (e) {}
+    // 等一帧让数据落进去再收起下拉（最长 600ms 兜底，防止 refresh 异常时转圈卡死）
+    setTimeout(() => {
+      try { uni.stopPullDownRefresh() } catch (e) {}
+    }, 200)
   },
   onShow() {
     hideNativeTabBar()
@@ -3773,6 +3786,10 @@ export default {
   /* 两层圈：外扩散一圈极淡的红（box-shadow 不占布局），里面直接放字 */
   box-shadow: 0 0 0 22rpx rgba(228, 23, 61, 0.045);
   box-shadow: 0 0 0 22rpx rgba(var(--brand-rgb, 228, 23, 61), 0.045);
+  /* ★ 点圆进专注页的转场要把它放大到盖满全屏：不提前提合成层的话，
+     App 端 WebView 每帧都在重绘（含那条 box-shadow），低端机上放大动画
+     本身就掉帧 —— will-change 让缩放整个走 GPU，只动纹理不重绘。 */
+  will-change: transform;
 }
 /* 按压：整圆缩一丁点（无边框区域不能整片变淡，会像"褪色"） */
 .tp-block.focus-card:active .hc-ring { transform: scale(0.965); }

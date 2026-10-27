@@ -98,6 +98,27 @@
         <view class="tip">先定个大方向，后面 AI 会按你的实际情况追问细节（基础、可用时段、偏好等），问够了才开始拆计划。</view>
       </view>
 
+      <!-- 从哪天开始：AI 排的任务默认从今天还是明天起排（2026-10-27 加）。
+           用户要能选：今天已经排满、或想留一天准备，就该从明天起排。 -->
+      <view class="card">
+        <view class="card-head">
+          <text class="card-title">{{ $t('从哪天开始') }}</text>
+        </view>
+        <view class="chips">
+          <text
+            class="chip"
+            :class="{ 'chip-on': draft.startFrom === 'today' }"
+            @tap="pickStartFrom('today')"
+          >{{ $t('今天') }}</text>
+          <text
+            class="chip"
+            :class="{ 'chip-on': draft.startFrom === 'tomorrow' }"
+            @tap="pickStartFrom('tomorrow')"
+          >{{ $t('明天') }}</text>
+        </view>
+        <view class="tip">{{ $t('默认从今天起排；想留一天准备、或今天已经排满，就选明天。') }}</view>
+      </view>
+
       <!-- 每日提醒：计划排得再好，"今天忘了"就没了。
            时间按目标存 —— 不同目标可以定不同时间（早上背单词、晚上刷阅读）。 -->
       <view class="card">
@@ -314,6 +335,7 @@ import { TEMPLATES, seedOf } from '../../../data/goal-templates.js'
 import * as holiday from '../../../utils/holiday.js'
 import * as reminder from '../../../utils/reminder.js'
 import * as timeslot from '../../../utils/timeslot.js'
+import * as settings from '../../../utils/settings.js'
 import { aiGateReason } from '../../../services/config.js'
 import { t } from '../../../utils/i18n.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
@@ -329,7 +351,9 @@ export default {
       draft: {
         title: '', deadline: '', dailyMin: 60, level: '', tplKey: '',
         remindAt: reminder.DEFAULT,
-        slots: timeslot.KEYS.slice()      // 能学的时段（早/中/晚），默认都开着
+        slots: timeslot.KEYS.slice(),     // 能学的时段（早/中/晚），默认都开着
+        startFrom: (settings.get() && settings.get().plan && settings.get().plan.startFrom) || 'today'
+                                             // AI 排程从哪天起排：today / tomorrow（回写 settings 作默认）
       },
       minOptions: [30, 60, 90, 120, 180, 240],
       remindTimes: reminder.TIMES,
@@ -568,6 +592,11 @@ export default {
     },
     pickMin(m) { this.draft.dailyMin = m },
     pickRemind(t) { this.draft.remindAt = t || '' },
+    // 从今天 / 明天开始：选了就回写 settings.plan.startFrom 作下次默认
+    pickStartFrom(v) {
+      this.draft.startFrom = v
+      try { settings.set({ plan: { startFrom: v } }) } catch (e) {}
+    },
 
     // ---------- 执行时段（早 / 中 / 晚） ----------
     slotPicked(k) {
@@ -652,7 +681,9 @@ export default {
         dailyMin: this.draft.dailyMin,
         level: String(this.draft.level || '').trim(),
         // 用户勾选的可用时段（早/中/晚）：AI 追问与最终排期都以此为准
-        slots: (this.draft.slots || []).slice()
+        slots: (this.draft.slots || []).slice(),
+        // 从今天 / 明天开始：决定 AI 排程的起始日（见 plan-task.js generate）
+        startFrom: (this.draft.startFrom === 'tomorrow') ? 'tomorrow' : 'today'
       }
       planTask.startSession(seed)
       this.syncFromTask()

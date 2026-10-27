@@ -1287,5 +1287,9 @@ export default {
     'You can change any of this later in Settings › A few things first.',
   '没能打开设置页，请手动去系统设置': "Couldn't open the settings page — please go there manually",
   '还差「显示在其他应用上层」和「无障碍」才拉得动':
-    'Still needs "draw over other apps" and Accessibility before it can pull you back'
+    'Still needs "draw over other apps" and Accessibility before it can pull you back',
+  '从哪天开始': 'Start from',
+  '明天': 'Tomorrow',
+  '默认从今天起排；想留一天准备、或今天已经排满，就选明天。':
+    'Defaults to starting today; pick Tomorrow if you want a day to prepare or today is already full.'
 };

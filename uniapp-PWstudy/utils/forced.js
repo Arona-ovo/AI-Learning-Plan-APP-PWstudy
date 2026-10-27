@@ -392,6 +392,15 @@ function detectJs() {
   // 拿不到 = 锁屏/桌面切换中；在学习 App = 合规 → 都不动
   if (!pkg || apptime.isAllowedPkg(pkg)) { escapeArmed = true; return; }
 
+  // 分屏兜底（2026-10-27）：平板上的强制多窗口可能仍把 PWstudy 丢进分屏，
+  // 这时"前台是别的 App"会反复命中、连着 3 次把专注作废（"触发三次然后退出"）。
+  // 分屏里只把 PWstudy 拉回前台、不记违规 —— 手机上已被 resizeableActivity=false 杜绝，
+  // 这里是平板的保险。原生看门狗在后台也会拉，但记不记违规只在 JS 侧裁决，所以够了。
+  if (apptime.isInMultiWindow()) {
+    pullNow();
+    return;
+  }
+
   if (escapeArmed) {
     // 新的一次逃逸：记一笔，提醒一句
     escapeArmed = false;

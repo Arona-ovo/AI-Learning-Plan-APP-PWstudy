@@ -12,6 +12,7 @@ import * as usage from './utils/usage.js'
 import * as sfx from './utils/sfx.js'
 import { flush as pwFlush } from './utils/pwstore.js'
 import * as apptime from './utils/apptime.js'
+import * as fgsvc from './utils/fgsvc.js'
 import * as focus from './utils/focus.js'
 import * as link from './utils/link.js'
 import * as updater from './utils/updater.js'
@@ -38,6 +39,10 @@ export default {
     try { autoRegisterArgon2() } catch (e) { /* 未接入则保持内置 PBKDF2 */ }
     // 本地账号：打开数据库 + 恢复会话（异步、失败静默 —— 未登录不影响任何功能）
     try { auth.init() } catch (e) { /* ignore */ }
+    // 把两个系统级 Service 类（无障碍护卫 / 通知监听）钉进原生编译产物。
+    // 不调的话 UTS 会把"没人 new"的类整块剪掉，系统设置里开了开关也只有
+    // ClassNotFoundException —— 消息拦截 / 强制模式拉回都会失效（见 utils/fgsvc.js）。
+    try { fgsvc.keepNativeClasses() } catch (e) {}
     // 恢复用户选择的全局背景（写在 CSS 变量 --app-bg 上）
     try { theme.init() } catch (e) {}
     // 底部导航改为自绘悬浮胶囊，App 端隐藏原生 tabBar（H5 由全局样式隐藏）

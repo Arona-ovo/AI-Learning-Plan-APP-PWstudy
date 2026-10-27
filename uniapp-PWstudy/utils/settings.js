@@ -159,7 +159,10 @@ function defaults() {
     plan: {
       res: false,
       slot: true,
-      slotNotify: true
+      slotNotify: true,
+      // startFrom AI 排程从哪天起排：'today'（默认）或 'tomorrow'。
+      // 用户每次在规划向导里选，会回写这里作为下次默认（见 pkgPlan/pages/wizard/wizard.vue）
+      startFrom: 'today'
     },
     // 更新（wgt 热更新 + 完整包兜底，见 utils/updater.js）
     //   auto        启动后自检一次（默认开；一天最多一次，失败静默）

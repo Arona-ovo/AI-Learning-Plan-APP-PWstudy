@@ -33,13 +33,10 @@ TARGET_RMS = 0.10          # 与白/粉/棕噪（0.12）差 1.6dB，在护栏 ±
 PEAK_CAP = 0.95            # 不削波；真实录音动态大，这里放宽到护栏上限
 
 # 真实录音源（均为 CC0 1.0，opengameart）
+# 注意：雨声已改为程序合成（见 _tools/gen-rain.py），不再走真实录音产线 ——
+# 用户的反馈是「真实雨声还是太密集偏吵」，而真实录音的性格（密度/频谱）改不了，
+# 合成才能把「稀疏、平缓」做出来。沙滩因用户认可、保留真实录音。
 SOURCES = [
-    {
-        'kind': 'rain',
-        'url': 'https://opengameart.org/sites/default/files/amb_rain_loop_1.ogg',
-        'credit': 'AMB Rain Loop 1 — Kresiek The Furry (CC0 1.0, opengameart)',
-        'license': 'CC0',
-    },
     {
         'kind': 'beach',
         'url': 'https://opengameart.org/sites/default/files/VistulaShort_0.mp3',
@@ -146,7 +143,7 @@ def process(src):
 
 
 if __name__ == '__main__':
-    print('== 真实录音产线：雨声 / 沙滩 ==')
+    print('== 真实录音产线（仅沙滩；雨声见 _tools/gen-rain.py 合成）==')
     for s in SOURCES:
         print('· %s  (%s)' % (s['kind'], s['license']))
         process(s)

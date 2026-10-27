@@ -6,7 +6,7 @@
     },
     {
       "path": "pages/home/home",
-      "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom" }
+      "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom", "enablePullDownRefresh": true }
     },
     {
       "path": "pages/goals/goals",

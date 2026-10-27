@@ -61,6 +61,8 @@ import SharedPreferences from 'android.content.SharedPreferences';
 import NotificationListenerService from 'android.service.notification.NotificationListenerService';
 import StatusBarNotification from 'android.service.notification.StatusBarNotification';
 import Uri from 'android.net.Uri';
+import MediaPlayer from 'android.media.MediaPlayer';
+import AudioManager from 'android.media.AudioManager';
 
 // 必须与 uniapp-PWstudy/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
@@ -2125,4 +2127,88 @@ class PWNotifListener extends NotificationListenerService {
 /** 钉住监听类：UTS 会剪掉"没人引用"的声明，系统创建的类靠这里的 new 保住 */
 export function keepNotifClass(): boolean {
   return (new PWNotifListener()) != null;
+}
+
+/* ==================== 白噪音原生播放（后台不中断）====================
+ *
+ * 为什么不用 uni.createInnerAudioContext 播循环白噪音：它在 App 端底层仍挂在
+ * WebView 的音频上下文上，App 退到后台（用户切到别的 App、只剩前台服务 + 灵动岛胶囊）
+ * 时 WebView 被回收/挂起，上下文没了 → 播放报错 errCode -5（MEDIA_ERROR_UNKNOWN），
+ * 表现就是"在里面播得好好的，切出去就 -5"。
+ *
+ * 这里改用原生 android.media.MediaPlayer，直接吃本地 wav 绝对路径：
+ *   · 不挂在 WebView 上，App 后台（前台服务还活着）照样播，解决 -5；
+ *   · setLooping(true) 做无缝循环；
+ *   · setVolume(vol, vol) 做**单路**音量（0.32 这种"垫底背景音"必须压得住，
+ *     否则会盖过注意力）—— 这也是 InnerAudioContext 给不到的；
+ *   · 用 Application Context 创建、不随 Activity 销毁而释放；专注期前台服务保活，
+ *     进程不被回收，MediaPlayer 自然也不死。
+ */
+
+let ambientMP: MediaPlayer | null = null;
+let ambientErrCode: Int = 0;
+let ambientErrMsg: String = '';
+
+class AmbientErrorListener implements MediaPlayer.OnErrorListener {
+  onError(mp: MediaPlayer, what: Int, extra: Int): Boolean {
+    ambientErrCode = extra != 0 ? extra : what;
+    ambientErrMsg = 'media error what=' + what + ' extra=' + extra;
+    return true;  // 阻止系统再发一次 onCompletion，避免循环被打断
+  }
+}
+
+/**
+ * 开始/切换循环播放。absPath 为本地 wav 的**绝对路径**（audio.localUrl 转出来的那种）。
+ * volume 0~1（默认 0.32）；loop=true 循环。返回 0=发起成功，-1=异常，-2=无上下文。
+ */
+export function ambientStart(absPath: string, volume: number, loop: boolean): Int {
+  try {
+    ambientStopInternal();
+    let ctx = UTSAndroid.getAppContext();
+    if (ctx == null) { ambientErrCode = -2; ambientErrMsg = 'no app context'; return -2; }
+    let mp = new MediaPlayer();
+    mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
+    mp.setDataSource(absPath);
+    mp.setLooping(loop);
+    mp.setVolume(volume.toFloat(), volume.toFloat());
+    mp.setOnErrorListener(new AmbientErrorListener());
+    ambientMP = mp;
+    ambientErrCode = 0;
+    ambientErrMsg = '';
+    mp.prepare();
+    mp.start();
+    return 0;
+  } catch (e) {
+    ambientErrCode = -1;
+    ambientErrMsg = String.valueOf(e);
+    return -1;
+  }
+}
+
+export function ambientPause(): void {
+  try { if (ambientMP != null) ambientMP!.pause(); } catch (e) {}
+}
+
+export function ambientResume(): void {
+  try { if (ambientMP != null) ambientMP!.start(); } catch (e) {}
+}
+
+export function ambientStop(): void {
+  ambientStopInternal();
+}
+
+function ambientStopInternal(): void {
+  try {
+    if (ambientMP != null) {
+      try { ambientMP!.stop(); } catch (e) {}
+      try { ambientMP!.release(); } catch (e) {}
+    }
+  } catch (e) {}
+  ambientMP = null;
+}
+
+/** 最近一次错误（空串 = 没出错）。JS 层据此给界面提示 */
+export function ambientError(): string {
+  if (ambientErrCode == 0) return '';
+  return '' + ambientErrCode + ':' + ambientErrMsg;
 }
