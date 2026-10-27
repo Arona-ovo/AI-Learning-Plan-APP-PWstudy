@@ -30,7 +30,7 @@
                     "description" : "学习范围：判定在不在学习地点（只申请使用期间的定位，不申请后台定位）"
                 },
                 "Maps" : {
-                    "description" : "学习范围：地图选点与归中定位（高德，android key 已在 sdkConfigs.maps.amap）"
+                    "description" : "学习范围：地图选点与归中定位（高德 key 见 sdkConfigs.maps.amap.appkey_android 与 sdkConfigs.geolocation.amap.appkey_android）"
                 }
         },
         "distribute" : {
@@ -53,8 +53,14 @@
             "sdkConfigs" : {
                 "maps" : {
                     "amap" : {
-                        "android" : "c5887c53fa977b441c29c528e7262dd0",
-                        "ios" : "REPLACE_WITH_AMAP_IOS_KEY"
+                        "appkey_android" : "c5887c53fa977b441c29c528e7262dd0",
+                        "appkey_ios" : "REPLACE_WITH_AMAP_IOS_KEY"
+                    }
+                },
+                "geolocation" : {
+                    "amap" : {
+                        "appkey_android" : "c5887c53fa977b441c29c528e7262dd0",
+                        "appkey_ios" : "REPLACE_WITH_AMAP_IOS_KEY"
                     }
                 }
             },
