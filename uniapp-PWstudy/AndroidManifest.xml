@@ -19,8 +19,16 @@
         <package android:name="com.AWword" />
     </queries>
 
-    <application>
+    <application
+        android:resizeableActivity="false">
         <!-- 不要重复 manifest.json 已配置的内容，避免合并冲突 -->
+        <!-- ⚠️ resizeableActivity=false：专注锁屏类 App 不该被拖进分屏 / 自由窗口 ——
+             否则用户在「分屏里放 PWstudy + 另一个 App」就能绕过强制模式的拉回，
+             而且分屏场景会反复触发"离开"判定、连着 3 次直接把这一轮专注作废
+             （用户反馈的"触发三次然后退出"正是这个）。关掉多窗口后，PWstudy 在任何设备
+             上都是全屏独占，分屏这条路从系统层面就不存在了。
+             代价：PWstudy 永远不能和别的 App 并排（平板上的强制多窗口系统可能仍会强制，
+             那种情况下由 JS 侧的 isInMultiWindow 兜底，只拉回、不记违规）。 -->
     </application>
 
 </manifest>
