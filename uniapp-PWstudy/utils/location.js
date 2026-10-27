@@ -174,8 +174,57 @@ export function openPermissionSettings() {
 /* ---------------- 定位 ---------------- */
 
 /**
+ * WGS84 → GCJ02（国测局火星坐标）转换。
+ * 高德底图 / 高德地图组件用的是 gcj02，学习地点坐标也统一存 gcj02，
+ * 所以无论定位取回来是什么，最终都归一成 gcj02，地图和判定才对得上。
+ * 中国境外原样返回（不偏移）。算法是公开的匀速偏移近似，几百米量级够用。
+ */
+const GCJ_A = 6378245.0;
+const GCJ_EE = 0.00669342162296594323;
+function outOfChina(lat, lng) {
+  return (lng < 72.004 || lng > 137.8347) || (lat < 0.8293 || lat > 55.8271);
+}
+function gcjTransformLat(x, y) {
+  let r = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  r += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+  r += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
+  r += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320.0 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
+  return r;
+}
+function gcjTransformLng(x, y) {
+  let r = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  r += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+  r += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
+  r += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
+  return r;
+}
+export function wgs84ToGcj02(lat, lng) {
+  if (!isFinite(lat) || !isFinite(lng) || outOfChina(lat, lng)) return { lat: lat, lng: lng };
+  let dLat = gcjTransformLat(lng - 105.0, lat - 35.0);
+  let dLng = gcjTransformLng(lng - 105.0, lat - 35.0);
+  const radLat = lat / 180.0 * Math.PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - GCJ_EE * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / ((GCJ_A * (1 - GCJ_EE)) / (magic * sqrtMagic) * Math.PI);
+  dLng = (dLng * 180.0) / (GCJ_A / sqrtMagic * Math.cos(radLat) * Math.PI);
+  return { lat: lat + dLat, lng: lng + dLng };
+}
+
+/**
  * 取一次当前位置。
- * @returns {Promise<{lat:number,lng:number,acc:number}>}
+ * @returns {Promise<{lat:number,lng:number,acc:number}>}  坐标一律归一成 gcj02（和高德底图 / 已存地点一致）
+ *
+ * ⚠️ 取法的鲁棒性（2026-10-27 修"定位失败，换个地方再试一次"）：
+ *   Android 上 uni.getLocation(type:'gcj02') 依赖 manifest 里配的高德 key
+ *   （sdkConfigs.maps.amap.android）。一旦被 HBuilderX 打包时清掉 / key 失效，
+ *   gcj02 取法人会直接 fail，界面就只剩一句"定位失败"。
+ *   所以这里做了一串兜底（换了参数就救得回来的，绝不一上来就报错）：
+ *     ① gcj02（快路径，key 正常时直接成功）
+ *     ② wgs84（系统 GPS，**完全不依赖高德 key**）→ JS 转 gcj02   ← 关键兜底
+ *     ③ gcj02 + 高精度（前两路都拿不到时，再用 GPS 高精度搏一次）
+ *   只有"没权限(2/12)"或"定位服务关着(11)"才立刻放弃（换了参数也一样）；
+ *   其余失败（含 key 失效）都换下一种取法。
  */
 export function fetch() {
   return new Promise((resolve, reject) => {
@@ -183,39 +232,56 @@ export function fetch() {
       reject({ code: -1, msg: '当前平台不支持定位' });
       return;
     }
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      // ⚠️ 不能复用 uni 的 12：那是"没授权"的码（2 / 12 同类），超时挤进去会被
-      // 界面误报成"没拿到定位权限"，用户白去设置页翻一圈。超时单独占 14。
-      reject({ code: 14, msg: '定位超时' });
-    }, FETCH_TIMEOUT);
-    uni.getLocation({
-      type: 'gcj02',
-      isHighAccuracy: false,      // 只需要"在不在几百米内"，高精度没必要，也更慢更耗电
-      geocode: false,
-      success: (res) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        const lat = Number(res && res.latitude);
-        const lng = Number(res && res.longitude);
-        if (!isFinite(lat) || !isFinite(lng)) {
-          reject({ code: 13, msg: '定位结果不可用' });
-          return;
-        }
-        resolve({ lat: lat, lng: lng, acc: Number(res.accuracy) || 0 });
-      },
-      fail: (e) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        // errCode 各家不完全一致：2 / 12 是"没授权"，11 是"定位服务关着"
-        const code = Number(e && (e.errCode || e.code)) || 0;
-        reject({ code: code, msg: (e && (e.errMsg || e.message)) || '定位失败' });
+    const attempts = [
+      { type: 'gcj02', isHighAccuracy: false },
+      { type: 'wgs84', isHighAccuracy: false },   // 不依赖高德 key 的系统 GPS 兜底
+      { type: 'gcj02', isHighAccuracy: true }
+    ];
+    let idx = 0;
+    const tryOne = () => {
+      if (idx >= attempts.length) {
+        reject({ code: 14, msg: '定位超时' });
+        return;
       }
-    });
+      const opt = attempts[idx++];
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        tryOne();   // 这种取法超时 → 换下一种
+      }, FETCH_TIMEOUT);
+      uni.getLocation({
+        type: opt.type,
+        isHighAccuracy: opt.isHighAccuracy,
+        geocode: false,
+        success: (res) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          const lat = Number(res && res.latitude);
+          const lng = Number(res && res.longitude);
+          if (!isFinite(lat) || !isFinite(lng)) {
+            tryOne();   // 拿到空坐标 → 换下一种取法
+            return;
+          }
+          const out = opt.type === 'wgs84' ? wgs84ToGcj02(lat, lng) : { lat: lat, lng: lng };
+          resolve({ lat: out.lat, lng: out.lng, acc: Number(res.accuracy) || 0 });
+        },
+        fail: (e) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          const code = Number(e && (e.errCode || e.code)) || 0;
+          // 2 / 12 = 没授权；11 = 定位服务关着。这两个换了参数也救不了，直接报
+          if (code === 2 || code === 12 || code === 11) {
+            reject({ code: code, msg: (e && (e.errMsg || e.message)) || '定位失败' });
+            return;
+          }
+          tryOne();   // 其余（含高德 key 失效导致的 gcj02 失败）→ 换下一种取法
+        }
+      });
+    };
+    tryOne();
   });
 }
 
