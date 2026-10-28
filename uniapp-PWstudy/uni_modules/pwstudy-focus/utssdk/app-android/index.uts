@@ -63,6 +63,9 @@ import StatusBarNotification from 'android.service.notification.StatusBarNotific
 import Uri from 'android.net.Uri';
 import MediaPlayer from 'android.media.MediaPlayer';
 import AudioManager from 'android.media.AudioManager';
+import BroadcastReceiver from 'android.content.BroadcastReceiver';
+import JSONObject from 'org.json.JSONObject';
+import Calendar from 'java.util.Calendar';
 
 // 必须与 uniapp-PWstudy/utils/notify.js 里的 ID_ONGOING / CH_ONGOING 保持一致。
 // ⚠️ 这几个常量必须显式写 : Int —— UTS 会把整数字面量推成 Number，
@@ -2212,4 +2215,566 @@ function ambientStopInternal(): void {
 export function ambientError(): string {
   if (ambientErrCode == 0) return '';
   return '' + ambientErrCode + ':' + ambientErrMsg;
+}
+
+/* ==================== 休闲提醒后台检测（LeisureGuard）====================
+ *
+ * 多邻国式提醒的「真·后台」一腿：即使 App 关着、用户在抖音里，也能周期检测
+ * 当前前台 + 当日累计休闲时长，到点复盘。为什么必须下沉到原生：JS 在 App 退后台后
+ * 定时器被挂起（跟强制模式看门狗同一个理由）。
+ *
+ * 机制（照抄现有 PWNotifListener / PFGuardService 的「系统创建类要钉住」规矩）：
+ *   · 一个 BroadcastReceiver（LeisureGuard）+ AlarmManager 周期闹钟。
+ *   · 闹钟走 setAndAllowWhileIdle（RTC_WAKEUP，**不精确**——精确闹钟要 SCHEDULE_EXACT_ALARM，
+ *     安卓 12+ 会 SecurityException，见 scheduleLeisureAlarm 的注释），到点唤醒进程跑一段检测；
+ *     检测完**自己再排下一次**（自续约，比 setRepeating 更准，且能跨午夜）。
+ *   · BOOT_COMPLETED / MY_PACKAGE_REPLACED 也进同一个 receiver，重启/升级后自动重挂。
+ *   · 配置（含阈值/静默时段/复盘时点/各类文案模板）整段存进 SharedPreferences，
+ *     这样 receiver 在「独立进程」里被唤醒时，不必依赖 App 主进程的内存状态也能工作。
+ *   · 节流（每天最多 maxPerDay 条、同一种提醒当天只发一次）也存 SP，跨进程/跨唤醒保留。
+ *   · 没有「使用情况访问」权限时直接收手（不读不到就别瞎提醒）；与 JS 侧 decide 同口径。
+ *
+ * 三条提醒（优先级 dwell → daily → digest，每天每种至多一条）：
+ *   dwell ：现在前台正好是某个休闲 App，且它当日累计 >= dwellMin（"你正在刷抖音"）。
+ *   daily ：当天零专注 且 休闲累计 >= dailyMin（靠 SP 里 leisure_focus_date 判零专注）。
+ *   digest：复盘开关开 且 已过 digestTime（时间到了，提醒还有任务没做）。
+ *
+ * ⚠️ 与 JS 的 maybeNudgeOnOpen 是两条并行的腿：打开 App 时那条永远工作（兜底），
+ *   原生这条负责"App 关着也推"。两条共享同一套阈值与静默，原生会再核一遍。
+ */
+
+const LEISURE_SP = 'pw_leisure';
+const LEISURE_NOTIFY_ID: Int = 8820;          // 与 8801/8802/8810/8860 错开
+const CHANNEL_LEISURE = 'pw_leisure_remind';
+const LEISURE_ALARM_ACTION = 'io.dcloud.uni_modules.pwstudy_focus.LEISURE_ALARM';
+const LEISURE_ALARM_REQ: Int = 88020;         // PendingIntent requestCode
+const LEISURE_PERIOD_MS: Int = 900000;        // 15 分钟周期（毫秒，只对 Long 做加法）
+const LEISURE_PERIOD_SEC: Int = 900;          // 同一周期的秒口径（SP 里只存 Int 秒，别碰 Long）
+
+/** 闹钟 PendingIntent 标志：API 23+ 必须 IMMUTABLE，更老的只有 UPDATE_CURRENT */
+function piFlags(): Int {
+  if (Build.VERSION.SDK_INT >= 23) return PI_FLAGS;
+  return 0x08000000;   // FLAG_UPDATE_CURRENT
+}
+
+/** LeisureGuard 的配置（从 SP 里的 JSON 解析出来） */
+class LeisureCfg {
+  on: boolean = false;
+  pkgs: Array<string> = [];
+  names: Array<string> = [];
+  dwellMin: Int = 30;
+  dailyMin: Int = 120;
+  quietFrom: Int = 22;
+  quietTo: Int = 8;
+  maxPerDay: Int = 3;
+  digest: boolean = false;
+  digestTime: string = '20:00';        // 仅留档/排查用，判定不读它
+  digestHm: Int = 1200;                // 复盘时点折算成「小时*60+分钟」，20:00
+  remaining: Int = 0;
+  dwellTitle: string = '';
+  dwellMsg: string = '';
+  dwellTail: string = '';
+  dailyTitle: string = '';
+  dailyMsg: string = '';
+  digestTitle: string = '';
+  digestMsg: string = '';
+}
+
+/** 节流状态（跨唤醒保留在 SP） */
+class LeisureThrottle {
+  date: string = '';
+  count: Int = 0;
+  kinds: Array<string> = [];
+}
+
+function leisureSp(): SharedPreferences | null {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return null;
+  return ctx!.getSharedPreferences(LEISURE_SP, 0);
+}
+
+/** 本地时区的 "YYYY-MM-DD" */
+function leisureDateStr(): string {
+  try {
+    let cal = Calendar.getInstance();
+    let y = cal.get(Calendar.YEAR);
+    let m = cal.get(Calendar.MONTH) + 1;
+    let d = cal.get(Calendar.DAY_OF_MONTH);
+    let ms = (m < 10) ? ('0' + m.toString()) : m.toString();
+    let ds = (d < 10) ? ('0' + d.toString()) : d.toString();
+    return y.toString() + '-' + ms + '-' + ds;
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 本地时区当前的 "小时*60+分钟" */
+function leisureNowHm(): Int {
+  try {
+    let cal = Calendar.getInstance();
+    let h = cal.get(Calendar.HOUR_OF_DAY);
+    let m = cal.get(Calendar.MINUTE);
+    return h * 60 + m;
+  } catch (e) {
+    return 1200;
+  }
+}
+
+/**
+ * 解析 armGuard 预渲染的 JSON 配置。全程 try：任何字段缺失都退化成默认值，
+ * 绝不因为一条提醒解析失败就让整个检测崩溃（提醒是锦上添花，不该拖垮别的）。
+ */
+function parseLeisureCfg(json: string): LeisureCfg {
+  let c = new LeisureCfg();
+  try {
+    let o = new JSONObject(json);
+    c.dwellMin = o.optInt('dwellMin', 30);
+    c.dailyMin = o.optInt('dailyMin', 120);
+    c.quietFrom = o.optInt('quietFrom', 22);
+    c.quietTo = o.optInt('quietTo', 8);
+    c.maxPerDay = o.optInt('maxPerDay', 3);
+    c.digest = o.optBoolean('digest', false);
+    c.digestTime = o.optString('digestTime', '20:00');
+    c.digestHm = o.optInt('digestHm', 1200);
+    c.remaining = o.optInt('remaining', 0);
+    c.dwellTitle = o.optString('dwellTitle', '');
+    c.dwellMsg = o.optString('dwellMsg', '');
+    c.dwellTail = o.optString('dwellTail', '');
+    c.dailyTitle = o.optString('dailyTitle', '');
+    c.dailyMsg = o.optString('dailyMsg', '');
+    c.digestTitle = o.optString('digestTitle', '');
+    c.digestMsg = o.optString('digestMsg', '');
+    let pkgsArr = o.optJSONArray('pkgs');
+    let namesArr = o.optJSONArray('names');
+    if (pkgsArr != null) {
+      let n = pkgsArr.length();
+      for (let i = 0; i < n; i++) {
+        let v = pkgsArr.optString(i, '');
+        c.pkgs.push(v);
+        let nm = '';
+        if (namesArr != null) nm = namesArr.optString(i, '');
+        c.names.push(nm);
+      }
+    }
+  } catch (e) {}
+  return c;
+}
+
+/** 从 SP 读出当前配置；关着 / 没配置 返回 null */
+function loadLeisureCfg(): LeisureCfg | null {
+  let p = leisureSp();
+  if (p == null) return null;
+  if (p.getInt('leisure_on', 0) != 1) return null;
+  let payload = p.getString('leisure_payload', '');
+  if (payload.length == 0) return null;
+  return parseLeisureCfg(payload);
+}
+
+/** 读节流状态，并自动按天重置 */
+function loadLeisureThrottle(): LeisureThrottle {
+  let st = new LeisureThrottle();
+  let p = leisureSp();
+  if (p == null) return st;
+  let date = p.getString('leisure_ndate', '');
+  let count = p.getInt('leisure_ncount', 0);
+  let ks = p.getString('leisure_nkinds', '');
+  if (ks.length > 0) {
+    let arr = ks.split(',');
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i].length > 0) st.kinds.push(arr[i]);
+    }
+  }
+  let today = leisureDateStr();
+  if (date != today) {
+    st.date = today;
+    st.count = 0;
+    st.kinds = [];
+  } else {
+    st.date = date;
+    st.count = count;
+  }
+  return st;
+}
+
+function saveLeisureThrottle(st: LeisureThrottle): void {
+  let p = leisureSp();
+  if (p == null) return;
+  // 手工拼逗号串：UTS 的 Array 没有 JS 的 join()（落到 Kotlin 会编不过）
+  let parts = '';
+  for (let i = 0; i < st.kinds.length; i++) {
+    if (parts.length > 0) parts = parts + ',';
+    parts = parts + st.kinds[i];
+  }
+  try {
+    p.edit().putString('leisure_ndate', st.date)
+      .putInt('leisure_ncount', st.count)
+      .putString('leisure_nkinds', parts)
+      .apply();
+  } catch (e) {}
+}
+
+/** 今日是否已有过专注（靠 SP 里 leisure_focus_date） */
+function leisureFocusToday(): boolean {
+  let p = leisureSp();
+  if (p == null) return false;
+  let d = p.getString('leisure_focus_date', '');
+  return d == leisureDateStr();
+}
+
+/** 静默时段判定（跨午夜） */
+function leisureInQuiet(c: LeisureCfg, hm: Int): boolean {
+  let a = c.quietFrom * 60;
+  let b = c.quietTo * 60;
+  if (a == b) return false;
+  if (a < b) return hm >= a && hm < b;
+  return hm >= a || hm < b;
+}
+
+/**
+ * 是否已过复盘时点。
+ * 时点由 JS 侧折算成「小时*60+分钟」的整数传进来（digestHm），
+ * 这里不做 "20:00".split(':') → Number() 的解析 —— `Number(x)` 在生成的 Kotlin
+ * 里是实例化抽象类 java.lang.Number，云打包直接编不过（见 bumpBind 上方注释）。
+ */
+function leisurePastDigest(c: LeisureCfg): boolean {
+  return leisureNowHm() >= c.digestHm;
+}
+
+/** 把 s 里所有 {key} 换成 val（手工拼接，UTS 的 Array 没有 join） */
+function leisureFill(s: string, key: string, val: string): string {
+  let token = '{' + key + '}';
+  let arr = s.split(token);
+  if (arr.length <= 1) return s;
+  let out = '';
+  for (let i = 0; i < arr.length; i++) {
+    if (i > 0) out = out + val;
+    out = out + arr[i];
+  }
+  return out;
+}
+
+/** 占位符替换：{app} {min} {total} {n}（不认识的占位符原样留着） */
+function leisureTpl(s: string, app: string, min: Int, total: Int, n: Int): string {
+  let out = leisureFill(s, 'app', app);
+  out = leisureFill(out, 'min', min.toString());
+  out = leisureFill(out, 'total', total.toString());
+  out = leisureFill(out, 'n', n.toString());
+  return out;
+}
+
+/**
+ * 读当天每个休闲包的前台累计分钟（与当天 0 点对齐，不是"最近 24 小时"）。
+ * 返回数组与 c.pkgs 下标对齐。读不到（没权限 / 异常）返回全 0。
+ *
+ * 口径与 JS 侧 utils/apptime.js 的 usageByStats 一致：INTERVAL_DAILY(0) +
+ * getTotalTimeInForeground()。不去实现事件流配对那条降级路 ——
+ * 少数 ROM 上 queryUsageStats 会返回空（apptime 那边就靠事件流兜），
+ * 这里读不到就全 0：**不发提醒**。宁可少提醒，也不能拿错数字瞎催人；
+ * 而且这种机器上一打开 App 那条 JS 路径（有事件流兜底）照样会提醒。
+ */
+function leisureDayUsage(ctx: Context, pkgs: Array<string>): Array<Int> {
+  let out: Array<Int> = [];
+  for (let i = 0; i < pkgs.length; i++) out.push(0);
+  try {
+    let usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    let cal = Calendar.getInstance();
+    cal.set(Calendar.HOUR_OF_DAY, 0);
+    cal.set(Calendar.MINUTE, 0);
+    cal.set(Calendar.SECOND, 0);
+    cal.set(Calendar.MILLISECOND, 0);
+    let begin = cal.getTimeInMillis();
+    let endMs = System.currentTimeMillis();
+    let stats = usm.queryUsageStats(0, begin, endMs)   // 0 = INTERVAL_DAILY
+    if (stats != null) {
+      for (let s of stats!) {
+        if (s == null) continue;
+        let p = s.getPackageName();
+        if (p == null) continue;
+        let ms: Int = ((s.getTotalTimeInForeground() / 60000) as Number).toInt();
+        for (let j = 0; j < pkgs.length; j++) {
+          if (pkgs[j] == p) out[j] = out[j] + ms;
+        }
+      }
+    }
+  } catch (e) {}
+  return out;
+}
+
+/**
+ * 通知到底能不能弹出去。
+ * ⚠️ 安卓 13+ 没授 POST_NOTIFICATIONS（或用户在系统里把通知关了）时，
+ *    NotificationManager.notify() **不抛异常、也不弹**，静默无效。
+ *    不判这一下，我们就会以为"发出去了"，把当天的节流配额白白烧掉，
+ *    用户却一条也没看见 —— 最典型的"功能看着开了其实没干活"。
+ */
+function notifAllowed(ctx: Context): boolean {
+  try {
+    if (Build.VERSION.SDK_INT < 24) return true
+    let nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    return nm.areNotificationsEnabled()
+  } catch (e) {
+    return true
+  }
+}
+
+/** 建休闲提醒渠道（高重要级：到点要能"叫人"，但不强制出声——静音处理） */
+function ensureLeisureChannel(ctx: Context): void {
+  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    try {
+      let manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      let ch = new NotificationChannel(
+        CHANNEL_LEISURE,
+        '休闲提醒',
+        NotificationManager.IMPORTANCE_HIGH
+      )
+      ch.setDescription('休闲 App 用太久时提醒你回来专注')
+      try { ch.enableVibration(true) } catch (e) {}
+      manager.createNotificationChannel(ch)
+    } catch (e) {}
+  }
+}
+
+/** 发一条休闲提醒通知（点击回本 App） */
+function postLeisureNotify(ctx: Context, title: string, text: string): boolean {
+  try {
+    ensureLeisureChannel(ctx)
+    let builder = new NotificationCompat.Builder(ctx, CHANNEL_LEISURE)
+    builder.setContentTitle(title)
+    builder.setContentText(text)
+    builder.setSmallIcon(ctx.getApplicationInfo().icon)
+    builder.setWhen(System.currentTimeMillis())
+    builder.setPriority(1)            // PRIORITY_HIGH
+    builder.setCategory('reminder')
+    builder.setOnlyAlertOnce(false)
+    builder.setOngoing(false)
+    builder.setAutoCancel(true)
+    let launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName())
+    if (launch != null) {
+      launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+      let pi = PendingIntent.getActivity(ctx, LEISURE_NOTIFY_ID, launch, piFlags())
+      builder.setContentIntent(pi)
+    }
+    let nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    nm.notify(LEISURE_NOTIFY_ID, builder.build())
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/** 发一条并把节流状态往前推一格 */
+function leisureNotify(ctx: Context, title: string, text: string, kind: string, st: LeisureThrottle): void {
+  if (postLeisureNotify(ctx, title, text)) {
+    st.count = st.count + 1
+    st.kinds.push(kind)
+    saveLeisureThrottle(st)
+  }
+}
+
+/**
+ * 核心检测：读当天休闲时长 → 判定 → 节流/静默/去重 → 发通知。
+ * 在 receiver 的 onReceive（主线程）里跑，必须快：只做一次 UsageStats 查询 + 一次发通知。
+ */
+function leisureGuardCheck(ctx: Context): void {
+  let c = loadLeisureCfg();
+  if (c == null || !c.on) return;
+  if (!usageGranted(ctx)) return;                 // 没「使用情况访问」就别瞎提醒
+  if (c.pkgs.length == 0) return;
+  if (!notifAllowed(ctx)) return;                 // 通知被关掉时别烧节流配额（notify 静默无效）
+
+  let st = loadLeisureThrottle();
+  if (st.count >= c.maxPerDay) { saveLeisureThrottle(st); return; }
+
+  if (leisureInQuiet(c, leisureNowHm())) return;  // 静默时段
+
+  let mins = leisureDayUsage(ctx, c.pkgs);
+  let total: Int = 0;
+  let topIdx: Int = -1;
+  let topMin: Int = 0;
+  for (let i = 0; i < c.pkgs.length; i++) {
+    let m = mins[i];
+    total = total + m;
+    if (m > topMin) { topMin = m; topIdx = i; }
+  }
+
+  // dwell：现在前台正好是那个休闲 App，且它当日累计已够（"你正在刷抖音"）
+  if (topIdx >= 0 && topMin >= c.dwellMin) {
+    let fg = queryForeground(ctx);
+    if (fg == c.pkgs[topIdx] && st.kinds.indexOf('dwell') < 0) {
+      let name = c.names[topIdx];
+      let text = leisureTpl(c.dwellMsg, name, topMin, total, c.remaining)
+        + leisureTpl(c.dwellTail, name, topMin, total, c.remaining);
+      leisureNotify(ctx, c.dwellTitle, text, 'dwell', st);
+      return;
+    }
+  }
+
+  // daily：当天零专注 且 休闲累计够
+  if (total >= c.dailyMin && !leisureFocusToday() && st.kinds.indexOf('daily') < 0) {
+    let text = leisureTpl(c.dailyMsg, '', total, total, c.remaining);
+    leisureNotify(ctx, c.dailyTitle, text, 'daily', st);
+    return;
+  }
+
+  // digest：复盘开关开 且 已过复盘时点
+  if (c.digest && leisurePastDigest(c) && st.kinds.indexOf('digest') < 0) {
+    let text = leisureTpl(c.digestMsg, '', total, total, c.remaining);
+    leisureNotify(ctx, c.digestTitle, text, 'digest', st);
+    return;
+  }
+}
+
+/**
+ * 已排的闹钟还算不算数。
+ *
+ * 为什么要这个：`armGuard()` 每次 App 回前台都会调一次。如果它无脑重排，
+ * 用户每 10 分钟切进来一次，闹钟就永远被推到"15 分钟后"，**一次都不会真正到点** ——
+ * 典型的"看着挂了其实永不触发"。所以只在没有有效排期时才排。
+ *
+ * 有效 = SP 里记的下次时点还在未来、且没超出我们的周期太多
+ * （超出说明这条排期已经过期/被系统清掉，得重排；进程被杀后重进也走这条路）。
+ */
+function leisureAlarmFresh(): boolean {
+  let p = leisureSp();
+  if (p == null) return false;
+  let at: Int = p.getInt('leisure_alarm_at', 0);
+  if (at <= 0) return false;
+  let now = nowSec();
+  return at > now && (at - now) <= LEISURE_PERIOD_SEC + 120;
+}
+
+/**
+ * 排下一次周期闹钟（自续约）。
+ *
+ * ⚠️⚠️ 一律走**不精确**的 setAndAllowWhileIdle，绝不碰 setExact / setExactAndAllowWhileIdle ⚠️⚠️
+ *   安卓 12（API 31）起，精确闹钟要 SCHEDULE_EXACT_ALARM（用户可随时在设置里撤销）
+ *   或 USE_EXACT_ALARM（上架要单独报备理由）。我们这个插件**没有**也不该要这两个权限。
+ *   缺权限时 setExact* 抛 SecurityException —— 被下面的 catch 吞掉，闹钟永远排不上，
+ *   整条后台提醒就静默死掉（界面开关还亮着、日志也不一定有声音），最难查的那种。
+ *   而"刷太久提醒"本来就是分钟级语义，晚几分钟完全无所谓，够用了。
+ *   setAndAllowWhileIdle 不需要任何权限，Doze 下也能唤醒（系统节流上限约 9~15 分钟，正好）。
+ */
+function scheduleLeisureAlarm(ctx: Context): void {
+  try {
+    let am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    let it = new Intent(ctx, (new LeisureGuard()).javaClass)
+    it.setAction(LEISURE_ALARM_ACTION)
+    let pi = PendingIntent.getBroadcast(ctx, LEISURE_ALARM_REQ, it, piFlags())
+    let t = System.currentTimeMillis() + LEISURE_PERIOD_MS
+    if (Build.VERSION.SDK_INT >= 23) {
+      am.setAndAllowWhileIdle(0, t, pi)             // 0 = RTC_WAKEUP
+    } else {
+      am.set(0, t, pi)
+    }
+    // 记下"下次该醒的秒" —— 供 leisureAlarmFresh 判断要不要重排
+    let p = leisureSp();
+    if (p != null) p.edit().putInt('leisure_alarm_at', nowSec() + LEISURE_PERIOD_SEC).apply();
+  } catch (e) {}
+}
+
+/** 撤掉周期闹钟 */
+function cancelLeisureAlarm(ctx: Context): void {
+  try {
+    let am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    let it = new Intent(ctx, (new LeisureGuard()).javaClass)
+    it.setAction(LEISURE_ALARM_ACTION)
+    let pi = PendingIntent.getBroadcast(ctx, LEISURE_ALARM_REQ, it, piFlags())
+    am.cancel(pi)
+    let p = leisureSp();
+    if (p != null) p.edit().putInt('leisure_alarm_at', 0).apply();
+  } catch (e) {}
+}
+
+/**
+ * 系统按清单创建的广播接收器：闹钟到点 / 开机 / 应用更新 都进这里。
+ * 自己创建的类同样会被 UTS 的 DCE 剪掉（源码里没人 new 之外的引用），
+ * 靠 keepLeisureClass() 钉住（见文件尾）。
+ */
+class LeisureGuard extends BroadcastReceiver {
+  constructor() {
+    super();
+  }
+
+  override onReceive(ctx: Context, intent: Intent): void {
+    try {
+      let action = intent.getAction();
+      // 开机 / 应用更新：从 SP 里读配置，开着的就重挂周期闹钟
+      if (action == 'android.intent.action.BOOT_COMPLETED'
+        || action == 'android.intent.action.MY_PACKAGE_REPLACED') {
+        let c = loadLeisureCfg();
+        if (c != null && c.on && !leisureAlarmFresh()) scheduleLeisureAlarm(ctx!);
+        return;
+      }
+    } catch (e) {}
+
+    // ⚠️ 检测与续约**分开 try**，而且检测在前、续约在后：
+    //   这两个调用包在同一个 try 里时，只要检测里有一处越界/空指针，
+    //   续约那句就永远执行不到 —— 闹钟链断在这一次，之后再也醒不来，
+    //   而日志里可能只有一行没人看的 SecurityException/IndexOutOfBounds。
+    //   提醒是锦上添花，**绝不能**因为它炸了就不再醒来（后面还要重新排期、跨天重置）。
+    try { leisureGuardCheck(ctx!) } catch (e) {}
+    try { scheduleLeisureAlarm(ctx!) } catch (e) {}
+  }
+}
+
+/* ==================== 对外 API ==================== */
+
+/**
+ * 挂上/刷新后台检测：把配置存进 SP 并排第一次周期闹钟。
+ * @param payload 见 utils/leisure.js armGuard 的 JSON 结构（含模板与阈值）
+ */
+export function leisureArm(payload: string): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return false;
+  try {
+    let p = leisureSp();
+    if (p == null) return false;
+    p.edit().putInt('leisure_on', 1).putString('leisure_payload', payload).apply();
+    // 只在没有有效排期时才排 —— 每次回前台都重排的话，闹钟会被一路往后推，
+    // 用户一频繁切进 App 就永远等不到它到点（见 leisureAlarmFresh 的注释）。
+    // 配置是**发通知那一刻**才从 SP 读的，所以不重排也照样吃到最新配置。
+    if (!leisureAlarmFresh()) scheduleLeisureAlarm(ctx!);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 撤掉后台检测（关功能 / 清空清单时） */
+export function leisureDisarm(): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  try {
+    let p = leisureSp();
+    if (p != null) p.edit().putInt('leisure_on', 0).apply();
+    if (ctx != null) cancelLeisureAlarm(ctx!);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 记一次"今天专注过"（SP 里留个 leisure_focus_date）。
+ * 原生 daily 规则需要判断"零专注"，但它拿不到 JS 的 pwstore，所以由 App 在
+ * 专注完成时推一个日期进来。重复调用只是覆盖当天日期，幂等。
+ */
+export function leisureMarkFocus(): boolean {
+  let p = leisureSp();
+  if (p == null) return false;
+  try {
+    p.edit().putString('leisure_focus_date', leisureDateStr()).apply();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 钉住接收器类：UTS 会剪掉"没人引用"的声明，系统创建的类靠这里的 new 保住 */
+export function keepLeisureClass(): boolean {
+  try {
+    let probe = new LeisureGuard();
+    return probe != null;
+  } catch (e) {
+    return false;
+  }
 }

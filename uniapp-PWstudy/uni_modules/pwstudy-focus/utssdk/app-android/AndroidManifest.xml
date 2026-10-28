@@ -16,6 +16,8 @@
     <!-- 兜底遮罩：后台启动 Activity 被 ROM 拦掉时，用悬浮窗盖住那个 App -->
     <!-- 这一条不是装机即得，要在设置里手动授「显示在其他应用上层」 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 休闲提醒后台检测：开机/应用更新后自动重挂周期闹钟（LeisureGuard 接收器用） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 专注期间挡住别家 App 的通知（番茄ToDo 同款）：
          捕获 + 当场撤下 + 结束时汇总，走系统的「通知使用权」。
          ⚠️ BIND_* 是**服务声明级**权限（不是 uses-permission）：
@@ -88,5 +90,22 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- 休闲提醒后台检测（LeisureGuard）：AlarmManager 周期闹钟到点 / 开机 / 应用更新
+             都进这里，由它读 UsageStats 检测休闲 App 用时并弹提醒。
+             · exported=false：只接收系统广播（开机/替换）和我们自己的闹钟 PendingIntent；
+             · 闹钟走 RTC_WAKEUP + setExactAndAllowWhileIdle，App 关着也能唤醒；
+             · 配置存在本插件 SP 里，receiver 在独立进程被唤醒时也能读到，不依赖 App 主进程。
+             注意：本类由系统按清单创建、源码里不被 new（除 keepLeisureClass 钉住），
+             UTS 的 DCE 会剪掉"无人引用"的声明，所以 index.uts 里必须保留 keepLeisureClass()。 -->
+        <receiver
+            android:name="uts.sdk.modules.pwstudyFocus.LeisureGuard"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="io.dcloud.uni_modules.pwstudy_focus.LEISURE_ALARM" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

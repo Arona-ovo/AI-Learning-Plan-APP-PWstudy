@@ -17,6 +17,7 @@ import * as focus from './utils/focus.js'
 import * as link from './utils/link.js'
 import * as updater from './utils/updater.js'
 import * as loc from './utils/location.js'
+import * as leisure from './utils/leisure.js'
 
 export default {
   onLaunch() {
@@ -79,6 +80,11 @@ export default {
     try { apptime.onAppShow() } catch (e) {}
     // 回到前台：撤掉灵动岛胶囊（前台已有圆盘倒计时，不重复显示）
     try { focus.syncCapsule() } catch (e) {}
+    // 休闲提醒：打开 App 时跑一次判定（没选休闲 App / 没授使用权 / 静默时段都自动跳过）。
+    // 延时一点，让数据层与权限状态先就绪，也避开首帧渲染。
+    try { setTimeout(() => { try { leisure.maybeNudgeOnOpen() } catch (e) {} }, 1200) } catch (e) {}
+    // 把配置交给原生后台检测（关屏/退后台也能推）。插件不可用 / 没选 App / 没授权时自动 disarm。
+    try { setTimeout(() => { try { leisure.armGuard() } catch (e) {} }, 1400) } catch (e) {}
     // 打开 App / 从后台切回前台：看一眼人在不在学习范围。
     // 不 force —— 交给 location 里那 5 分钟的节流，别每次切回来都唤醒一次定位；
     // 开关关着或没圈地点时它自己就返回了，一个权限都不会问。

@@ -204,3 +204,28 @@ export function updateCapsule(text: string, endAt: number, label: string): boole
 
 /** 撤掉胶囊 */
 export function hideCapsule(): boolean
+
+/**
+ * ==================== 休闲提醒后台检测（LeisureGuard） ====================
+ *
+ * 多邻国式提醒的「真·后台」腿：即使 App 关着，也周期读 UsageStats 检测休闲 App
+ * 使用时长，并在复盘时点发一条提醒。详见 index.uts 顶部该段注释。
+ *
+ * payload：utils/leisure.js armGuard 预渲染的 JSON 字符串
+ *   { on, pkgs:[], names:[], dwellMin, dailyMin, quietFrom, quietTo,
+ *     maxPerDay, digest, digestTime, digestHm, remaining,
+ *     dwellTitle, dailyTitle, digestTitle, dwellMsg, dwellTail, dailyMsg, digestMsg }
+ *   注意 digestHm 是「小时*60+分钟」的整数，原生只用它做比较——原生侧不解析
+ *   "20:00" 这种字符串（Number() 在生成的 Kotlin 里会编不过）。
+ * 返回 true = 已挂上/刷新定时任务。
+ */
+export function leisureArm(payload: string): boolean
+
+/** 撤掉后台检测（关功能 / 清空清单时） */
+export function leisureDisarm(): boolean
+
+/**
+ * 记一次"今天专注过"（SP 里存 leisure_focus_date）。
+ * 原生 daily 规则据此判断"零专注"；JS 在专注完成时调用。
+ */
+export function leisureMarkFocus(): boolean

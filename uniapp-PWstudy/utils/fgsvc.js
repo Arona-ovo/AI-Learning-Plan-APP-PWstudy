@@ -478,6 +478,7 @@ export function keepNativeClasses() {
   // #ifdef APP-PLUS
   try { if (typeof fgs.keepGuardClass === 'function') fgs.keepGuardClass(); } catch (e) {}
   try { if (typeof fgs.keepNotifClass === 'function') fgs.keepNotifClass(); } catch (e) {}
+  try { if (typeof fgs.keepLeisureClass === 'function') fgs.keepLeisureClass(); } catch (e) {}
   // #endif
 }
 
@@ -585,6 +586,50 @@ export function capsuleHide() {
   // #ifdef APP-PLUS
   try {
     if (typeof fgs.hideCapsule === 'function') return !!fgs.hideCapsule();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/* ==================== 休闲提醒后台检测（LeisureGuard） ====================
+ *
+ * 多邻国式提醒的「真·后台」一腿：即使 App 关着、用户在抖音里，也能周期检测
+ * 当前前台 + 当日累计休闲时长，到点复盘。实现在 UTS 插件的 LeisureGuard
+ * （AlarmManager + BroadcastReceiver，详见 index.uts）。
+ *
+ * 为什么下沉到原生：JS 在 App 退后台后定时器被挂起，跟强制模式看门狗同一个理由。
+ * cfg 是 JS 侧预渲染好的 JSON（含休闲包名、阈值、静默时段、复盘时点、各类文案），
+ * 原生只负责定时唤醒 + 读 UsageStats + 按节流发通知。没装自定义基座（available=false）
+ * 时整体降级为「打开时提醒」（utils/leisure.js 的 maybeNudgeOnOpen 那条路）。 */
+
+/** 挂上/刷新后台检测。payload 见 utils/leisure.js armGuard 的 JSON 结构 */
+export function leisureArm(payload) {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.leisureArm === 'function') return !!fgs.leisureArm(String(payload || ''));
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 撤掉后台检测（关功能 / 清空清单时） */
+export function leisureDisarm() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.leisureDisarm === 'function') return !!fgs.leisureDisarm();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 记一次"今天专注过"（原生 daily 规则据此判零专注；专注完成时调） */
+export function leisureMarkFocus() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.leisureMarkFocus === 'function') return !!fgs.leisureMarkFocus();
   } catch (e) {}
   // #endif
   return false;

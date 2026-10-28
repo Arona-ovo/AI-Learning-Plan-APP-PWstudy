@@ -630,6 +630,71 @@
       </view>
     </view>
 
+    <!-- ===== 休闲提醒（多邻国式：后台静默统计休闲 App，刷太久/零专注时主动提醒） ===== -->
+    <view class="sec" :class="{ open: openSec === 'leisure' }">
+      <view class="sec-head" data-k="leisure" @tap="toggleSec">
+        <text class="sec-name">{{ $t('休闲提醒') }}</text>
+        <text v-if="openSec !== 'leisure'" class="sec-hint">{{ secHint('leisure') }}</text>
+        <text class="sec-arrow">›</text>
+      </view>
+      <view class="sec-body" v-if="openSec === 'leisure'">
+        <view class="row">
+          <view class="row-main">
+            <text class="row-title">{{ $t('开启休闲提醒') }}</text>
+            <text class="row-desc">{{ $t('后台静默统计休闲 App 使用时间，刷太久或一整天没专注时主动提醒你回来学习') }}</text>
+          </view>
+          <switch :checked="leisure.on" :color="brandMain" @change="e => setLeisure('on', e.detail.value)" />
+        </view>
+        <view class="row" @tap="goLeisure">
+          <view class="row-main">
+            <text class="row-title">{{ $t('选择休闲 App') }}</text>
+            <text class="row-desc">{{ $t('挑几个你容易沉迷的，如抖音、B站；没选则不会提醒') }}</text>
+          </view>
+          <text class="sec-arrow">›</text>
+        </view>
+        <view class="field" v-if="leisure.on">
+          <text class="field-label">{{ $t('连续使用单 App 超过（分钟）') }}</text>
+          <input class="num-input" type="number" :value="leisure.dwellMin" @input="e => setLeisure('dwellMin', numOf(e))" />
+        </view>
+        <view class="field" v-if="leisure.on">
+          <text class="field-label">{{ $t('当天休闲累计超过（分钟）') }}</text>
+          <input class="num-input" type="number" :value="leisure.dailyMin" @input="e => setLeisure('dailyMin', numOf(e))" />
+        </view>
+        <view class="field" v-if="leisure.on">
+          <text class="field-label">{{ $t('每天最多提醒（条）') }}</text>
+          <input class="num-input" type="number" :value="leisure.maxPerDay" @input="e => setLeisure('maxPerDay', numOf(e))" />
+        </view>
+        <view class="row">
+          <view class="row-main">
+            <text class="row-title">{{ $t('每日复盘提醒') }}</text>
+            <text class="row-desc">{{ $t('像多邻国那样，在固定时点催一句「今天还有几个任务」') }}</text>
+          </view>
+          <switch :checked="leisure.digest" :color="brandMain" @change="e => setLeisure('digest', e.detail.value)" />
+        </view>
+        <view class="field" v-if="leisure.on && leisure.digest">
+          <text class="field-label">{{ $t('复盘时间') }}</text>
+          <picker mode="time" :value="leisure.digestTime" @change="e => setLeisure('digestTime', e.detail.value)">
+            <view class="picker-value">{{ leisure.digestTime }}</view>
+          </picker>
+        </view>
+        <view class="field" v-if="leisure.on">
+          <text class="field-label">{{ $t('静默时段（不提醒）') }}</text>
+          <view class="quiet-row">
+            <picker mode="time" :value="quietStart" @change="e => setQuiet('from', e.detail.value)">
+              <view class="picker-value">{{ quietStart }}</view>
+            </picker>
+            <text class="quiet-sep">~</text>
+            <picker mode="time" :value="quietEnd" @change="e => setQuiet('to', e.detail.value)">
+              <view class="picker-value">{{ quietEnd }}</view>
+            </picker>
+          </view>
+        </view>
+        <view class="pc-warn" v-if="leisure.on && !(leisure.pkgs || []).length">
+          {{ $t('还没选休闲 App，先去「选择休闲 App」挑几个，否则不会提醒。') }}
+        </view>
+      </view>
+    </view>
+
     <!-- ===== 触感反馈（震动） ===== -->
     <view class="sec" :class="{ open: openSec === 'haptic' }">
       <view class="sec-head" data-k="haptic" @tap="toggleSec">
@@ -952,6 +1017,7 @@ import { speakSentence as aiSpeak } from '../../../services/voice.js'
 import * as sfx from '../../../utils/sfx.js'
 // 触感反馈（震动）：开关落盘 + 试一下（utils/haptic.js）
 import * as haptic from '../../../utils/haptic.js'
+import * as leisure from '../../../utils/leisure.js'
 // 只有几百字节的规模快照：设置页在分包里，不能为了显示几个数字去 import 语料本身
 import { BUILD_INFO } from '../../../data/build-info.js'
 import {
@@ -1055,6 +1121,7 @@ export default {
       ],
       engineStatus: null,
       notifications: {},
+      leisure: {},
       privacy: {},
       // 触感反馈：on = 总开关。hapticFail 只在"试过一次且没震成"时才亮 ——
       // 不能一进来就断言设备不支持（老包没打震动权限时是真机才知道的事）
@@ -1137,6 +1204,15 @@ export default {
     customSwatch() {
       const hex = this.customHex || DEFAULT_CUSTOM;
       return this.darkOn ? darkVariant(hex) : hex;
+    },
+    // 静默时段：cfg 存小时整数，picker 要 "HH:MM"
+    quietStart() {
+      const h = Number((this.leisure && this.leisure.quietFrom != null) ? this.leisure.quietFrom : 22)
+      return (h < 10 ? '0' + h : '' + h) + ':00'
+    },
+    quietEnd() {
+      const h = Number((this.leisure && this.leisure.quietTo != null) ? this.leisure.quietTo : 8)
+      return (h < 10 ? '0' + h : '' + h) + ':00'
     },
     ttsSupported() {
       return providerSupportsTTS(this.ai.provider);
@@ -1328,6 +1404,11 @@ export default {
       if (k === 'ai') return this.ai.enabled ? (this.aiReady ? t('已开启') : t('待配置')) : t('未开启')
       if (k === 'voice') return this.voice.useAI && this.aiReady ? t('AI 朗读') : t('本地发音')
       if (k === 'notify') return this.notifications.daily ? this.notifications.time : t('已关闭')
+      if (k === 'leisure') {
+        if (!this.leisure.on) return t('已关闭')
+        const n = (this.leisure.pkgs || []).length
+        return n ? t('已选 {n} 个 App', { n }) : t('未选 App')
+      }
       if (k === 'haptic') return this.hapticOn ? t('已开启') : t('已关闭')
       if (k === 'about') return 'v' + this.version
       if (k === 'cache') return this.cacheHint
@@ -1609,6 +1690,7 @@ export default {
       this.updateAuto = updater.autoEnabled()
       this.voice = Object.assign({}, s.voice)
       this.notifications = Object.assign({}, s.notifications)
+      this.leisure = Object.assign({}, s.leisure)
       this.privacy = Object.assign({}, s.privacy)
       // 触感反馈（isEnabled 内部自带脏值兜底：读不到按"开"处理）
       this.hapticOn = haptic.isEnabled()
@@ -1771,6 +1853,26 @@ export default {
     setNotifications(key, value) {
       settings.set({ notifications: { [key]: value } })
       this.refresh()
+    },
+    // ---------- 休闲提醒 ----------
+    numOf(e) {
+      const v = Math.max(0, Math.floor(Number((e && e.detail && e.detail.value) || 0)))
+      return v
+    },
+    setLeisure(key, value) {
+      const patch = { [key]: value }
+      // 关掉总开关 → 撤掉原生后台检测（开着且选了 App 时由 App onShow 重新挂上）
+      if (key === 'on' && !value) { try { leisure.disarmGuard() } catch (err) {} }
+      settings.set({ leisure: patch })
+      this.refresh()
+    },
+    setQuiet(which, value) {
+      const h = Number(String(value || '0').split(':')[0]) || 0
+      settings.set({ leisure: { [which === 'from' ? 'quietFrom' : 'quietTo']: h } })
+      this.refresh()
+    },
+    goLeisure() {
+      try { uni.navigateTo({ url: '/pkgPlan/pages/leisure/leisure' }) } catch (e) {}
     },
     // ---------- 触感反馈（utils/haptic.js）----------
     // 改总开关并落盘；打开时顺手震一下，让用户立刻知道"这就是它"。
@@ -2714,6 +2816,19 @@ export default {
   color: #17201a;
   color: var(--ink-1, #17201a);
 }
+.num-input {
+  width: 160rpx;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.7);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.7);
+  border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.8));
+  border-radius: 16rpx;
+  padding: 14rpx 0;
+  font-size: 26rpx;
+  color: var(--ink-1, #17201a);
+}
+.quiet-row { display: flex; align-items: center; }
+.quiet-sep { margin: 0 18rpx; font-size: 28rpx; color: var(--ink-2, #5a6560); }
 
 /* ===== 彩蛋（连点「关于 › 版本」） =====
    遮罩与卡片的材质直接复用 App.vue 的 .pop-mask/.pop-card（全 App 弹窗唯一来源），

@@ -10,6 +10,7 @@ import * as fgsvc from './fgsvc.js';
 import * as ambient from './ambient.js';
 import * as loc from './location.js';
 import * as apptime from './apptime.js';
+import * as leisure from './leisure.js';
 import { t } from './i18n.js';
 
 // phase: idle | focus | rest | paused（paused 只在 focus/rest 上叠加）
@@ -739,6 +740,8 @@ function settle(s, completed, endAtOverride) {
   // 这 25 分钟就白坐了（整个 fj_pw_data_v1 是一次性写的，丢就一起丢）。
   // flush 是同步写，代价可以忽略 —— 一次专注只发生一次。
   try { pw.flush(); } catch (e) {}
+  // 记一次"今天专注过"：原生休闲提醒的 daily 规则据此判"零专注"（它拿不到 pwstore）
+  try { if (completed) leisure.markFocusDone(); } catch (e) {}
   return session;
 }
 

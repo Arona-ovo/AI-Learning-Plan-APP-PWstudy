@@ -36,6 +36,27 @@ function defaults() {
     onboarding: { done: false, v: 0, at: 0 },
     // 通知
     notifications: { daily: false, time: '20:00' },
+    // 休闲提醒（多邻国式：后台静默统计休闲 App 时长，刷太久 / 当天零专注时主动 push）
+    //   on        总开关（**默认开**：用户要求；但没选休闲 App 时等同关闭，不骚扰）
+    //   pkgs      [{pkg,name}] 用户挑的「休闲关注」App（纯观察，不进专注白名单）
+    //   dwellMin  单个休闲 App 连续使用超过 N 分钟 → 实时提醒（默认 30）
+    //   dailyMin  当天休闲累计超过 N 分钟 → 提醒（默认 120）
+    //   quietFrom/quietTo 静默时段（24h 制小时，跨午夜也支持），这段不发提醒
+    //   maxPerDay 每天最多推 N 条（防骚扰，默认 3）
+    //   digest    每日复盘提醒（多邻国式固定时点催一句）默认开
+    //   digestTime 复盘时点（默认 20:00）
+    // ⚠️ 这些阈值都用户可调；判定逻辑在 utils/leisure.js，改这里只改出厂值
+    leisure: {
+      on: true,
+      pkgs: [],
+      dwellMin: 30,
+      dailyMin: 120,
+      quietFrom: 22,
+      quietTo: 8,
+      maxPerDay: 3,
+      digest: true,
+      digestTime: '20:00'
+    },
     // 触感反馈（utils/haptic.js）：底部导航点击 / 首页抽屉滑出到位时震一下。
     // 只有一个总开关 —— 强度不暴露给用户（场景时长在 haptic.js 里定死，免得设置页又多一层）。
     haptic: { on: true },

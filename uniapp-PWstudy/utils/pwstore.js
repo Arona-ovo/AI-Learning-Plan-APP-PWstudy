@@ -3,6 +3,8 @@
 // 落盘策略与老 store.js 相同：改内存立即生效，节流 800ms 合并写盘；
 // 切后台（App.vue onHide）时 flush，最坏只丢最后一秒。
 
+import * as settings from './settings.js';
+
 const KEY = 'fj_pw_data_v1';
 const SAVE_GAP = 800;
 
@@ -428,9 +430,10 @@ export function todayQueue(limit) {
 
 // ---------- 专注记录 / 每日统计 ----------
 function dayOf(st, key) {
-  if (!st.daily[key]) st.daily[key] = { focusMin: 0, pomo: 0, byApp: {}, byHour: {} };
+  if (!st.daily[key]) st.daily[key] = { focusMin: 0, pomo: 0, byApp: {}, byHour: {}, leisure: {} };
   const d = st.daily[key];
   if (!d.byHour) d.byHour = {};   // 老数据补字段
+  if (!d.leisure) d.leisure = {}; // 老数据补字段
   return d;
 }
 
@@ -890,6 +893,49 @@ export function setAppMinutes(key, byApp) {
     if (known[pkg]) d.byApp[pkg] = byApp[pkg];
   });
   touch();
+}
+
+// ---------- 休闲 App 时长（多邻国式提醒用） ----------
+// 与 byApp（学习 dock 时长）平行：leisure 只存「休闲关注」清单里的包，
+// 由 utils/leisure.js 调 apptime.usageByPackage 过滤后写入。不进专注白名单，纯观察。
+export function setLeisureMinutes(key, byPkg) {
+  const st = get();
+  const d = dayOf(st, key || today());
+  const known = {};
+  settingsLeisurePkgs().forEach(p => { known[p] = 1; });
+  Object.keys(byPkg || {}).forEach(pkg => {
+    if (known[pkg]) d.leisure[pkg] = byPkg[pkg];
+  });
+  touch();
+}
+/** 某天各休闲 App 分钟 {pkg:min} */
+export function getLeisureMinutes(key) {
+  const d = dayOf(get(), key || today());
+  return Object.assign({}, d.leisure || {});
+}
+/** 当天休闲 App 累计分钟 */
+export function todayLeisureTotal() {
+  const m = getLeisureMinutes(today());
+  return Object.keys(m).reduce((s, k) => s + (Number(m[k]) || 0), 0);
+}
+
+// ---------- 今日任务 / 专注判定（提醒文案用） ----------
+/** 今日还剩几个「该做还没做」的专注任务（复用 todayQueue 的口径） */
+export function remainingFocusTasksToday() {
+  try { return (todayQueue() || []).length; } catch (e) { return 0; }
+}
+/** 今天有没有跑过任何一段专注（pomo 或 focusMin 任一 > 0） */
+export function hasFocusToday() {
+  const d = dayOf(get(), today());
+  return (d.pomo || 0) > 0 || (d.focusMin || 0) > 0;
+}
+
+// settings 不 import pwstore，这里直接拿休闲包名清单（顶层已 import settings）
+function settingsLeisurePkgs() {
+  try {
+    const list = (settings.get().leisure && settings.get().leisure.pkgs) || [];
+    return list.map(a => a.pkg).filter(Boolean);
+  } catch (e) { return []; }
 }
 
 // ---------- AppDock ----------
