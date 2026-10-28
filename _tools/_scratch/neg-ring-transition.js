@@ -53,15 +53,16 @@ const cases = [
   // ---- 专注页侧 ----
   ['zoom 进来不置 ringIntro（没有放大态起点，圆直接出现）', 'focus',
     s => s.replace('this.ringIntro = true', 'this.ringIntro = false')],
-  ['onShow 同一帧移除 intro（浏览器不跑 transition，圆闪一下归位）', 'focus',
-    s => s.replace(/requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame\(\(\) => \{ this\.ringIntro = false \}\)\s*\}/,
-                   'this.ringIntro = false')],
+  // ★ 10-27 起收缩改 CSS animation 自播放（旧的"双 rAF 提前摘"方案已删：
+  //   App 端渲染先行上屏在后，那条信号到得比"人看见页面"早 → 收缩动画被吞）
+  ['fr-ring-drop keyframes 没了（自播放动画失效，退回静态放大态）', 'focus',
+    s => s.replace('@keyframes fr-ring-drop {', '@keyframes fr-ring-drop-x {')],
   ['coverScale 不用 480rpx 算法（两边倍数不一致，收缩终点对不上）', 'focus',
     s => s.replace('const ringPx = 480 * w / 750', 'const ringPx = 480')],
   ['intro 期不换首页大圆皮肤（白玻璃圆突然出现，跳色）', 'focus',
     s => s.replace('  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);', '')],
   ['intro 态 ring 不放大（没有"从全屏缩回"的起点）', 'focus',
-    s => s.replace('.fr-intro .ring { transform: scale(var(--cover-scale, 2.8)); }', '')],
+    s => s.replace('scale(var(--cover-scale, 2.8));', 'scale(1);')],
   ['圆外内容不让位（收缩完成前页面文字已经糊在屏幕上）', 'focus',
     s => s.replace('.fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }', '')],
   // ---- 圆盘即开始键（第 7 节）----

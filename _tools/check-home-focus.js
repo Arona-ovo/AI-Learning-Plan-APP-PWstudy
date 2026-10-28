@@ -188,20 +188,29 @@ const bShow = block(focusPage, /onShow\(\)\s*\{[\s\S]*?\n  \}/);
 assert(/try \{ this\.armIntro\(\) \} catch \(e\) \{ this\.ringIntro = false \}/.test(bShow),
   'onShow 调 armIntro 且自带 try（armIntro 炸了也不能拖垮后面的 refresh）');
 // ★ 2026-10-26 真机反馈："安卓基座上进专注页动画有问题，电脑端正常"。
-//   原因两条，都只在 App 端成立：窗口动画叠加 + rAF 不可靠。详见源码注释。
+//   当时的修法是三条 JS 信号摘 intro；2026-10-27 用户真机录屏逐帧核对：
+//   圆放大后**定格一秒多**、专注页整个直接弹出（收缩动画全被吞）—— 根因是
+//   App 端"渲染先行、上屏在后"，rAF/exec 在人看见页面之前就回调了。
+//   10-27 修法：收缩改 CSS animation **自播放**（起跑点焊在首帧），armIntro
+//   只挂 animationend 收口 + 600ms 兜底定时器。
 //   ⚠️ 下面每条都必须从 armIntro 的**函数体**里取：跨段正则会吃到后面的对其他断言 → 假绿。
 const bArm = block(focusPage, /    armIntro\(\)\s*\{[\s\S]*?\n    \}/);
 assert(bArm !== '', 'armIntro 方法存在（intro 收尾独占一个方法，不散在 onShow 里）');
-assert(/try \{ requestAnimationFrame\(\(\) => requestAnimationFrame\(kick\)\) \} catch/.test(bArm),
-  '信号①：双 rAF 踢动画（浏览器标准做法，H5 走这条）');
-// ② 是 App 端唯一可靠的那一路：exec 回调在视图层渲染之后才到达
-assert(/createSelectorQuery[\s\S]{0,140}?select\('\.ring'\)[\s\S]{0,160}?\.exec\(/.test(bArm),
-  '信号②：selectQuery.exec 当"已上屏"信号（App 端 rAF 会被节流甚至不回调）');
-assert(/setTimeout\(kick,/.test(bArm),
-  '信号③：setTimeout 兜底（前两条都哑掉也不会永久停在放大态盖着屏幕）');
-assert(/if \(fired \|\| !self\.ringIntro\) return/.test(bArm),
-  '三条信号收口到"只踢一次"（intro 被摘两遍 = 在已就位的圆上重放一次收缩）');
-assert(/clearTimeout\(self\._introProbeT\)/.test(bArm), '踢完立刻清掉兜底定时器');
+// ★ 这两条是 10-27 那一枪的"不许复发"：rAF / selectQuery 都会在页面还没显示
+//   给人看时回调，拿它们摘 intro = 收缩动画播完人才看见 = 白做。
+assert(!/requestAnimationFrame/.test(bArm),
+  'armIntro 里不许出现 rAF（渲染先行上屏在后，提前摘 intro 会吞掉收缩动画）');
+assert(!/createSelectorQuery/.test(bArm),
+  'armIntro 里不许出现 selectQuery.exec 当上屏信号（同样会提前于"人看见"）');
+assert(/setTimeout\(this\._introDone, 600\)/.test(bArm),
+  '兜底定时器 600ms（老内核不认 keyframes 时退回 transition 收缩，不许永久盖屏）');
+assert(/if \(!self\.ringIntro || !self\._introDone\) return/.test(bArm),
+  '收口只摘一次（intro 被摘两遍 = 在已就位的圆上重放一次收缩）');
+assert(/clearTimeout\(self\._introProbeT\)/.test(bArm), '收口立刻清掉兜底定时器');
+assert(/@animationend="onIntroEnd"/.test(focusPage),
+  '.ring 绑 @animationend（收缩动画播完的收口主路径）');
+assert(/    onIntroEnd\(\)\s*\{[\s\S]*?if \(this\._introDone\) this\._introDone\(\)/.test(focusPage),
+  'onIntroEnd 存在且只做一件事：intro 在播就收口（ring-pulse 的 end 也会进来，得防误摘）');
 assert(/clearTimeout\(this\._introProbeT\)/.test(block(focusPage, /onHide\(\)\s*\{[\s\S]*?\n  \}/)),
   'onHide 收掉 probe（页面都切走了，不该还留着去摘 intro）');
 assert(/clearTimeout\(this\._introProbeT\)/.test(block(focusPage, /onUnload\(\)\s*\{[\s\S]*?\n  \}/)),
@@ -224,15 +233,39 @@ const cssRingInner = blockCss(focusPage, /\.fr-intro \.ring-inner \{[\s\S]*?\n\}
 assert(/background: rgba\(var\(--brand-rgb/.test(cssRingInner) &&
   /border-color: rgba\(var\(--brand-rgb/.test(cssRingInner),
   'intro 期 ring-inner 换首页大圆皮肤（淡红底 + 红边，收缩中渐变回玻璃）');
+// ★ intro 态必须关毛玻璃：backdrop-filter 每帧把身后整个屏幕重新模糊一遍，
+//   intro 态圆盖住全屏 = 每帧全屏重模糊 —— 安卓上收缩动画直接掉成幻灯片
+assert(/backdrop-filter: none/.test(cssRingInner),
+  'intro 期关掉 backdrop-filter（全屏逐帧重模糊会把收缩拖成幻灯片）');
 const cssRing = blockCss(focusPage, /\.fr-intro \.ring \{[\s\S]*?\n\}/);
 assert(/scale\(var\(--cover-scale/.test(cssRing), 'intro 态 ring 放大到全屏');
+assert(/animation: fr-ring-drop 260ms/.test(cssRing),
+  '收缩走 CSS animation 自播放（起跑点焊在首帧，不靠 JS 信号 —— 10-27 实锤）');
+assert(/@keyframes fr-ring-drop \{[\s\S]*?scale\(var\(--cover-scale[\s\S]*?scale\(1\)/.test(focusPage),
+  'fr-ring-drop keyframes 在（从 cover-scale 缩到 1）');
+assert(/@keyframes fr-skin-back \{/.test(focusPage) && /@keyframes fr-fade-in \{/.test(focusPage),
+  '皮肤回玻璃 / 文字淡入各有自播放 keyframes（与收缩同一首帧起跑点）');
 // ★ 基态必须显式 scale(1)：从 none 起算到 scale(N) 的插值，部分安卓 WebView 不补
 //   中间帧、直接跳到终点 —— 症状就是"手机没动画、电脑上有"。
 const cssRingBase = blockCss(focusPage, /\.ring \{[\s\S]*?\n\}/);
 assert(/transform: scale\(1\)/.test(cssRingBase),
   'ring 基态显式 transform: scale(1)（none↔scale 的插值各家实现松紧不一）');
+assert(/will-change: transform/.test(cssRingBase),
+  'ring 提合成层（will-change：不提前提层，缩放每帧都在重绘含投影）');
 assert(/\.fr-intro \.focus-body > \*:not\(\.ring-wrap\) \{ opacity: 0/.test(focusPage),
   '圆外内容 intro 期让位（随圆收缩一起淡入）');
+// ⑦ 首页大圆同样要提合成层：放大到盖满全屏的动画不能逐帧重绘
+assert(/will-change: transform/.test(blockCss(home, /\.tp-block\.focus-card \.hc-ring \{[\s\S]*?\n\}/)),
+  '首页大圆提合成层（will-change：放大动画整个走 GPU）');
+// ⑧ 转场期间 onShow 只做轻活：原生权限实测/图标读取延到 deferredChecks
+assert(/_deferT = setTimeout/.test(bShow), 'onShow 把重活挂到 _deferT 定时器（intro 别被拖住）');
+assert(!/hasUsagePermission\(\)/.test(bShow) && !/refreshLearnApps\(\)/.test(bShow),
+  'onShow 里不许直接跑原生实测/图标读取（首帧被拖住 = 定格一秒再弹出）');
+const bDef = block(focusPage, /    deferredChecks\(\)\s*\{[\s\S]*?\n    \}/);
+assert(bDef !== '' &&
+  /hasUsagePermission/.test(bDef) && /canDrawOverlays/.test(bDef) &&
+  /refreshLearnApps/.test(bDef) && /refreshForceCap/.test(bDef),
+  'deferredChecks 收齐那批重体检（usage/overlay/图标/强制能力，晚 320ms 补跑）');
 
 console.log('== 7. 圆盘即开始键（2026-10-25 用户拍板：删掉「开始专注 N 分钟」按钮）==');
 // 用户："把开始专注融入到圆圈里面，不需要单独的 Button 按钮。直接点击中间那个圆圈就可以了，
@@ -287,7 +320,7 @@ assert(cssLockTime !== '' && cssFcTime !== '', '取出硬控遮罩 / 结算卡�
 assert(!/font-family|Georgia/.test(cssLockTime), '硬控遮罩大计时不写具体族名（同源）');
 assert(!/font-family|Georgia/.test(cssFcTime), '结算卡计时读数不写具体族名（同源）');
 
-console.log('== 9. intro 收尾真跑（2026-10-26 App 端时序）==');
+console.log('== 9. intro 收尾真跑（2026-10-27 改自播放后的时序）==');
 // 静态断言只能证明"字写上了"；这段是纯粹的时序逻辑，必须跑。
 // ⚠️ 从源码里抠函数体来跑，而不是复写一遍 —— 复写的那份和源码分叉了照样全绿。
 // ⚠️ new Function 的参数名不能叫 self（函数体首行就是 const self = this）→ 换名注入。
@@ -299,79 +332,84 @@ console.log('== 9. intro 收尾真跑（2026-10-26 App 端时序）==');
   if (src !== '') {
   const body = src.slice(src.indexOf('{') + 1, src.lastIndexOf('}'));
   assert(body.indexOf('const self = this') >= 0, '抠得出 armIntro 函数体（替换点还在）');
-  // ⚠️ 源码里 kick 之前那句用的是裸 this（真实 Vue 里它指向实例）；new Function 里
-  //    this 会落到 globalThis，取不到 ringIntro 就直接一路 return —— 整节变成假绿。
-  //    所以要把 this. 一并指到注入的宿主上 —— 顺便把 self 的声明提到最前面，
-  //    否则函数体首行的 `if (!self.ringIntro)` 会撞 TDZ（源码里这行用的是 this）。
+  // ⚠️ 源码里用的裸 this（真实 Vue 里指向实例）；new Function 里 this 会落到
+  //    globalThis，取不到 ringIntro 就直接一路 return —— 整节变成假绿。
+  //    所以把 this. 一并指到注入的宿主上 —— 顺便把 self 的声明提到最前面，
+  //    否则 `if (!self.ringIntro)` 会撞 TDZ（源码里那行用的是 this）。
   const body2 = 'const self = HOST;\n'
     + body.replace('const self = this', '').split('this.').join('self.');
-  const arm = new Function('HOST', 'uni', 'requestAnimationFrame', 'setTimeout', 'clearTimeout', body2);
+  const arm = new Function('HOST', 'setTimeout', 'clearTimeout', body2);
 
-  /** 造一个宿主 + 一组可控替身；
-   *  rafOk=false ≈ App 端 webview 还在窗口动画里、rAF 被节流；
-   *  queryOk=false ≈ selectQuery 那条路也哑了，只剩 setTimeout 能救场。 */
-  const mk = (rafOk, queryOk) => {
+  // onIntroEnd：CSS 动画播完那条路（@animationend），同样从源码抠
+  const srcEnd = block(focusPage, /    onIntroEnd\(\)\s*\{[\s\S]*?\n    \}/);
+  assert(srcEnd !== '', '抠得出 onIntroEnd（animationend 收口那个方法）');
+  const endBody = srcEnd === '' ? '' : srcEnd.slice(srcEnd.indexOf('{') + 1, srcEnd.lastIndexOf('}'));
+  const fin = endBody === '' ? null
+    : new Function('HOST', 'const self = HOST;\n' + endBody.split('this.').join('self.'));
+
+  /** 造一个宿主 + 一组可控替身：setTimeout 拿不到真回调就从 log.timer 手工触发。 */
+  const mk = () => {
     let ri = true;
     let sets = 0;
-    const log = { sets: 0, timer: null, cleared: 0, ticks: [] };
+    const log = { sets: 0, timer: null, ms: 0, cleared: 0 };
     const host = {
       _introProbeT: null,
-      $nextTick: (cb) => { cb() },
+      _introDone: null,
       get ringIntro() { return ri; },
       set ringIntro(v) { ri = v; sets++; log.sets = sets; }
     };
-    const raf = (cb) => { if (rafOk) cb(); return 1; };
-    const q = {
-      in: () => q, select: () => q, boundingClientRect: () => q,
-      exec: (cb) => { log.ticks.push('exec'); cb(); }
-    };
-    const uniStub = queryOk
-      ? { createSelectorQuery: () => q }
-      : { createSelectorQuery: () => { throw new Error('boom'); } };
     const st = (fn, ms) => { log.timer = fn; log.ms = ms; return 7; };
     const ct = () => { log.cleared++; };
-    return { host, log, run: () => arm(host, uniStub, raf, st, ct) };
+    return { host, log, run: () => arm(host, st, ct) };
   };
+  const fireTimer = (x) => { if (typeof x.log.timer === 'function') x.log.timer(); };
 
-  // ① rAF 正常（H5）：第一路就把动画踢起来
-  const a = mk(true, true);
+  // ① zoom 进来：挂上兜底定时器，但**不许立刻摘**（动画要等 CSS 自己播）
+  const a = mk();
   a.run();
-  assert(a.log.sets === 1, 'rAF 可用时第一路就踢起来（sets=' + a.log.sets + '）');
-  assert(a.log.ms === 260, '兜底定时器照样挂上（ms=' + a.log.ms + '）');
-  assert(a.log.cleared === 1, '踢完立刻清掉兜底定时器（cleared=' + a.log.cleared + '）');
+  assert(a.log.timer !== null && a.log.ms === 600, '挂 600ms 兜底定时器（ms=' + a.log.ms + '）');
+  assert(a.log.sets === 0, 'armIntro 自己不摘 intro（抢在首帧前摘 = 收缩被吞，sets=' + a.log.sets + '）');
 
-  // ② ★ 这次真机那一枪：App 端 rAF 不回调，全靠 selectQuery 那条路兜住
-  const b = mk(false, true);
+  // ② 主路径：animationend（= onIntroEnd）到达才摘，摘完立刻清兜底
+  const b = mk();
   b.run();
-  assert(b.log.sets === 1, 'rAF 哑了也要踢（selectQuery 那路兜住）：sets=' + b.log.sets);
-  assert(b.log.ticks.indexOf('exec') >= 0, '走的是 selectQuery.exec 那条路');
+  if (fin) fin(b.host);
+  assert(b.log.sets === 1, 'animationend 到达才摘 intro（sets=' + b.log.sets + '）');
+  assert(b.log.cleared === 1, '摘完立刻清掉兜底定时器（cleared=' + b.log.cleared + '）');
 
-  // ③ 前两条都哑：只有 setTimeout 兜底能救
-  const c = mk(false, false);
+  // ③ 只摘一次：animationend 与兜底定时器先后到达也不能摘两遍（两次收缩会重影）
+  const c = mk();
   c.run();
-  assert(c.log.sets === 0, '三条路都没信号时不抢跑（intro 还在，sets=' + c.log.sets + '）');
-  //    ⚠️ 别直接 c.log.timer() —— 变异把兜底那条删掉时这里会 TypeError，护栏自己崩了
-  //    反而看不出问题出在哪（报的应该是"少了一条收紧信号"，不是 crash）。
-  assert(typeof c.log.timer === 'function', '兜底 timer 必须挂着（前两条都哑时它是唯一的路）');
-  if (typeof c.log.timer === 'function') {
-    c.log.timer();
-    assert(c.log.sets === 1, '兜底 timer 到点能把动画踢起来（否则圆永久盖着屏幕）');
-  }
+  if (fin) fin(c.host);
+  const beforeC = c.log.sets;
+  fireTimer(c);
+  assert(c.log.sets === beforeC, '两条路重复到达也只摘一次（sets=' + c.log.sets + '）');
 
-  // ④ 只踢一次：三路信号同时到达也不能把 intro 摘两遍
-  const d = mk(true, true);
+  // ④ 老内核不认 keyframes（animationend 永远不来）：兜底定时器必须能救场
+  const d = mk();
   d.run();
-  const before = d.log.sets;
-  if (typeof d.log.timer === 'function') d.log.timer();
-  assert(d.log.sets === before, '三路信号重复到达也只摘一次（两次收缩会重影）');
+  assert(d.log.sets === 0, '兜底到点前不许抢跑（sets=' + d.log.sets + '）');
+  //    ⚠️ 别直接 d.log.timer()：变异把兜底删掉时这里会 TypeError，护栏自己崩了
+  //    反而看不出问题出在哪（报的应该是"少了一条兜底"，不是 crash）。
+  assert(typeof d.log.timer === 'function', '兜底 timer 必须挂着（animationend 不来时它是唯一的路）');
+  fireTimer(d);
+  assert(d.log.sets === 1, '兜底 timer 到点能把 intro 摘掉（否则圆永久盖着屏幕）');
 
   // ⑤ 不是 zoom 进来的（ringIntro=false）：什么都不许发生
   //    ⚠️ 只用 timer 判：通过 setter 把 ringIntro 置 false 本身就会 +1，拿 sets 判是假红
-  const e = mk(true, true);
+  const e = mk();
   e.host.ringIntro = false;
   e.run();
   assert(e.log.timer === null, '非 zoom 进来不挂 probe（timer=' + e.log.timer + '）');
-  assert(e.log.ticks.length === 0, '非 zoom 进来不去量节点（ticks=' + e.log.ticks.length + '）');
+  assert(e.host._introDone === null, '非 zoom 进来不留收口钩子（ring-pulse 的 end 无处可误摘）');
+
+  // ⑥ intro 摘完之后再来的 animationend（ring-pulse 波完那一下）不许再摘
+  const f = mk();
+  f.run();
+  if (fin) fin(f.host);
+  const beforeF = f.log.sets;
+  if (fin) fin(f.host);
+  assert(f.log.sets === beforeF, 'intro 播完之后 pulse 的 animationend 不再摘（sets=' + f.log.sets + '）');
   }
 }
 

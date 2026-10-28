@@ -15,7 +15,7 @@
            空闲态点圆盘任意处直接起表（播放轻跳 + 震动）；跑起来之后圆盘只是读数，
            点它不起表也不放弃（防误触）。 -->
       <view class="ring-wrap" @tap="onRingTap">
-        <view class="ring" :style="ringStyle" :class="{ 'ring-pulse': ringPulse }">
+        <view class="ring" :style="ringStyle" :class="{ 'ring-pulse': ringPulse }" @animationend="onIntroEnd">
           <view class="ring-inner">
             <!-- 正计时段：数字前面加个「+」，一眼看出这是"多坐了多久"而不是"还剩多久" -->
             <text class="time">{{ timeText }}</text>
@@ -550,8 +550,9 @@ export default {
     this.applySuggest()
   },
   onShow() {
-    // ★ 圆圈衔接转场收尾（为什么不能在 onShow 里直接写双 rAF，见 armIntro 的注释：
-    //   安卓基座上 rAF 会被节流甚至不回调 —— 正对应"手机上没动画、电脑端正常"。
+    // ★ 圆圈衔接转场收尾（收缩动画由 CSS animation 自播放，armIntro 只挂
+    //   animationend 收口 + 兜底定时器 —— 为什么不能用 rAF/exec 当上屏信号，
+    //   见 armIntro 的注释。
     //   ⚠️ 整段包 try：armIntro 炸了也不能把后面的 refresh 拖下水（项目保命姿势）。）
     try { this.armIntro() } catch (e) { this.ringIntro = false }
     this.refreshToday()
@@ -564,24 +565,22 @@ export default {
     this.strictOn = !!strict.enabled()
     this.forcedOn = !!forced.enabled()
     // 从系统设置页回来：先让缓存失效再实测，否则界面还显示着"没开"
+    // （失效在这里同步做，实测本身延到 deferredChecks —— intro 别被拖住）
     if (this.__fromA11y) {
       this.__fromA11y = false
       apptime.refreshA11y()
     }
-    this.usageOk = apptime.hasUsagePermission()
-    this.pullOk = !!forced.canPull()
-    this.overlayOk = apptime.canDrawOverlays()
-    // 从系统「通知使用权」页回来：授权成功就当场把开关打开 ——
-    // 之前这一步是缺的，用户开完权限回来还得再点一次开关，而第二次点又会弹同一个框
-    if (this.__fromNotif) {
-      this.__fromNotif = false
-      this.syncNotifOpt()
-    } else {
-      this.notifOk = !!this.grantedNotif()
-    }
-    this.refreshA11y()
-    this.refreshLearnApps()
-    this.refreshForceCap()
+    // ★ 转场期间 onShow 只做"首屏就要画"的轻活（10-27，真机视频实锤）：
+    //   原生权限实测（usage/overlay/pull/a11y）、学习 App 图标读取、强制能力
+    //   盘点这些都是几十上百毫秒级的同步调用，排在 onShow 里会拖住首帧渲染
+    //   —— 症状就是"首页圆放大后整个屏幕冻住一秒多，专注页直接弹出没有
+    //   收缩动画"（电脑上这几毫秒看不出来，手机上是一整段定格）。
+    //   这些读数都喂给首屏折叠线以下的强制模式状态区，晚 320ms 补上没人看得见。
+    clearTimeout(this._deferT)
+    this._deferT = setTimeout(() => {
+      this._deferT = null
+      try { this.deferredChecks() } catch (e) {}
+    }, 320)
     try {
       const f = (settings.get() && settings.get().focus) || {}
       this.opts = {
@@ -601,13 +600,17 @@ export default {
   },
   onHide() {
     this.stopTick()
-    // 转场 probe 必须跟着收：页面都切走了，260ms 那颗不该还留着去摘 intro
-    clearTimeout(this._introProbeT); this._introProbeT = null
+    // 转场 probe / 延迟体检必须跟着收：页面都切走了，定时器不该还留着
+    // （probe 是兜底摘 intro 的那颗；defer 是补跑原生权限实测的那颗 ——
+    //   下次 onShow 会重新挂，这里清掉只是防"切走后还回来改状态"）
+    clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null
+    clearTimeout(this._deferT); this._deferT = null
     // 注意：严格模式故意不在这儿停 —— 人切走才是它该干活的时候
   },
   onUnload() {
     this.stopTick()
-    clearTimeout(this._introProbeT); this._introProbeT = null
+    clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null
+    clearTimeout(this._deferT); this._deferT = null
   },
   // 强制模式 + 正在专注：返回不放行。不然"按一下返回就出去了"，模式等于没有。
   // 暂停 / 休息阶段照常放行 —— 拦人是为了专注，不是把人困死。
@@ -643,54 +646,68 @@ export default {
     },
 
     /**
-     * ★ 圆圈衔接转场的收尾：把 ringIntro 摘掉，圆从"放大盖满全屏"缩回就位。
+     * ★ 圆圈衔接转场的收尾（2026-10-27 重写 —— 下面这段历史要给后人留着，
+     *   不然隔两个月又会有人把 rAF 那条路加回来）：
      *
-     * 为什么要这么绕：同一帧里"加上又摘掉"引出的 transform 变化，浏览器不会跑
-     * transition —— 圆会闪一下直接归位，动画等于没有。得先让 intro 态作为独立
-     * 的一帧真正上屏，再摘 class。
+     *   要不要保留的机会成本笔记（10-26 那版的三条信号竞速）：
+     *    同一帧"加上又摘掉"class，浏览器不会跑 transition（圆闪一下直接归位），
+     *    所以当时要用 rAF ×2 / selectQuery.exec / setTimeout 三条信号竞速来"延后
+     *    一帧摘"。但 **App 端新页面自带窗口动画**：首页圆放大 260ms 后 navigateTo，
+     *    新 webview 已经跑起来但还没真正可见 —— 那些信号回调到得比"人看见页面"
+     *    早，过渡在不可见的那段里就跑完了（观感＝点开圆卡半拍然后直接弹出）。
+     *    这就是"安卓基座不对劲、电脑端正常"的来处。
      *
-     * ⚠️ 不能只用双 rAF（以前就是这样写的）：**App 端新页面自带窗口动画**。首页圆
-     *    放大退出 260ms 后 navigateTo，新 webview 跑起来了但其实还没真正可见 ——
-     *    rAF 会被节流、甚至完全不回调（H5 一进页面就可见，所以电脑端看着正常）。
-     *    回调到得晚，过渡要么在不可见的那段里已经跑完了（观感＝没有动画），要么
-     *    拖到窗口动画结束才起步（观感＝慢半拍/跳一下）。这就是"安卓基座进来没
-     *    动画、电脑端正常"的来处。
-     *
-     * 三条信号竞速，谁先证明 intro 态已经上屏，谁就把动画踢起来：
-     *   ① rAF ×2 —— 浏览器标准做法，最快路径（H5 走这条）；
-     *   ② selectQuery.exec —— 回调在视图层渲染之后才到达，是 App 端唯一可靠的
-     *      "已上屏"信号（与 measureChromes / measureScrollable 同一姿势）。⚠️ exec
-     *      一到就摘，不再往里多退一帧 —— 理由见代码里那段注释。
-     *   ③ setTimeout —— 前两条都哑掉时（内核不支持 / class 改名了）也不会永久
-     *      停在放大态把整个屏幕盖住。
-     * ⚠️ 三条都要收口到"只踢一次"，并及时清掉定时器 —— 否则 intro 会被摘两遍，
-     *    第二次那遍是在已经就位的圆上重放一次"缩回"。
+     *   10-27 的办法是把这件事彻底交给浏览器：收缩写成 CSS animation **自播放**
+     *   （起跑点焊在首帧上，不依赖任何 JS 信号），JS 只负责"播完摘掉 class"。
+    /**
+     * 圆圈衔接转场的收尾（10-27 重写，真机视频实锤）：
+     * 收缩动画本身由 CSS animation **自播放**（起跑点焊在首帧上，见
+     * .fr-intro .ring 的注释）—— 这里只负责"播完把 intro 摘掉"：
+     * 主路径是 .ring 上的 animationend（模板 @animationend="onIntroEnd"），
+     * 兜底定时器 600ms：老内核不认 keyframes 时 animationend 永远不来，
+     * 摘掉 class 退回 transition 收缩那条旧路，不能让圆永久盖着屏幕。
+     * ⚠️ 千万别再拿 rAF / selectQuery.exec 当"上屏信号"提前摘 intro：
+     *    App 端是渲染先行、上屏在后，信号到达时人还没看见页面 —— intro
+     *    被提前摘掉，看到的就是"首页圆放大后定格一秒、专注页整个弹出"，
+     *    收缩动画整个被吞（2026-10-27 用户录屏逐帧核对）。
      */
     armIntro() {
       if (!this.ringIntro) return
       const self = this
-      let fired = false
-      const kick = () => {
-        if (fired || !self.ringIntro) return
-        fired = true
+      this._introDone = () => {
+        if (!self.ringIntro || !self._introDone) return
+        self._introDone = null
+        self.ringIntro = false
         clearTimeout(self._introProbeT)
         self._introProbeT = null
-        self.ringIntro = false
       }
-      // ① 标准路径
-      try { requestAnimationFrame(() => requestAnimationFrame(kick)) } catch (e) {}
-      // ② App 端可靠路径（抛点在 exec 里 → nextTick 回调内部也要包 try）
-      //    ⚠️ exec 到达就摘，**别往里再套一层 rAF**：这一路的全部意义就是"rAF 可能
-      //    靠不住"，套一层等于把这件事又交回给它 —— 安卓上这条路会一直不响，
-      //    只剩 setTimeout 兜底，照样是慢半拍。exec 的语义本来就是"视图层已经把
-      //    这一帧渲染出来了"，够用。
-      this.$nextTick(() => {
-        try {
-          uni.createSelectorQuery().in(self).select('.ring').boundingClientRect().exec(kick)
-        } catch (e) {}
-      })
-      // ③ 兜底
-      self._introProbeT = setTimeout(kick, 260)
+      this._introProbeT = setTimeout(this._introDone, 600)
+    },
+    /** .ring 的 animationend：转场收缩播完了（ring-pulse 的 end 也会进来，
+     *  但那时 intro 早摘了 —— _introDone 已置空，直接 return） */
+    onIntroEnd() {
+      if (this._introDone) this._introDone()
+    },
+    /**
+     * onShow 里延后的那批"重体检"（10-27 从 onShow 挪出来，见 onShow 注释）：
+     * 原生权限实测 / 学习 App 图标 / 强制能力盘点。intro 播完（320ms）再补，
+     * 读数都喂给折叠线以下的强制模式状态区，晚这一点没人看得见。
+     * ⚠️ 从系统「通知使用权」页回来的那次要当场把开关打开（syncNotifOpt），
+     *    延后 320ms 也成立 —— 那个开关在页面底部，本来就不在首帧里。
+     */
+    deferredChecks() {
+      this.usageOk = apptime.hasUsagePermission()
+      this.pullOk = !!forced.canPull()
+      this.overlayOk = apptime.canDrawOverlays()
+      if (this.__fromNotif) {
+        this.__fromNotif = false
+        this.syncNotifOpt()
+      } else {
+        this.notifOk = !!this.grantedNotif()
+      }
+      this.refreshA11y()
+      this.refreshLearnApps()
+      this.refreshForceCap()
     },
     refreshToday() {
       const ov = pw.overview()
@@ -1655,6 +1672,10 @@ export default {
      帧而是直接跳到终点 —— 症状就是"手机上没动画、电脑上有"（none 与矩阵之间的
      插值各家实现松紧不一）。两端都写成 scale() 就没有解释的余地。 */
   transform: scale(1);
+  /* ★ 提合成层：intro 收缩 / pulse 跳动都是 transform 动画，不提前提层的话
+     App 端每帧都在重绘（含 conic 环 + 投影），低端机上就是幻灯片。
+     will-change 让缩放整个走 GPU，只动纹理不重绘。 */
+  will-change: transform;
 }
 .ring-inner {
   width: 420rpx; height: 420rpx;
@@ -1670,23 +1691,67 @@ export default {
   box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
 }
 /* ★ 圆圈衔接转场（2026-10-25，与首页 .ring-launch 是一对）：
-   从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，两帧后缩回就位。
+   从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，缩回就位。
+   ★ 收缩由 CSS animation **自播放**（10-27 改，真机视频实锤的修复）：
+     animation 从元素第一帧被画出来就开始跑，不依赖任何 JS 信号 —— 而 JS 的
+     rAF / selectQuery.exec 在 App 端是"渲染先行、上屏在后"：回调到达时页面
+     可能还没显示给人看，按信号摘 intro = 收缩动画播完了人才看见，症状就是
+     "首页圆放大后定格一秒多、专注页整个直接弹出"（电脑上这几毫秒看不出来）。
+     animation 自播放等于把起跑点焊在首帧上，浏览器画第一帧时动画同步开始。
    intro 期间 ring-inner 换成**首页大圆的皮肤**（淡红底 + 红边、去掉玻璃投影），
    收缩过程中再渐变回玻璃盘 —— 两个圆之间是同一视觉主体，对齐且不跳色。
    ⚠️ coverScale 由 onLoad 实测（与首页 launchScale 同一算法：480rpx 圆放大到
-      盖住屏宽/屏高的较大者）；两边倍数不一致，收缩终点就会和首页圆对不上。 */
+      盖住屏宽/屏高的较大者）；两边倍数不一致，收缩终点就会和首页圆对不上。
+   ⚠️ 下面的静态规则（不缩水的放大态 / 红皮肤 / opacity:0）**留着**：老内核
+      不认 keyframes 时 animation 不跑，class 由 armIntro 的兜底定时器摘掉，
+      那时就退化回"transition 收缩"的旧路径 —— 两条路都通。 */
 .ring { transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1); }
-.fr-intro .ring { transform: scale(var(--cover-scale, 2.8)); }
+.fr-intro .ring {
+  transform: scale(var(--cover-scale, 2.8));
+  animation: fr-ring-drop 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes fr-ring-drop {
+  from { transform: scale(var(--cover-scale, 2.8)); }
+  to   { transform: scale(1); }
+}
 .fr-intro .ring-inner {
   background: rgba(228, 23, 61, 0.1);
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
   border-color: rgba(228, 23, 61, 0.28);
   border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
   box-shadow: none;
-  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+  /* ★ intro 态把毛玻璃关掉：backdrop-filter 是"每一帧把身后整个屏幕重新
+     模糊一遍"，intro 态圆盖住全屏 = 每帧全屏重模糊 —— 安卓上这一条就能把
+     收缩动画拖成幻灯片。反正 intro 态身后是纯色淡底，关掉看不出差别；
+     落位摘 class 后玻璃回来（皮肤动画的 to 帧就是玻璃值，见下）。 */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: fr-skin-back 260ms ease both;
+}
+@keyframes fr-skin-back {
+  from {
+    background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+    border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+    box-shadow: none;
+  }
+  to {
+    background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
+    border-color: var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.7));
+    box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
+  }
 }
 /* 盘内文字与圆外内容在 intro 期让位，随圆收缩一起淡入（稍晚 60ms 起步，
-   先看出"圆在归位"，再看出"页面内容回来了"） */
+   先看出"圆在归位"，再看出"页面内容回来了"；60+200=260ms 与收缩同时结束，
+   落位那一刻全体就位 —— 也走自播放动画，与圆共用同一个首帧起跑点） */
+.fr-intro .ring-inner .time,
+.fr-intro .ring-inner .task-title,
+.fr-intro .focus-body > *:not(.ring-wrap) {
+  animation: fr-fade-in 200ms ease 60ms both;
+}
+@keyframes fr-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 .fr-intro .ring-inner .time,
 .fr-intro .ring-inner .task-title { opacity: 0; }
 .fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
