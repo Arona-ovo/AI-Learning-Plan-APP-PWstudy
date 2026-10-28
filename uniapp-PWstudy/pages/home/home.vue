@@ -2797,7 +2797,7 @@ export default {
 <style>
 /* 卡片间距：.card 本身不带外边距（它是通用窗体），首页这一摞靠这里统一拉开。
    之前只有带专属 class 的几张卡有 margin，剩下的今日任务/目标/AppDock 是贴着的。 */
-.home-slide > .card { margin-bottom: 20rpx; }
+.home-slide > .card { margin-bottom: var(--app-gap, 20rpx); }
 .home-slide > .card:last-child { margin-bottom: 0; }
 
 /* ===== 主页聚焦布局：开始专注居中，周边淡化 =====
@@ -3180,7 +3180,7 @@ export default {
 }
 
 /* ===== 未完成的 AI 规划 ===== */
-.resume-card { margin-bottom: 20rpx; }
+.resume-card { margin-bottom: var(--app-gap, 20rpx); }
 .rc-main { display: flex; align-items: center; }
 .rc-dot {
   width: 16rpx; height: 16rpx; border-radius: 50%;
@@ -3277,7 +3277,7 @@ export default {
 .lb-go { font-size: 25rpx; font-weight: 600; color: #f79009; }
 
 /* ===== 专注计时状态卡 ===== */
-.focus-card { margin-bottom: 20rpx; }
+.focus-card { margin-bottom: var(--app-gap, 20rpx); }
 .fc-main { display: flex; align-items: center; }
 .fc-ring {
   width: 150rpx; height: 150rpx;

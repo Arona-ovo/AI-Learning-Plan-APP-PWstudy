@@ -45,9 +45,9 @@ export const DARK_BG_CSS = 'linear-gradient(165deg, #171b19 0%, #121513 100%)';
 // 看上去就是"一整屏白"）。压到 #e4e9e4 后差出 18 个灰阶，窗体才立得起来。
 export const LIGHT_BG = '#e4e9e4';
 
-// ---------- 字体 / 密度（settings.theme.font / .density，AI 指令 theme.set 可改） ----------
-// 走 rootStyle() 下发成 CSS 变量，App.vue 里统一消费；没有这两张表的话
-// theme.set{font} / {density} 会"写了但不生效"。
+// ---------- 字体 / 密度（settings.theme.font / .density，外观里的选择器可改） ----------
+// 走 rootStyle() 下发成 CSS 变量，App.vue / 各页统一消费；没有这两张表的话
+// 选择器写了也不生效。
 //
 // ⚠️ 三档必须"选了都看得见差别"，否则用户点了没反应会以为坏了：
 //   system 无衬线（系统默认）／serif 衬线／mono 等宽。
@@ -70,7 +70,22 @@ export const FONT_OPTIONS = [
 ].map(function (o) {
   return { key: o.key, name: o.name, stack: FONT_STACKS[o.key] };
 });
-export const DENSITY_GAP = { compact: '14rpx', cozy: '24rpx', relaxed: '34rpx' };
+// ---------- 密度：卡片之间的纵向间距（settings.theme.density） ----------
+// ⚠️ cozy（默认档）**必须等于改造前写死的 20rpx** —— 老用户升级后观感零变化。
+//    这一档以前是 24rpx，但当时 --app-gap 没有任何页面消费（空转），所以改成 20
+//    不会影响任何人。以后想调默认间距，要连页面兜底值一起改。
+// ⚠️ 只接"一列卡片之间"的外层间距，**不碰卡片内部的细行距**（16rpx 那种）：
+//    内部间距是逐个手调的版面细节，统一成变量会东倒西歪。
+export const DENSITY_GAP = { compact: '14rpx', cozy: '20rpx', relaxed: '30rpx' };
+// 设置页按这张表渲染选择器（name 走 $t）。key 与 DENSITY_GAP 一一对应，
+// 由 _tools/check-font.js 第 8 项钉住：加了档位却没给入口会报红。
+export const DENSITY_OPTIONS = [
+  { key: 'compact', name: '紧凑' },
+  { key: 'cozy', name: '舒适' },
+  { key: 'relaxed', name: '宽松' }
+].map(function (o) {
+  return { key: o.key, name: o.name, gap: DENSITY_GAP[o.key] };
+});
 
 // 浅色档整体压深过一轮（原来每个预设的头一档都在 #f2-#ff 之间，铺开就是"一屏白"）：
 // 色相与配比不动，只把三个色标各压深一档，渐变两头也拉开一点，层次才看得出来。
@@ -456,6 +471,17 @@ export function setFont(key) {
   return k;
 }
 
+// 密度：写 settings.theme.density → apply() 重算 --app-gap。
+// 非法值兜底 cozy（默认档），和 setFont 同款处理。
+export function setDensity(key) {
+  const k = DENSITY_GAP[key] ? key : 'cozy';
+  try {
+    settings.set({ theme: { density: k } });
+  } catch (e) {}
+  apply();
+  return k;
+}
+
 export function setAccent(key) {
   const a = findIn(ACCENTS, key);
   try {
@@ -638,7 +664,7 @@ export function rootStyle() {
     // 变量（App 端样式隔离的情况），观感自动退回改造前的样子。
     '--glass-sm': glassFilter(fx.blurSm, fx.glass),
     '--glass-lg': glassFilter(fx.blurLg, fx.glass),
-    // 字体与密度：AI 指令 theme.set 改的就是这两个，靠变量下发才有实际观感
+    // 字体与密度：外观里的选择器改的就是这两个，靠变量下发才有实际观感
     '--app-font': FONT_STACKS[currentFont()] || FONT_STACKS.system,
     '--app-gap': DENSITY_GAP[currentDensity()] || DENSITY_GAP.cozy,
     // 状态栏 / 底部安全区：custom 导航栏 = 沉浸式，状态栏盖在页面上，页面自己让位。

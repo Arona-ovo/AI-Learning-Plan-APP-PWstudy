@@ -19,6 +19,15 @@
 //      （inherit 与 var(--app-font…) 放行）
 //   4) 全站（剥掉注释后）不许出现具体衬线族名：Georgia / Times New Roman /
 //      Songti SC / SimSun —— 安卓没有，写了必退字体
+//   5) 外观里真有字体选择器且接到 setFont（只加表没入口 = 选不到）
+//   6) FONT_OPTIONS 与 FONT_STACKS 一一对应（加了字族忘了给入口会红）
+//
+//   7~10) 密度/间距同一条链（2026-10-28 补）：
+//   7) theme.js 仍下发 --app-gap
+//   8) DENSITY_OPTIONS 与 DENSITY_GAP 一一对应
+//   9) 外观里真有间距选择器且接到 setDensity
+//  10) ★ 至少有一处页面真的消费 var(--app-gap)，且兜底值等于默认档
+//      —— 改造前正是"表有、变量有、没人用"，选间距毫无变化
 const fs = require('fs');
 const path = require('path');
 
@@ -139,6 +148,56 @@ assert(stackKeys.length > 0 && missing.length === 0 && extra.length === 0,
   'FONT_OPTIONS 与 FONT_STACKS 一一对应（' + stackKeys.join(' / ') + '）',
   (missing.length ? '有字族但没入口：' + missing.join(', ') + '；' : '') +
   (extra.length ? '入口指向不存在的档：' + extra.join(', ') : ''));
+
+// ---- 7~10) 密度（卡片间距）：和字体同一条链，缺任何一环就是"选了没反应" ----
+// 2026-10-28 之前的真实情况：DENSITY_GAP 有值、rootStyle 也下发了 --app-gap，
+// 但**全站没有任何页面消费它**，设置页也没有入口 —— 于是这一项彻底空转。
+// 下面四项就是为了让这种"半截工程"在回归里立刻暴露。
+assert(/['"]--app-gap['"]\s*:/.test(stripComments(themeTxt)),
+  'theme.js 仍下发 --app-gap（换间距才真生效）',
+  '少了这行 → 选择器写了变量不更新，页面纹丝不动');
+
+const gapLine = (themeTxt.match(/export const DENSITY_GAP\s*=\s*\{([^}]*)\}/) || [])[1] || '';
+const gapKeys = [];
+gapLine.replace(/([A-Za-z_]\w*)\s*:/g, function (_m, k) { gapKeys.push(k); return _m; });
+const cozyVal = (gapLine.match(/cozy\s*:\s*'([^']+)'/) || [])[1] || '';
+
+const densBlock = (themeTxt.match(/export const DENSITY_OPTIONS\s*=\s*\[([\s\S]*?)\n\]/) || [])[1] || '';
+const densKeys = [];
+densBlock.replace(/key:\s*'([^']+)'/g, function (_m, k) { densKeys.push(k); return _m; });
+const dMissing = gapKeys.filter(function (k) { return densKeys.indexOf(k) < 0; });
+const dExtra = densKeys.filter(function (k) { return gapKeys.indexOf(k) < 0; });
+assert(gapKeys.length > 0 && dMissing.length === 0 && dExtra.length === 0,
+  'DENSITY_OPTIONS 与 DENSITY_GAP 一一对应（' + gapKeys.join(' / ') + '）',
+  (dMissing.length ? '有档位但没入口：' + dMissing.join(', ') + '；' : '') +
+  (dExtra.length ? '入口指向不存在的档：' + dExtra.join(', ') : ''));
+
+assert(/densities:\s*DENSITY_OPTIONS/.test(setSrc) && /@tap="pickDensity"/.test(setSrc) && /setDensity\(/.test(setSrc),
+  '外观里挂了间距选择器（densities: DENSITY_OPTIONS + pickDensity → setDensity）',
+  '只加 DENSITY_GAP 不给入口 = 用户选不到；入口不接 setDensity = 点了没反应');
+
+// ★ 最关键的一条：必须真有页面消费这个变量，否则又是空转
+const GAP_USE = /var\(\s*--app-gap\s*,\s*([^)]+)\)/g;
+const gapUsers = [];
+const gapFallbackBad = [];
+for (const f of files) {
+  const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+  const css = stripComments(fs.readFileSync(f, 'utf8'));
+  let m;
+  GAP_USE.lastIndex = 0;
+  while ((m = GAP_USE.exec(css))) {
+    const fb = m[1].trim();
+    gapUsers.push(rel);
+    // 兜底值必须等于默认档，否则"没继承到变量"的端会退回别的间距
+    if (cozyVal && fb !== cozyVal) gapFallbackBad.push(rel + '  →  var(--app-gap, ' + fb + ')');
+  }
+}
+assert(gapUsers.length > 0,
+  '至少有页面真的消费 var(--app-gap)（' + gapUsers.length + ' 处）',
+  '0 处 = 变量下发但没人用，用户在设置里选间距毫无变化（这正是改造前的状态）');
+assert(gapFallbackBad.length === 0,
+  '各处 var(--app-gap) 的兜底值都等于默认档 ' + (cozyVal || '?'),
+  gapFallbackBad.slice(0, 8).join('\n      → '));
 
 console.log('\n' + (fail ? '✗ FAIL ' + fail : '✓ ALL PASS ' + pass + ' 项'));
 process.exitCode = fail ? 1 : 0;

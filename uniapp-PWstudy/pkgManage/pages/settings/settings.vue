@@ -182,6 +182,28 @@
           </view>
         </view>
         <view class="bg-hint">{{ $t('只换字体族，字号、字重、间距都不变；选完立刻生效，不用重启。') }}</view>
+
+        <view class="sub-title">{{ $t('间距') }}</view>
+        <view class="font-row">
+          <view
+            v-for="d in densities"
+            :key="d.key"
+            class="font-chip"
+            :class="{ active: densityKey === d.key }"
+            :data-k="d.key"
+            @tap="pickDensity"
+          >
+            <!-- 三条横杠示意"卡片之间"的间距：疏密按档位走。选完页面立刻变
+                 （--app-gap 已接到各页卡片的外层 margin-bottom 上）。 -->
+            <view class="dg-demo" :style="{ gap: densityDemo(d.key) }">
+              <view class="dg-bar"></view>
+              <view class="dg-bar"></view>
+              <view class="dg-bar"></view>
+            </view>
+            <text class="font-name">{{ $t(d.name) }}</text>
+          </view>
+        </view>
+        <view class="bg-hint">{{ $t('只改卡片之间的纵向间距，不动卡片内部的排版和字号。紧凑能一屏多放一张卡，宽松看着更透气。') }}</view>
       </view>
     </view>
 
@@ -933,11 +955,12 @@ import * as haptic from '../../../utils/haptic.js'
 // 只有几百字节的规模快照：设置页在分包里，不能为了显示几个数字去 import 语料本身
 import { BUILD_INFO } from '../../../data/build-info.js'
 import {
-  BACKGROUNDS, ACCENTS, SWATCHES, FONT_OPTIONS,
+  BACKGROUNDS, ACCENTS, SWATCHES, FONT_OPTIONS, DENSITY_OPTIONS,
   CUSTOM_KEY, DEFAULT_CUSTOM,
   current as currentBg, setBackground, backgroundOf,
   currentAccent, setAccent,
   currentFont, setFont,
+  currentDensity, setDensity,
   currentBgImage, currentMask, setMask, currentBlur, setBlur,
   currentCustomColor, setCustomColor,
   chooseBackgroundImage, clearBgImage,
@@ -999,6 +1022,8 @@ export default {
       accentKey: 'rose',
       fonts: FONT_OPTIONS,
       fontKey: 'system',
+      densities: DENSITY_OPTIONS,
+      densityKey: 'cozy',
       backgrounds: BACKGROUNDS,
       bgKey: 'sand',
       bgImage: '',
@@ -1245,6 +1270,7 @@ export default {
     this.refresh()
     this.accentKey = currentAccent()
     this.fontKey = currentFont()
+    this.densityKey = currentDensity()
     this.bgKey = currentBg()
     this.bgImage = currentBgImage()
     this.customHex = currentCustomColor() || DEFAULT_CUSTOM
@@ -1465,6 +1491,19 @@ export default {
       this.fontKey = key
       setFont(key)
       this.refreshAppTheme()
+    },
+    pickDensity(e) {
+      const key = e.currentTarget.dataset.k
+      this.densityKey = key
+      setDensity(key)
+      this.refreshAppTheme()
+    },
+    // 示意横杠的行距（纯视觉，不是真实 --app-gap 值：真实的 14/20/30rpx
+    // 塞进 40rpx 高的格子里会溢出）。三档按"密→疏"拉开，一眼能分辨。
+    densityDemo(key) {
+      if (key === 'compact') return '2rpx'
+      if (key === 'relaxed') return '10rpx'
+      return '5rpx'
     },
     pickBg(e) {
       const key = e.currentTarget.dataset.k
@@ -2135,6 +2174,26 @@ export default {
   color: var(--brand-strong, #bb1332);
   font-weight: 600;
 }
+
+/* 间距示意：三条横杠代表一列卡片，行距按档位拉开（高度锁死，只动 gap，
+   三档 chip 才一样高、不会跟着跳） */
+.dg-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 40rpx;
+}
+
+.dg-bar {
+  width: 46rpx;
+  height: 6rpx;
+  border-radius: 3rpx;
+  background: #98a19b;
+  background: var(--ink-3, #98a19b);
+}
+
+.font-chip.active .dg-bar { background: var(--brand, #e4173d); }
 
 /* 背景：横向胶囊色板 + 相册入口 */
 .bg-row {

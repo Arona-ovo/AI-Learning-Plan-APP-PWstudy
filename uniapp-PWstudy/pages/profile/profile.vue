@@ -341,7 +341,7 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 
-.edit-card { margin-bottom: 20rpx; }
+.edit-card { margin-bottom: var(--app-gap, 20rpx); }
 
 .field { display: flex; align-items: center; margin-bottom: 20rpx; }
 

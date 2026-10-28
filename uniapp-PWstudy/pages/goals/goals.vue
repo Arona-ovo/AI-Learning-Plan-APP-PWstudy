@@ -169,7 +169,7 @@ export default {
 .be-title { margin-top: 26rpx; font-size: 30rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .be-sub { margin-top: 14rpx; font-size: 25rpx; line-height: 1.7; color: #5a6560; color: var(--ink-2, #5a6560); }
 
-.goal-card { margin-bottom: 20rpx; }
+.goal-card { margin-bottom: var(--app-gap, 20rpx); }
 .g-top { display: flex; align-items: flex-start; justify-content: space-between; }
 .g-title {
   flex: 1; min-width: 0;

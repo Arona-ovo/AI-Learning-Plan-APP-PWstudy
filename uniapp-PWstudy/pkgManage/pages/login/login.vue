@@ -166,7 +166,7 @@ export default {
 </script>
 
 <style>
-.auth-card { margin-bottom: 20rpx; }
+.auth-card { margin-bottom: var(--app-gap, 20rpx); }
 
 .mode-switch {
   display: flex;

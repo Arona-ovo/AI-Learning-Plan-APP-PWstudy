@@ -309,7 +309,7 @@ export default {
 </script>
 
 <style>
-.card { margin-bottom: 20rpx; }
+.card { margin-bottom: var(--app-gap, 20rpx); }
 
 .pc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 

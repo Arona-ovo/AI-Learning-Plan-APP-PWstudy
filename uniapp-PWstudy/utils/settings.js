@@ -89,8 +89,8 @@ function defaults() {
       bgBlur: 0,           // 背景模糊半径（px，0-24）
       dark: false,         // 深色模式（followSystem 为 true 时被系统值覆盖）
       followSystem: false, // 跟随系统深色模式
-      font: 'system',      // 字体：system | serif | mono（外观里的选择器 / AI 指令 theme.set 可改）
-      density: 'cozy'      // 密度：compact | cozy | relaxed（AI 指令 theme.set 可改）
+      font: 'system',      // 字体：system | serif | mono（外观里的选择器可改）
+      density: 'cozy'      // 密度：compact | cozy | relaxed（外观里的「间距」可改）
     },
     // 性能：画质档位 + 流畅模式总开关 —— 低端机的退路，
     // 只影响观感，不改变任何功能与数据。

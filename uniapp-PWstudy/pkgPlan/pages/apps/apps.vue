@@ -601,7 +601,7 @@ export default {
 </script>
 
 <style>
-.card { margin-bottom: 20rpx; }
+.card { margin-bottom: var(--app-gap, 20rpx); }
 .pc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .pc-txt { margin-top: 14rpx; font-size: 24rpx; line-height: 1.8; color: #5a6560; color: var(--ink-2, #5a6560); }
 .pc-warn {

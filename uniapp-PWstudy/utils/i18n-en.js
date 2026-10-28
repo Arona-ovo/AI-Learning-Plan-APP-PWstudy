@@ -1297,5 +1297,11 @@ export default {
   '衬线': 'Serif',
   '等宽': 'Mono',
   '只换字体族，字号、字重、间距都不变；选完立刻生效，不用重启。':
-    'Changes the font family only — sizes, weights and spacing stay the same. Applies immediately, no restart.'
+    'Changes the font family only — sizes, weights and spacing stay the same. Applies immediately, no restart.',
+  '间距': 'Spacing',
+  '紧凑': 'Compact',
+  '舒适': 'Cozy',
+  '宽松': 'Roomy',
+  '只改卡片之间的纵向间距，不动卡片内部的排版和字号。紧凑能一屏多放一张卡，宽松看着更透气。':
+    'Only the vertical spacing between cards changes — inner layout and font sizes stay put. Compact fits one more card per screen; Roomy breathes easier.'
 };
