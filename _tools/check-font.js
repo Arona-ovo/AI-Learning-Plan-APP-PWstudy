@@ -118,5 +118,27 @@ assert(allowedGlobal === 1,
   'App.vue 里写死族名的全局声明恰好 1 条（page 兜底栈）',
   '实际 ' + allowedGlobal + ' 条：多了说明有人在别处加了绝对族名，少了说明 page 兜底也没了');
 
+// ---- 5) 设置页有字体选择器，且真的接到 theme.setFont ----
+let setTxt = '';
+try { setTxt = fs.readFileSync(path.join(APP, 'pkgManage', 'pages', 'settings', 'settings.vue'), 'utf8'); } catch (e) {}
+const setSrc = stripComments(setTxt);
+assert(/fonts:\s*FONT_OPTIONS/.test(setSrc) && /@tap="pickFont"/.test(setSrc) && /setFont\(/.test(setSrc),
+  '外观里挂了字体选择器（fonts: FONT_OPTIONS + pickFont → setFont）',
+  '只加 FONT_STACKS 不给入口 = 用户选不到；入口不接 setFont = 点了没反应');
+
+// ---- 6) 每一档字族都有入口，入口也不许指向不存在的档 ----
+const stacksBlock = (themeTxt.match(/export const FONT_STACKS\s*=\s*\{([\s\S]*?)\n\};/) || [])[1] || '';
+const optsBlock = (themeTxt.match(/export const FONT_OPTIONS\s*=\s*\[([\s\S]*?)\n\]/) || [])[1] || '';
+const stackKeys = [];
+stacksBlock.replace(/^\s*([A-Za-z_]\w*)\s*:/gm, function (_m, k) { stackKeys.push(k); return _m; });
+const optKeys = [];
+optsBlock.replace(/key:\s*'([^']+)'/g, function (_m, k) { optKeys.push(k); return _m; });
+const missing = stackKeys.filter(function (k) { return optKeys.indexOf(k) < 0; });
+const extra = optKeys.filter(function (k) { return stackKeys.indexOf(k) < 0; });
+assert(stackKeys.length > 0 && missing.length === 0 && extra.length === 0,
+  'FONT_OPTIONS 与 FONT_STACKS 一一对应（' + stackKeys.join(' / ') + '）',
+  (missing.length ? '有字族但没入口：' + missing.join(', ') + '；' : '') +
+  (extra.length ? '入口指向不存在的档：' + extra.join(', ') : ''));
+
 console.log('\n' + (fail ? '✗ FAIL ' + fail : '✓ ALL PASS ' + pass + ' 项'));
 process.exitCode = fail ? 1 : 0;

@@ -1291,5 +1291,11 @@ export default {
   '从哪天开始': 'Start from',
   '明天': 'Tomorrow',
   '默认从今天起排；想留一天准备、或今天已经排满，就选明天。':
-    'Defaults to starting today; pick Tomorrow if you want a day to prepare or today is already full.'
+    'Defaults to starting today; pick Tomorrow if you want a day to prepare or today is already full.',
+  '字体': 'Font',
+  '系统': 'System',
+  '衬线': 'Serif',
+  '等宽': 'Mono',
+  '只换字体族，字号、字重、间距都不变；选完立刻生效，不用重启。':
+    'Changes the font family only — sizes, weights and spacing stay the same. Applies immediately, no restart.'
 };

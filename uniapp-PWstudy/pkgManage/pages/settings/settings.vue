@@ -163,6 +163,25 @@
           />
         </view>
         <view class="bg-hint">{{ $t('背景在最底层且固定不动：上下滑动时只有卡片、胶囊这些窗体在动。玻璃窗体透出背景的同时仍与背景分层；"淡化"在深色模式下叠的是黑色，用来给背景降亮度。') }}</view>
+
+        <view class="sub-title">{{ $t('字体') }}</view>
+        <view class="font-row">
+          <view
+            v-for="f in fonts"
+            :key="f.key"
+            class="font-chip"
+            :class="{ active: fontKey === f.key }"
+            :data-k="f.key"
+            @tap="pickFont"
+          >
+            <!-- 样例自带该档字体 —— 选字体必须"看得见差别"，不然等于盲选。
+                 ⚠️ 这是全项目唯一允许内联字族的地方：字族取自 theme.js 的
+                 FONT_STACKS（页面里不写死族名），check-font.js 才不会红。 -->
+            <text class="font-sample" :style="{ fontFamily: f.stack }">Aa 12:30</text>
+            <text class="font-name">{{ $t(f.name) }}</text>
+          </view>
+        </view>
+        <view class="bg-hint">{{ $t('只换字体族，字号、字重、间距都不变；选完立刻生效，不用重启。') }}</view>
       </view>
     </view>
 
@@ -914,10 +933,11 @@ import * as haptic from '../../../utils/haptic.js'
 // 只有几百字节的规模快照：设置页在分包里，不能为了显示几个数字去 import 语料本身
 import { BUILD_INFO } from '../../../data/build-info.js'
 import {
-  BACKGROUNDS, ACCENTS, SWATCHES,
+  BACKGROUNDS, ACCENTS, SWATCHES, FONT_OPTIONS,
   CUSTOM_KEY, DEFAULT_CUSTOM,
   current as currentBg, setBackground, backgroundOf,
   currentAccent, setAccent,
+  currentFont, setFont,
   currentBgImage, currentMask, setMask, currentBlur, setBlur,
   currentCustomColor, setCustomColor,
   chooseBackgroundImage, clearBgImage,
@@ -977,6 +997,8 @@ export default {
       // 外观
       accents: ACCENTS,
       accentKey: 'rose',
+      fonts: FONT_OPTIONS,
+      fontKey: 'system',
       backgrounds: BACKGROUNDS,
       bgKey: 'sand',
       bgImage: '',
@@ -1222,6 +1244,7 @@ export default {
   onShow() {
     this.refresh()
     this.accentKey = currentAccent()
+    this.fontKey = currentFont()
     this.bgKey = currentBg()
     this.bgImage = currentBgImage()
     this.customHex = currentCustomColor() || DEFAULT_CUSTOM
@@ -1434,6 +1457,13 @@ export default {
       const key = e.currentTarget.dataset.k
       this.accentKey = key
       setAccent(key)
+      this.refreshAppTheme()
+    },
+    // 字体族：写盘 + 重算 --app-font（refreshAppTheme 会把新的 rootStyle 挂回根节点）
+    pickFont(e) {
+      const key = e.currentTarget.dataset.k
+      this.fontKey = key
+      setFont(key)
       this.refreshAppTheme()
     },
     pickBg(e) {
@@ -2056,6 +2086,52 @@ export default {
 }
 
 .accent.active .accent-name {
+  color: var(--brand-strong, #bb1332);
+  font-weight: 600;
+}
+
+/* 字体：三档小方块，样例自带该档字族（全项目唯一允许内联字族的地方，
+   字族来自 theme.js 的 FONT_STACKS；这里不写 font-family，见 check-font.js） */
+.font-row {
+  display: flex;
+  padding: 12rpx 0 8rpx;
+}
+
+.font-chip {
+  flex: 1;
+  margin-right: 16rpx;
+  padding: 16rpx 0 12rpx;
+  border-radius: 18rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 2rpx solid transparent;
+  background: rgba(255, 255, 255, 0.55);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.55);
+}
+
+.font-chip:last-child { margin-right: 0; }
+
+.font-chip.active {
+  border-color: var(--brand, #e4173d);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+}
+
+.font-sample {
+  font-size: 30rpx;
+  line-height: 1.35;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+
+.font-name {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+
+.font-chip.active .font-name {
   color: var(--brand-strong, #bb1332);
   font-weight: 600;
 }

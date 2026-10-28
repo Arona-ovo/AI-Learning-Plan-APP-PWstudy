@@ -48,11 +48,28 @@ export const LIGHT_BG = '#e4e9e4';
 // ---------- 字体 / 密度（settings.theme.font / .density，AI 指令 theme.set 可改） ----------
 // 走 rootStyle() 下发成 CSS 变量，App.vue 里统一消费；没有这两张表的话
 // theme.set{font} / {density} 会"写了但不生效"。
+//
+// ⚠️ 三档必须"选了都看得见差别"，否则用户点了没反应会以为坏了：
+//   system 无衬线（系统默认）／serif 衬线／mono 等宽。
+//   历史上第三档是 rounded（PingFang/Hiragino 一类的圆体），但 **安卓和 iOS 上
+//   它都退化成和 system 一模一样的无衬线**（系统里没有那几个族名）——点了毫无变化，
+//   所以 2026-10-28 换成 mono：Android 有 Roboto Mono / Droid Sans Mono，
+//   数字与英文真的会变等宽（中文仍回落到系统字，属预期）。老数据里若是 'rounded'，
+//   currentFont() 会兜底成 system，不会白屏也不会报错。
 export const FONT_STACKS = {
   system: '-apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif',
   serif: 'Georgia, "Songti SC", "Times New Roman", "SimSun", serif',
-  rounded: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'
+  mono: 'ui-monospace, "SF Mono", "Roboto Mono", "Droid Sans Mono", "Courier New", monospace'
 };
+// 设置页的外观里按这张表渲染选择器（name 走 $t）。key 必须与 FONT_STACKS 对齐，
+// 由 _tools/check-font.js 第 6 项钉住 —— 加了字族却忘了给入口，会在回归里报红。
+export const FONT_OPTIONS = [
+  { key: 'system', name: '系统' },
+  { key: 'serif', name: '衬线' },
+  { key: 'mono', name: '等宽' }
+].map(function (o) {
+  return { key: o.key, name: o.name, stack: FONT_STACKS[o.key] };
+});
 export const DENSITY_GAP = { compact: '14rpx', cozy: '24rpx', relaxed: '34rpx' };
 
 // 浅色档整体压深过一轮（原来每个预设的头一档都在 #f2-#ff 之间，铺开就是"一屏白"）：
@@ -426,6 +443,17 @@ export function apply() {
     if (typeof uni !== 'undefined' && uni && typeof uni.$emit === 'function') uni.$emit('theme:change');
   } catch (e) {}
   return dark;
+}
+
+// 字体族：写 settings.theme.font → apply() 重算 --app-font。
+// 非法值一律兜底 system（宁可用默认字，也不要一个空 stack 让全站回落到衬线）。
+export function setFont(key) {
+  const k = FONT_STACKS[key] ? key : 'system';
+  try {
+    settings.set({ theme: { font: k } });
+  } catch (e) {}
+  apply();
+  return k;
 }
 
 export function setAccent(key) {
