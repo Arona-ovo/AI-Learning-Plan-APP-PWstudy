@@ -1892,16 +1892,19 @@ export default {
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
 }
 
-/* 交流群：群号用衬线数字，和打赏卡的"箭头"区分开（它是要抄走的号码） */
+/* 交流群：群号统一走 App 的字体继承链（不写 font-family → 用 App.vue 的
+   --app-font）。之前这里硬写 Georgia 衬线，安卓上没有 Georgia 会退到 Noto Serif，
+   跟旁边无衬线的标题/说明明显不是一个字体，看着像"系统默认"混进来了；
+   而且用户在外观里换字体时，这一行不会跟着变。 */
 .qq-card { align-items: center; }
 
 .dc-num {
   flex-shrink: 0;
   margin-left: 20rpx;
-  font-family: Georgia, "Times New Roman", serif;
   font-size: 34rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
+  font-variant-numeric: tabular-nums;
   color: #17201a;
   color: var(--ink-1, #17201a);
   padding: 10rpx 22rpx;
