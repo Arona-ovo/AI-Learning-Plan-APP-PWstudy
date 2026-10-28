@@ -2180,7 +2180,8 @@ export function ambientStart(absPath: string, volume: number, loop: boolean): In
     return 0;
   } catch (e) {
     ambientErrCode = -1;
-    ambientErrMsg = String.valueOf(e);
+    ambientErrMsg = 'ambient init failed';
+    console.error('pwstudy-focus: ambientStart 初始化失败', e);
     return -1;
   }
 }
