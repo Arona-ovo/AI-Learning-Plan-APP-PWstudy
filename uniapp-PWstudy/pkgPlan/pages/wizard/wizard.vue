@@ -858,7 +858,6 @@ export default {
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.14);
   color: var(--brand-strong, #bb1332);
   font-size: 26rpx; line-height: 56rpx; text-align: center;
-  font-family: Georgia, serif;
 }
 .tpl-name { margin-top: 10rpx; font-size: 22rpx; color: var(--ink-1, #17201a); text-align: center; }
 
@@ -881,7 +880,7 @@ export default {
 
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
 .card-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.card-date { font-size: 26rpx; color: #bb1332; color: var(--brand-strong, #bb1332); font-family: Georgia, serif; }
+.card-date { font-size: 26rpx; color: #bb1332; color: var(--brand-strong, #bb1332); font-variant-numeric: tabular-nums; }
 .card-more { font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .chips { display: flex; flex-wrap: wrap; }
@@ -919,7 +918,7 @@ export default {
   border-radius: 12rpx;
   box-sizing: border-box;
 }
-.mcal-d { font-size: 25rpx; color: var(--ink-1, #17201a); font-family: Georgia, serif; }
+.mcal-d { font-size: 25rpx; color: var(--ink-1, #17201a); font-variant-numeric: tabular-nums; }
 .mcal-out .mcal-d { color: var(--ink-3, #98a19b); opacity: 0.45; }
 .mcal-off .mcal-d { color: var(--ink-3, #98a19b); opacity: 0.35; }
 .mcal-rest { background: rgba(247, 144, 9, 0.08); }

@@ -211,7 +211,7 @@ export default {
 .backup-page { min-height: 100vh; padding-bottom: 60rpx; }
 .stat-row { display: flex; }
 .stat { flex: 1; text-align: center; }
-.sv { display: block; font-size: 40rpx; font-weight: 600; color: var(--ink-1, #17201a); font-family: Georgia, serif; }
+.sv { display: block; font-size: 40rpx; font-weight: 600; color: var(--ink-1, #17201a); font-variant-numeric: tabular-nums; }
 .sl { display: block; margin-top: 6rpx; font-size: 22rpx; color: var(--ink-3, #98a19b); }
 
 .tip { margin-top: 20rpx; font-size: 22rpx; line-height: 1.7; color: var(--ink-2, #5a6560); }

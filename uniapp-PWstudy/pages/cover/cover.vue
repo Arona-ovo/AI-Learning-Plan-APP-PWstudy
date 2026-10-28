@@ -221,7 +221,7 @@ export default {
   color: var(--brand-strong, #bb1332);
   letter-spacing: 10rpx;
   text-indent: 10rpx;
-  font-family: Georgia, "Times New Roman", serif;
+  /* 不写 font-family：走 App.vue 的 --app-font 继承链（见 _tools/check-font.js） */
 }
 
 .app-en {
@@ -230,7 +230,6 @@ export default {
   letter-spacing: 5rpx;
   text-indent: 5rpx;
   color: rgba(190, 18, 60, 0.62);
-  font-family: Georgia, "Times New Roman", serif;
 }
 
 .divider {

@@ -565,7 +565,7 @@ export default {
   border-radius: 50%;
   background: var(--brand, #e4173d); color: #fff;
   font-size: 20rpx; line-height: 36rpx; text-align: center;
-  font-family: Georgia, serif;
+  font-variant-numeric: tabular-nums;
 }
 .gd-step-txt { flex: 1; font-size: 26rpx; line-height: 1.7; color: var(--ink-1, #17201a); }
 .gd-check {

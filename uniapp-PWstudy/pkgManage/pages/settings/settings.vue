@@ -2241,12 +2241,12 @@ export default {
   background: var(--brand, #e4173d);
 }
 
-/* hex 用等宽的衬线体：和项目里"英文走 Georgia"的习惯一致，也不会跳动 */
+/* hex 走 App 的字体继承链；tabular-nums 让数字等宽，拖动取色时不跳 */
 .cp-hex {
   flex: 1;
-  font-family: Georgia, "Times New Roman", serif;
   font-size: 28rpx;
   letter-spacing: 1rpx;
+  font-variant-numeric: tabular-nums;
   color: #17201a;
   color: var(--ink-1, #17201a);
 }
@@ -2665,11 +2665,11 @@ export default {
   color: var(--ink-2, #5a6560);
 }
 
-/* 数字用衬线：和正文的无衬线拉开，一眼看出是"读数" */
+/* 读数和正文同族，靠字号/字重拉开层次（换字体时整页一起跟着变） */
 .egg-stat-v {
-  font-family: Georgia, "Times New Roman", serif;
   font-size: 27rpx;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
   color: #17201a;
   color: var(--ink-1, #17201a);
 }

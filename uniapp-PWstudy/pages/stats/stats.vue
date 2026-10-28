@@ -359,7 +359,7 @@ export default {
 <style>
 .strip { display: flex; padding: 34rpx 0; margin-bottom: 20rpx; }
 .st-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
-.st-num { font-size: 40rpx; font-weight: 600; color: #e4173d; color: var(--brand, #e4173d); font-family: Georgia, serif; }
+.st-num { font-size: 40rpx; font-weight: 600; color: #e4173d; color: var(--brand, #e4173d); font-variant-numeric: tabular-nums; }
 .st-label { font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-top: 6rpx; }
 
 .card-head {
@@ -435,7 +435,7 @@ export default {
 .fc-title { font-size: 26rpx; color: var(--ink-1, #17201a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fc-sub { font-size: 21rpx; color: var(--ink-3, #98a19b); margin-top: 6rpx; }
 .fc-right { flex-shrink: 0; text-align: right; }
-.fc-date { font-size: 24rpx; color: var(--ink-1, #17201a); font-family: Georgia, serif; }
+.fc-date { font-size: 24rpx; color: var(--ink-1, #17201a); font-variant-numeric: tabular-nums; }
 .fc-date-late { color: #e5484d; }
 .fc-late { display: block; font-size: 20rpx; color: #e5484d; margin-top: 4rpx; }
 

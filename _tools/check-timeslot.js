@@ -316,7 +316,10 @@ const comp = loadCode(wizBody, {
   FloatNavbar: {},
   // 依赖袋按标识符注入：wizard 页现在注册了统一弹窗组件、按钮缺省文案走 t()
   AppDialog: {},
-  t: (s) => s
+  t: (s) => s,
+  // wizard 的 data() 会读 settings.plan.startFrom（「从哪天开始」默认值），
+  // 桩里不给的话 data() 直接 ReferenceError，整个 harness 崩在构造阶段。
+  settings: { get: () => ({ plan: { startFrom: 'today' } }) }
 }).default;
 const st = Object.assign({}, comp.data.call({}));
 Object.keys(comp.computed || {}).forEach(k =>

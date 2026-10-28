@@ -255,7 +255,7 @@ export default {
   border-radius: 12rpx;
   position: relative;
 }
-.cm-day { font-size: 25rpx; color: var(--ink-1, #17201a); font-family: Georgia, serif; }
+.cm-day { font-size: 25rpx; color: var(--ink-1, #17201a); font-variant-numeric: tabular-nums; }
 .cm-cell-out .cm-day { color: var(--ink-3, #98a19b); opacity: 0.5; }
 .cm-cell-rest { background: rgba(247, 144, 9, 0.08); }
 .cm-cell-today .cm-day { color: var(--brand, #e4173d); font-weight: 600; }

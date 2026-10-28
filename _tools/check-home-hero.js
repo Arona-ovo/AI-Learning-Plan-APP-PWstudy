@@ -49,14 +49,16 @@ assert(/class="today-panel"/.test(home) && at('class="today-panel"') > at('class
   '「今天」面板 .today-panel 在 .home-hero 内');
 assert(/const HOME_IDS = \['focus', 'task', 'urgency'\]/.test(home),
   'HOME_IDS = 专注 / 今日任务 / 紧迫度');
-// ★ 2026-10-25：三块不再 v-for（合成整板后顺序写死），但顺序本身必须守住 ——
-//   引导按 focus → task 的次序走，顺序错了高亮会指错地方。
+// ★ 2026-10-27：④ 紧迫度**提到最顶**（用户要求：短屏手机底部那条轴容易被推到
+//   折叠线之下看不见，放到日期正下方、大圆之上保底先看见）。
+//   板内次序变成 urg → focus → task；引导仍按 focus → task 走，所以"这两块的相对
+//   次序"必须守住（顺序错了高亮会指错地方）。
 //   ⚠️ 锚点用「tp-block xxx-card」片段而不是完整 class 属性：给某区套上 .card
 //      （"card tp-block task-card"）时类名属性值会变，完整属性锚会消失 →
 //      顺序断言误伤、真正该红的"不各自套 card"反而不响。
-assert(at('tp-block focus-card') < at('tp-block task-card') &&
-  at('tp-block task-card') < at('tp-block urg-card'),
-  '板内顺序：开始专注 → 今日任务 → 紧迫度（写死，引导按这个次序定位）');
+assert(at('tp-block urg-card') < at('tp-block focus-card') &&
+  at('tp-block focus-card') < at('tp-block task-card'),
+  '板内顺序：今日紧迫度 → 开始专注 → 今日任务（紧迫度置顶，短屏先看见）');
 const bHome = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
 assert(/HOME_IDS\.indexOf\(id\) >= 0/.test(bHome), 'homeOrder 只留三件套');
 const bHomeOrder = block(/homeOrder\(\)\s*\{[\s\S]*?\n    \}/);
@@ -92,10 +94,13 @@ assert(/width:\s*480rpx/.test(bRingCss) && /height:\s*480rpx/.test(bRingCss),
 assert(/tp-block task-card/.test(home), '② 任务区（task-card 类名保留，引导靠它定位）');
 assert(/v-for="\(item, ti\) in homeQueue"/.test(home), '② 焦点：只列最该做的三条');
 assert(/v-if="hasMoreTask"[\s\S]{0,160}goCalendar/.test(home), '② 其余的去日历页看（不再假装有个抽屉能拉开）');
-// ③ 收工与任务同组：home-cta 必须嵌在 task-card 区块内（不再单独占面板底部一层）
-assert(at('class="home-cta"') > at('tp-block task-card') &&
-  at('class="home-cta"') < at('tp-block urg-card'),
-  '③ 收工与每日任务同组（home-cta 在任务区内、紧迫度之前）');
+// ③ 收工与任务同组：home-cta 必须紧跟 task-card（中间不再有 tp-sep 分线），
+//   不单独占面板底部一层。⚠️ 2026-10-27 紧迫度提到最顶后，urg-card 不再是"收工后面
+//   那块"，原来的 `< at('tp-block urg-card')` 上界失效 —— 改判"任务区与收工之间没有分线"。
+const iTaskBlk = at('tp-block task-card');
+const iCta = at('class="home-cta"');
+assert(iCta > iTaskBlk && !/tp-sep/.test(home.slice(iTaskBlk, iCta)),
+  '③ 收工与每日任务同组（home-cta 紧随任务区、中间不再分线）');
 assert(/tp-block urg-card/.test(home), '④ 紧迫度区');
 assert(/class="hc-axis"/.test(home) && /hc-axis-need/.test(home), '④ 焦点：一条 24 小时时间轴');
 // 紧迫度简化成纯进度条：标题行 / 档位胶囊 / 两行读数全砍（⚠️ 只扫模板段）
