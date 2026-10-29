@@ -226,13 +226,19 @@ assert(/backgroundColor: 'rgba\(23,32,26,0\.08\)'/.test(bRingStyle),
   'conic-gradient 有纯色兜底（老安卓认不出会整条丢掉 background，圆环当场消失）');
 assert(/'fr-intro': ringIntro/.test(focusPage), 'focus 根节点挂 fr-intro');
 assert(/:style="\[appBgStyle, introVars\]"/.test(focusPage), 'focus 根绑 introVars（--cover-scale）');
-// ⑥ 收缩过程不跳色：intro 期 ring-inner 换成首页大圆的皮肤，渐变回玻璃盘
+// ⑥ 收缩过程不跳色：红色皮肤做成**独立叠层**（.ring-inner::after），只淡 opacity → 零重绘
 const cssRingInner = blockCss(focusPage, /\.fr-intro \.ring-inner \{[\s\S]*?\n\}/);
+const cssRingAfter = blockCss(focusPage, /\.ring-inner::after \{[\s\S]*?\n\}/);
 // ⚠️ 断言要精确到属性：块里 border-color 也写着 brand-rgb，只查"块内有没有
 //    brand-rgb"的话，删掉 background 那行照样算过（假绿）。
-assert(/background: rgba\(var\(--brand-rgb/.test(cssRingInner) &&
-  /border-color: rgba\(var\(--brand-rgb/.test(cssRingInner),
-  'intro 期 ring-inner 换首页大圆皮肤（淡红底 + 红边，收缩中渐变回玻璃）');
+assert(/background: rgba\(var\(--brand-rgb/.test(cssRingAfter) &&
+  /border: 2rpx solid rgba\(var\(--brand-rgb/.test(cssRingAfter),
+  '红色皮肤在 .ring-inner::after 叠层（淡红底 + 红边，收缩时只淡 opacity）');
+assert(/transition: opacity/.test(cssRingAfter) &&
+  /\.fr-intro \.ring-inner::after \{ opacity: 1/.test(focusPage),
+  'intro 期显出红色叠层，摘 fr-intro 时随 opacity 淡出（零重绘，红→白在收缩里渐完）');
+assert(!/background: rgba\(var\(--brand-rgb/.test(cssRingInner),
+  '红色不许写回 .ring-inner 底色（4.5 倍大圆上改 background = 每帧重绘整屏、必掉帧）');
 // ★ intro 态必须关毛玻璃：backdrop-filter 每帧把身后整个屏幕重新模糊一遍，
 //   intro 态圆盖住全屏 = 每帧全屏重模糊 —— 安卓上收缩动画直接掉成幻灯片
 assert(/backdrop-filter: none/.test(cssRingInner),

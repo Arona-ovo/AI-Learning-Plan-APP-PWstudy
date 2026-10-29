@@ -1837,28 +1837,39 @@ export default {
      CSS transform/opacity 动画播放时浏览器本来就会临时提层，常驻是负优化。 */
 }
 .ring-inner {
+  position: relative;           /* 给 .ring-inner::after 的红色叠层做定位 */
   width: 420rpx; height: 420rpx;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.82);
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
-  -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   border: 2rpx solid rgba(255, 255, 255, 0.7);
   border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.7));
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   box-shadow: 0 16rpx 48rpx rgba(23, 32, 26, 0.1);
   box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
-  /* ★ 换肤走 transition，**不要用 keyframes**（2026-10-30 真机录屏实锤）：
-     fr-skin-back 的 @keyframes 里含 var()，华为系 WebView 会整条丢弃 ——
-     摘 fr-intro 的那一帧圆还是 4.5 倍盖满全屏，皮肤从粉**硬切**成白玻璃 =
-     整屏白闪一下（用户说的"两个圆交替时闪一下"就是这么来的）。
-     ⚠️ 但**不要过渡 box-shadow**（2026-10-30 第二轮实锤）：阴影带 48rpx 模糊，
-     在 4.5 倍的大圆上每帧重绘一次极贵，华为系直接掉帧（用户反馈"过渡完到
-     显示时间这段掉帧"）。阴影改成落位那一下当帧切换（一次重绘就完）。
-     而且收缩期间皮肤是**静态**的（见 .fr-hide .ring-inner），这条 transition
-     实际只会在圆已落到 1 倍、fr-hide 摘掉时跑一次 —— 面积小、几乎无感。 */
-  transition: background 200ms ease, border-color 200ms ease;
+  /* ★ 2026-10-30 去掉 backdrop-filter（帧率）：圈内底色本来就是 82% 不透明的表面色，
+     身后又是纯色页面底 —— 毛玻璃几乎看不出差别，却要在落位那一刻新建一个模糊
+     合成层，"到显示数字卡一下"的隐性开销就是它。去掉后观感基本不变。 */
 }
+/* 红色皮肤做成**独立叠层**：收缩时只淡出它的 opacity（GPU 合成、零重绘）——
+   红→白在收缩过程中就渐完了，落位时已经是白玻璃，用户说的"先红再变白"那一下消失。
+   ⚠️ 不要再把红色写回 .ring-inner 的 background：那是 4.5 倍盖满整屏的元素，
+     每帧重绘 background 必掉帧（2026-10-30 实测）。 */
+.ring-inner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.28);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+  opacity: 0;
+  transition: opacity 260ms ease;
+  pointer-events: none;
+}
+/* intro 期红色叠层可见；摘 fr-intro（收缩开始）后 opacity 1→0 与 transform 同步淡出 */
+.fr-intro .ring-inner::after { opacity: 1; }
 /* ★ 圆圈衔接转场（2026-10-25，与首页 .ring-launch 是一对）：
    从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，缩回就位。
    ★ 收缩由 CSS animation **自播放**（10-27 改，真机视频实锤的修复）：
@@ -1889,23 +1900,16 @@ export default {
   to   { transform: scale(1); }
 }
 .fr-intro .ring-inner {
-  background: rgba(228, 23, 61, 0.1);
-  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
-  border-color: rgba(228, 23, 61, 0.28);
-  border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+  /* 红色皮肤已移到 ::after 叠层（见上），这里**不再改底色** —— 收缩期间底色
+     零变化，只淡出叠层 opacity，零重绘（2026-10-30：红→白在收缩里渐完，且不掉帧）。 */
   box-shadow: none;
-  /* ★ intro 态把毛玻璃关掉：backdrop-filter 是"每一帧把身后整个屏幕重新
-     模糊一遍"，intro 态圆盖住全屏 = 每帧全屏重模糊 —— 安卓上这一条就能把
-     收缩动画拖成幻灯片。反正 intro 态身后是纯色淡底，关掉看不出差别；
-     落位摘 class 后玻璃回来（皮肤动画的 to 帧就是玻璃值，见下）。 */
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  /* 【2026-10-30 删掉 animation: fr-skin-back】它是"粉→玻璃"的换肤 keyframes，
-     里面全是 var()，华为系 WebView 会整条丢弃 —— 摘 fr-intro 那一帧圆还是 4.5 倍
-     盖满全屏，皮肤从粉**硬切**成白玻璃 = 整屏白闪（用户说的"交替时闪一下"）。
-     换肤改由 .ring-inner 基类的 transition 承担（普通声明华为认 var()），
-     摘 class 时与收缩同步渐变 260ms。下面的 @keyframes fr-skin-back 仅留作参照，
-     别再挂到元素上（挂了就等于把白闪请回来）。 */
+  /* 历史：这里曾经挂 animation: fr-skin-back（粉→玻璃换肤）。它的 @keyframes 里
+     全是 var()，华为系 WebView 会整条丢弃 → 摘 fr-intro 那帧圆还是 4.5 倍，
+     皮肤从粉硬切成白玻璃 = 整屏白闪。所以换肤绝不能再用 keyframes，
+     也不要在 4.5 倍大圆上改背景色（每帧重绘整屏 = 掉帧）。下面的
+     @keyframes fr-skin-back 仅留作参照，别再挂到元素上。 */
 }
 @keyframes fr-skin-back {
   from {
@@ -1935,23 +1939,11 @@ export default {
    中间约 0.3 秒像空白页）。 */
 .fr-hide .ring-inner .time,
 .fr-hide .ring-inner .task-title { opacity: 0; }
-/* ★ 收缩全程保持**静态**粉色皮肤（2026-10-30 第二轮真机实锤：掉帧）：
-   fr-intro 先摘、fr-hide 后摘，两次之间皮肤必须一模一样 —— 这里与
-   .fr-intro .ring-inner 同值，于是摘 fr-intro 时皮肤**零变化、零重绘**，
-   收缩只剩 transform（GPU 合成）；等圆落到 1 倍、fr-hide 摘掉，才在**小圆**上
-   过渡回玻璃（面积小、便宜）。之前皮肤跟着 4.5 倍大圆一起过渡 background/
-   box-shadow，每帧重绘整屏，就是"过渡完到显示时间这段掉帧"的来源。
-   顺带：backdrop-filter 也在 fr-hide 期间保持关 —— 摘 fr-intro 那一帧圆还是
-   4.5 倍，毛玻璃一上来就是"整屏突然模糊"（又是一次闪）。 */
-.fr-hide .ring-inner {
-  background: rgba(228, 23, 61, 0.1);
-  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
-  border-color: rgba(228, 23, 61, 0.28);
-  border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
+/* 说明（2026-10-30 第三轮）：这里原来还写着一份"静态粉色皮肤"（与 .fr-intro 同值），
+   目的是让摘 fr-intro 时皮肤零变化、零重绘。现在红色改到 .ring-inner::after 叠层后，
+   底色本来就是固定的玻璃色、全程不变，不再需要这份覆盖；红色由叠层 opacity 在收缩
+   过程中淡出。大圆上（4.5 倍盖满屏）**只允许动 transform / opacity**，别再改
+   background / box-shadow —— 那是"掉帧"的唯一来源。 */
 @keyframes fr-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
