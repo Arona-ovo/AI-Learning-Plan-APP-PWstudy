@@ -952,6 +952,12 @@ export default {
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '专注': 'Focus',
   '专注已满': 'Pomos done',
+  // 逐日铺满（plan-agent 的 ensureFullCover 补出来的复习日）
+  '补位复习': 'Filler review',
+  '展开剩余 {n} 条': 'Show {n} more',
+  '从第 1 天到第 {n} 天，每天都有安排': 'Every day from day 1 to day {n} has something planned',
+  '，其中 {n} 天是 AI 没排到、按遗忘曲线补的复习 / 自测':
+    ' — {n} of those days are review / self-test added on a forgetting-curve schedule because the plan left them empty',
   '今日紧迫程度': "Today's urgency",
   '今日任务': "Today's tasks",
   '今日已专注 {n} 分钟': '{n} min focused today',

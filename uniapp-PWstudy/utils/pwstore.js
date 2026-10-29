@@ -145,19 +145,26 @@ export function addGoal(input, plan) {
   const gid = uid();
   const milestones = (plan.milestones || []).map(m => ({ id: uid(), title: m.title, days: m.days || 0 }));
   const msIds = milestones.map(m => m.id);
-  const tasks = (plan.tasks || []).map(t => ({
-    id: uid(),
-    msId: msIds[Math.max(0, Math.min(msIds.length - 1, (t.ms || 1) - 1))] || '',
-    title: t.title,
-    day: t.day || 1,
-    pomos: t.pomos || 1,
-    donePomos: 0,
-    tags: t.tags || [],
-    res: (t.res && t.res.length) ? t.res : [],   // AI 附的学习资料建议（可选增强，可为空）
-    slot: t.slot || '',                          // 执行时段 am|noon|pm（关掉时段安排时为空串）
-    status: 'todo',
-    createdAt: Date.now()
-  }));
+  const tasks = (plan.tasks || []).map(t => {
+    const row = {
+      id: uid(),
+      msId: msIds[Math.max(0, Math.min(msIds.length - 1, (t.ms || 1) - 1))] || '',
+      title: t.title,
+      day: t.day || 1,
+      pomos: t.pomos || 1,
+      donePomos: 0,
+      tags: t.tags || [],
+      res: (t.res && t.res.length) ? t.res : [],   // AI 附的学习资料建议（可选增强，可为空）
+      slot: t.slot || '',                          // 执行时段 am|noon|pm（关掉时段安排时为空串）
+      status: 'todo',
+      createdAt: Date.now()
+    };
+    // 补位任务（模型没排到、按遗忘曲线补的复习）要留个标记：
+    // 详情页据此打「补位复习」，重排/导出也分得清哪条是 AI 排的、哪条是兜底补的。
+    // 只在有值时写，别给每条任务都塞一个空字段。
+    if (t.auto) row.auto = t.auto;
+    return row;
+  });
   const goal = {
     id: gid,
     title: input.title,

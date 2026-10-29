@@ -152,7 +152,14 @@ const rawPlan = {
 const p1 = agent.normalizePlan(JSON.parse(JSON.stringify(rawPlan)), {
   deadline: pw.addDays(pw.today(), 30), slotOn: true, slots: ['am', 'noon', 'pm']
 });
-eq(p1.tasks.map(t => t.slot), ['pm', 'am', 'noon', 'pm'], '模型值认得出来，漏给的轮转补齐');
+// ⚠️ 2026-10-29 起排期逐日铺满：空白天会补 auto='review' 的复习任务，
+//    断言"模型排的这几条"时先按 auto 过滤，别被补位任务搅乱顺序与条数。
+const p1Real = p1.tasks.filter(t => t.auto !== 'review');
+// 前两条模型自己给了时段（晚上 / morning）；后两条漏给 / 乱写，由轮转补齐 ——
+// 轮转的落点取决于它在整个任务数组里的位次，补位任务加进来后会变，
+// 所以只断言"认得出来"和"补齐后是合法时段"，不钉死具体值。
+eq(p1Real.slice(0, 2).map(t => t.slot), ['pm', 'am'], '模型给的时段认得出来（晚上→pm、morning→am）');
+assert(p1Real.slice(2).every(t => timeslot.normalize(t.slot)), '漏给 / 乱写的时段被轮转补齐');
 assert(p1.tasks.every(t => timeslot.normalize(t.slot)), '每个任务都有时段（结果页才分得出三组）');
 
 // 只勾了「晚上」→ 不许排到别的时段
@@ -166,7 +173,7 @@ const p3 = agent.normalizePlan(JSON.parse(JSON.stringify(rawPlan)), {
   deadline: pw.addDays(pw.today(), 30), slotOn: false, slots: ['am']
 });
 assert(p3.tasks.every(t => !('slot' in t)), '关掉时段安排：任务身上根本没有 slot 字段（纯原模式）');
-eq(p3.tasks.length, 4, '关掉开关不影响任务条数与提交逻辑');
+eq(p3.tasks.filter(t => t.auto !== 'review').length, 4, '关掉开关不影响任务条数与提交逻辑');
 
 // 本地兜底（没接 AI）也要有时段
 const lp = agent.localPlan({ title: '考研英语', deadline: pw.addDays(pw.today(), 60), dailyMin: 60, slotOn: true, slots: ['am', 'noon', 'pm'] });

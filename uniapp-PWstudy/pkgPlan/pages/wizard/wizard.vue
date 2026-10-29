@@ -257,6 +257,10 @@
         </view>
         <view class="p-title">{{ draft.title }}</view>
         <view class="p-meta">截止 {{ draft.deadline }} · 每天 {{ draft.dailyMin }} 分钟 · 共 {{ plan.tasks.length }} 个任务</view>
+        <!-- 铺满全程：从第 1 天到截止日每天都有安排。
+             其中"补位"的天数要说清楚 —— 那是模型没排到、由我们按遗忘曲线补的复习/自测，
+             不是 AI 排出来的新内容。用户有权知道自己买的是哪种排期。 -->
+        <view v-if="coverText" class="p-cover">{{ coverText }}</view>
         <view v-if="capText" class="p-cap" :class="{ 'p-cap-warn': capOver }">{{ capText }}</view>
         <view v-if="plan.strategy" class="p-strategy">{{ plan.strategy }}</view>
         <view v-if="plan.risks && plan.risks.length" class="p-risks">
@@ -294,10 +298,13 @@
                 <view class="pv-sub">
                   第 {{ t.day }} 天开始 · {{ t.pomos }} 段专注
                   <text v-if="t.light" class="pv-light">{{ t.light }}·已减量</text>
+                  <text v-if="t.auto" class="pv-auto">{{ $t('补位复习') }}</text>
                 </view>
               </view>
             </view>
           </view>
+          <!-- 逐日铺满后长目标一段能有上百条：剩下的按需展开，不一次铺完 -->
+          <view v-if="group.hidden" class="pv-more" @tap="showMore(gi)">{{ $t('展开剩余 {n} 条', { n: group.hidden }) }}</view>
         </view>
       </view>
 
@@ -341,6 +348,10 @@ import { t } from '../../../utils/i18n.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
+// 阶段卡一次最多铺多少条。逐日铺满后一个阶段能有上百条任务，
+// 全铺出来要滑很久 —— 先给这么多，其余点「展开剩余 N 条」。
+const GROUP_CAP = 20;
+
 export default {
   components: { FloatNavbar, AppDialog },
   data() {
@@ -374,6 +385,7 @@ export default {
       plan: null,
       picked: {},
       fold: {},          // 结果页阶段卡的折叠状态（见 folded()：默认只展开第一个阶段）
+      more: {},          // 阶段内超出前 20 条的部分：点「展开剩余 N 条」才渲染
       error: '',
       aiReady: true,
       // 统一弹窗（确认框）：页面里"要先问一句"的动作都走它，不再调系统 showModal
@@ -422,16 +434,33 @@ export default {
         while (out.length <= mi) out.push({ title: this.plan.milestones[out.length] ? this.plan.milestones[out.length].title : '阶段', raw: [] })
         out[mi].raw.push(Object.assign({ idx }, t))
       })
-      return out.map(g => ({
-        title: g.title,
-        // 折叠头上的摘要：几个任务、从第几天到第几天
-        count: g.raw.length,
-        from: g.raw.reduce((a, t) => Math.min(a, t.day || 1), 9999),
-        to: g.raw.reduce((a, t) => Math.max(a, t.day || 1), 0),
-        groups: this.slotOn
-          ? timeslot.groupOf(g.raw)
-          : [{ key: '', name: '', hint: '', tasks: g.raw }]
-      }))
+      return out.map((g, gi) => {
+        const raw = this.slotOn ? timeslot.groupOf(g.raw) : [{ key: '', name: '', hint: '', tasks: g.raw }]
+        // 逐日铺满后一个阶段可能有上百条 —— 一次铺出来要滑很久。
+        // 先给前 GROUP_CAP 条，其余点「展开剩余 N 条」再放出来。
+        let groups = raw
+        let hidden = 0
+        if (!this.more[gi] && g.raw.length > GROUP_CAP) {
+          let left = GROUP_CAP
+          groups = []
+          raw.forEach(sg => {
+            if (left <= 0) return
+            const take = Math.min(left, sg.tasks.length)
+            groups.push(Object.assign({}, sg, { tasks: sg.tasks.slice(0, take) }))
+            left -= take
+          })
+          hidden = g.raw.length - (GROUP_CAP - left)
+        }
+        return {
+          title: g.title,
+          // 折叠头上的摘要：几个任务、从第几天到第几天
+          count: g.raw.length,
+          from: g.raw.reduce((a, t) => Math.min(a, t.day || 1), 9999),
+          to: g.raw.reduce((a, t) => Math.max(a, t.day || 1), 0),
+          groups,
+          hidden
+        }
+      })
     },
     pickedCount() {
       return Object.keys(this.picked).filter(k => this.picked[k]).length
@@ -454,6 +483,17 @@ export default {
         }
       }
       return { text: '平均每天约 ' + perDay + ' 段专注，在你近期的实际容量（' + cap + ' 个/天）之内。', over: false }
+    },
+    /**
+     * 铺满全程的说明：从今天到截止日一共多少天，每天都有安排；
+     * 其中多少天是"补位"（模型没排到的日子，由 ensureFullCover 按间隔复习补齐）。
+     */
+    coverText() {
+      const p = this.plan
+      if (!p || !p.totalDays) return ''
+      const base = t('从第 1 天到第 {n} 天，每天都有安排', { n: p.totalDays })
+      if (!p.filled) return base
+      return base + t('，其中 {n} 天是 AI 没排到、按遗忘曲线补的复习 / 自测', { n: p.filled })
     },
     capText() { return this.capInfo.text },
     capOver() { return this.capInfo.over }
@@ -657,6 +697,7 @@ export default {
         if (this.plan !== s.plan) {
           this.picked = {}
           this.fold = {}
+          this.more = {}
         }
         this.plan = s.plan
         if (!Object.keys(this.picked).length) {
@@ -807,6 +848,10 @@ export default {
     },
     toggleFold(gi) {
       this.fold[gi] = !this.folded(gi)
+    },
+    /** 阶段内的「展开剩余 N 条」：逐日铺满后一段能有上百条，按需放出来 */
+    showMore(gi) {
+      this.more[gi] = true
     },
     commit() {
       if (!this.plan) return
@@ -1077,6 +1122,11 @@ export default {
 .p-cap-warn { color: #b26400; }
 .p-title { font-size: 32rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .p-meta { margin-top: 12rpx; font-size: 23rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
+/* 铺满全程的说明：告诉用户这 N 天每天都有安排，其中多少是补的复习 */
+.p-cover {
+  margin-top: 10rpx; font-size: 23rpx; line-height: 1.65;
+  color: #5a6560; color: var(--ink-2, #5a6560);
+}
 .p-strategy {
   margin-top: 18rpx; padding: 18rpx 22rpx;
   border-radius: 16rpx;
@@ -1140,6 +1190,16 @@ export default {
 .pv-light {
   margin-left: 10rpx; padding: 2rpx 10rpx; border-radius: 999rpx;
   background: rgba(247, 144, 9, 0.16); color: #b25e00;
+}
+/* 补位复习：模型没排到的日子，我们按遗忘曲线补的 —— 标出来，别让用户以为是 AI 排的新内容 */
+.pv-auto {
+  margin-left: 10rpx; padding: 2rpx 10rpx; border-radius: 999rpx;
+  background: rgba(var(--neutral-rgb, 152, 161, 155), 0.16);
+  color: #5a6560; color: var(--ink-2, #5a6560);
+}
+.pv-more {
+  margin: 6rpx 0 4rpx; padding: 16rpx 0; text-align: center;
+  font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560);
 }
 
 .pv-actions { display: flex; flex-direction: column; margin: 10rpx 0 30rpx; }

@@ -77,13 +77,17 @@ function ok(cond, msg) {
   // 真实链路：wizard 拿到的是 planGoal() 的归一化产物，addGoal 只落库
   const plan = planAgent.normalizePlan(rawPlan, input);
   const g = pw.addGoal(input, plan);
-  ok(g.tasks.length === 2, '空标题任务被过滤（2 个任务）');
-  ok(g.tasks[1].msId === g.milestones[1].id, '越界 milestone 夹到阶段数上限（归入第 2 阶段）');
+  // ⚠️ 2026-10-29 起：排期会逐日铺满（空白天补复习任务，auto='review'）。
+  //    "AI 真排了什么"要看 auto 之外的那些，直接数 tasks.length 已经没意义了。
+  const realG = g.tasks.filter(t => t.auto !== 'review');
+  ok(realG.length === 2, '空标题任务被过滤（真实任务 2 个，其余是补位复习）');
+  ok(realG[1].msId === g.milestones[1].id, '越界 milestone 夹到阶段数上限（归入第 2 阶段）');
   ok(pw.activeGoals().length === 1, 'activeGoals 1 个');
   const q = pw.todayQueue(10);
   ok(q.length === 1 && q[0].task.day === 1, '今日队列只含 day<=elapsed（第 1 天）');
-  const prog = pw.goalProgress(g);
-  ok(prog.total === 4 && prog.done === 0, 'goalProgress 总专注 = 4');
+  // 总量：真实任务的专注数之和仍是 4；补位任务是按天加的复习，不再算进这条断言
+  ok(realG.reduce((a, t) => a + t.pomos, 0) === 4, 'goalProgress 口径的真实任务专注 = 4');
+  ok(plan.filled > 0 && plan.covered === 2, 'AI 只排了 2 天 → 其余天数由补位铺满（filled=' + plan.filled + '）');
 
   console.log('\n[3] 专注状态机');
   // 0.02 分钟不足 1 分钟 → 自然结束但不落账（设计行为：太短的专注不算数）
@@ -272,9 +276,12 @@ function ok(cond, msg) {
     ]
   }, { title: 't', deadline: hol.addDays('2026-09-28', 40), dailyMin: 60, startDate: '2026-09-28' });
   unpinToday();
-  ok(hp.tasks[0].pomos === 2 && hp.tasks[0].light === '国庆', '撞假期的任务自动减半');
-  ok(hp.tasks[1].pomos === 4 && !hp.tasks[1].light, '普通工作日任务不动');
-  ok(hp.tasks[2].pomos === 3, '周末任务打八折（4 → 3）');
+  // 同上：逐日铺满后 tasks 里混着补位复习，按标题找那三条真任务
+  const hpReal = hp.tasks.filter(t => t.auto !== 'review');
+  const hpTask = title => hpReal.filter(t => t.title === title)[0];
+  ok(hpTask('假期里的任务').pomos === 2 && hpTask('假期里的任务').light === '国庆', '撞假期的任务自动减半');
+  ok(hpTask('普通工作日任务').pomos === 4 && !hpTask('普通工作日任务').light, '普通工作日任务不动');
+  ok(hpTask('周末任务').pomos === 3, '周末任务打八折（4 → 3）');
   ok(hp.risks.some(r => /假期/.test(r)), '风险里说明了自动减量');
 
   console.log('\n[10] 统计口径与出厂开关');
@@ -1019,6 +1026,62 @@ function ok(cond, msg) {
     const en = require('fs').readFileSync(path.join(ROOT, 'utils', 'i18n-en.js'), 'utf8');
     ok(/'专注已满':/.test(en), '「专注已满」有英文译文');
   }
+
+  console.log('\n[24] 从今天到截止日逐日铺满（不许留空）');
+  // 用户口径："AI 规划要规划从当前日期到给定日期的所有安排，不能留空。"
+  // 模型输出有长度上限，几十条就封顶 —— 137 天的目标全交给它必然中途断掉，
+  // 所以 normalizePlan 里有一道确定性的 ensureFullCover 兜底。
+  const covInput = { title: '137 天目标', deadline: pw.addDays(pw.today(), 137), dailyMin: 90 };
+  const covRaw = {
+    strategy: 's',
+    milestones: [{ title: 'A', days: 137 }],
+    // 模拟"模型只排了一半就收工"：40 条、每两天一条，直接跑到第 80 天
+    tasks: Array.from({ length: 40 }, (_, i) => ({ title: '第' + (i + 1) + '节内容', ms: 1, day: (i + 1) * 2, pomos: 2 }))
+  };
+  const cov = planAgent.normalizePlan(covRaw, covInput);
+  const dayCount = {};
+  cov.tasks.forEach(t => { dayCount[t.day] = (dayCount[t.day] || 0) + 1; });
+  const emptyDays = [];
+  for (let d = 1; d <= cov.totalDays; d++) if (!dayCount[d]) emptyDays.push(d);
+  ok(emptyDays.length === 0, '第 1 天到截止日每天都有任务（空白天 ' + emptyDays.length + ' 个）');
+  ok(cov.totalDays === 137, '天数按截止日算（137 天）');
+  ok(cov.covered === 40, 'covered 只算 AI 真排到的天数（40）');
+  ok(cov.filled === 97 && cov.filled + cov.covered === 137, '缺的 97 天由补位任务补齐，且正好补满');
+  ok(cov.tasks.every(t => t.day >= 1 && t.day <= cov.totalDays), '补位任务不会越出期限');
+  ok(cov.tasks.every(t => t.pomos >= 1 && t.pomos <= 8), '补位任务的专注数也在 1-8');
+  // 补位内容要有意义：必须是复习 / 自测 / 错题整理这类，且引用真任务的标题
+  const fillers = cov.tasks.filter(t => t.auto === 'review');
+  ok(fillers.length === cov.filled, '补位任务都带 auto 标记（页面据此打「补位复习」）');
+  ok(fillers.some(t => /滚动复习|自测|错题整理|重做不熟/.test(t.title)), '补的是复习/自测，不是"自由学习"');
+  ok(fillers.some(t => t.title.indexOf('第1节内容') >= 0 || t.title.indexOf('第2节内容') >= 0),
+    '补位内容引用了真任务的标题（有据可查，不是凭空编）');
+  ok(/每天都有安排/.test(cov.risks.join(' ')), 'risks 里明说每天都有安排');
+  // 第 1 天必须有东西：否则首页"今日任务"是空的，用户第一眼就觉得没排
+  ok(!!dayCount[1], '第 1 天一定有安排');
+  // 间隔复习：同一条内容不该只出现一次（那是"学完就忘"的排法）
+  const unit1 = cov.tasks.filter(t => t.title.indexOf('第1节内容') >= 0);
+  ok(unit1.length >= 2, '同一条内容会被安排复习（间隔出现 ' + unit1.length + ' 次）');
+
+  // 短目标不画蛇添足：已经逐日排满的不该再补
+  const shortCov = planAgent.normalizePlan({
+    strategy: 's', milestones: [{ title: 'A' }],
+    tasks: [{ title: 'a', ms: 1, day: 1, pomos: 2 }, { title: 'b', ms: 1, day: 2, pomos: 2 }, { title: 'c', ms: 1, day: 3, pomos: 2 }]
+  }, { title: 'x', deadline: pw.addDays(pw.today(), 3), dailyMin: 60 });
+  ok(shortCov.filled === 0, '模型已经排满时不做补位（不做无用功）');
+  ok(shortCov.covered === shortCov.tasks.length, '没补位时 covered = 任务数');
+
+  // 本地兜底模板同样逐日铺满（没配 AI 也不能留空）
+  const lpCov = planAgent.localPlan({ title: '考研英语', deadline: pw.addDays(pw.today(), 60), dailyMin: 60 });
+  const lpDays = {};
+  lpCov.tasks.forEach(t => { lpDays[t.day] = 1; });
+  ok(Object.keys(lpDays).length === lpCov.totalDays, '本地模板也排到每天都有安排（60 天全覆盖）');
+
+  // 极端跨度：10 年目标不能把任务表撑爆
+  const huge = planAgent.normalizePlan({
+    strategy: 's', milestones: [{ title: 'A' }], tasks: [{ title: '唯一任务', ms: 1, day: 1, pomos: 2 }]
+  }, { title: 'x', deadline: pw.addDays(pw.today(), 3000), dailyMin: 60 });
+  ok(huge.tasks.length <= 600, '超长目标有总量上限（' + huge.tasks.length + ' 条 <= 600）');
+  ok(/跨度太长/.test(huge.risks.join(' ')), '没铺完的部分在 risks 里明说，不悄悄留白');
 
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);

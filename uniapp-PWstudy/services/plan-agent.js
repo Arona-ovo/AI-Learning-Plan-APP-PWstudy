@@ -120,6 +120,123 @@ function stretchToCover(tasks, totalDays) {
 }
 
 /**
+ * 逐日铺满：从第 1 天到截止日，中间不许出现"这一天什么都没排"的空白。
+ *
+ * 为什么光有 stretchToCover 不够：等比拉伸只是把已有的几条任务摊开。
+ * 而模型的输出有长度上限 —— 几十条基本封顶，137 天的目标拉开之后还是"学一天歇六天"，
+ * 用户看到的正是"后面大半本是空的"。所以空白天必须确定性补齐。
+ *
+ * 补什么是有讲究的，不能拿"自由学习"糊过去：空白天插的是**滚动复习 / 重做不熟的 /
+ * 自测 / 错题整理**，内容引用它前面最近的一条真任务 —— 遗忘曲线本来就该这样排
+ * （第 1/2/4/7 天反复出现），补上去的不是水分，是原本就该有却被模型漏掉的复习排期。
+ *
+ * @return {{added:number, capped:boolean}} 补了几条 / 有没有因总量上限没补完
+ */
+export function ensureFullCover(tasks, totalDays) {
+  const have = {};
+  tasks.forEach(t => { have[t.day] = 1; });
+  // 素材：只引用真人排出来的任务。带 auto 标记的补位任务不参与再生成 ——
+  // 否则会出现"复习：滚动复习：xxx"这种俄罗斯套娃
+  const src = tasks.filter(t => t.auto !== 'review').sort((a, b) => a.day - b.day);
+  if (!src.length || totalDays < 1) return { added: 0, capped: false };
+
+  // ---- 第 1 遍：按间隔安排在每条真任务之后 —— 这才是复习该有的样子 ----
+  // 只用轮转的话（每个空天复习下一条）会把同一内容拉到几十天后才再见一次，
+  // 那不叫间隔重复，那叫失忆后重学。REVIEW_GAPS 与遗忘曲线同形：先密后疏。
+  const REVIEW_GAPS = [1, 3, 7, 15, 26];
+  const MAX_EACH = 4;                      // 同一条内容最多复习 4 次，多了是水
+  const perSrc = {};
+  let seq = 0;                             // 说法轮转：同一个内容复习多次时换个讲法
+  const add = [];
+
+  /** 生成一条复习任务。pre = 排在第一条真任务之前（还没东西可复习 → 做开工准备） */
+  function mkReview(s, d, pre) {
+    const base = shortTitle(s.title, 34);
+    const forms = pre ? PREP_FORMS : REVIEW_FORMS;
+    return {
+      title: clampStr(forms[seq++ % forms.length](base), 56),
+      ms: clampInt(s.ms, 1, 999, 1),
+      day: d,
+      pomos: Math.max(1, Math.min(2, Math.round((Number(s.pomos) || 1) / 2))),
+      tags: ['复习'],
+      res: (s.res && s.res.length) ? s.res.slice(0, 2) : undefined,
+      auto: 'review'                                        // 标出来：UI 与 AI 都知道这是补位
+    };
+  }
+
+  for (let si = 0; si < src.length; si++) {
+    const s = src[si];
+    for (let k = 0; k < REVIEW_GAPS.length; k++) {
+      if ((perSrc[s.title] || 0) >= MAX_EACH) break;
+      const target = s.day + REVIEW_GAPS[k];
+      if (target > totalDays) break;
+      // 目标那天已经被别的任务占了 → 往后挪两格找最近的空位；找不到就放弃这条间隔
+      let hit = 0;
+      for (let off = 0; off <= 2 && !hit; off++) {
+        const d = target + off;
+        if (d <= totalDays && !have[d]) hit = d;
+      }
+      if (!hit) continue;
+      have[hit] = 1;
+      add.push(mkReview(s, hit, false));
+      perSrc[s.title] = (perSrc[s.title] || 0) + 1;
+    }
+  }
+  // ---- 第 2 遍：还剩空天（模型排得太稀，间隔复习也填不满）→ 复习最近学过的那条 ----
+  const src2 = src;
+  for (let d = 1; d <= totalDays; d++) {
+    if (have[d]) continue;
+    if (tasks.length + add.length >= MAX_PLAN_TASKS) {
+      tasks.push.apply(tasks, add);
+      return { added: add.length, capped: true };
+    }
+    let s = null;
+    for (let i = 0; i < src2.length; i++) {
+      if (src2[i].day <= d) s = src2[i]; else break;         // src 已按 day 升序
+    }
+    if (!s) s = src2[0];                                     // 还在第一条任务之前
+    have[d] = 1;
+    add.push(mkReview(s, d, s.day > d));
+  }
+  tasks.push.apply(tasks, add);
+  return { added: add.length, capped: false };
+}
+
+// 补位任务的几种说法（轮着用，避免连着几天都叫"滚动复习：xxx"）
+const REVIEW_FORMS = [
+  t => '滚动复习：' + t,
+  t => '重做不熟的部分：' + t,
+  t => '自测：' + t,
+  t => '错题整理：' + t
+];
+// 排在第一条任务之前的日子：还没东西可复习，做的是开工前的准备
+const PREP_FORMS = [
+  t => '开工准备：收集资料，把「' + t + '」要用的东西备齐',
+  t => '定节奏：排出每天固定的学习时段，贴一张每周清单',
+  t => '列范围：圈出这次要覆盖的内容清单，标出最难的那部分',
+  t => '摸底：做一份摸底小测，看看起点在哪儿'
+];
+// 单份计划的任务总数上限。目标设十年（3650 天）时不铺到失控，
+// 超出部分在 risks 里明说，而不是悄悄留白。
+const MAX_PLAN_TASKS = 600;
+
+/** 素材标题去噪：去掉模板加的【阶段】前缀，超长截断 */
+function shortTitle(s, cap) {
+  const t = String(s == null ? '' : s).trim().replace(/^【[^】]*】/, '');
+  return t.length > cap ? t.slice(0, cap - 1) + '…' : t;
+}
+
+/** 这份排期实际覆盖了多少天（任务落在第几天，去重计数） */
+export function coveredDays(tasks, totalDays) {
+  const have = {};
+  tasks.forEach(t => {
+    if (t.auto === 'review') return;                 // 补位的不算数 —— 那不是模型排出来的
+    if (t.day >= 1 && t.day <= totalDays) have[t.day] = 1;
+  });
+  return Object.keys(have).length;
+}
+
+/**
  * 校验规划结果。
  * input: { title, deadline('YYYY-MM-DD'), dailyMin }
  * 返回 { strategy, risks, milestones:[{title,days}], tasks:[{title,ms,day,pomos,tags}] }
@@ -182,7 +299,17 @@ export function normalizePlan(raw, input) {
   if (fromDay) {
     risks.push('原计划只排到第 ' + fromDay + ' 天，已等比拉伸铺满整个 ' + totalDays + ' 天（截止 ' + input.deadline + '）');
   }
-  // 模型漏给 slot 是常态（任务一多就漏），这里按可用时段轮转补齐：
+  // 逐日铺满：拉伸只保证"最后一件事落在截止日"，中间的空白天还得补。
+  // 模型输出有长度上限，几十条就封顶 —— 不补的话长目标必然是学一天歇好几天。
+  // 必须在 timeslot.spread 之前补：补出来的日子也要分到早/中/晚。
+  const cover = ensureFullCover(tasks, totalDays);
+  if (cover.added) {
+    tasks.sort((a, b) => a.day - b.day);
+    risks.push('从今天到截止日共 ' + totalDays + ' 天，已排到每天都有安排' +
+      (cover.capped ? '（目标跨度太长，超出 ' + MAX_PLAN_TASKS + ' 条的部分没再往下排）' : '') +
+      '；其中 ' + cover.added + ' 天是补上的复习/自测，跟不上就在收工填报里说出来，别硬扛');
+  }
+   // 模型漏给 slot 是常态（任务一多就漏），这里按可用时段轮转补齐：
   // 结果页要按早/中/晚三组排布，缺一组就成了两组的怪样子
   if (input.slotOn) timeslot.spread(tasks, input.slots);
 
@@ -205,15 +332,22 @@ export function normalizePlan(raw, input) {
   if (cut) {
     risks.push('已按假期/周末自动削减 ' + cut + ' 个任务的工作量（假期半量、周末八折）');
   }
-  return { strategy, risks, milestones, tasks, totalDays };
+  // covered = 模型自己排到了多少天；filled = 我们补了几条。
+  // 页面拿它说清"每天都有安排"是排出来的还是补出来的 —— AI 排得稀，用户有权知道。
+  return {
+    strategy, risks, milestones, tasks, totalDays,
+    covered: coveredDays(tasks, totalDays),
+    filled: cover.added
+  };
 }
 
 function planSystemPrompt(input) {
   const totalDays = Math.max(3, Math.ceil((new Date(input.deadline) - new Date()) / 86400000) || 90);
   const dailyMin = input.dailyMin || 60;
-  // 任务数按目标长度给：100 天的目标还按"6-30 个"排，day 自然铺不满，
-  // 模型排到 80 天就没东西可排了 —— 上限跟着天数走
-  const taskCap = Math.min(150, Math.max(15, Math.round(totalDays / 2)));
+  // 任务数跟着天数走（长目标还按"6-30 个"排，中间必然整段空白）。
+  // 上限压在 120：再多模型自己会截断成半个 JSON，反而连原本能给的都拿不到 ——
+  // 剩下的空白由 ensureFullCover 确定性补齐，比赌模型输出更长稳。
+  const taskCap = Math.min(120, Math.max(15, Math.round(totalDays * 0.9)));
   // 可选增强（时段 / 资料）按需续号：两条都开时不能都叫"第 9 条"
   const extras = [];
   if (input.slotOn) {
@@ -243,12 +377,15 @@ function planSystemPrompt(input) {
     // 按时段排会把长目标切碎、排不满，AI 也就"规划不了那么多"
     '2. **任务以「天」为单位**：day = 建议第几天开始（1 = 今天）。早/中/晚只是天内的时段，' +
       '不是独立的日程单位 —— 一天里可以排多条任务（不同时段或不同内容），不要按"每天早/中/晚各一条"去铺；',
-    // 铺满全程是硬要求：不能 100 天的目标只排 80 天（模型漏排时 normalizePlan 会等比拉伸兜底，
-    // 但拉伸只是保底，排期结构还是要模型按全程给）
-    '3. **必须铺满整个时间范围**：day 在 1-' + totalDays + ' 之间且按时间排序，' +
-      '最后一条任务要落在第 ' + Math.max(1, totalDays - 2) + '-' + totalDays + ' 天附近 —— ' +
-      '不许提前收工（' + totalDays + ' 天的目标排到一半就停 = 排期不完整）。' +
-      '任务总数按长度给：建议 ' + taskCap + ' 个左右，长目标靠间隔复习 / 阶段自测 / 分批推进把中间的天填上；',
+    // 铺满全程是硬要求：不许 100 天的目标只排 60 天。**逐日**铺满，不是"最后一条落在截止日"
+    // （模型输出有长度上限，排不满是常态 → normalizePlan 会补 AND 会在差太多时回喂重排）
+    '3. **一天不落地排满第 1-' + totalDays + ' 天**：day 从 1 递增到 ' + totalDays + '，' +
+      '**中间不许出现任何一天空着**。排之前先算一遍：任务数明显少于天数，中间一定留白了。' +
+      '每天至少 1 条任务；当天没有新内容可排，就排复习 / 自测 / 错题整理 / 重做不熟的部分' +
+      '（背诵记忆类尤其必须安排复习，否则等于白学），不要因为"这天没啥好排"就跳过它；' +
+      '同一天排 2-3 条也没关系（比如"上午新内容 + 晚上复习"）。' +
+      '最后一条要落在第 ' + Math.max(1, totalDays - 1) + '-' + totalDays + ' 天，不许提前收工。' +
+      '任务总数参考 ' + taskCap + ' 个：长目标靠间隔复习 / 阶段自测 / 分批推进把中间的天填上；',
     '4. 每段专注 25 分钟。',
     // 排期按"能力"而不是"意愿"：完不成的计划从第一天起就是假的，后面全部跟着错位
     '5. **每日任务量以下面这条画像为准**：' + pacing.promptText(dailyMin),
@@ -330,15 +467,22 @@ export function localPlan(input) {
   // 模板一天天往后推着排，四舍五入后尾巴常常差几天到不了截止日
   // （实测 100 天差 6 天、365 天差 16 天）—— 跟 AI 结果同一个口径：铺满全程
   stretchToCover(tasks, totalDays);
+  // 模板也要逐日铺满：模板一轮只有几十条任务，137 天的目标照样大部分是空白。
+  // 与 AI 结果同一个口径 —— 从今天到截止日，每天都有安排。
+  const cover = ensureFullCover(tasks, totalDays);
+  if (cover.added) tasks.sort((a, b) => a.day - b.day);
   // 模板没有时段信息，按用户勾选的可用时段轮转摊开（与 normalizePlan 同一套规则）
   if (input && input.slotOn) timeslot.spread(tasks, input.slots);
 
   return {
-    strategy: '未接入 AI，按' + totalDays + '天、每天' + dailyMin + '分钟排了一份通用计划：先摸底打基础，再系统推进，最后冲刺复盘。配好 AI 后会按你的具体情况重排。',
-    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天专注数按 ' + perDay + ' 个估算，跟不上就及时收工填报让计划重排'],
+    strategy: '未接入 AI，按' + totalDays + '天、每天' + dailyMin + '分钟排了一份通用计划：预排了阶段骨架，中间的空白天用复习与自测补齐，每天都有安排。配好 AI 后会按你的具体情况重排。',
+    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天专注数按 ' + perDay + ' 个估算，跟不上就及时收工填报让计划重排']
+      .concat(cover.added ? ['中间 ' + cover.added + ' 天是通用复习/自测，接上 AI 后会换成贴合内容的具体安排'] : []),
     milestones,
     tasks,
     totalDays,
+    covered: coveredDays(tasks, totalDays),
+    filled: cover.added,
     local: true      // 页面拿它显示"本地模板，未用 AI"
   };
 }
@@ -358,6 +502,9 @@ export async function planGoal(input) {
   ].filter(Boolean).join('\n');
 
   let lastErr = '';
+  // 见过的最优解：为了"排得更满"去重排时，不能把已经拿到手的合格结果弄丢 ——
+  // 第二轮超时的话，用户本该拿到第一轮那份，而不是一句"重试失败"。
+  let best = null;
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const messages = [{ role: 'system', content: sys }];
     if (lastErr) {
@@ -370,7 +517,16 @@ export async function planGoal(input) {
     try {
       const r = await chatCompletion(messages, { temperature: 0.4, timeout: PLAN_TIMEOUT });
       const raw = extractJSON(r.content);
-      return normalizePlan(raw, input);
+      const res = normalizePlan(raw, input);
+      if (!best || res.covered > best.covered) best = res;
+      // AI 排得太稀（连一半天数都没覆盖到）时回喂重排一轮 —— 补位任务虽能兜住不留空白，
+      // 但"大半本都是复习"不是用户要的规划。最后一轮不挑了，先给结果。
+      if (res.filled > 0 && res.covered < res.totalDays * 0.5 && round < MAX_ROUNDS - 1) {
+        lastErr = '你只排到了 ' + res.covered + '/' + res.totalDays + ' 天，中间大量日子是空的。' +
+          '请为每一天都安排任务（没新内容就排复习/自测），再从第 1 天重新输出完整 JSON。';
+        continue;
+      }
+      return res;
     } catch (e) {
       if (e instanceof LLMError) {
         // 配置中途失效（改了 Key / 关了开关）：不拦人，直接给本地模板
@@ -382,6 +538,8 @@ export async function planGoal(input) {
       }
     }
   }
+  // 全都不是"完美"的一次，但好歹有一份能用的 → 交给用户预览，别让他白等
+  if (best) return best;
   throw new Error('AI 连续 ' + MAX_ROUNDS + ' 轮都没能给出合格的规划（' + lastErr + '），请稍后再试或把目标描述得更具体一些');
 }
 
@@ -909,6 +1067,11 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
     id: t.id, title: t.title, day: t.day, pomos: t.pomos, donePomos: t.donePomos || 0,
     overdue: !!(reality && reality.overdueIds && reality.overdueIds.indexOf(t.id) >= 0)
   }));
+  // 逐日铺满后一份计划能有几百条任务 —— 全塞进 prompt 又慢又占脑子，
+  // 而重排真正要动的是"最近这段"。按第几天排序取前 120 条，够它看清节奏了。
+  const REPLAN_VIEW = 120;
+  pending.sort((a, b) => a.day - b.day);
+  const view = pending.slice(0, REPLAN_VIEW);
   const maxDefer = Math.max(0, Math.min(90, (opt && typeof opt.maxDeferDays === 'number') ? Math.floor(opt.maxDeferDays) : 30));
   const sys = [
     '你是学习规划专家。根据学习者的真实执行情况，对剩余任务提出调整建议。',
@@ -962,7 +1125,11 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
     todayBlock || '',
     // 本人最新意见 / 历史反馈 / 上次重排结果（自动重排时由 utils/harvest.js 拼好）
     extra || '',
-    '剩余任务（JSON）：' + JSON.stringify(pending)
+    '剩余任务（按第几天排序，JSON）：' + JSON.stringify(view) +
+      (pending.length > view.length
+        ? '\n（未完成任务共 ' + pending.length + ' 个，这里给的是最近的 ' + view.length + ' 个；' +
+          '你可以对这些之外的任务给建议，但优先动排在最前面的）'
+        : '')
   ].filter(Boolean).join('\n');
 
   let lastErr = '';

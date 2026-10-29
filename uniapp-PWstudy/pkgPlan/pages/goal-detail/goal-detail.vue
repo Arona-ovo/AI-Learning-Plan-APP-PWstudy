@@ -48,7 +48,7 @@
           <text class="card-more gd-stage-toggle">{{ folded(gi) ? $t('展开') : $t('收起') }}</text>
         </view>
         <view v-if="!folded(gi)">
-        <view v-for="t in group.tasks" :key="t.id" class="task" @tap="toggle(t)">
+        <view v-for="t in group.shown" :key="t.id" class="task" @tap="toggle(t)">
           <view class="tk-check" :class="{ 'tk-check-on': t.status === 'done', 'tk-check-drop': t.status === 'dropped', 'tk-check-full': fullOf(t) }">
             {{ t.status === 'done' ? '✓' : '' }}
           </view>
@@ -57,6 +57,7 @@
             <view class="tk-sub">
               第 {{ t.day }} 天开始 · {{ t.donePomos }}/{{ t.pomos }} 专注
               <text v-if="slotOf(t)" class="tk-slot">{{ slotOf(t) }}</text>
+              <text v-if="t.auto" class="tk-auto">{{ $t('补位复习') }}</text>
               <text v-if="t.status === 'dropped'" class="tk-drop">已砍掉</text>
               <text v-else-if="t.status === 'done'" class="tk-done">已完成</text>
               <!-- 专注做满还没勾：与首页同一套待勾提示（点徽标 = 勾掉，走同一条完成链）。
@@ -70,6 +71,7 @@
           <text v-if="t.status === 'todo'" class="tk-drop-btn" @tap.stop="askDrop(t)">砍掉</text>
           <text class="tk-guide" @tap.stop="openGuide(t)">要点</text>
         </view>
+        <view v-if="group.hidden" class="tk-more" @tap="showMore(gi)">{{ $t('展开剩余 {n} 条', { n: group.hidden }) }}</view>
         </view>
       </view>
 
@@ -139,6 +141,9 @@ import { t } from '../../../utils/i18n.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
+// 阶段卡一次最多铺多少条（与 wizard 结果页同一口径）
+const GROUP_CAP = 20;
+
 export default {
   components: { FloatNavbar, AppDialog },
   data() {
@@ -159,6 +164,8 @@ export default {
       // 阶段折叠：fold 里没写的阶段按"是不是当前该做的阶段"缺省
       // （当前阶段展开，其余收起 —— 长方案打开不至于一屏全糊上）
       fold: {},
+      // 阶段内的按需展开：逐日铺满后一个阶段能有上百条任务，先给前 20 条
+      more: {},
       // 这个目标是**刚建好**跳进来的（wizard 传 new=1）→ 放一次「顺便加学习 App」
       justCreated: false,
       // wizard 传 ask=1 = AI 刚规划完落地 → 绕过 appsAsked 全局一次的门槛必问
@@ -207,9 +214,16 @@ export default {
         out[mi].tasks.push(t)
       })
       // 折叠头上的摘要：从第几天排到第几天（与 wizard 结果页同一口径）
-      out.forEach(gr => {
+      out.forEach((gr, gi) => {
         gr.from = gr.tasks.reduce((a, t) => Math.min(a, t.day || 1), 9999)
         gr.to = gr.tasks.reduce((a, t) => Math.max(a, t.day || 1), 0)
+        // 逐日铺满后一个阶段能有上百条 —— 先给前 GROUP_CAP 条，其余按需展开
+        gr.hidden = 0
+        gr.shown = gr.tasks
+        if (!this.more[gi] && gr.tasks.length > GROUP_CAP) {
+          gr.shown = gr.tasks.slice(0, GROUP_CAP)
+          gr.hidden = gr.tasks.length - GROUP_CAP
+        }
       })
       return out
     }
@@ -260,6 +274,11 @@ export default {
     toggleFold(gi) {
       // 显式取反后写回：一旦点过，这个阶段就不再跟着 defaultOpen 走
       this.fold[gi] = !this.folded(gi)
+      this.$forceUpdate && this.$forceUpdate()
+    },
+    /** 阶段内的「展开剩余 N 条」：逐日铺满后一段能有上百条，按需放出来 */
+    showMore(gi) {
+      this.more[gi] = true
       this.$forceUpdate && this.$forceUpdate()
     },
     /**
@@ -499,6 +518,12 @@ export default {
   color: var(--brand-strong, #bb1332);
 }
 .tk-drop { color: #e5484d; margin-left: 8rpx; }
+/* 补位复习：模型没排到的日子按遗忘曲线补的，跟 AI 真排的内容区分开 */
+.tk-auto {
+  margin-left: 10rpx; padding: 2rpx 12rpx; border-radius: 999rpx;
+  background: rgba(var(--neutral-rgb, 152, 161, 155), 0.16);
+  color: var(--ink-2, #5a6560);
+}
 .tk-done { color: #3b6d11; margin-left: 8rpx; }
 /* 专注做满还没勾：勾选圈绿色描边 + 待勾徽标（与首页同一套） */
 .tk-check-full { border-color: #3b6d11; border-width: 3rpx; }
@@ -536,6 +561,12 @@ export default {
   padding: 6rpx 20rpx;
   border-radius: 999rpx;
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+}
+
+/* 阶段内按需展开：长方案一段上百条，一次铺出来要滑很久 */
+.tk-more {
+  padding: 18rpx 0; text-align: center;
+  font-size: 24rpx; color: var(--ink-2, #5a6560);
 }
 
 /* ===== 学习要点弹层 ===== */

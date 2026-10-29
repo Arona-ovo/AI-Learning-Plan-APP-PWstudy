@@ -60,10 +60,13 @@ const raw = {
   ]
 };
 const short = agent.normalizePlan(JSON.parse(JSON.stringify(raw)), { deadline: inDays(30), slotOn: false });
+// ⚠️ 2026-10-29 起排期会逐日铺满：空白天补 auto='review' 的复习任务，
+//    所以"模型排的那几条"必须按 auto 过滤后再断言，不能拿 tasks[0..2] 当顺序。
+const shortReal = short.tasks.filter(t => t.auto !== 'review');
 // 30 天目标只排到第 10 天 → ×3 拉伸：1→3、5→15、10→30
-assert(short.tasks[0].day >= 2 && short.tasks[0].day <= 4, '第 1 天的任务拉伸到 3 天附近（实际 ' + short.tasks[0].day + '）');
-assert(short.tasks[1].day >= 14 && short.tasks[1].day <= 16, '第 5 天的任务拉伸到 15 天附近（实际 ' + short.tasks[1].day + '）');
-assert(short.tasks[2].day >= 28, '最后一条要铺到截止日附近（实际第 ' + short.tasks[2].day + ' 天）');
+assert(shortReal[0].day >= 2 && shortReal[0].day <= 4, '第 1 天的任务拉伸到 3 天附近（实际 ' + shortReal[0].day + '）');
+assert(shortReal[1].day >= 14 && shortReal[1].day <= 16, '第 5 天的任务拉伸到 15 天附近（实际 ' + shortReal[1].day + '）');
+assert(shortReal[2].day >= 28, '最后一条要铺到截止日附近（实际第 ' + shortReal[2].day + ' 天）');
 assert(short.risks.some(r => /拉伸/.test(r)), '拉伸要写进 risks，让用户知道排期被铺满了');
 const days1 = short.tasks.map(t => t.day);
 assert(days1.every((d, i) => i === 0 || d >= days1[i - 1]), '拉伸后 day 仍按时间有序');
@@ -84,7 +87,10 @@ const raw2 = {
   ]
 };
 const full = agent.normalizePlan(JSON.parse(JSON.stringify(raw2)), { deadline: inDays(30), slotOn: false });
-eq(full.tasks.map(t => t.day), [1, 15, 29], '排满 30 天里的 29 天（差 1 天 ≤ 缓冲）就不拉伸');
+const fullReal = full.tasks.filter(t => t.auto !== 'review');
+eq(fullReal.map(t => t.day), [1, 15, 29], '排满 30 天里的 29 天（差 1 天 ≤ 缓冲）就不重排整份排期');
+// 差的那 1 天也不再留白：逐日铺满的补位只补空缺，不动已有任务
+eq(full.tasks.length, full.totalDays, '差的那 1 天由补位任务填上，30 天一天不空');
 // ⚠️ 只断言"没有拉伸提示"，不能断言 risks 全空：本用例的 day 是写死的 1/15/29，
 //   随真实日期漂移，某天会正好落进周末 → 计划器"周末八折"正当给出工作量削减提示
 //   （2026-10-17 真踩：day29 落周六，risks 多出一条削减提示，误报红）。
@@ -97,7 +103,8 @@ const raw3 = {
   tasks: [{ title: 'a', ms: 1, day: 1, pomos: 2 }, { title: 'b', ms: 2, day: 60, pomos: 2 }]
 };
 const long = agent.normalizePlan(JSON.parse(JSON.stringify(raw3)), { deadline: inDays(100), slotOn: false });
-assert(long.tasks[1].day >= 96, '100 天目标排到 60 天 → 拉到截止附近（实际第 ' + long.tasks[1].day + ' 天）');
+const longReal = long.tasks.filter(t => t.auto !== 'review');
+assert(longReal[1].day >= 96, '100 天目标排到 60 天 → 拉到截止附近（实际第 ' + longReal[1].day + ' 天）');
 
 // 同一套兜底也管着没接 AI 时的本地模板（localPlan 绕开了 normalizePlan）
 [30, 100, 137, 365].forEach(n => {
@@ -116,8 +123,13 @@ const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 assert(/任务以「天」为单位/.test(code), '提示词写明任务以「天」为单位');
 assert(/不是独立的日程单位/.test(code), '提示词写明早/中/晚不是日程单位');
 assert(/不许提前收工/.test(code), '提示词写明不许提前收工');
+// 2026-10-29：从"铺满全程"升级成"逐日铺满"—— 中间不许有一天是空的
+assert(/一天不落地排满/.test(code) && /中间不许出现任何一天空着/.test(code),
+  '提示词写明逐日铺满（中间不许有空白天）');
 assert(!/任务总数 6-30/.test(code), '旧的「任务总数 6-30」上限已删（长目标排不满的根源）');
-assert(/taskCap\s*=\s*Math\.min\(150/.test(code), '任务数上限随天数缩放（上限 150）');
+// 上限从 150 降到 120：再往上一要模型自己截断成半个 JSON，反倒连原本能给的都拿不到；
+// 剩下的空白由 ensureFullCover 确定性补齐（见 check-pwstudy [24]）
+assert(/taskCap\s*=\s*Math\.min\(120/.test(code), '任务数上限跟着天数走（上限 120，其余交给补位）');
 assert(/maxDay >= totalDays - 2/.test(code), '拉伸判据：maxDay 距截止留 2 天缓冲');
 assert(/normalizePlan[\s\S]*?stretchToCover\(tasks, totalDays\)/.test(code), 'AI 结果走的是同一份拉伸函数');
 assert(/localPlan[\s\S]*?stretchToCover\(tasks, totalDays\)/.test(code), '本地模板也走同一份拉伸函数');
