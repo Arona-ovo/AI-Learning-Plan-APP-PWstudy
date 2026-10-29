@@ -1844,6 +1844,13 @@ export default {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   box-shadow: 0 16rpx 48rpx rgba(23, 32, 26, 0.1);
   box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
+  /* ★ 换肤走 transition，**不要用 keyframes**（2026-10-30 真机录屏实锤）：
+     fr-skin-back 的 @keyframes 里含 var()，华为系 WebView 会整条丢弃 ——
+     摘 fr-intro 的那一帧圆还是 4.5 倍盖满全屏，皮肤从粉**硬切**成白玻璃 =
+     整屏白闪一下（用户说的"两个圆交替时闪一下"就是这么来的）。
+     transition 走普通声明，华为认 var()，摘 class 时粉→玻璃平滑渐变 260ms，
+     正好与收缩同步。 */
+  transition: background 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
 }
 /* ★ 圆圈衔接转场（2026-10-25，与首页 .ring-launch 是一对）：
    从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，缩回就位。
@@ -1886,7 +1893,12 @@ export default {
      落位摘 class 后玻璃回来（皮肤动画的 to 帧就是玻璃值，见下）。 */
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  animation: fr-skin-back 260ms ease both;
+  /* 【2026-10-30 删掉 animation: fr-skin-back】它是"粉→玻璃"的换肤 keyframes，
+     里面全是 var()，华为系 WebView 会整条丢弃 —— 摘 fr-intro 那一帧圆还是 4.5 倍
+     盖满全屏，皮肤从粉**硬切**成白玻璃 = 整屏白闪（用户说的"交替时闪一下"）。
+     换肤改由 .ring-inner 基类的 transition 承担（普通声明华为认 var()），
+     摘 class 时与收缩同步渐变 260ms。下面的 @keyframes fr-skin-back 仅留作参照，
+     别再挂到元素上（挂了就等于把白闪请回来）。 */
 }
 @keyframes fr-skin-back {
   from {
@@ -1909,9 +1921,20 @@ export default {
    而文字 200ms 就淡入 —— 那 400ms 里「60:00」「背第1批高频词50个并…」被撑成一屏
    巨字横穿整屏（圈外按钮也提前冒在粉幕上），真机录屏逐帧实锤。固定延时这条路已被
    证伪。现在整页内容由 .fr-hide 统一藏住，JS 量到"圆真的落位了"再摘，见下。 */
+/* 只藏**圈内**读数/任务名 —— 它们跟着圆一起放大，是巨字的唯一来源。
+   圆外内容（时长按钮/开关）不跟着放大，交给 .fr-intro 的 opacity:0 就行：
+   摘 fr-intro（收缩开始）时它们立刻随 transition 淡入，缩小这段就不是一张
+   空白页了（2026-10-30 真机录屏实锤：整页全藏 → 圆一边缩一边变白、内容没出来，
+   中间约 0.3 秒像空白页）。 */
 .fr-hide .ring-inner .time,
-.fr-hide .ring-inner .task-title,
-.fr-hide .focus-body > *:not(.ring-wrap) { opacity: 0; }
+.fr-hide .ring-inner .task-title { opacity: 0; }
+/* 收缩期间别让毛玻璃突然打开：fr-intro 摘掉那一帧圆还是 4.5 倍，backdrop-filter
+   一上来就是"整屏突然模糊"（又一次闪）。fr-hide 要留到圆落位，正好拿它兜住 ——
+   落位后（fr-hide 摘掉）玻璃在小圆上回来，看不出突变。 */
+.fr-hide .ring-inner {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 @keyframes fr-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
