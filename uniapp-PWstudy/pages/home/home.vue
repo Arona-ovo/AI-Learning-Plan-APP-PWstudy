@@ -124,7 +124,7 @@
            260ms 后 navigateTo —— 专注页的圆从同一放大态缩回就位（focus.vue fr-intro）。
            scale 由 launchScale 实测（写死 1.56 只能盖满屏宽，屏高的上下会露背景）。 -->
       <view class="hero-main" :class="{ 'ring-launch': launchRing }">
-      <view class="today-panel">
+      <view class="today-panel" :class="{ 'ring-return': ringReturn }">
         <!-- 板头：一行小标签 + 日期，给整板一个"这是今天"的锚点 -->
         <view class="tp-head">
           <text class="tp-eyebrow">{{ $t('今天') }}</text>
@@ -152,7 +152,7 @@
         <view class="tp-block focus-card" @tap="quickStart()">
           <view
             class="hc-ring"
-            :class="{ 'hc-ring-run': running, 'ring-launch': launchRing }"
+            :class="{ 'hc-ring-run': running, 'ring-launch': launchRing, 'ring-return': ringReturn }"
             :style="ringVars"
           >
             <text class="hc-ring-num">{{ defTime }}</text>
@@ -891,6 +891,9 @@ export default {
       winH: 667,          // 视口高度（onShow 实测）：进编辑态要滚到那一摞卡
       winW: 375,          // 视口宽度（onShow 实测）：算大圆转场的放大倍数
       launchRing: false,  // 大圆转场播放中（点圆 → 放大盖住全屏 → 跳专注页）
+      // 点出（专注页返回）的接力段：圆从 coverScale 缩回就位，内容落位后淡入。
+      // 与 launchRing 是同一段转场的两半，见 startRingReturn。
+      ringReturn: false,
       // ---------- 上下胶囊实测占位（measureChromes 里量；0 = 还没量到，走 CSS 老值）----------
       // 为什么要实测：App.vue 的 .page-nav / .page-tabbar 预留（136 / 220rpx）是**写死的**，
       // 悬浮胶囊的真实高度跟着机型 / 字体缩放走 —— 预留偏小时「今日收工」会压进
@@ -1318,8 +1321,14 @@ export default {
     //    全不执行，首页就停在旧数据上（H5 未挂载时实测确实会抛，2026-10-23 实锤）。
     try { this.winH = uni.getSystemInfoSync().windowHeight || 667 } catch (e) { this.winH = 667 }
     try { this.winW = uni.getSystemInfoSync().windowWidth || 375 } catch (e) { this.winW = 375 }
-    // 从专注页返回：转场标志复位，下次点圆还能再播一遍
-    this.launchRing = false
+    // 从专注页返回：**不让圆当场弹回去**，交给 startRingReturn 接力缩回
+    // （2026-10-29：点进/点出是同一条转场的两半，点出原来根本没有动画 ——
+    //  专注页系统滑出、首页这边一露面就是一块盖满全屏的粉色，然后一帧弹回原尺寸）。
+    if (this.launchRing) {
+      this.startRingReturn()
+    } else {
+      this.ringReturn = false
+    }
     try { this.remeasure() } catch (e) {}
     // 实测上下胶囊的真实占位（动态让位；内部自带退拍重试，H5 未挂载也不会抛）
     try { this.measureChromes() } catch (e) {}
@@ -1367,6 +1376,9 @@ export default {
     this.stopTick()
     clearTimeout(this.__scrollableT)
     clearTimeout(this.__throttleT)
+    // 转场接力那两个定时器（点出的圆缩回 / 摘 class）：页面没了就别再改状态
+    clearTimeout(this._ringRetT); this._ringRetT = null
+    clearTimeout(this._ringLandT); this._ringLandT = null
   },
   /**
    * 硬控期间拦返回键 —— 首页原来没有这一层，于是"回到首页按一下返回"就能退出 App，
@@ -2680,9 +2692,35 @@ export default {
           //   正常、安卓基座一进来就觉得这段动画有问题。
           //   ⚠️ 只在这唯一一处带 zoom=1 的入口上关：别的入口进专注页没有这个转场，
           //      照旧用系统动画（那里如果也没了动画，反而显得断片）。
-          animationType: 'none'
+          animationType: 'none',
+          // 跳转失败（栈满 / 分包没下来）必须把标志复位：圆已经放大盖屏、
+          // 首屏其余内容 opacity 0，不复位就永久停在"一整块粉色"上。
+          fail: () => { this.launchRing = false }
         })
       }, 260)
+    },
+    /**
+     * 点出的接力段（2026-10-29 新增）：专注页的圆放大盖屏后 navigateBack(none)，
+     * 首页这颗圆此刻还停在 coverScale 上（点进那年留下的 launchRing 一直没摘），
+     * 接手把它缩回就位 —— 于是"点进 / 点出"是同一条动画的正反两遍。
+     *
+     * ⚠️ 为什么要延 60ms 再起跑：App 端 onShow **早于上屏**（focus.vue 那段血泪），
+     *    当场挂 class 就是把 260ms 播给了还没显示的页面，人回来时圆已经就位，
+     *    症状跟专注页那次一模一样（"直接弹出，没有收放动画"）。
+     *    这 60ms 里屏上仍是那块盖满全屏的粉色，和专注页那一帧是连续的，看不出来。
+     */
+    startRingReturn() {
+      clearTimeout(this._ringRetT)
+      clearTimeout(this._ringLandT)
+      this._ringRetT = setTimeout(() => {
+        this._ringRetT = null
+        this.launchRing = false      // 首屏其他内容的隐藏解除，改由 ring-return 的淡入接
+        this.ringReturn = true       // 圆：coverScale → 1（hc-ring-land 自播放）
+        this._ringLandT = setTimeout(() => {
+          this._ringLandT = null
+          this.ringReturn = false    // 动画终点 == 静止态，摘 class 不会跳
+        }, 420)
+      }, 60)
     },
     // 每日任务的操作对话框：开始 / 完成 / 改期 / 详情
     taskMenu(item) {
@@ -3843,11 +3881,14 @@ export default {
   transform: scale(var(--launch-scale, 1.6));
   transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-/* 圈内文字先让位：放大 2.8 倍后 72rpx 的字会变成巨大两团糊在屏幕上 */
+/* 圈内文字先让位：**不留过渡**。原来给的是 140ms 淡出，可圆 260ms 就放大到
+   3 倍多（缓动是 ease-out，前 140ms 已经走了大半）—— 那一百多毫秒里
+   「1:00:00」被撑成横穿整屏的巨字，录屏逐帧一看就是"字比圆还大"（2026-10-29 实锤）。
+   圆马上要变成一块纯色盖满全屏，字留一秒都是多余的，直接当帧消失。 */
 .tp-block.focus-card .hc-ring.ring-launch .hc-ring-num,
 .tp-block.focus-card .hc-ring.ring-launch .hc-ring-task {
   opacity: 0;
-  transition: opacity 140ms ease;
+  transition: none;
 }
 /* ② 任务区 / ④ 紧迫度区：通栏左对齐，与板头同一条内容边 */
 .tp-block.task-card,
@@ -3875,6 +3916,39 @@ export default {
 @keyframes hc-breath {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.045); }
+}
+/* ★ 点出（2026-10-29）：专注页返回时这颗圆接手的另一半。
+   专注页那边已经把圆放大盖屏再 navigateBack，首页这颗圆此刻正停在 coverScale 上
+   （点进那年留下的 ring-launch 一直没摘）；这里让它**自播放**缩回就位，圈内读数
+   和首屏其余内容在落位那一下淡进来，于是点进/点出是同一条动画的正反两遍。
+   ⚠️ 三条规则都排在 .hc-ring-run 之后：`running`（正在专注）时 hc-breath 是
+      infinite，声明靠后就会压过缩放 —— 圆停在 1 倍不动，收缩动画当场没了。
+   ⚠️ 用 animation 不用 transition：class 一挂就开跑，不依赖"同一帧加又摘"的时序
+      （那套竞速在 App 端被证明靠不住，见 focus.vue fr-ring-drop 的注释）。 */
+.tp-block.focus-card .hc-ring.ring-launch { animation: none; }
+.tp-block.focus-card .hc-ring.ring-return {
+  animation: hc-ring-land 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes hc-ring-land {
+  from { transform: scale(var(--launch-scale, 1.6)); }
+  to   { transform: scale(1); }
+}
+.tp-block.focus-card .hc-ring.ring-return .hc-ring-num,
+.tp-block.focus-card .hc-ring.ring-return .hc-ring-task {
+  animation: hc-fade-in 160ms ease 180ms both;
+}
+/* 首屏其余内容：跟着圆一起回来（圆 260ms 落位，这里 140ms 起 200ms 完，
+   落位前后正好收尾）。选择器与 .hero-main.ring-launch 那份隐藏规则一一对应。 */
+.today-panel.ring-return .tp-head,
+.today-panel.ring-return .tp-sep,
+.today-panel.ring-return .tp-block:not(.focus-card),
+.today-panel.ring-return .home-cta,
+.today-panel.ring-return .hc-today-min {
+  animation: hc-fade-in 200ms ease 140ms both;
+}
+@keyframes hc-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .hc-ring-num {
   font-size: 38rpx;

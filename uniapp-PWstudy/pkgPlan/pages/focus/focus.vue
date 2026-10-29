@@ -1,5 +1,5 @@
 <template>
-  <view class="container page-nav focus-page" :class="[appTheme, { 'fr-intro': ringIntro }]" :style="[appBgStyle, introVars]">
+  <view class="container page-nav focus-page" :class="[appTheme, { 'fr-intro': ringIntro, 'fr-exit': ringExit }]" :style="[appBgStyle, introVars]">
     <!-- 返回键跟着页面的 onBackPress 走同一套判定（强制模式按住人不放），
          所以挂 @before-back：页面当场否决时这次点击就不导航 -->
     <float-navbar title="专注" :back="true" @before-back="onNavBack" />
@@ -296,6 +296,12 @@ export default {
       // 态，两帧后移除 ringIntro 缩回就位 —— 与首页圆放大退出是同一视觉主体。
       ringIntro: false,
       coverScale: 2.8,   // intro 态的放大倍数（onLoad 实测：盖满屏宽与屏高的较大者）
+      // 点出转场：圆放大盖满屏再 navigateBack(none)，首页那颗圆接着缩回就位
+      // （2026-10-29；与这个页面的 fr-intro 是同一段动画的正反两遍）
+      ringExit: false,
+      // 是不是从首页大圆（zoom=1）点进来的。不是的话没有"同一个视觉主体"可衔接，
+      // 点出就退回系统动画 —— 硬播放大反而会从圆的原地炸开，莫名其妙。
+      zoomIn: false,
       // 点圆盘起表的反馈：跳一下（ring-pulse 动画）+ 震一下（haptic）
       ringPulse: false,
       titleOpen: false,      // 圆盘里的任务名是否展开（默认单行，点一下展开到 3 行）
@@ -533,6 +539,7 @@ export default {
     //   放大到盖住屏宽/屏高的较大者），两边不一致就会在对齐处错位。
     if (query && query.zoom) {
       this.ringIntro = true
+      this.zoomIn = true
       try {
         const si = uni.getSystemInfoSync()
         const w = si.windowWidth || 375
@@ -550,6 +557,9 @@ export default {
     this.applySuggest()
   },
   onShow() {
+    // 点出转场复位：还没退栈、只是被别的页面盖住又回来时，圆不能停在放大态
+    clearTimeout(this._exitT); this._exitT = null
+    this.ringExit = false
     // ★ 圆圈衔接转场收尾（收缩动画由 CSS animation 自播放，armIntro 只挂
     //   animationend 收口 + 兜底定时器 —— 为什么不能用 rAF/exec 当上屏信号，
     //   见 armIntro 的注释。
@@ -604,21 +614,31 @@ export default {
     // （probe 是兜底摘 intro 的那颗；defer 是补跑原生权限实测的那颗 ——
     //   下次 onShow 会重新挂，这里清掉只是防"切走后还回来改状态"）
     clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null
+    clearTimeout(this._introFadeT); this._introFadeT = null
     clearTimeout(this._deferT); this._deferT = null
     // 注意：严格模式故意不在这儿停 —— 人切走才是它该干活的时候
   },
   onUnload() {
     this.stopTick()
     clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null
+    clearTimeout(this._introFadeT); this._introFadeT = null
     clearTimeout(this._deferT); this._deferT = null
+    clearTimeout(this._exitT); this._exitT = null
   },
   // 强制模式 + 正在专注：返回不放行。不然"按一下返回就出去了"，模式等于没有。
   // 暂停 / 休息阶段照常放行 —— 拦人是为了专注，不是把人困死。
   // ⚠️ 判定只写这一份：物理返回键（onBackPress）与顶栏返回键（onNavBack）共用，
   //    不然会出现"按返回被按住、点左上角却能跑出去"的窟窿。
   onBackPress() {
-    if (!this.backBlocked()) return false
-    this.sayBlocked()
+    // 强制模式按住：照旧当场否掉
+    if (this.backBlocked()) {
+      this.sayBlocked()
+      return true
+    }
+    // 其余情况**由本页接管返回**（return true 挡掉系统的裸退），先把圆放大盖满屏，
+    // 240ms 后再真的退 —— 首页那颗圆从同一放大态缩回就位（见 playExit）。
+    // 不接管的话：系统窗口动画把人送走，首页那一帧是一整块盖满屏的粉色然后弹回去。
+    this.playExit()
     return true
   },
   methods: {
@@ -640,9 +660,61 @@ export default {
      *    少了这一层，"强制模式按住的人"点一下左上角就跑了。
      */
     onNavBack(veto) {
-      if (!this.backBlocked()) return
-      this.sayBlocked()
+      if (this.backBlocked()) {
+        this.sayBlocked()
+        if (typeof veto === 'function') veto()
+        return
+      }
+      // 没被拦：**否决导航栏自己的 navigateBack**（它绕过页面、也不播动画），
+      // 改由本页 playExit 先放大圆再退 —— 与物理返回键同一条路，
+      // 不然"点左上角"和"按返回键"出来的动画是两套。
+      this.playExit()
       if (typeof veto === 'function') veto()
+    },
+
+    /**
+     * 点出转场（2026-10-29）：圆放大盖满屏 → 240ms 后 navigateBack(none)。
+     * 首页那颗大圆此刻停在 coverScale 上（点进留下的），接手缩回就位
+     * （home.vue 的 startRingReturn / .ring-return）—— 点进点出是同一段动画的正反两遍。
+     * ⚠️ animationType:'none' 与点进那边同一个理由：系统窗口动画会和缩放各跑各的。
+     * ⚠️ 240ms 与 CSS 里 .fr-exit .ring 的动画时长对齐（改一处要改两处）。
+     */
+    playExit() {
+      if (this._exitT) return        // 连点只退一次
+      // 不是从首页大圆点进来的（没有 zoom=1）：没有"同一个圆"可衔接，
+      // 硬播放大只会从圆的原地炸开一屏粉，比系统动画更难懂 —— 直接退。
+      if (!this.zoomIn) {
+        const st = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
+        if (st.length > 1) uni.navigateBack()
+        else uni.switchTab({ url: '/pages/home/home' })
+        return
+      }
+      // intro 还没播完就按返回：圆本来就盖满着全屏，不必再放大一遍
+      //（那时 .fr-intro 和 .fr-exit 会抢同一条 animation，圆会先弹回 1 倍再放大 = 闪一下）
+      if (this.ringIntro) {
+        this.leaveNow()
+        return
+      }
+      this.ringExit = true
+      this._exitT = setTimeout(() => {
+        this._exitT = null
+        this.leaveNow()
+        // 兜底：万一这次导航没成（页面没退栈），别把圆永远留在放大态
+        this._exitT = setTimeout(() => {
+          this._exitT = null
+          this.ringExit = false
+        }, 600)
+      }, 240)
+    },
+    /**
+     * 真的退出去：有关闭系统窗口动画的 navigateBack。
+     * ⚠️ 这一页也可能是栈底（从通知 / 外部链接直接进来的），那时 navigateBack
+     *    原地不动、人就被困在一块盖满屏的粉色上 —— 那就回首页。
+     */
+    leaveNow() {
+      const pages = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
+      if (pages.length > 1) uni.navigateBack({ delta: 1, animationType: 'none' })
+      else uni.switchTab({ url: '/pages/home/home' })
     },
 
     /**
@@ -685,8 +757,19 @@ export default {
     },
     /** .ring 的 animationend：转场收缩播完了（ring-pulse 的 end 也会进来，
      *  但那时 intro 早摘了 —— _introDone 已置空，直接 return） */
-    onIntroEnd() {
-      if (this._introDone) this._introDone()
+    onIntroEnd(e) {
+      if (!this._introDone || this._introFadeT) return
+      // ★ 只认收缩那一条（2026-10-29）：.ring-inner 的换肤、圈内文字的淡入
+      //   也会冒泡到这个元素上，拿它们的 end 收口 = 淡入演到一半被摘 class，
+      //   「30:00」当场跳成不透明 —— 又变成一帧巨字闪出来。
+      //   （个别老内核不派发 animationName，那就按老规矩收，别把圆永久留在放大态。）
+      if (e && e.animationName && e.animationName !== 'fr-ring-drop') return
+      // 收缩 260ms 结束；圈内文字 200ms 起跑、360ms 收尾 —— class 留到 400ms 再摘，
+      // 让那条淡入走完。摘早了 .fr-intro 的 opacity:0 一没，文字直接闪出来。
+      this._introFadeT = setTimeout(() => {
+        this._introFadeT = null
+        if (this._introDone) this._introDone()
+      }, 140)
     },
     /**
      * onShow 里延后的那批"重体检"（10-27 从 onShow 挪出来，见 onShow 注释）：
@@ -1740,13 +1823,21 @@ export default {
     box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
   }
 }
-/* 盘内文字与圆外内容在 intro 期让位，随圆收缩一起淡入（稍晚 60ms 起步，
-   先看出"圆在归位"，再看出"页面内容回来了"；60+200=260ms 与收缩同时结束，
-   落位那一刻全体就位 —— 也走自播放动画，与圆共用同一个首帧起跑点） */
-.fr-intro .ring-inner .time,
-.fr-intro .ring-inner .task-title,
+/* 盘内文字与圆外内容在 intro 期让位，随圆收缩一起淡入 —— 都走自播放动画，
+   与圆共用同一个首帧起跑点。
+   ★ 起跑时间必须排在**落位之后**（2026-10-29 真机录屏实锤）：原来圈内文字
+     60ms 就淡入，那时圆还有 2~3 倍大，「30:00」被撑成一团半透明巨字横穿整屏
+     （标题也一起放大成一串糊字）。现在 200ms 起跑 —— 圆 260ms 落位，字是
+     "快到位时冒出来"的，任何一帧都不会有放大的字。
+     圆外那批内容不跟着放大，理论上早点淡入也看不出来；但圆此刻正盖住它们
+     （圆在 DOM 里更靠前、被后绘制的它们压在上面），提前淡入就成了"粉色巨幕上
+     浮着一排时长按钮" —— 一并挪到 200ms，让整页只有一个节拍。 */
 .fr-intro .focus-body > *:not(.ring-wrap) {
-  animation: fr-fade-in 200ms ease 60ms both;
+  animation: fr-fade-in 200ms ease 200ms both;
+}
+.fr-intro .ring-inner .time,
+.fr-intro .ring-inner .task-title {
+  animation: fr-fade-in 160ms ease 200ms both;
 }
 @keyframes fr-fade-in {
   from { opacity: 0; }
@@ -1756,6 +1847,37 @@ export default {
 .fr-intro .ring-inner .task-title { opacity: 0; }
 .fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
 .focus-body > * { transition: opacity 220ms ease 60ms; }
+/* ★ 点出（2026-10-29）：与上面 fr-intro 是一对，方向相反 ——
+   圆从就位处放大盖满全屏（240ms），播完 navigateBack(none)，首页那颗圆接着缩回。
+   点出原来压根没有动画：系统窗口动画把人送走，首页那一帧是一整块盖满屏的粉色，
+   然后一帧弹回原尺寸（录屏逐帧核对过）。
+   ⚠️ 圈内文字/读数必须**当帧消失**，不能淡出：圆放大 3 倍多，字跟着放大，
+     淡出的那几十毫秒就是一屏巨字。这和首页 .ring-launch 那边同一处理。 */
+.fr-exit .ring {
+  transform: scale(var(--cover-scale, 2.8));
+  animation: fr-ring-rise 240ms cubic-bezier(0.4, 0, 0.55, 1) both;
+}
+@keyframes fr-ring-rise {
+  from { transform: scale(1); }
+  to   { transform: scale(var(--cover-scale, 2.8)); }
+}
+/* 放大期间换成首页大圆的皮肤（淡红底 + 红边、去玻璃与投影）：
+   navigateBack 那一帧首页接手的正是这个淡红圆盘，不换肤就会"白玻璃盘 → 淡红盘"跳色。 */
+.fr-exit .ring-inner {
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border-color: rgba(228, 23, 61, 0.28);
+  border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* 换肤跟放大同步走完：圆在 1 倍上停着的头几十毫秒是看得见的，
+     颜色硬切会闪一下；200ms 到点正好铺满屏，和首页那颗圆无缝对上。 */
+  transition: background 200ms linear, border-color 200ms linear;
+}
+.fr-exit .ring-inner .time,
+.fr-exit .ring-inner .task-title { opacity: 0; transition: none; }
+.fr-exit .focus-body > *:not(.ring-wrap) { opacity: 0; transition: none; }
 .time {
   /* ★ 圆盘读数必须与首页大圆**同源**（home.vue 的 .hc-ring-num）：
      这两个圈是同一个视觉主体的两个状态（点进去放大 → 落回来），字体一旦不同，

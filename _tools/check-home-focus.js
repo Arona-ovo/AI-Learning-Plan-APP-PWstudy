@@ -209,7 +209,7 @@ assert(/if \(!self\.ringIntro || !self\._introDone\) return/.test(bArm),
 assert(/clearTimeout\(self\._introProbeT\)/.test(bArm), '收口立刻清掉兜底定时器');
 assert(/@animationend="onIntroEnd"/.test(focusPage),
   '.ring 绑 @animationend（收缩动画播完的收口主路径）');
-assert(/    onIntroEnd\(\)\s*\{[\s\S]*?if \(this\._introDone\) this\._introDone\(\)/.test(focusPage),
+assert(/    onIntroEnd\(\w*\)\s*\{[\s\S]*?if \(this\._introDone\) this\._introDone\(\)/.test(focusPage),
   'onIntroEnd 存在且只做一件事：intro 在播就收口（ring-pulse 的 end 也会进来，得防误摘）');
 assert(/clearTimeout\(this\._introProbeT\)/.test(block(focusPage, /onHide\(\)\s*\{[\s\S]*?\n  \}/)),
   'onHide 收掉 probe（页面都切走了，不该还留着去摘 intro）');
@@ -224,7 +224,7 @@ assert(/if \(this\.ringIntro\) st\.transform = 'scale\(' \+ this\.coverScale \+ 
   'intro 的放大起点写成行内值（变量那份留着兜底，行内是硬承诺）');
 assert(/backgroundColor: 'rgba\(23,32,26,0\.08\)'/.test(bRingStyle),
   'conic-gradient 有纯色兜底（老安卓认不出会整条丢掉 background，圆环当场消失）');
-assert(/\{ 'fr-intro': ringIntro \}/.test(focusPage), 'focus 根节点挂 fr-intro');
+assert(/'fr-intro': ringIntro/.test(focusPage), 'focus 根节点挂 fr-intro');
 assert(/:style="\[appBgStyle, introVars\]"/.test(focusPage), 'focus 根绑 introVars（--cover-scale）');
 // ⑥ 收缩过程不跳色：intro 期 ring-inner 换成首页大圆的皮肤，渐变回玻璃盘
 const cssRingInner = blockCss(focusPage, /\.fr-intro \.ring-inner \{[\s\S]*?\n\}/);
@@ -266,6 +266,83 @@ assert(bDef !== '' &&
   /hasUsagePermission/.test(bDef) && /canDrawOverlays/.test(bDef) &&
   /refreshLearnApps/.test(bDef) && /refreshForceCap/.test(bDef),
   'deferredChecks 收齐那批重体检（usage/overlay/图标/强制能力，晚 320ms 补跑）');
+
+console.log('== 6b. 点出（专注页返回）也要有动画，且是同一条的正反两遍 ==');
+// 2026-10-29 用户录屏："点进和点出的动画都还有问题"。逐帧核对出三处：
+//  ① 点进时圈内读数先做 140ms 淡出，圆那时已经放大 3 倍多 → 一屏巨字（两侧都有）
+//  ② 专注页 intro 期圈内文字 60ms 就淡入 → 半透明巨字横穿屏幕
+//  ③ 点出**根本没有动画**：系统窗口动画送走，首页那一帧是一整块盖满屏的粉色再弹回
+// ①③ 的修法：文字当帧消失；点出由专注页"圆放大盖屏 → navigateBack(none)"、
+//   首页"同一颗圆缩回就位"接力完成。
+assert(/\{ 'fr-intro': ringIntro, 'fr-exit': ringExit \}/.test(focusPage),
+  'focus 根节点同时挂 fr-intro / fr-exit（同一段动画的两个方向）');
+assert(/this\.zoomIn = true/.test(block(focusPage, /onLoad\(query\)\s*\{[\s\S]*?\n  \}/)),
+  'onLoad 记下"是从首页大圆点进来的"（zoomIn）');
+const bExit = block(focusPage, /    playExit\(\)\s*\{[\s\S]*?\n    \}/);
+assert(bExit !== '', 'playExit 方法存在（点出转场独占一个方法）');
+assert(/if \(!this\.zoomIn\) \{/.test(bExit),
+  '不是从大圆进来的入口不播点出动画（没有同一个圆可衔接，会从圆的原地炸开）');
+assert(/this\.ringExit = true/.test(bExit), 'playExit 置 ringExit（圆开始放大）');
+assert(/if \(this\._exitT\) return/.test(bExit), '连点只退一次（不重复放大 / 重复导航）');
+assert(/if \(this\.ringIntro\) \{[\s\S]*?this\.leaveNow\(\)/.test(bExit),
+  'intro 还没播完就返回：不再放大一遍（否则 fr-intro / fr-exit 抢同一条动画，圆先弹回再放大）');
+const bLeave = block(focusPage, /    leaveNow\(\)\s*\{[\s\S]*?\n    \}/);
+assert(bLeave !== '' && /navigateBack\(\{ delta: 1, animationType: 'none' \}\)/.test(bLeave),
+  '点出这一跳关掉系统窗口动画（否则平移和缩放各跑各的）');
+assert(/pages\.length > 1[\s\S]*?switchTab\(\{ url: '\/pages\/home\/home' \}\)/.test(bLeave),
+  '栈底时退回首页（不然人被困在一块盖满屏的粉色上）');
+const bNavBack = block(focusPage, /    onNavBack\(veto\)\s*\{[\s\S]*?\n    \}/);
+assert(/this\.playExit\(\)/.test(bNavBack) && /veto\(\)/.test(bNavBack),
+  '顶栏返回键也走 playExit，并否决导航栏自己的 navigateBack（两条入口一套动画）');
+const bBackPress = block(focusPage, /onBackPress\(\)\s*\{[\s\S]*?\n  \}/);
+assert(/this\.playExit\(\)/.test(bBackPress) && /return true/.test(bBackPress),
+  '物理返回键由本页接管（return true + playExit，不裸退）');
+assert(/this\.backBlocked\(\)[\s\S]*?return true/.test(bBackPress),
+  '强制模式按住那一条仍排在接管之前（拦截优先级不许被动画抢走）');
+const cssExitRing = blockCss(focusPage, /\.fr-exit \.ring \{[\s\S]*?\n\}/);
+assert(/animation: fr-ring-rise 240ms/.test(cssExitRing),
+  '点出放大走 CSS animation 自播放（同 intro，不靠 JS 信号）');
+assert(/@keyframes fr-ring-rise \{[\s\S]*?scale\(1\)[\s\S]*?scale\(var\(--cover-scale/.test(focusPage),
+  'fr-ring-rise 从 1 放大到 cover-scale（终态与首页那颗圆的放大态一致）');
+const cssExitInner = blockCss(focusPage, /\.fr-exit \.ring-inner \{[\s\S]*?\n\}/);
+assert(/background: rgba\(var\(--brand-rgb/.test(cssExitInner) && /backdrop-filter: none/.test(cssExitInner),
+  '放大期间换首页大圆皮肤并关毛玻璃（navigateBack 那一帧不许跳色 / 逐帧重模糊）');
+const cssExitTxt = blockCss(focusPage, /\.fr-exit \.ring-inner \.time,\s*\.fr-exit \.ring-inner \.task-title \{[^}]*\}/);
+assert(/opacity: 0/.test(cssExitTxt) && /transition: none/.test(cssExitTxt),
+  '点出时圈内读数**当帧**消失（淡出就是跟着圆放大的巨字）');
+assert(/\.fr-exit \.focus-body > \*:not\(\.ring-wrap\) \{ opacity: 0; transition: none; \}/.test(focusPage),
+  '圆外内容点出时也不许留在屏上（圆盖满之前必须让位）');
+// 专注页 intro 期的淡入必须排在落位之后：60ms 起跑 = 圆还有 3 倍大时字已经在淡入
+const cssIntroFade = blockCss(focusPage, /\.fr-intro \.ring-inner \.time,\s*\.fr-intro \.ring-inner \.task-title \{[^}]*\}/);
+assert(/animation: fr-fade-in \d+ms ease (2[0-9]{2}|[3-9][0-9]{2})ms both/.test(cssIntroFade),
+  'intro 期圈内文字淡入延到 200ms 之后（圆 260ms 落位，早于此必是巨字）');
+// ---- 首页侧：接力缩回 ----
+assert(/'ring-return': ringReturn/.test(home), '首页大圆挂 ring-return（点出的收缩段）');
+assert(/this\.launchRing = false/.test(home), '回首页复位 launchRing（下次点圆还能再播）');
+const bRet = block(home, /    startRingReturn\(\)\s*\{[\s\S]*?\n    \}/);
+assert(bRet !== '', 'startRingReturn 存在（点出接力段独占一个方法）');
+assert(/this\.ringReturn = true/.test(bRet) && /this\.launchRing = false/.test(bRet),
+  '接力：摘 launchRing（内容让位交给 ring-return）并起圆');
+assert(/setTimeout\(\(\) => \{[\s\S]*?\}, 60\)/.test(bRet),
+  '延 60ms 再起跑（onShow 早于上屏，当场挂 class = 播给看不见的页面）');
+assert(/this\.ringReturn = false/.test(bRet), '动画播完摘 ring-return（终点 == 静止态，不跳）');
+assert(/if \(this\.launchRing\) \{\s*this\.startRingReturn\(\)/.test(block(home, /onShow\(\)\s*\{[\s\S]*?\n  \},/)),
+  'onShow 里 launchRing 还在 → 走接力缩回（不是当场弹回去）');
+const cssRet = blockCss(home, /\.tp-block\.focus-card \.hc-ring\.ring-return \{[\s\S]*?\n\}/);
+assert(/animation: hc-ring-land 260ms/.test(cssRet), 'ring-return 走 animation 自播放');
+assert(/@keyframes hc-ring-land \{[\s\S]*?scale\(var\(--launch-scale[\s\S]*?scale\(1\)/.test(home),
+  'hc-ring-land 从 launch-scale 缩到 1（与专注页放大终态同一个倍数）');
+// ⚠️ hc-breath 是 infinite：声明排在 ring-return 之后就会压掉缩放（圆停在 1 倍不动）
+const cssHomeNoCmt = home.replace(/\/\*[\s\S]*?\*\//g, '');
+assert(cssHomeNoCmt.indexOf('.hc-ring-run {') < cssHomeNoCmt.indexOf('.hc-ring.ring-return {'),
+  'ring-return 规则排在 .hc-ring-run 之后（否则正在专注时 hc-breath 把收缩动画压掉）');
+assert(/\.tp-block\.focus-card \.hc-ring\.ring-launch \{ animation: none; \}/.test(cssHomeNoCmt),
+  'ring-launch 期关掉 hc-breath（呼吸动画会把 coverScale 顶掉，圆缩在半路）');
+const cssLaunchTxt = blockCss(home, /\.tp-block\.focus-card \.hc-ring\.ring-launch \.hc-ring-num,[\s\S]*?\n\}/);
+assert(/transition: none/.test(cssLaunchTxt),
+  '点进时圈内读数当帧消失（原来是 140ms 淡出 → 一屏巨字）');
+const cssRetFade = blockCss(home, /\.today-panel\.ring-return \.tp-head,[\s\S]*?\n\}/);
+assert(/animation: hc-fade-in/.test(cssRetFade), '首屏其余内容跟着圆落位淡回来');
 
 console.log('== 7. 圆盘即开始键（2026-10-25 用户拍板：删掉「开始专注 N 分钟」按钮）==');
 // 用户："把开始专注融入到圆圈里面，不需要单独的 Button 按钮。直接点击中间那个圆圈就可以了，
@@ -341,28 +418,39 @@ console.log('== 9. intro 收尾真跑（2026-10-27 改自播放后的时序）==
   const arm = new Function('HOST', 'setTimeout', 'clearTimeout', body2);
 
   // onIntroEnd：CSS 动画播完那条路（@animationend），同样从源码抠
-  const srcEnd = block(focusPage, /    onIntroEnd\(\)\s*\{[\s\S]*?\n    \}/);
+  const srcEnd = block(focusPage, /    onIntroEnd\(\w*\)\s*\{[\s\S]*?\n    \}/);
   assert(srcEnd !== '', '抠得出 onIntroEnd（animationend 收口那个方法）');
   const endBody = srcEnd === '' ? '' : srcEnd.slice(srcEnd.indexOf('{') + 1, srcEnd.lastIndexOf('}'));
+  // ★ 2026-10-29 起 onIntroEnd 不再当场摘：它先挂一个 140ms 的延后定时器，
+  //   让圈内文字那条淡入（200ms 起 160ms）走完 —— 摘早了文字当场跳成不透明。
+  //   所以这里也要把 setTimeout 注入进去，拿它排的那颗定时器手工触发。
   const fin = endBody === '' ? null
-    : new Function('HOST', 'const self = HOST;\n' + endBody.split('this.').join('self.'));
+    : new Function('HOST', 'setTimeout', 'e', 'const self = HOST;\n' + endBody.split('this.').join('self.'));
 
-  /** 造一个宿主 + 一组可控替身：setTimeout 拿不到真回调就从 log.timer 手工触发。 */
+  /** 造一个宿主 + 一组可控替身：setTimeout 拿不到真回调就从 log 里手工触发。 */
   const mk = () => {
     let ri = true;
     let sets = 0;
-    const log = { sets: 0, timer: null, ms: 0, cleared: 0 };
+    const log = { sets: 0, timer: null, ms: 0, fade: null, fadeMs: 0, cleared: 0 };
     const host = {
       _introProbeT: null,
+      _introFadeT: null,
       _introDone: null,
       get ringIntro() { return ri; },
       set ringIntro(v) { ri = v; sets++; log.sets = sets; }
     };
-    const st = (fn, ms) => { log.timer = fn; log.ms = ms; return 7; };
+    // 第一颗是 armIntro 的兜底 probe；之后 onIntroEnd 排的那颗进 fade 槽
+    const st = (fn, ms) => {
+      if (!log.timer) { log.timer = fn; log.ms = ms; return 7 }
+      log.fade = fn; log.fadeMs = ms; return 8;
+    };
     const ct = () => { log.cleared++; };
-    return { host, log, run: () => arm(host, st, ct) };
+    return { host, log, run: () => arm(host, st, ct), fire: (fn) => fin(host, fn) };
   };
+  // 真机上 .ring 收到的是收缩那条 animationend（其余动画的 end 也得能挡住）
+  const EV = { animationName: 'fr-ring-drop' };
   const fireTimer = (x) => { if (typeof x.log.timer === 'function') x.log.timer(); };
+  const fireFade = (x) => { if (typeof x.log.fade === 'function') x.log.fade(); };
 
   // ① zoom 进来：挂上兜底定时器，但**不许立刻摘**（动画要等 CSS 自己播）
   const a = mk();
@@ -370,17 +458,21 @@ console.log('== 9. intro 收尾真跑（2026-10-27 改自播放后的时序）==
   assert(a.log.timer !== null && a.log.ms === 600, '挂 600ms 兜底定时器（ms=' + a.log.ms + '）');
   assert(a.log.sets === 0, 'armIntro 自己不摘 intro（抢在首帧前摘 = 收缩被吞，sets=' + a.log.sets + '）');
 
-  // ② 主路径：animationend（= onIntroEnd）到达才摘，摘完立刻清兜底
+  // ② 主路径：animationend（= onIntroEnd）→ 排 140ms 淡入让位 → 到点才摘，摘完立刻清兜底
   const b = mk();
   b.run();
-  if (fin) fin(b.host);
-  assert(b.log.sets === 1, 'animationend 到达才摘 intro（sets=' + b.log.sets + '）');
+  if (fin) fin(b.host, (fn, ms) => { b.log.fade = fn; b.log.fadeMs = ms; return 8; }, EV);
+  assert(b.log.sets === 0, 'animationend 到了也不当场摘（先让圈内文字淡入，sets=' + b.log.sets + '）');
+  assert(b.log.fadeMs === 140, '延后的那颗是 140ms（ms=' + b.log.fadeMs + '）');
+  fireFade(b);
+  assert(b.log.sets === 1, '淡入走完才摘 intro（sets=' + b.log.sets + '）');
   assert(b.log.cleared === 1, '摘完立刻清掉兜底定时器（cleared=' + b.log.cleared + '）');
 
   // ③ 只摘一次：animationend 与兜底定时器先后到达也不能摘两遍（两次收缩会重影）
   const c = mk();
   c.run();
-  if (fin) fin(c.host);
+  if (fin) fin(c.host, (fn) => { c.log.fade = fn; return 8; }, EV);
+  fireFade(c);
   const beforeC = c.log.sets;
   fireTimer(c);
   assert(c.log.sets === beforeC, '两条路重复到达也只摘一次（sets=' + c.log.sets + '）');
@@ -406,9 +498,12 @@ console.log('== 9. intro 收尾真跑（2026-10-27 改自播放后的时序）==
   // ⑥ intro 摘完之后再来的 animationend（ring-pulse 波完那一下）不许再摘
   const f = mk();
   f.run();
-  if (fin) fin(f.host);
+  const finOf = (x) => { if (fin) fin(x.host, (fn, ms) => { x.log.fade = fn; x.log.fadeMs = ms; return 8 }, EV) };
+  finOf(f);
+  fireFade(f);
   const beforeF = f.log.sets;
-  if (fin) fin(f.host);
+  finOf(f);
+  fireFade(f);
   assert(f.log.sets === beforeF, 'intro 播完之后 pulse 的 animationend 不再摘（sets=' + f.log.sets + '）');
   }
 }

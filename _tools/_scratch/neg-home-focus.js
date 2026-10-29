@@ -117,7 +117,7 @@ const cases = [
     (c) => swap(c, 'focus', '  will-change: transform;', '')],
   ['onHide 不收 probe（页面都切走了还留着去摘 intro）',
     (c) => swap(c, 'focus',
-      'clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null\n    clearTimeout(this._deferT); this._deferT = null\n    // 注意：严格模式',
+      'clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null\n    clearTimeout(this._introFadeT); this._introFadeT = null\n    clearTimeout(this._deferT); this._deferT = null\n    // 注意：严格模式',
       '// 注意：严格模式')],
   ['intro 的放大起点不写行内值（只剩 CSS 变量，内核不稳时倍数对不上首页）',
     (c) => swap(c, 'focus', "if (this.ringIntro) st.transform = 'scale(' + this.coverScale + ')'",
