@@ -1328,18 +1328,20 @@ export default {
   '读不到应用列表，可稍后重试': "Can't read the app list — try again later",
   '选': 'Pick',
   '休闲关注统计目前仅支持安卓端。': 'Leisure tracking is Android-only for now.',
+  '休闲 App': 'Leisure apps',
   '休闲提醒': 'Leisure nudges',
   '开启休闲提醒': 'Enable leisure nudges',
   '后台静默统计休闲 App 使用时间，刷太久或一整天没专注时主动提醒你回来学习':
     'Silently track leisure-app time; nudge you back when you binge too long or skip focusing all day',
   '选择休闲 App': 'Choose leisure apps',
   '挑几个你容易沉迷的，如抖音、B站；没选则不会提醒': 'Pick a few you get hooked on, like Douyin or Bilibili; nothing is tracked until you do',
+  '没有匹配「{kw}」的应用': 'No apps match "{kw}"',
   '连续使用单 App 超过（分钟）': 'Single-app binge over (minutes)',
   '当天休闲累计超过（分钟）': 'Daily leisure total over (minutes)',
   '每天最多提醒（条）': 'Max nudges per day',
   '每日复盘提醒': 'Daily recap nudge',
-  '像多邻国那样，在固定时点催一句「今天还有几个任务」':
-    "Like Duolingo — at a set time, a reminder that you still have tasks today",
+  '到固定时点提醒你今天还有几个任务没收工':
+    "At a set time each day, nudge you about the tasks you haven't finished",
   '复盘时间': 'Recap time',
   '静默时段（不提醒）': 'Quiet hours (no nudges)',
   '还没选休闲 App，先去「选择休闲 App」挑几个，否则不会提醒。':

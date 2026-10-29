@@ -1,4 +1,4 @@
-// _tools/check-leisure.js - 休闲关注（休闲 App 静默统计 + 多邻国式提醒）的校验
+// _tools/check-leisure.js - 休闲关注（休闲 App 静默统计 + 打开/后台双路径提醒）的校验
 // 运行：node _tools/check-leisure.js
 //
 // 需求原话（2026-10-28）：
@@ -264,11 +264,11 @@ assert(/fgsvc\.available\(\)/.test(arm), 'armGuard 先判插件可用（没自�
 
 /* ---------- 10. 用户能找到入口 ---------- */
 console.log('== 10. 入口与路由 ==');
-assert(/"pages\/leisure\/leisure"/.test(pages), 'pages.json 注册了休闲关注页');
+assert(/pages\/apps\/apps/.test(pages), 'pages.json 注册了学习 App 页（休闲 App 选择已并入此页）');
 // 光看 `goLeisure()` 存在不够 —— 方法在、@tap 绑错也能过（反向测试抓到过这个假绿），
-// 所以直接盯模板里的绑定。
-assert(/@tap="goLeisure"/.test(setv) && /pages\/leisure\/leisure/.test(setv),
-  '设置页有跳转入口（@tap 真绑上了，不然用户没处选 App）');
+// 所以直接盯模板里的绑定 + 跳转目标。
+assert(/@tap="goLeisure"/.test(setv) && /\/pkgPlan\/pages\/apps\/apps\?leisure=1/.test(setv),
+  '设置页「选择休闲 App」跳转学习 App 页并带 leisure=1 锚点（选 App 就在那页做）');
 assert(/开放|休闲提醒|secHint/.test(setv), '设置页有休闲提醒分区');
 const secHint = fnBody(setv, 'secHint');
 assert(/leisure/.test(secHint), '设置页分区副标题会报休闲提醒状态');

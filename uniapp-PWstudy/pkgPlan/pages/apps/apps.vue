@@ -171,6 +171,78 @@
       </view>
     </view>
 
+    <!-- 休闲 App：容易沉迷的挑几个，刷太久 / 零专注时提醒回来学习。
+         选择并进「学习 App」页一起做，不再单独开页面（2026-10-29）。 -->
+    <view class="card" v-if="isAndroid">
+      <view class="card-head">
+        <text class="card-title">{{ $t('休闲 App') }}（{{ leisurePkgs.length }}）</text>
+        <text class="card-more" @tap="tapLeisureToggle">{{ addingLeisure ? $t('收起') : $t('选择休闲 App') }}</text>
+      </view>
+      <view class="pc-txt">{{ $t('后台静默统计休闲 App 使用时间，刷太久或一整天没专注时主动提醒你回来学习') }}</view>
+      <view v-for="a in leisurePkgs" :key="a.pkg" class="dock-row" @tap="noop">
+        <view class="dr-icon dr-leisure">{{ initialOf(a) }}</view>
+        <view class="dr-main">
+          <view class="dr-name">{{ a.name }}</view>
+          <view class="dr-pkg">{{ a.pkg }}</view>
+        </view>
+        <text class="dr-del" @tap.stop="removeLeisure(a)">{{ $t('移除') }}</text>
+      </view>
+    </view>
+
+    <!-- 休闲 App 选择面板：复用已装应用列表，与学习 App 同一份数据，只是写进 settings().leisure.pkgs -->
+    <view class="card add-card lr-card" v-if="isAndroid && addingLeisure" :class="{ 'kb-open': lrFocus }">
+      <view class="card-head">
+        <view class="ch-l">
+          <view v-if="loadingApps" class="al-spin al-spin-sm"></view>
+          <text class="card-title">{{ $t('从已安装应用里选') }}</text>
+        </view>
+        <text class="card-more" @tap="addingLeisure = false">{{ $t('收起') }}</text>
+      </view>
+      <input
+        class="search"
+        :value="kw"
+        :placeholder="$t('搜索应用名')"
+        placeholder-style="color:#a8b0ab;font-size:26rpx"
+        :cursor-spacing="30"
+        :adjust-position="true"
+        @input="onSearch"
+        @focus="lrFocus = true"
+        @blur="lrFocus = false"
+      />
+      <view v-if="loadingApps" class="apps-loading">
+        <view class="al-spin"></view>
+        <text class="al-txt">{{ loadingTip }}</text>
+        <view v-for="i in 4" :key="i" class="sk-row">
+          <view class="sk-icon"></view>
+          <view class="sk-lines">
+            <view class="sk-line sk-l1"></view>
+            <view class="sk-line sk-l2"></view>
+          </view>
+        </view>
+      </view>
+      <template v-else>
+        <view v-if="!all.length" class="pc-txt">{{ $t('读不到应用列表，可稍后重试') }}</view>
+        <view v-else-if="!candidates.length" class="pc-txt">{{ $t('没有匹配「{kw}」的应用', { kw: kw }) }}</view>
+        <scroll-view v-else class="app-scroll" scroll-y>
+          <view
+            v-for="c in candidates"
+            :key="c.pkg"
+            class="cand"
+            :class="{ 'cand-added': lrSel(c) }"
+            @tap="toggleLeisure(c)"
+          >
+            <image v-if="iconMap[c.pkg]" class="dr-icon-img" :src="iconMap[c.pkg]" mode="aspectFit" />
+            <view v-else class="dr-icon">{{ (c.name || '?').slice(0, 1).toUpperCase() }}</view>
+            <view class="dr-main">
+              <view class="dr-name">{{ c.name }}</view>
+              <view class="dr-pkg">{{ c.pkg }}</view>
+            </view>
+            <text class="cand-add">{{ lrSel(c) ? $t('已选') : $t('选') }}</text>
+          </view>
+        </scroll-view>
+      </template>
+    </view>
+
     <view style="height: 40rpx"></view>
 
     <!-- 编辑/添加弹窗
@@ -243,6 +315,7 @@
 import * as pw from '../../../utils/pwstore.js'
 import * as apptime from '../../../utils/apptime.js'
 import * as focusMod from '../../../utils/focus.js'
+import * as settings from '../../../utils/settings.js'
 import * as aiGuess from '../../../services/ai-app-guess.js'
 import { isAIEnabled } from '../../../services/config.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
@@ -285,7 +358,13 @@ export default {
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], pkg: '' },
       manualOpen: false,
       // AI 推荐：按当前目标从已安装应用里挑学习 App（结果本进程内缓存）
-      aiRec: { loading: false, err: '', items: [] }
+      aiRec: { loading: false, err: '', items: [] },
+      // 休闲 App：选择并进「学习 App」页一起做，不再单独开页面（2026-10-29，原 leisure.vue 合并）
+      leisurePkgs: [],
+      addingLeisure: false,
+      lrFocus: false,
+      _lrAnchor: false,
+      _lrAutoOpened: false
     }
   },
   computed: {
@@ -311,8 +390,16 @@ export default {
   },
   onShow() {
     this.refresh()
-    // ⚠️ onShow 不 loadApps：只加载已添加的少量图标（refresh 里已经 ensureIcon(dock)）。
-    // 全量列表延迟到 adding 面板打开时（见上面的 watch）。
+    // 从设置页「选择休闲 App」跳过来时（?leisure=1），自动展开休闲选择面板并滚到位
+    if (this._lrAnchor && !this._lrAutoOpened) {
+      this._lrAutoOpened = true
+      this.addingLeisure = true
+      this.openLeisure()
+    }
+  },
+  onLoad(options) {
+    this._lrAnchor = !!(options && options.leisure === '1')
+    this._lrAutoOpened = false
   },
   methods: {
     // 占位：遮罩上的 @touchmove.stop.prevent 需要一个 handler 才能编译
@@ -329,6 +416,7 @@ export default {
       })
       if (st.dock.length !== before) pw.touch()
       this.dock = st.dock
+      this.leisurePkgs = (settings.get().leisure && settings.get().leisure.pkgs) || []
       this.isAndroid = apptime.supported()
       this.aiEnabled = isAIEnabled()
       this.permitted = this.isAndroid && apptime.hasUsagePermission()
@@ -610,6 +698,36 @@ export default {
     },
     initialOf(a) {
       return String(a.name || a.pkg || '?').slice(0, 1).toUpperCase()
+    },
+
+    // ---------- 休闲 App（选择并进「学习 App」页，不再单独开页面） ----------
+    tapLeisureToggle() {
+      this.addingLeisure = !this.addingLeisure
+      if (this.addingLeisure) this.openLeisure()
+    },
+    openLeisure() {
+      // 复用已装应用列表：没读过就先读（与学习 App 同一份，不重复枚举）
+      if (this.isAndroid && !this.all.length) this.loadApps()
+      // 面板在折叠线以下，滚过去用户才看得到「在读列表」的反馈（同学习 App 添加面板）
+      this.$nextTick(() => {
+        setTimeout(() => {
+          try { uni.pageScrollTo({ selector: '.lr-card', duration: 220 }) } catch (e) {}
+        }, 80)
+      })
+    },
+    lrSel(c) { return this.leisurePkgs.some(s => s.pkg === c.pkg) },
+    toggleLeisure(c) {
+      if (this.lrSel(c)) this.leisurePkgs = this.leisurePkgs.filter(s => s.pkg !== c.pkg)
+      else this.leisurePkgs.push({ pkg: c.pkg, name: c.name })
+      this.persistLeisure()
+    },
+    removeLeisure(a) {
+      this.leisurePkgs = this.leisurePkgs.filter(s => s.pkg !== a.pkg)
+      this.persistLeisure()
+    },
+    persistLeisure() {
+      const cur = settings.get().leisure || {}
+      settings.set({ leisure: Object.assign({}, cur, { pkgs: this.leisurePkgs.slice() }) })
     }
   }
 }
@@ -676,6 +794,8 @@ export default {
   flex-shrink: 0;
 }
 .dr-rest { background: rgba(122, 124, 122, 0.16); color: #5a6560; color: var(--ink-2, #5a6560); }
+/* 休闲 App 图标：琥珀色，区别于学习 App 的绯红、休息用途的灰 */
+.dr-leisure { background: rgba(247, 144, 9, 0.12); color: #f79009; }
 .dr-main { flex: 1; min-width: 0; margin: 0 20rpx; }
 .dr-name { font-size: 27rpx; color: #17201a; color: var(--ink-1, #17201a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-task {

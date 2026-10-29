@@ -630,7 +630,7 @@
       </view>
     </view>
 
-    <!-- ===== 休闲提醒（多邻国式：后台静默统计休闲 App，刷太久/零专注时主动提醒） ===== -->
+    <!-- ===== 休闲提醒：后台静默统计休闲 App，刷太久/零专注时主动提醒（选择并进「学习 App」页一起做） ===== -->
     <view class="sec" :class="{ open: openSec === 'leisure' }">
       <view class="sec-head" data-k="leisure" @tap="toggleSec">
         <text class="sec-name">{{ $t('休闲提醒') }}</text>
@@ -667,7 +667,7 @@
         <view class="row">
           <view class="row-main">
             <text class="row-title">{{ $t('每日复盘提醒') }}</text>
-            <text class="row-desc">{{ $t('像多邻国那样，在固定时点催一句「今天还有几个任务」') }}</text>
+            <text class="row-desc">{{ $t('到固定时点提醒你今天还有几个任务没收工') }}</text>
           </view>
           <switch :checked="leisure.digest" :color="brandMain" @change="e => setLeisure('digest', e.detail.value)" />
         </view>
@@ -1872,7 +1872,8 @@ export default {
       this.refresh()
     },
     goLeisure() {
-      try { uni.navigateTo({ url: '/pkgPlan/pages/leisure/leisure' }) } catch (e) {}
+      // 休闲 App 的选择已合并进「学习 App」管理页（apps.vue），跳过去即可
+      try { uni.navigateTo({ url: '/pkgPlan/pages/apps/apps?leisure=1' }) } catch (e) {}
     },
     // ---------- 触感反馈（utils/haptic.js）----------
     // 改总开关并落盘；打开时顺手震一下，让用户立刻知道"这就是它"。

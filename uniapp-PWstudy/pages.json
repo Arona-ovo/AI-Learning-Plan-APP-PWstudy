@@ -51,10 +51,6 @@
           "style": { "navigationBarTitleText": "学习 App", "navigationStyle": "custom" }
         },
         {
-          "path": "pages/leisure/leisure",
-          "style": { "navigationBarTitleText": "休闲关注", "navigationStyle": "custom" }
-        },
-        {
           "path": "pages/range/range",
           "style": { "navigationBarTitleText": "学习范围", "navigationStyle": "custom" }
         },

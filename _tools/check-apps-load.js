@@ -277,6 +277,20 @@ try {
     '没配 AI 时说明白是"服务未启用"（不然用户以为坏了）'
   );
 
+  // == 11. 休闲 App 选择并进「学习 App」页（2026-10-29）==
+  // 反馈原话："选择休闲 APP，直接在学习 APP 管理里面一起弄就行"。
+  // 原来休闲 App 是个独立页面（leisure.vue），现在并入 apps.vue：复用同一份已装应用列表，
+  // 只是写进 settings().leisure.pkgs。这条守住"没被悄悄挪回独立页 / 没被删掉"。
+  console.log('== 11. 休闲 App 选择并入「学习 App」页 ==');
+  assert(/tapLeisureToggle\(\)/.test(appsVue), 'apps.vue 有打开休闲选择面板的入口');
+  assert(/class="card add-card lr-card"/.test(appsVue), 'apps.vue 有休闲选择面板（复用 add-card 样式）');
+  assert(/@tap="toggleLeisure\(c\)"/.test(appsVue), '面板里点候选 = toggleLeisure（写进 leisure.pkgs）');
+  assert(/persistLeisure\(\)/.test(appsVue), '改动落盘到 settings().leisure.pkgs');
+  assert(/\$t\('休闲 App'\)/.test(appsVue), '休闲 App 卡片有标题');
+  assert(/onLoad\(options\)/.test(appsVue) && /options\.leisure === '1'/.test(appsVue),
+    '支持从设置页带 ?leisure=1 跳过来自动展开');
+  assert(/lrSel\(c\)/.test(appsVue), '面板用 lrSel 判断已选（已选的标「已选」）');
+
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);
 } catch (e) {
