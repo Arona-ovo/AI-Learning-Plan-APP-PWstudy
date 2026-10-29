@@ -64,6 +64,7 @@ import Uri from 'android.net.Uri';
 import MediaPlayer from 'android.media.MediaPlayer';
 import AudioManager from 'android.media.AudioManager';
 import BroadcastReceiver from 'android.content.BroadcastReceiver';
+import AlarmManager from 'android.app.AlarmManager';
 import JSONObject from 'org.json.JSONObject';
 import Calendar from 'java.util.Calendar';
 
@@ -2348,12 +2349,14 @@ function parseLeisureCfg(json: string): LeisureCfg {
     let namesArr = o.optJSONArray('names');
     if (pkgsArr != null) {
       let n = pkgsArr.length();
-      for (let i = 0; i < n; i++) {
+      var i: Int = 0;
+      while (i < n) {
         let v = pkgsArr.optString(i, '');
         c.pkgs.push(v);
         let nm = '';
         if (namesArr != null) nm = namesArr.optString(i, '');
         c.names.push(nm);
+        i++;
       }
     }
   } catch (e) {}
@@ -2365,7 +2368,7 @@ function loadLeisureCfg(): LeisureCfg | null {
   let p = leisureSp();
   if (p == null) return null;
   if (p.getInt('leisure_on', 0) != 1) return null;
-  let payload = p.getString('leisure_payload', '');
+  let payload = p.getString('leisure_payload', '')!;
   if (payload.length == 0) return null;
   return parseLeisureCfg(payload);
 }
@@ -2375,9 +2378,9 @@ function loadLeisureThrottle(): LeisureThrottle {
   let st = new LeisureThrottle();
   let p = leisureSp();
   if (p == null) return st;
-  let date = p.getString('leisure_ndate', '');
+  let date = p.getString('leisure_ndate', '')!;
   let count = p.getInt('leisure_ncount', 0);
-  let ks = p.getString('leisure_nkinds', '');
+  let ks = p.getString('leisure_nkinds', '')!;
   if (ks.length > 0) {
     let arr = ks.split(',');
     for (let i = 0; i < arr.length; i++) {
@@ -2417,7 +2420,7 @@ function saveLeisureThrottle(st: LeisureThrottle): void {
 function leisureFocusToday(): boolean {
   let p = leisureSp();
   if (p == null) return false;
-  let d = p.getString('leisure_focus_date', '');
+  let d = p.getString('leisure_focus_date', '')!;
   return d == leisureDateStr();
 }
 
@@ -2591,10 +2594,12 @@ function leisureGuardCheck(ctx: Context): void {
   let total: Int = 0;
   let topIdx: Int = -1;
   let topMin: Int = 0;
-  for (let i = 0; i < c.pkgs.length; i++) {
+  var i: Int = 0;
+  while (i < c.pkgs.length) {
     let m = mins[i];
     total = total + m;
     if (m > topMin) { topMin = m; topIdx = i; }
+    i++;
   }
 
   // dwell：现在前台正好是那个休闲 App，且它当日累计已够（"你正在刷抖音"）
