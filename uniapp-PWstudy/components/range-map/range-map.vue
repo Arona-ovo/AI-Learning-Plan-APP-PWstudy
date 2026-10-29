@@ -11,32 +11,44 @@
       <!-- 真地图（uni 内置 <map>，App 端走高德 SDK，需在 manifest 配 sdkConfigs.maps.amap
            + 云打包）。marker 是图钉位置、circle 是范围（半径按真实米画，比例永远准）。
            选位置：点地图任意处（@tap 拿经纬度，App 端可靠）或拖图钉（@markerdrag 增强）；
-           改范围：下方滑块 / 快捷档；归中：地图右下角「定位」钮 / 编辑态的「回到原位」。 -->
+           改范围：下方滑块 / 快捷档；归中：读数行右侧的「定位」（见 2026-10-29 的说明）。
+           ⚠️ 手势要显式打开：enable-scroll / enable-zoom 不写，部分内核默认是关的 ——
+              现象就是"地图能看不能拖"，用户以为卡死了。
+           ⚠️ :key="mapSeq"：归中失败时靠换 key 重挂原生地图（App 端没有别的可靠办法），
+              见 recenter()。 -->
       <map
         class="rm-map"
         :id="mapId"
+        :key="mapSeq"
         :latitude="lat"
         :longitude="lng"
         :scale="scale"
         :markers="markers"
         :circles="circles"
         :show-location="true"
+        :enable-scroll="true"
+        :enable-zoom="true"
+        :enable-rotate="false"
+        :enable-overlooking="false"
         @tap="onTapMap"
         @markerdrag="onMarkerDrag"
         @updated="onUpdated"
-      >
-        <!-- 原生地图层级最高，普通 view 盖不住 —— 地图内的浮动控件只能用 cover-view。
-             点一下取当前 GPS：图钉 + 视野一起归中到当前位置。 -->
-        <cover-view class="rm-locate" @click="locateMe">
-          <cover-view class="rm-locate-txt" :class="{ 'rm-locate-busy': locating }">{{ locating ? '···' : $t('定位') }}</cover-view>
-        </cover-view>
-      </map>
+      ></map>
 
       <!-- 读数 -->
       <view class="rm-readout">
         <text class="rm-ro-item rm-ro-r">{{ radiusText }}</text>
         <text class="rm-ro-item" v-if="offsetMeters > 1">{{ offsetText }}</text>
         <text class="rm-ro-item rm-ro-back" v-if="canBack" @tap="backToOrigin">{{ $t('回到原位') }}</text>
+        <!-- 定位（2026-10-29 从地图里挪出来）：原来是地图右下角的 cover-view，
+             两个毛病 —— 原生地图不认容器圆角，按钮右半边被方形边界切掉；而且
+             App 端 cover-view 的点击偶发不派发，"点了没反应"。放到读数行里，
+             点击走普通 view，和旁边几颗 chip 同一套命中区域。 -->
+        <text
+          class="rm-ro-item rm-ro-loc"
+          :class="{ 'rm-ro-busy': locating }"
+          @tap="locateMe"
+        >{{ locating ? $t('定位中…') : $t('定位') }}</text>
       </view>
 
       <!-- 快捷档 + 缩放 -->
@@ -122,13 +134,16 @@ export default {
   data() {
     return {
       mapId: 'rangemap',
+      // 换 key 就重挂原生地图：App 端"把视野挪到某点"没有 100% 可靠的接口，
+      // 归中后实测没挪动就用它兜底（见 recenter）。
+      mapSeq: 1,
       lat: 0,
       lng: 0,
       radiusM: 200,
       scale: 16,
       presetMeters: [100, 200, 500, 1000], // 纯数字+单位 m，不占 i18n
       mapReady: false,
-      locating: false // 「定位」钮正在取 GPS（防连点）
+      locating: false // 「定位」正在取 GPS（防连点）
     };
   },
   computed: {
@@ -142,8 +157,11 @@ export default {
         id: 1,
         latitude: this.lat,
         longitude: this.lng,
-        width: 28,
-        height: 36,
+        // ★ 这两个数字是**物理像素**，不是 rpx：原来写 28/36，在 3 倍屏上只有
+        //   9dp 宽，缩成地图上一个看不清的小红点（2026-10-29 真机截图实锤）。
+        //   48×60 ≈ 16×20dp，和系统地图的图钉一个量级。
+        width: 48,
+        height: 60,
         anchor: { x: 0.5, y: 1 },
         draggable: true
       };
@@ -152,13 +170,18 @@ export default {
       return [m];
     },
     circles() {
+      // ★ 描边必须够粗才有"圈"的样子：strokeWidth 单位是物理像素，写 2 在 3 倍屏上
+      //   只有 0.7dp —— 真机上几乎看不见（截图里只剩一条发丝红线）。
+      //   填充也别太淡：底图本身就偏粉，13% 的红铺上去等于没有。
+      // ⚠️ 颜色保留 8 位十六进制（后两位是 alpha，uni 文档规定的格式）：
+      //   6 位在部分内核上会被当成不合法色值整条丢掉 —— 那就又看不见圈了。
       return [{
         latitude: this.lat,
         longitude: this.lng,
         radius: this.radiusM,
-        color: '#e4173d88',
-        fillColor: '#e4173d22',
-        strokeWidth: 2
+        color: '#e4173dff',
+        fillColor: '#e4173d33',
+        strokeWidth: 4
       }];
     },
     // 偏离中心（centerLat/Lng）的真实距离（米）
@@ -182,7 +205,12 @@ export default {
   watch: {
     show(v) {
       if (v) this.open();
+      else clearTimeout(this._ctrT); // 关掉就别再回来改地图状态（组件常驻，定时器得自己收）
     }
+  },
+  beforeDestroy() {
+    clearTimeout(this._ctrT);
+    this._ctrT = null;
   },
   methods: {
     noop() {},
@@ -243,7 +271,7 @@ export default {
       try { uni.showToast({ title: title, icon: 'none' }); } catch (e) { /* 忽略 */ }
     },
 
-    // 地图右下角「定位」：取一次当前 GPS，图钉 + 视野一起归中过去
+    // 「定位」：取一次当前 GPS，图钉 + 视野一起归中过去
     locateMe() {
       if (this.locating) return;
       this.locating = true;
@@ -252,7 +280,7 @@ export default {
         this.lat = pos.lat;
         this.lng = pos.lng;
         this.scale = this.rToScale(this.radiusM); // 归中后按半径重取缩放，圆保证看得全
-        this.centerMap();
+        this.recenter();
         this.toast(this.$t('已定位到当前位置'));
       }).catch((err) => {
         this.locating = false;
@@ -265,25 +293,53 @@ export default {
       if (!this.centerLat) return;
       this.lat = this.centerLat;
       this.lng = this.centerLng;
-      this.centerMap();
+      this.recenter();
     },
 
     /**
      * 把视野拉回图钉（这个编辑器里图钉 = 地图中心）。
-     * 平时 latitude/longitude prop 变了 <map> 自己会挪；但两种场景 prop 值
-     * 看不出变化，必须显式 moveToLocation 拉一次：
-     *   · 原地再定位 —— 新 GPS 和图钉只差几米，prop 几乎没动；
-     *   · 拖走地图再点回来 —— prop 根本没变过，视野却在别处。
+     *
+     * 为什么这么绕（2026-10-29 真机反馈"点定位不生效"）：
+     *   · 平时 latitude/longitude prop 变了 <map> 自己会挪，但**"定位到当前位置"
+     *     恰恰是最不会变值的那种情况** —— 加地点时图钉本来就是按 GPS 放的，
+     *     再取一次只差几米，prop 几乎没动，于是屏幕上什么都不发生；
+     *   · 只好靠 moveToLocation 显式拉视野。可它在部分机型上是空操作
+     *     （地图的"我的位置"图层没起来时，高德直接忽略这次调用，不报错）。
+     * 所以：先按文档调 moveToLocation，**再实测一次视野中心**；
+     *   没挪到位就换 key 重挂地图 —— 原生视图按当前 lat/lng/scale 重建，一定到位。
+     *   健康的机型上走不到重挂那一步，不会有白闪。
      */
-    centerMap() {
+    recenter() {
       this.$nextTick(() => {
-        try {
-          const ctx = uni.createMapContext(this.mapId, this);
-          if (ctx && ctx.moveToLocation) {
-            ctx.moveToLocation({ latitude: this.lat, longitude: this.lng });
-          }
-        } catch (e) { /* 平台不支持就只靠 prop 那条路，主流程不受影响 */ }
+        let ctx = null;
+        try { ctx = uni.createMapContext(this.mapId, this); } catch (e) { ctx = null; }
+        if (ctx && ctx.moveToLocation) {
+          try { ctx.moveToLocation({ latitude: this.lat, longitude: this.lng }); } catch (e) { /* 下面实测兜底 */ }
+        }
+        clearTimeout(this._ctrT);
+        const wantLat = this.lat;
+        const wantLng = this.lng;
+        this._ctrT = setTimeout(() => {
+          this._ctrT = null;
+          if (!ctx || !ctx.getCenterLocation) { this.remountMap(); return; }
+          try {
+            ctx.getCenterLocation({
+              success: (res) => {
+                const d = loc.distanceM(Number(res.latitude), Number(res.longitude), wantLat, wantLng);
+                // 20 米容差：GPS 抖动 + 视口中心取整；超过就认为视野没跟过去
+                if (!(d <= 20)) this.remountMap();
+              },
+              fail: () => this.remountMap()
+            });
+          } catch (e) { this.remountMap(); }
+        }, 320);
       });
+    },
+
+    /** 换 key 重挂原生地图（视野按当前 lat/lng/scale 重建）—— 归中失败时的兜底 */
+    remountMap() {
+      this.mapReady = false;
+      this.mapSeq += 1;
     },
 
     /** 定位失败要说得清是哪一类：没权限 / 定位服务关着 / 其它（与 range 页同一套口径） */
@@ -348,8 +404,8 @@ export default {
 }
 
 .rm-readout {
-  display: flex; flex-wrap: wrap; gap: 14rpx;
-  margin-top: 16rpx;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12rpx;
+  margin-top: 14rpx;
 }
 .rm-ro-item {
   font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560);
@@ -366,31 +422,20 @@ export default {
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
   font-weight: 500;
 }
-
-/* 地图内右下角「定位」钮：cover-view 只吃基本定位/布局/文本样式 ——
-   不用阴影 / 单边 border / background-image（写了也不生效）；
-   不用 flex 做居中（支持不稳），文字用 line-height + text-align 兜住 */
-.rm-locate {
-  position: absolute;
-  right: 16rpx;
-  bottom: 16rpx;
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 44rpx;
-  background-color: #fffdf8;
-  text-align: center;
-}
-.rm-locate-txt {
-  font-size: 24rpx;
+/* 「定位」：推到读数行最右（原来是地图里的 cover-view，见模板注释） */
+.rm-ro-loc {
+  margin-left: auto;
+  color: #bb1332; color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
   font-weight: 600;
-  color: #bb1332;
-  line-height: 88rpx;
+  padding: 8rpx 24rpx;
 }
-.rm-locate-busy { color: #98a19b; }
+.rm-ro-busy { color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .rm-presets {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 14rpx;
-  margin-top: 16rpx;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12rpx;
+  margin-top: 12rpx;
 }
 .rm-preset {
   font-size: 24rpx; color: #17201a; color: var(--ink-1, #17201a);
@@ -410,13 +455,13 @@ export default {
 
 .rm-slider-row {
   display: flex; align-items: center; gap: 16rpx;
-  margin-top: 16rpx;
+  margin-top: 14rpx;
 }
 .rm-slider-label { font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); flex-shrink: 0; }
 .rm-slider { flex: 1; }
 .rm-slider-val { font-size: 24rpx; color: #bb1332; color: var(--brand-strong, #bb1332); flex-shrink: 0; min-width: 96rpx; text-align: right; }
 
-.rm-btns { display: flex; gap: 18rpx; margin-top: 24rpx; }
+.rm-btns { display: flex; gap: 18rpx; margin-top: 20rpx; }
 .rm-btn {
   flex: 1; height: 88rpx; border-radius: 18rpx;
   display: flex; align-items: center; justify-content: center;

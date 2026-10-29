@@ -84,7 +84,7 @@
       @cancel="dlg.show = false"
     />
 
-    <!-- 自绘小地图：加地点 / 微调位置与范围（零地图 SDK） -->
+    <!-- 小地图编辑器：加地点 / 微调位置与范围（真地图，见 components/range-map） -->
     <range-map
       :show="map.show"
       :center-lat="map.lat"

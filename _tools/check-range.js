@@ -92,7 +92,10 @@ assert(/outDays|outMin|topHours|spans/.test(rs), '摘要给出排期要用的四
 console.log('== 2. location.js：怎么取样 ==');
 const lstrip = strip(locSrc);
 assert(/const MIN_GAP_MS = 5 \* 60 \* 1000/.test(lstrip), '两次取样至少隔 5 分钟（采样稀疏是设计）');
-assert(/isHighAccuracy: false/.test(lstrip), '不要求高精度定位（只需要"在不在几百米内"）');
+// ⚠️ 盯的是**第一种取法**：取法数组里后面还有一条高精度兜底，只搜 'isHighAccuracy: false'
+//    的话，把第一条改成 true 也照样绿（neg-range 里那条变异就是这么假绿的）。
+assert(/\{ type: 'gcj02', isHighAccuracy: false \}/.test(lstrip),
+  '不要求高精度定位（第一种取法就是普通精度：只需要"在不在几百米内"）');
 // ⚠️ 用剥过注释的源码：注释里专门提了这个常量名，拿原文搜会自己命中自己
 assert(!/ACCESS_BACKGROUND_LOCATION/.test(lstrip), '不申请后台定位权限');
 assert(/function enabled\(\)[\s\S]{0,200}?!!c\.on[\s\S]{0,200}?places\.length > 0/.test(lstrip) ||
@@ -169,6 +172,39 @@ assert(!/uni\.showModal|uni\.showActionSheet/.test(pageSrc),
 assert(/switch :checked="on"/.test(pageSrc), '有总开关');
 assert(/还没给定位权限/.test(pageSrc), '没权限时界面上说得出来');
 assert(/不会发给 AI|不会发给/.test(pageSrc), '页面上把隐私边界写给用户看');
+
+/* ---------- 6b. 地图编辑器（2026-10-29 真机反馈后重做的那几处） ---------- */
+console.log('== 6b. 地图编辑器 ==');
+// 用户原话："这一块的 UI 和定位也有问题，点击完以后不会把定位点定位到目前用户的位置。"
+// 拆开是四件事，每条都对应一个真机症状：
+const MAP_VUE = path.join(ROOT, 'components', 'range-map', 'range-map.vue');
+const mapSrc = read(MAP_VUE);
+const mapTpl = mapSrc.slice(0, mapSrc.indexOf('</template>'));
+// ① 手势：enable-scroll / enable-zoom 不写，部分内核默认关 —— "地图能看不能拖"
+assert(/:enable-scroll="true"/.test(mapTpl) && /:enable-zoom="true"/.test(mapTpl),
+  '地图手势显式打开（enable-scroll / enable-zoom，不写可能默认关）');
+// ② 图钉尺寸是物理像素：28/36 在 3 倍屏上只有 9dp，缩成一个看不清的红点
+const mkBlock = (mapSrc.match(/markers\(\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+const mkSize = (mkBlock.match(/width:\s*(\d+)/) || [0, 0])[1] | 0;
+assert(mkSize >= 44, '图钉按物理像素写且够大（width=' + mkSize + '，小于 44 在 3 倍屏上看不清）');
+// ③ 范围圈：strokeWidth 是物理像素，写 2 在 3 倍屏上只有 0.7dp —— 真机上只剩一根发丝
+const cBlock = (mapSrc.match(/circles\(\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+const sw = (cBlock.match(/strokeWidth:\s*(\d+)/) || [0, 0])[1] | 0;
+assert(sw >= 3, '范围圈描边够粗（strokeWidth=' + sw + '，2 在 3 倍屏上等于看不见）');
+assert(/color: '#[0-9a-fA-F]{6}(ff)?'/.test(cBlock),
+  '范围圈描边是实色（半透明描边铺在粉色底图上看不见）');
+// ④ 定位按钮：App 端 cover-view 的点击偶发不派发，且原生地图不认容器圆角会把按钮切掉
+assert(!/<cover-view/.test(mapTpl), '地图里不再用 cover-view（点击偶发不派发 + 被方形边界裁切）');
+assert(/class="rm-ro-item rm-ro-loc"/.test(mapTpl) && /@tap="locateMe"/.test(mapTpl),
+  '「定位」是读数行里的普通 chip（走普通 view 的命中区域）');
+// ⑤ 归中要被"验过"：moveToLocation 在部分机型是空操作，必须实测视野中心
+const ctr = (mapSrc.match(/recenter\(\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
+assert(/moveToLocation/.test(ctr), '归中先按文档调 moveToLocation');
+assert(/getCenterLocation\(\{/.test(ctr), '归中之后实测视野中心（不然"点了没反应"查不出来）');
+assert(/remountMap\(\)/.test(ctr), '实测没挪到位就换 key 重挂地图（原生层唯一的硬兜底）');
+assert(/:key="mapSeq"/.test(mapTpl) && /this\.mapSeq \+= 1/.test(mapSrc),
+  'map 绑了 :key="mapSeq"，重挂才真的会重建视野');
+assert(/id="rangemap"|mapId: 'rangemap'/.test(mapSrc), '地图 id 唯一（createMapContext 靠它）');
 
 /* ---------- 7. manifest：权限模块 ---------- */
 console.log('== 7. manifest ==');

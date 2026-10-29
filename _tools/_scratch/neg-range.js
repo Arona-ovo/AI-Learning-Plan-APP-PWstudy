@@ -21,8 +21,9 @@ const PROFILE = path.join(U, 'pages', 'profile', 'profile.vue');
 const RANGE_PAGE = path.join(U, 'pkgPlan', 'pages', 'range', 'range.vue');
 const APPVUE = path.join(U, 'App.vue');
 const FOCUS = path.join(U, 'utils', 'focus.js');
+const MAP_VUE = path.join(U, 'components', 'range-map', 'range-map.vue');
 
-const FILES = [PW, LOC, HARVEST, COACH, SETTINGS, MANIFEST, PAGES, PROFILE, RANGE_PAGE, APPVUE, FOCUS];
+const FILES = [PW, LOC, HARVEST, COACH, SETTINGS, MANIFEST, PAGES, PROFILE, RANGE_PAGE, APPVUE, FOCUS, MAP_VUE];
 const backup = {};
 FILES.forEach(f => { backup[f] = fs.readFileSync(f); });
 function restore() { Object.keys(backup).forEach(f => fs.writeFileSync(f, backup[f])); }
@@ -134,7 +135,10 @@ shouldCatch('取样间隔缩到 1 分钟（拿电量换没用的精度）', (c) 
 }, '至少隔 5 分钟');
 
 shouldCatch('开了高精度定位（慢且费电）', (c) => {
-  swap(c, LOC, 'isHighAccuracy: false,', 'isHighAccuracy: true,');
+  // ⚠️ 锚点跟着 location.js 的"三次取法"数组走：原来写的是 'isHighAccuracy: false,'
+  //    （那时还是对象里的一个字段），重构后逗号在花括号外面，锚点就再也命中不了 ——
+  //    这种"注入失败"必须当红，别当成"没测到也算过"。
+  swap(c, LOC, "{ type: 'gcj02', isHighAccuracy: false }", "{ type: 'gcj02', isHighAccuracy: true }");
 }, '不要求高精度定位');
 
 shouldCatch('申请了后台定位权限', (c) => {
@@ -228,6 +232,31 @@ shouldCatch('页面里用了系统原生弹窗（样式管不到）', (c) => {
 shouldCatch('页面没有总开关（关不掉）', (c) => {
   swap(c, RANGE_PAGE, '<switch :checked="on" color="#e4173d" @change="toggle" />', '');
 }, '有总开关');
+
+/* ---------- 6b. 地图编辑器 ---------- */
+shouldCatch('地图手势又关回去（能看不能拖，用户以为卡死）', (c) => {
+  swap(c, MAP_VUE, '        :enable-scroll="true"', '');
+}, '地图手势显式打开');
+
+shouldCatch('图钉又写成 28px（3 倍屏上只有 9dp，看不清）', (c) => {
+  swap(c, MAP_VUE, '        width: 48,', '        width: 28,');
+}, '图钉按物理像素写且够大');
+
+shouldCatch('范围圈描边又写回 2px（真机只剩一根发丝）', (c) => {
+  swap(c, MAP_VUE, '        strokeWidth: 4', '        strokeWidth: 2');
+}, '范围圈描边够粗');
+
+shouldCatch('定位退回地图里的 cover-view（点击偶发不派发 + 被切掉）', (c) => {
+  swap(c, MAP_VUE, 'class="rm-ro-item rm-ro-loc"', 'class="rm-ro-item"');
+}, '读数行里的普通 chip');
+
+shouldCatch('归中之后不实测视野中心（点了没反应也查不出来）', (c) => {
+  swap(c, MAP_VUE, 'ctx.getCenterLocation({', 'ctx.getCenterLocatioX({');
+}, '实测视野中心');
+
+shouldCatch('重挂地图不换 key（视野还是不动）', (c) => {
+  swap(c, MAP_VUE, '      this.mapSeq += 1;', '      this.mapSeq = 1;');
+}, '重挂才真的会重建视野');
 
 /* ---------- 7. manifest ---------- */
 shouldCatch('manifest 里加了后台定位权限', (c) => {
