@@ -475,8 +475,8 @@ console.log('== 9. intro 收尾真跑（2026-10-30 三定时器：看门狗 / �
     if (dKf) fire(dKf);
     assert(d.sets === 1, '看门狗到点摘 intro，让 transition 接管收缩（sets=' + d.sets + '）');
     assert(d.host.ringHide === true, '兜底路径也不当场放内容（还要等 transition 收缩完）');
-    const dHide = d.pending(300);
-    assert(!!dHide, '兜底路径排 300ms 再放内容（等 transition 260ms 缩完）');
+    const dHide = d.pending(260);
+    assert(!!dHide, '兜底路径排 260ms 再放内容（贴着 transition 260ms 收缩，落位即出数字、不空等）');
     if (dHide) fire(dHide);
     assert(d.host.ringHide === false, '兜底路径 300ms 后内容淡入');
 

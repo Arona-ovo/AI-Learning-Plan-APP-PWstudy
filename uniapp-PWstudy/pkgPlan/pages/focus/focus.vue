@@ -801,7 +801,11 @@ export default {
         //   两条路耗时不同：关键帧真跑了 → 圆已到 1 倍，稍等即可；
         //   关键帧没跑（华为系丢掉 fr-ring-drop）→ 摘 fr-intro 才触发 transition
         //   从 4.5 缩到 1，要等这 260ms 走完，否则文字又跟着放大成巨字。
-        const wait = self._ringKfStarted ? 40 : 300
+        // ⚠️ 兜底路径的 wait 要贴着收缩时长（260ms）走（2026-10-30 掉帧反馈）：
+        //   原来写 300，圆落位后还要空等约 0.3s 才轮到「60:00」淡入 —— 用户感觉
+        //   "到显示时间这一段卡"。改成 260：圆刚落位数字就起淡入，无缝接上。
+        //   关键帧路径圆本来就已落位，40ms 足够。
+        const wait = self._ringKfStarted ? 40 : 260
         clearTimeout(self._ringHideT)
         self._ringHideT = setTimeout(() => {
           self._ringHideT = null
@@ -1848,9 +1852,12 @@ export default {
      fr-skin-back 的 @keyframes 里含 var()，华为系 WebView 会整条丢弃 ——
      摘 fr-intro 的那一帧圆还是 4.5 倍盖满全屏，皮肤从粉**硬切**成白玻璃 =
      整屏白闪一下（用户说的"两个圆交替时闪一下"就是这么来的）。
-     transition 走普通声明，华为认 var()，摘 class 时粉→玻璃平滑渐变 260ms，
-     正好与收缩同步。 */
-  transition: background 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+     ⚠️ 但**不要过渡 box-shadow**（2026-10-30 第二轮实锤）：阴影带 48rpx 模糊，
+     在 4.5 倍的大圆上每帧重绘一次极贵，华为系直接掉帧（用户反馈"过渡完到
+     显示时间这段掉帧"）。阴影改成落位那一下当帧切换（一次重绘就完）。
+     而且收缩期间皮肤是**静态**的（见 .fr-hide .ring-inner），这条 transition
+     实际只会在圆已落到 1 倍、fr-hide 摘掉时跑一次 —— 面积小、几乎无感。 */
+  transition: background 200ms ease, border-color 200ms ease;
 }
 /* ★ 圆圈衔接转场（2026-10-25，与首页 .ring-launch 是一对）：
    从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，缩回就位。
@@ -1928,10 +1935,20 @@ export default {
    中间约 0.3 秒像空白页）。 */
 .fr-hide .ring-inner .time,
 .fr-hide .ring-inner .task-title { opacity: 0; }
-/* 收缩期间别让毛玻璃突然打开：fr-intro 摘掉那一帧圆还是 4.5 倍，backdrop-filter
-   一上来就是"整屏突然模糊"（又一次闪）。fr-hide 要留到圆落位，正好拿它兜住 ——
-   落位后（fr-hide 摘掉）玻璃在小圆上回来，看不出突变。 */
+/* ★ 收缩全程保持**静态**粉色皮肤（2026-10-30 第二轮真机实锤：掉帧）：
+   fr-intro 先摘、fr-hide 后摘，两次之间皮肤必须一模一样 —— 这里与
+   .fr-intro .ring-inner 同值，于是摘 fr-intro 时皮肤**零变化、零重绘**，
+   收缩只剩 transform（GPU 合成）；等圆落到 1 倍、fr-hide 摘掉，才在**小圆**上
+   过渡回玻璃（面积小、便宜）。之前皮肤跟着 4.5 倍大圆一起过渡 background/
+   box-shadow，每帧重绘整屏，就是"过渡完到显示时间这段掉帧"的来源。
+   顺带：backdrop-filter 也在 fr-hide 期间保持关 —— 摘 fr-intro 那一帧圆还是
+   4.5 倍，毛玻璃一上来就是"整屏突然模糊"（又是一次闪）。 */
 .fr-hide .ring-inner {
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border-color: rgba(228, 23, 61, 0.28);
+  border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+  box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -1946,8 +1963,10 @@ export default {
    （动画未跑完/桥消息延迟），用户看到的就是满屏巨字"啪"地跳出来 ——
    圆外内容有 220ms 淡入（下一条规则），这两行字没有，就特别显眼。
    fr-exit 那条 transition: none 特异性更高，退出方向的瞬消不受影响。 */
+/* 200ms → 140ms（2026-10-30）：落位后数字要"跟着就出来"，淡入拖太久会被当成卡顿。
+   140ms 仍够遮住 0→1 的突变，又不拖延。 */
 .ring-inner .time,
-.ring-inner .task-title { transition: opacity 200ms ease; }
+.ring-inner .task-title { transition: opacity 140ms ease; }
 .fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
 .focus-body > * { transition: opacity 220ms ease 60ms; }
 /* ★ 点出（2026-10-29）：与上面 fr-intro 是一对，方向相反 ——
