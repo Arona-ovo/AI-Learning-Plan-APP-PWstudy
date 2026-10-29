@@ -53,7 +53,13 @@
     <!-- 添加面板（kb-open：搜索框聚焦时给底部补空白，让页面有余地滚到键盘之上） -->
     <view class="card add-card" v-if="adding" :class="{ 'kb-open': searchFocus }">
       <view class="card-head">
-        <text class="card-title">{{ isAndroid ? '从已安装应用里选' : '手动添加' }}</text>
+        <!-- 标题旁的小转圈：面板主体（骨架行）在下面，屏幕矮的时候要滚才看得到，
+             头这一行是**一定会露出来**的位置 —— 把"在读列表"的信号放这儿，
+             用户点完「＋ 添加」立刻知道系统在干活，不会以为点空了（2026-10-29）。 -->
+        <view class="ch-l">
+          <view v-if="loadingApps" class="al-spin al-spin-sm"></view>
+          <text class="card-title">{{ isAndroid ? '从已安装应用里选' : '手动添加' }}</text>
+        </view>
         <text class="card-more" @tap="adding = false">收起</text>
       </view>
 
@@ -339,6 +345,15 @@ export default {
     tapAddToggle() {
       if (this.focusLock) { this.lockToast(); return }
       this.adding = !this.adding
+      if (!this.adding) return
+      // ★ 面板在折叠线以下（我的学习 App 卡后面那一块）：不滚过去的话，用户点完
+      //   「＋ 添加」屏幕上什么都不变 —— 连转圈和骨架行都看不到，只能以为点空了。
+      //   滚过去之后再"在读"才有意义（2026-10-29 用户反馈"加载时没有转圈"）。
+      this.$nextTick(() => {
+        setTimeout(() => {
+          try { uni.pageScrollTo({ selector: '.add-card', duration: 220 }) } catch (e) {}
+        }, 80)
+      })
     },
     /** 锁定期的统一提示：为什么点不动 */
     lockToast() {
@@ -718,6 +733,13 @@ export default {
    没有的话用户只会得出一个结论 —— "是不是我手机卡了"。
    转圈 + 一句说明 + 骨架行，三件套都在说同一件事：在读，马上就好。 */
 .apps-loading { padding: 4rpx 0 8rpx; }
+/* 标题行里的小转圈：比主体那颗小一号（主体那颗是"整块在加载"的门面） */
+.ch-l { display: flex; align-items: center; min-width: 0; }
+.al-spin-sm {
+  width: 26rpx; height: 26rpx;
+  margin: 0 12rpx 0 0;
+  border-width: 3rpx;
+}
 .al-spin {
   width: 40rpx; height: 40rpx;
   margin: 10rpx auto 14rpx;

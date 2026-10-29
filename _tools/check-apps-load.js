@@ -166,6 +166,12 @@ try {
     '文案里说清"第一次慢、之后秒开"（防用户以为是手机卡）'
   );
   assert(/class="sk-row"/.test(appsVue), '有骨架行占位');
+  // 2026-10-29：屏幕矮的时候"面板主体"在折叠线以下，骨架行要滚才看得到 ——
+  // 头那一行才是必定露出来的位置，所以转圈也得给头一份；顺带开面板就滚过去。
+  assert(/v-if="loadingApps" class="al-spin al-spin-sm"/.test(appsVue),
+    '面板标题行也有一颗小转圈（主体在折叠线以下时唯一看得见的信号）');
+  assert(/uni\.pageScrollTo\(\{ selector: '\.add-card'/.test(appsVue),
+    '打开面板后滚到可见位置（不滚的话点完「＋ 添加」屏幕毫无变化）');
 
   console.log('== 8. 搜索框与键盘的间距 ==');
   assert(/:cursor-spacing="30"/.test(appsVue), '搜索框有 cursor-spacing（比键盘高一点）');

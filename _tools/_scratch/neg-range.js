@@ -233,6 +233,10 @@ shouldCatch('页面没有总开关（关不掉）', (c) => {
   swap(c, RANGE_PAGE, '<switch :checked="on" color="#e4173d" @change="toggle" />', '');
 }, '有总开关');
 
+shouldCatch('加地点没有转圈（取定位最坏轮三种取法，看着像卡死）', (c) => {
+  swap(c, RANGE_PAGE, '<view v-if="locating" class="loc-spin"></view>', '');
+}, '取定位时有转圈');
+
 /* ---------- 6b. 地图编辑器 ---------- */
 shouldCatch('地图手势又关回去（能看不能拖，用户以为卡死）', (c) => {
   swap(c, MAP_VUE, '        :enable-scroll="true"', '');

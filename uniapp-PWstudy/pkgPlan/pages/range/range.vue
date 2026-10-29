@@ -34,7 +34,13 @@
     <view class="card" v-if="on">
       <view class="card-head">
         <text class="card-title">学习地点（{{ places.length }}）</text>
-        <text class="card-more" @tap="openAdd">{{ locating ? $t('定位中…') : $t('＋ 加地点') }}</text>
+        <!-- 取定位是"慢动作"（最多 8 秒一次、三种取法最多轮三遍）：
+             光把文字换成「定位中…」看着像卡住了，加一颗转圈把"在干活"说清楚。
+             2026-10-29 用户要求。 -->
+        <view class="card-more add-loc" @tap="openAdd">
+          <view v-if="locating" class="loc-spin"></view>
+          <text>{{ locating ? $t('定位中…') : $t('＋ 加地点') }}</text>
+        </view>
       </view>
 
       <view v-if="!places.length" class="pc-txt">
@@ -375,6 +381,17 @@ export default {
 .card-title { font-size: 28rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 
 .card-more { font-size: 25rpx; color: #bb1332; color: var(--brand-strong, #bb1332); }
+/* 「＋ 加地点 / 定位中…」：转圈 + 文字一行（转圈只在取定位时出现） */
+.add-loc { display: flex; align-items: center; }
+.loc-spin {
+  width: 24rpx; height: 24rpx;
+  margin-right: 10rpx;
+  border-radius: 50%;
+  border: 3rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.2);
+  border-top-color: var(--brand, #e4173d);
+  animation: loc-spin 0.8s linear infinite;
+}
+@keyframes loc-spin { to { transform: rotate(360deg); } }
 
 .pl-row {
   display: flex;

@@ -135,6 +135,13 @@ async function shouldCatch(label, mutations) {
   await shouldCatch('删掉加载态容器', [
     ['appsVue', '<view v-if="loadingApps" class="apps-loading">', '<view v-if="false" class="apps-loading">']
   ]);
+  // 2026-10-29：面板主体在折叠线以下，头那一行的小转圈是唯一看得见的信号
+  await shouldCatch('标题行的小转圈没了（矮屏上点完添加毫无反馈）', [
+    ['appsVue', '<view v-if="loadingApps" class="al-spin al-spin-sm"></view>', '']
+  ]);
+  await shouldCatch('开面板不滚到可见位置（点完屏幕毫无变化）', [
+    ['appsVue', "uni.pageScrollTo({ selector: '.add-card', duration: 220 })", '']
+  ]);
   await shouldCatch('删掉转圈动画', [
     ['appsVue', '<view class="al-spin"></view>', '']
   ]);

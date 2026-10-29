@@ -172,6 +172,9 @@ assert(!/uni\.showModal|uni\.showActionSheet/.test(pageSrc),
 assert(/switch :checked="on"/.test(pageSrc), '有总开关');
 assert(/还没给定位权限/.test(pageSrc), '没权限时界面上说得出来');
 assert(/不会发给 AI|不会发给/.test(pageSrc), '页面上把隐私边界写给用户看');
+// 2026-10-29：取定位最坏要轮三种取法（8 秒一次），只把文字换成「定位中…」看着像卡死
+assert(/v-if="locating" class="loc-spin"/.test(pageSrc), '「＋ 加地点」取定位时有转圈');
+assert(/@keyframes loc-spin/.test(pageSrc), '转圈有 keyframes（不然是个静止的圈）');
 
 /* ---------- 6b. 地图编辑器（2026-10-29 真机反馈后重做的那几处） ---------- */
 console.log('== 6b. 地图编辑器 ==');
