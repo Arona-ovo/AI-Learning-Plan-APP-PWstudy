@@ -1,5 +1,5 @@
 <template>
-  <view class="container page-nav focus-page" :class="[appTheme, { 'fr-intro': ringIntro, 'fr-exit': ringExit }]" :style="[appBgStyle, introVars]">
+  <view class="container page-nav focus-page" :class="[appTheme, { 'fr-intro': ringIntro, 'fr-exit': ringExit, 'fr-hide': ringHide }]" :style="appBgStyle">
     <!-- 返回键跟着页面的 onBackPress 走同一套判定（强制模式按住人不放），
          所以挂 @before-back：页面当场否决时这次点击就不导航 -->
     <float-navbar title="专注" :back="true" @before-back="onNavBack" />
@@ -15,7 +15,7 @@
            空闲态点圆盘任意处直接起表（播放轻跳 + 震动）；跑起来之后圆盘只是读数，
            点它不起表也不放弃（防误触）。 -->
       <view class="ring-wrap" @tap="onRingTap">
-        <view class="ring" :style="ringStyle" :class="{ 'ring-pulse': ringPulse }" @animationend="onIntroEnd">
+        <view class="ring" :style="ringStyle" :class="{ 'ring-pulse': ringPulse }" @animationstart="onIntroStart" @animationend="onIntroEnd">
           <view class="ring-inner">
             <!-- 正计时段：数字前面加个「+」，一眼看出这是"多坐了多久"而不是"还剩多久" -->
             <text class="time">{{ timeText }}</text>
@@ -295,7 +295,13 @@ export default {
       // 圆圈衔接转场：从首页大圆点进来（?zoom=1）时，ring 先处于"放大盖满全屏"
       // 态，两帧后移除 ringIntro 缩回就位 —— 与首页圆放大退出是同一视觉主体。
       ringIntro: false,
-      coverScale: 2.8,   // intro 态的放大倍数（onLoad 实测：盖满屏宽与屏高的较大者）
+      // 转场期间把**整页内容**（圈内读数/任务名 + 圆外所有内容）藏起来，
+      // 等圆真正落位再统一淡入。★ 2026-10-30 真机录屏实锤：原来圈内文字
+      // 200ms 就跟着淡入，可华为系 WebView 会把 fr-ring-drop 整条 keyframes 丢掉，
+      // 圆定格在 4.5 倍直到 600ms 兜底才由 transition 收缩 —— 那 400ms 里
+      // 「60:00」「背第1批…」被撑成一屏巨字。现在改由 JS 量"圆落位了"再摘 fr-hide，
+      // 任何设备上都不会再有放大的字。
+      ringHide: false,
       // 点出转场：圆放大盖满屏再 navigateBack(none)，首页那颗圆接着缩回就位
       // （2026-10-29；与这个页面的 fr-intro 是同一段动画的正反两遍）
       ringExit: false,
@@ -367,7 +373,8 @@ export default {
         { k: 'pink', t: this.$t('粉噪') },
         { k: 'brown', t: this.$t('棕噪') },
         { k: 'rain', t: this.$t('雨声') },
-        { k: 'beach', t: this.$t('沙滩') }
+        { k: 'beach', t: this.$t('沙滩') },
+        { k: 'clock', t: this.$t('时钟滴答') }
       ]
     },
     active() {
@@ -409,10 +416,6 @@ export default {
     timeText() {
       return this.overrun ? '+' + this.fmtMMSS(this.overSec) : this.fmtMMSS(this.remainSec)
     },
-    /** 圆圈衔接转场的 CSS 变量（--cover-scale 由 .fr-intro .ring 消费） */
-    introVars() {
-      return { '--cover-scale': String(this.coverScale) }
-    },
     // conic-gradient 比例（正计时段恒为满环 —— 目标已经达成了）
     ringStyle() {
       const total = this.cur ? this.cur.totalSec : this.minutes * 60
@@ -428,11 +431,12 @@ export default {
         backgroundColor: 'rgba(23,32,26,0.08)',
         background: 'conic-gradient(' + c1 + ' ' + deg + 'deg, rgba(23,32,26,0.08) ' + deg + 'deg)'
       }
-      // ★ intro 的放大起点同时写成**行内值**：CSS 那份走的是 var(--cover-scale)，
-      //   要过一轮自定义属性 resolve，个别 App 端内核在内联变量上不稳（变量没写
-      //   进去 → 只能吃 fallback 2.8，倍数就和首页对不上，衔接处会错位）。
-      //   行内值是硬承诺，CSS 那份留着兜底（兜住首帧 class 还没写进去的那一下）。
-      if (this.ringIntro) st.transform = 'scale(' + this.coverScale + ')'
+      // ⚠️ 别把 intro 的放大起点写成行内 transform（2026-10-29 真机实锤后删除）：
+      //   曾经是"老内核 var() 不稳"的双保险，但行内值的移除要走逻辑层→视图层的桥，
+      //   和 fr-intro class 的摘除**未必同帧到达** —— class 已摘（皮肤变白、文字显现），
+      //   行内 transform 还钉在 coverScale 上，于是巨字定格在满屏圆上；等 style 消息
+      //   到了又触发一次 transition 重播。transform 只留 CSS class 这一个来源，
+      //   摘 class = 放大态当帧消失，没有第二条通路。
       return st
     },
     taskTitle() {
@@ -535,18 +539,13 @@ export default {
       if (m && this.minutesOptions.indexOf(m) >= 0) this.minutes = m
     }
     // ★ 圆圈衔接转场（zoom=1，首页 quickStart 带过来）：ring 从"放大盖满全屏"
-    //   态缩回就位。实测放大倍数 —— 与首页 launchScale 同一算法（480rpx 圆
-    //   放大到盖住屏宽/屏高的较大者），两边不一致就会在对齐处错位。
+    //   态缩回就位。放大倍数写死 4.5（2026-10-29：华为 WebView 会把 @keyframes
+    //   里的 var(--cover-scale) 整条丢弃，收缩动画直接不跑，圆定格在放大态 ——
+    //   真机实锤，详见 fr-ring-drop 注释）；盖满屏之后 4.5 和精确值视觉无差别。
     if (query && query.zoom) {
       this.ringIntro = true
       this.zoomIn = true
-      try {
-        const si = uni.getSystemInfoSync()
-        const w = si.windowWidth || 375
-        const h = si.windowHeight || 667
-        const ringPx = 480 * w / 750
-        this.coverScale = Math.ceil(Math.max(w, h) / ringPx * 102) / 100
-      } catch (e) { this.coverScale = 2.8 }
+      this.ringHide = true
     }
     const cfg = pw.get().pomoCfg || {}
     if (cfg.focus && this.minutesOptions.indexOf(cfg.focus) >= 0) this.minutes = cfg.focus
@@ -559,7 +558,14 @@ export default {
   onShow() {
     // 点出转场复位：还没退栈、只是被别的页面盖住又回来时，圆不能停在放大态
     clearTimeout(this._exitT); this._exitT = null
+    this._leaving = false
     this.ringExit = false
+    // 内容让位的兜底复位（2026-10-30）：不在转场里（ringIntro 已摘）却还藏着，
+    // 说明上一次转场中途被切走、定时器被 onHide 清了 —— 立刻放出来，
+    // 别让整页文字永久隐身（这类"藏了没人放"是最难查的坑）。
+    clearTimeout(this._ringKfT); this._ringKfT = null
+    clearTimeout(this._ringHideT); this._ringHideT = null
+    if (!this.ringIntro) this.ringHide = false
     // ★ 圆圈衔接转场收尾（收缩动画由 CSS animation 自播放，armIntro 只挂
     //   animationend 收口 + 兜底定时器 —— 为什么不能用 rAF/exec 当上屏信号，
     //   见 armIntro 的注释。
@@ -615,6 +621,8 @@ export default {
     //   下次 onShow 会重新挂，这里清掉只是防"切走后还回来改状态"）
     clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null
     clearTimeout(this._introFadeT); this._introFadeT = null
+    clearTimeout(this._ringKfT); this._ringKfT = null
+    clearTimeout(this._ringHideT); this._ringHideT = null
     clearTimeout(this._deferT); this._deferT = null
     // 注意：严格模式故意不在这儿停 —— 人切走才是它该干活的时候
   },
@@ -622,6 +630,8 @@ export default {
     this.stopTick()
     clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null
     clearTimeout(this._introFadeT); this._introFadeT = null
+    clearTimeout(this._ringKfT); this._ringKfT = null
+    clearTimeout(this._ringHideT); this._ringHideT = null
     clearTimeout(this._deferT); this._deferT = null
     clearTimeout(this._exitT); this._exitT = null
   },
@@ -630,6 +640,11 @@ export default {
   // ⚠️ 判定只写这一份：物理返回键（onBackPress）与顶栏返回键（onNavBack）共用，
   //    不然会出现"按返回被按住、点左上角却能跑出去"的窟窿。
   onBackPress() {
+    // ★ 本页自己发起的退栈（playExit → leaveNow）会**再触发一次** onBackPress。
+    //   这里必须放行（return false），否则下面那句 return true 会把这次导航原样否掉：
+    //   圆放大 → 被否掉 → 再放大，240ms 一轮的死循环，人永远退不出去，圆最后焊在放大态
+    //   （2026-10-29 真机实锤：点返回后闪跳约 4 次/秒，3 秒后仍停在整屏粉色大圆上）。
+    if (this._leaving) return false
     // 强制模式按住：照旧当场否掉
     if (this.backBlocked()) {
       this.sayBlocked()
@@ -677,16 +692,15 @@ export default {
      * 首页那颗大圆此刻停在 coverScale 上（点进留下的），接手缩回就位
      * （home.vue 的 startRingReturn / .ring-return）—— 点进点出是同一段动画的正反两遍。
      * ⚠️ animationType:'none' 与点进那边同一个理由：系统窗口动画会和缩放各跑各的。
-     * ⚠️ 240ms 与 CSS 里 .fr-exit .ring 的动画时长对齐（改一处要改两处）。
+     * ⚠️ 240ms = fr-ring-rise 爬到 coverScale 的 keyframe（34% × 700ms，之后是
+     *    盖住导航黑洞的长尾；改一处要改两处）。
      */
     playExit() {
       if (this._exitT) return        // 连点只退一次
       // 不是从首页大圆点进来的（没有 zoom=1）：没有"同一个圆"可衔接，
       // 硬播放大只会从圆的原地炸开一屏粉，比系统动画更难懂 —— 直接退。
       if (!this.zoomIn) {
-        const st = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
-        if (st.length > 1) uni.navigateBack()
-        else uni.switchTab({ url: '/pages/home/home' })
+        this.leaveNow(false)
         return
       }
       // intro 还没播完就按返回：圆本来就盖满着全屏，不必再放大一遍
@@ -698,23 +712,51 @@ export default {
       this.ringExit = true
       this._exitT = setTimeout(() => {
         this._exitT = null
-        this.leaveNow()
-        // 兜底：万一这次导航没成（页面没退栈），别把圆永远留在放大态
+        // ★ 兜底**先挂上，再去导航**（2026-10-29）。原来是先 leaveNow 再挂兜底：
+        //   leaveNow 里一旦抛异常，那行兜底就永远执行不到 —— .fr-exit 焊死在根节点上，
+        //   圆停在 coverScale、整页内容 opacity:0，人就被困在一块盖满屏的粉色里。
         this._exitT = setTimeout(() => {
           this._exitT = null
+          // 能跑到这里说明**页面还在**（真退成了的话 onUnload 早把定时器清掉了）：
+          // 说明前面那次导航没成 —— 先把视觉复位，再补退一次，别让人停在放大态。
           this.ringExit = false
-        }, 600)
+          this._leaving = false
+          if (this.stillTop()) this.leaveNow(false)
+        }, 900)
+        this.leaveNow()
       }, 240)
     },
+    /** 本页现在是不是还在栈顶（补退前要确认，否则会把盖在上面的那一页退掉） */
+    stillTop() {
+      const pages = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
+      if (pages.length <= 1) return false
+      const top = pages[pages.length - 1] || {}
+      return top.route === 'pkgPlan/pages/focus/focus'
+    },
     /**
-     * 真的退出去：有关闭系统窗口动画的 navigateBack。
+     * 真的退出去。
+     * @param {boolean} [silent] 关掉系统窗口动画（点出转场用 none，好让首页那颗圆接手；
+     *   没有 zoom（不是从首页大圆进来的）就别用 none，保持系统默认的退栈动画）
      * ⚠️ 这一页也可能是栈底（从通知 / 外部链接直接进来的），那时 navigateBack
      *    原地不动、人就被困在一块盖满屏的粉色上 —— 那就回首页。
      */
-    leaveNow() {
+    leaveNow(silent) {
       const pages = (typeof getCurrentPages === 'function' ? getCurrentPages() : []) || []
-      if (pages.length > 1) uni.navigateBack({ delta: 1, animationType: 'none' })
-      else uni.switchTab({ url: '/pages/home/home' })
+      // ★ 打"自发导航"标记（2026-10-29）：navigateBack 会再进一次 onBackPress，
+      //   那里见到 _leaving 必须放行，否则会把自己这次导航否掉（死循环，见 onBackPress 顶部）。
+      this._leaving = true
+      if (pages.length > 1) {
+        try {
+          if (silent === false) uni.navigateBack({ delta: 1 })
+          else uni.navigateBack({ delta: 1, animationType: 'none' })
+        } catch (e) {
+          // 个别基座不认 animationType（参数校验失败会直接抛）：别把人留在原地，
+          // 退回不带参数的那次调用 —— 窗口动画难看一点，但至少真的退出去。
+          try { uni.navigateBack({ delta: 1 }) } catch (e2) {}
+        }
+      } else {
+        uni.switchTab({ url: '/pages/home/home' })
+      }
     },
 
     /**
@@ -746,30 +788,58 @@ export default {
     armIntro() {
       if (!this.ringIntro) return
       const self = this
+      this._ringKfStarted = false
       this._introDone = () => {
         if (!self.ringIntro || !self._introDone) return
         self._introDone = null
         self.ringIntro = false
         clearTimeout(self._introProbeT)
         self._introProbeT = null
+        clearTimeout(self._ringKfT)
+        self._ringKfT = null
+        // ★ 内容等圆真正落位再淡入（2026-10-30 真机录屏实锤）。
+        //   两条路耗时不同：关键帧真跑了 → 圆已到 1 倍，稍等即可；
+        //   关键帧没跑（华为系丢掉 fr-ring-drop）→ 摘 fr-intro 才触发 transition
+        //   从 4.5 缩到 1，要等这 260ms 走完，否则文字又跟着放大成巨字。
+        const wait = self._ringKfStarted ? 40 : 300
+        clearTimeout(self._ringHideT)
+        self._ringHideT = setTimeout(() => {
+          self._ringHideT = null
+          self.ringHide = false
+        }, wait)
       }
+      // ★ 关键帧看门狗（2026-10-30）：华为系 WebView 会把 fr-ring-drop 这条
+      //   animation **整条丢弃**（真机录屏：圆定格在 4.5 倍整整 600ms，才由
+      //   600ms 兜底摘 intro、用 transition 补一次收缩）。这里 150ms 内没收到
+      //   animationstart 就判定"关键帧没起来"，立刻走 _introDone 让 base 的
+      //   transition: transform 260ms 接管 —— 不再干等 600ms 那一大段定格。
+      this._ringKfT = setTimeout(() => {
+        self._ringKfT = null
+        if (self._ringKfStarted || !self.ringIntro) return
+        if (self._introDone) self._introDone()
+      }, 150)
       this._introProbeT = setTimeout(this._introDone, 600)
+    },
+    /** .ring 的 animationstart：确认收缩关键帧真的起跑了（个别内核会整条丢弃） */
+    onIntroStart(e) {
+      if (e && e.animationName && e.animationName !== 'fr-ring-drop') return
+      this._ringKfStarted = true
+      clearTimeout(this._ringKfT)
+      this._ringKfT = null
     },
     /** .ring 的 animationend：转场收缩播完了（ring-pulse 的 end 也会进来，
      *  但那时 intro 早摘了 —— _introDone 已置空，直接 return） */
     onIntroEnd(e) {
       if (!this._introDone || this._introFadeT) return
-      // ★ 只认收缩那一条（2026-10-29）：.ring-inner 的换肤、圈内文字的淡入
-      //   也会冒泡到这个元素上，拿它们的 end 收口 = 淡入演到一半被摘 class，
-      //   「30:00」当场跳成不透明 —— 又变成一帧巨字闪出来。
+      // ★ 只认收缩那一条：.ring 上还挂着 ring-pulse，别拿它的 end 收口。
       //   （个别老内核不派发 animationName，那就按老规矩收，别把圆永久留在放大态。）
       if (e && e.animationName && e.animationName !== 'fr-ring-drop') return
-      // 收缩 260ms 结束；圈内文字 200ms 起跑、360ms 收尾 —— class 留到 400ms 再摘，
-      // 让那条淡入走完。摘早了 .fr-intro 的 opacity:0 一没，文字直接闪出来。
+      // 收缩 260ms 结束，class 再留 40ms 收个尾（内容已改由 fr-hide 控制，
+      // 不再需要等圈内淡入走完 —— 那个"200ms 后淡入"正是巨字的来处）。
       this._introFadeT = setTimeout(() => {
         this._introFadeT = null
         if (this._introDone) this._introDone()
-      }, 140)
+      }, 40)
     },
     /**
      * onShow 里延后的那批"重体检"（10-27 从 onShow 挪出来，见 onShow 注释）：
@@ -1755,10 +1825,12 @@ export default {
      帧而是直接跳到终点 —— 症状就是"手机上没动画、电脑上有"（none 与矩阵之间的
      插值各家实现松紧不一）。两端都写成 scale() 就没有解释的余地。 */
   transform: scale(1);
-  /* ★ 提合成层：intro 收缩 / pulse 跳动都是 transform 动画，不提前提层的话
-     App 端每帧都在重绘（含 conic 环 + 投影），低端机上就是幻灯片。
-     will-change 让缩放整个走 GPU，只动纹理不重绘。 */
-  will-change: transform;
+  /* ★ 不要常驻 will-change: transform（2026-10-29 真机实锤）：
+     曾经为"intro/pulse 走 GPU 不重绘"加过常驻 will-change，结果华为 WebView 上
+     合成层纹理**冻结在放大态**：DOM 里 fr-intro 已摘、transform 已回 scale(1)，
+     屏幕上还显示着几百毫秒前那张放大旧纹理（连圈内文字一起被放大成巨字），
+     定格到下次强制合成才"缩回去"。息屏再亮后圆盘卡死也是同一病根。
+     CSS transform/opacity 动画播放时浏览器本来就会临时提层，常驻是负优化。 */
 }
 .ring-inner {
   width: 420rpx; height: 420rpx;
@@ -1783,18 +1855,23 @@ export default {
      animation 自播放等于把起跑点焊在首帧上，浏览器画第一帧时动画同步开始。
    intro 期间 ring-inner 换成**首页大圆的皮肤**（淡红底 + 红边、去掉玻璃投影），
    收缩过程中再渐变回玻璃盘 —— 两个圆之间是同一视觉主体，对齐且不跳色。
-   ⚠️ coverScale 由 onLoad 实测（与首页 launchScale 同一算法：480rpx 圆放大到
-      盖住屏宽/屏高的较大者）；两边倍数不一致，收缩终点就会和首页圆对不上。
    ⚠️ 下面的静态规则（不缩水的放大态 / 红皮肤 / opacity:0）**留着**：老内核
       不认 keyframes 时 animation 不跑，class 由 armIntro 的兜底定时器摘掉，
       那时就退化回"transition 收缩"的旧路径 —— 两条路都通。 */
 .ring { transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+/* ⚠️ 放大倍数写死 4.5，不要用 var(--cover-scale)（2026-10-29 真机实锤）：
+   华为 WebView 对 @keyframes 里的 var() 解析失败会**整条丢弃 animation** ——
+   收缩动画压根不跑，圆被静态规则钉在放大态约 600ms（直到兜底摘 class），
+   定格期间文字淡入动画照常播放，满屏巨字就是这么来的。
+   普通声明里的 var() 它倒认，但 keyframes 里不行 —— 所以三处转场
+   （fr-ring-drop / fr-ring-rise / 首页 hc-ring-rise、hc-ring-land）全部写死
+   同一个 4.5：都盖满屏，盖满之后倍数差异不可见，衔接反而无缝。 */
 .fr-intro .ring {
-  transform: scale(var(--cover-scale, 2.8));
+  transform: scale(4.5);
   animation: fr-ring-drop 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 @keyframes fr-ring-drop {
-  from { transform: scale(var(--cover-scale, 2.8)); }
+  from { transform: scale(4.5); }
   to   { transform: scale(1); }
 }
 .fr-intro .ring-inner {
@@ -1823,28 +1900,31 @@ export default {
     box-shadow: 0 16rpx 48rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.1);
   }
 }
-/* 盘内文字与圆外内容在 intro 期让位，随圆收缩一起淡入 —— 都走自播放动画，
-   与圆共用同一个首帧起跑点。
-   ★ 起跑时间必须排在**落位之后**（2026-10-29 真机录屏实锤）：原来圈内文字
-     60ms 就淡入，那时圆还有 2~3 倍大，「30:00」被撑成一团半透明巨字横穿整屏
-     （标题也一起放大成一串糊字）。现在 200ms 起跑 —— 圆 260ms 落位，字是
-     "快到位时冒出来"的，任何一帧都不会有放大的字。
-     圆外那批内容不跟着放大，理论上早点淡入也看不出来；但圆此刻正盖住它们
-     （圆在 DOM 里更靠前、被后绘制的它们压在上面），提前淡入就成了"粉色巨幕上
-     浮着一排时长按钮" —— 一并挪到 200ms，让整页只有一个节拍。 */
-.fr-intro .focus-body > *:not(.ring-wrap) {
-  animation: fr-fade-in 200ms ease 200ms both;
-}
-.fr-intro .ring-inner .time,
-.fr-intro .ring-inner .task-title {
-  animation: fr-fade-in 160ms ease 200ms both;
-}
+/* 盘内文字与圆外内容在 intro 期让位，等圆真正落位后再淡入（见下面 .fr-hide）。
+   （历史：10-25 起先试过"60ms 就淡入"，10-29 改成"200ms 固定延时"，都栽在
+    华为系 WebView 上 —— 它把 fr-ring-drop 丢掉时圆会定格 600ms，任何固定延时
+    都会在圆还没落位时把字露出来。所以 2026-10-30 彻底改成"量到落位再摘 class"。）*/
+/* 【2026-10-30 移除】不再用"200ms 后固定淡入"：华为系 WebView 会把 fr-ring-drop
+   这条 keyframes 整条丢弃，圆定格在 4.5 倍整整 600ms 才由兜底 transition 收缩，
+   而文字 200ms 就淡入 —— 那 400ms 里「60:00」「背第1批高频词50个并…」被撑成一屏
+   巨字横穿整屏（圈外按钮也提前冒在粉幕上），真机录屏逐帧实锤。固定延时这条路已被
+   证伪。现在整页内容由 .fr-hide 统一藏住，JS 量到"圆真的落位了"再摘，见下。 */
+.fr-hide .ring-inner .time,
+.fr-hide .ring-inner .task-title,
+.fr-hide .focus-body > *:not(.ring-wrap) { opacity: 0; }
 @keyframes fr-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 .fr-intro .ring-inner .time,
 .fr-intro .ring-inner .task-title { opacity: 0; }
+/* ★ 读数/任务名的 opacity 变化必须走过渡（2026-10-29 真机实锤）：
+   fr-intro 摘除的瞬间 opacity 0→1 如果是**突变**，而 transform 还停在放大态
+   （动画未跑完/桥消息延迟），用户看到的就是满屏巨字"啪"地跳出来 ——
+   圆外内容有 220ms 淡入（下一条规则），这两行字没有，就特别显眼。
+   fr-exit 那条 transition: none 特异性更高，退出方向的瞬消不受影响。 */
+.ring-inner .time,
+.ring-inner .task-title { transition: opacity 200ms ease; }
 .fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
 .focus-body > * { transition: opacity 220ms ease 60ms; }
 /* ★ 点出（2026-10-29）：与上面 fr-intro 是一对，方向相反 ——
@@ -1854,12 +1934,18 @@ export default {
    ⚠️ 圈内文字/读数必须**当帧消失**，不能淡出：圆放大 3 倍多，字跟着放大，
      淡出的那几十毫秒就是一屏巨字。这和首页 .ring-launch 那边同一处理。 */
 .fr-exit .ring {
-  transform: scale(var(--cover-scale, 2.8));
-  animation: fr-ring-rise 240ms cubic-bezier(0.4, 0, 0.55, 1) both;
+  transform: scale(4.5);
+  /* ★ 长尾放大（2026-10-29，与首页 hc-ring-rise 同一修法）：240ms 到 4.5 倍
+     后**不停**，继续极慢爬行 —— navigateBack 之后首页 webview 重新上屏有黑洞，
+     动画到点定格就是"卡一下"；长尾让这段黑洞里画面仍在动，首页 ring-return
+     从 4.5 倍接手时最多差 4%，肉眼不可见。倍数写死，理由见 fr-ring-drop 注释。 */
+  animation: fr-ring-rise 700ms both;
 }
 @keyframes fr-ring-rise {
-  from { transform: scale(1); }
-  to   { transform: scale(var(--cover-scale, 2.8)); }
+  0%   { transform: scale(1); animation-timing-function: cubic-bezier(0.4, 0, 0.55, 1); }
+  /* 34% ≈ 240ms：与 playExit 里 navigateBack 的 240ms 对齐（改一处要改两处） */
+  34%  { transform: scale(4.5); animation-timing-function: linear; }
+  100% { transform: scale(4.68); }
 }
 /* 放大期间换成首页大圆的皮肤（淡红底 + 红边、去玻璃与投影）：
    navigateBack 那一帧首页接手的正是这个淡红圆盘，不换肤就会"白玻璃盘 → 淡红盘"跳色。 */

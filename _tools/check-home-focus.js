@@ -274,8 +274,9 @@ console.log('== 6b. 点出（专注页返回）也要有动画，且是同一条
 //  ③ 点出**根本没有动画**：系统窗口动画送走，首页那一帧是一整块盖满屏的粉色再弹回
 // ①③ 的修法：文字当帧消失；点出由专注页"圆放大盖屏 → navigateBack(none)"、
 //   首页"同一颗圆缩回就位"接力完成。
-assert(/\{ 'fr-intro': ringIntro, 'fr-exit': ringExit \}/.test(focusPage),
-  'focus 根节点同时挂 fr-intro / fr-exit（同一段动画的两个方向）');
+assert(/'fr-intro': ringIntro[\s\S]{0,90}'fr-exit': ringExit/.test(focusPage) &&
+  /'fr-hide': ringHide/.test(focusPage),
+  'focus 根节点挂 fr-intro / fr-exit / fr-hide（两个方向 + 转场期内容让位）');
 assert(/this\.zoomIn = true/.test(block(focusPage, /onLoad\(query\)\s*\{[\s\S]*?\n  \}/)),
   'onLoad 记下"是从首页大圆点进来的"（zoomIn）');
 const bExit = block(focusPage, /    playExit\(\)\s*\{[\s\S]*?\n    \}/);
@@ -312,10 +313,12 @@ assert(/opacity: 0/.test(cssExitTxt) && /transition: none/.test(cssExitTxt),
   '点出时圈内读数**当帧**消失（淡出就是跟着圆放大的巨字）');
 assert(/\.fr-exit \.focus-body > \*:not\(\.ring-wrap\) \{ opacity: 0; transition: none; \}/.test(focusPage),
   '圆外内容点出时也不许留在屏上（圆盖满之前必须让位）');
-// 专注页 intro 期的淡入必须排在落位之后：60ms 起跑 = 圆还有 3 倍大时字已经在淡入
-const cssIntroFade = blockCss(focusPage, /\.fr-intro \.ring-inner \.time,\s*\.fr-intro \.ring-inner \.task-title \{[^}]*\}/);
-assert(/animation: fr-fade-in \d+ms ease (2[0-9]{2}|[3-9][0-9]{2})ms both/.test(cssIntroFade),
-  'intro 期圈内文字淡入延到 200ms 之后（圆 260ms 落位，早于此必是巨字）');
+// ★ 2026-10-30：不再用"固定延时淡入"（200ms 那条在华为系 WebView 上会露出巨字 ——
+//   fr-ring-drop 被整条丢弃时圆定格 600ms）。改成 .fr-hide 由 JS 量到落位再摘。
+assert(/\.fr-hide \.ring-inner \.time[\s\S]{0,220}opacity: 0/.test(focusPage),
+  'intro 期内容让位改由 .fr-hide 控制（等圆真落位再淡入，不再赌固定延时）');
+assert(!/\.fr-intro \.ring-inner \.time[\s\S]{0,90}animation: fr-fade-in/.test(focusPage),
+  '不许再给圈内文字挂固定延时的 fr-fade-in（正是巨字的来处）');
 // ---- 首页侧：接力缩回 ----
 assert(/'ring-return': ringReturn/.test(home), '首页大圆挂 ring-return（点出的收缩段）');
 assert(/this\.launchRing = false/.test(home), '回首页复位 launchRing（下次点圆还能再播）');
@@ -397,114 +400,98 @@ assert(cssLockTime !== '' && cssFcTime !== '', '取出硬控遮罩 / 结算卡�
 assert(!/font-family|Georgia/.test(cssLockTime), '硬控遮罩大计时不写具体族名（同源）');
 assert(!/font-family|Georgia/.test(cssFcTime), '结算卡计时读数不写具体族名（同源）');
 
-console.log('== 9. intro 收尾真跑（2026-10-27 改自播放后的时序）==');
+console.log('== 9. intro 收尾真跑（2026-10-30 三定时器：看门狗 / 兜底 / 内容释放）==');
 // 静态断言只能证明"字写上了"；这段是纯粹的时序逻辑，必须跑。
 // ⚠️ 从源码里抠函数体来跑，而不是复写一遍 —— 复写的那份和源码分叉了照样全绿。
-// ⚠️ new Function 的参数名不能叫 self（函数体首行就是 const self = this）→ 换名注入。
 {
   const src = block(focusPage, /    armIntro\(\)\s*\{[\s\S]*?\n    \}/);
+  const srcEnd = block(focusPage, /    onIntroEnd\(\w*\)\s*\{[\s\S]*?\n    \}/);
+  const srcStart = block(focusPage, /    onIntroStart\(\w*\)\s*\{[\s\S]*?\n    \}/);
   // ⚠️ 抠不到就必须**报红**，不许往下跑到 ReferenceError —— 护栏崩掉在批量回归里
   //    会被当成"这节跑完了"，是最典型的假绿。
   assert(src !== '', '抠得出 armIntro（抠不到 = 这一节整个没跑，等于没有护栏）');
-  if (src !== '') {
-  const body = src.slice(src.indexOf('{') + 1, src.lastIndexOf('}'));
-  assert(body.indexOf('const self = this') >= 0, '抠得出 armIntro 函数体（替换点还在）');
-  // ⚠️ 源码里用的裸 this（真实 Vue 里指向实例）；new Function 里 this 会落到
-  //    globalThis，取不到 ringIntro 就直接一路 return —— 整节变成假绿。
-  //    所以把 this. 一并指到注入的宿主上 —— 顺便把 self 的声明提到最前面，
-  //    否则 `if (!self.ringIntro)` 会撞 TDZ（源码里那行用的是 this）。
-  const body2 = 'const self = HOST;\n'
-    + body.replace('const self = this', '').split('this.').join('self.');
-  const arm = new Function('HOST', 'setTimeout', 'clearTimeout', body2);
-
-  // onIntroEnd：CSS 动画播完那条路（@animationend），同样从源码抠
-  const srcEnd = block(focusPage, /    onIntroEnd\(\w*\)\s*\{[\s\S]*?\n    \}/);
   assert(srcEnd !== '', '抠得出 onIntroEnd（animationend 收口那个方法）');
-  const endBody = srcEnd === '' ? '' : srcEnd.slice(srcEnd.indexOf('{') + 1, srcEnd.lastIndexOf('}'));
-  // ★ 2026-10-29 起 onIntroEnd 不再当场摘：它先挂一个 140ms 的延后定时器，
-  //   让圈内文字那条淡入（200ms 起 160ms）走完 —— 摘早了文字当场跳成不透明。
-  //   所以这里也要把 setTimeout 注入进去，拿它排的那颗定时器手工触发。
-  const fin = endBody === '' ? null
-    : new Function('HOST', 'setTimeout', 'e', 'const self = HOST;\n' + endBody.split('this.').join('self.'));
-
-  /** 造一个宿主 + 一组可控替身：setTimeout 拿不到真回调就从 log 里手工触发。 */
-  const mk = () => {
-    let ri = true;
-    let sets = 0;
-    const log = { sets: 0, timer: null, ms: 0, fade: null, fadeMs: 0, cleared: 0 };
-    const host = {
-      _introProbeT: null,
-      _introFadeT: null,
-      _introDone: null,
-      get ringIntro() { return ri; },
-      set ringIntro(v) { ri = v; sets++; log.sets = sets; }
+  assert(srcStart !== '', '抠得出 onIntroStart（关键帧起跑信号）');
+  if (src !== '' && srcEnd !== '' && srcStart !== '') {
+    const toBody = (s) => {
+      const b = s.slice(s.indexOf('{') + 1, s.lastIndexOf('}'));
+      return 'const self = HOST;\n' + b.replace('const self = this', '').split('this.').join('self.');
     };
-    // 第一颗是 armIntro 的兜底 probe；之后 onIntroEnd 排的那颗进 fade 槽
-    const st = (fn, ms) => {
-      if (!log.timer) { log.timer = fn; log.ms = ms; return 7 }
-      log.fade = fn; log.fadeMs = ms; return 8;
+    const arm = new Function('HOST', 'setTimeout', 'clearTimeout', toBody(src));
+    const fin = new Function('HOST', 'setTimeout', 'clearTimeout', 'e', toBody(srcEnd));
+    const startFn = new Function('HOST', 'clearTimeout', 'e', toBody(srcStart));
+
+    /** 造一个宿主 + 一组可控替身：定时器按 ms 记账，按需手工触发。 */
+    const mk = () => {
+      let ri = true; let sets = 0; let id = 0;
+      const timers = [];
+      const host = {
+        ringHide: true, _ringKfStarted: false,
+        _introProbeT: null, _introFadeT: null, _ringKfT: null, _ringHideT: null, _introDone: null,
+        get ringIntro() { return ri; },
+        set ringIntro(v) { ri = v; sets++; }
+      };
+      const st = (fn, ms) => { const t = { fn, ms, id: ++id, cleared: false }; timers.push(t); return t.id; };
+      const ct = (tid) => { const t = timers.find((x) => x.id === tid); if (t) t.cleared = true; };
+      return {
+        host, timers,
+        get sets() { return sets; },
+        run: () => arm(host, st, ct),
+        end: () => fin(host, st, ct, { animationName: 'fr-ring-drop' }),
+        start: () => startFn(host, ct, { animationName: 'fr-ring-drop' }),
+        pending: (ms) => timers.find((t) => t.ms === ms && !t.cleared)
+      };
     };
-    const ct = () => { log.cleared++; };
-    return { host, log, run: () => arm(host, st, ct), fire: (fn) => fin(host, fn) };
-  };
-  // 真机上 .ring 收到的是收缩那条 animationend（其余动画的 end 也得能挡住）
-  const EV = { animationName: 'fr-ring-drop' };
-  const fireTimer = (x) => { if (typeof x.log.timer === 'function') x.log.timer(); };
-  const fireFade = (x) => { if (typeof x.log.fade === 'function') x.log.fade(); };
+    const fire = (t) => { if (t && !t.cleared) { t.cleared = true; t.fn(); } };
 
-  // ① zoom 进来：挂上兜底定时器，但**不许立刻摘**（动画要等 CSS 自己播）
-  const a = mk();
-  a.run();
-  assert(a.log.timer !== null && a.log.ms === 600, '挂 600ms 兜底定时器（ms=' + a.log.ms + '）');
-  assert(a.log.sets === 0, 'armIntro 自己不摘 intro（抢在首帧前摘 = 收缩被吞，sets=' + a.log.sets + '）');
+    // ① zoom 进来：挂看门狗(150) + 兜底(600)，当场不摘
+    const a = mk(); a.run();
+    assert(!!a.pending(150), '挂 150ms 关键帧看门狗（ms=' + a.timers.map((t) => t.ms) + '）');
+    assert(!!a.pending(600), '挂 600ms 兜底定时器');
+    assert(a.sets === 0, 'armIntro 自己不摘 intro（抢在首帧前摘 = 收缩被吞，sets=' + a.sets + '）');
 
-  // ② 主路径：animationend（= onIntroEnd）→ 排 140ms 淡入让位 → 到点才摘，摘完立刻清兜底
-  const b = mk();
-  b.run();
-  if (fin) fin(b.host, (fn, ms) => { b.log.fade = fn; b.log.fadeMs = ms; return 8; }, EV);
-  assert(b.log.sets === 0, 'animationend 到了也不当场摘（先让圈内文字淡入，sets=' + b.log.sets + '）');
-  assert(b.log.fadeMs === 140, '延后的那颗是 140ms（ms=' + b.log.fadeMs + '）');
-  fireFade(b);
-  assert(b.log.sets === 1, '淡入走完才摘 intro（sets=' + b.log.sets + '）');
-  assert(b.log.cleared === 1, '摘完立刻清掉兜底定时器（cleared=' + b.log.cleared + '）');
+    // ② 关键帧真跑了：animationstart 收掉看门狗
+    const b = mk(); b.run(); b.start();
+    assert(!b.pending(150), 'animationstart 到了就收掉看门狗（关键帧已起跑，不再走 transition 兜底）');
+    assert(b.host._ringKfStarted === true, 'onIntroStart 记下"关键帧已起跑"');
 
-  // ③ 只摘一次：animationend 与兜底定时器先后到达也不能摘两遍（两次收缩会重影）
-  const c = mk();
-  c.run();
-  if (fin) fin(c.host, (fn) => { c.log.fade = fn; return 8; }, EV);
-  fireFade(c);
-  const beforeC = c.log.sets;
-  fireTimer(c);
-  assert(c.log.sets === beforeC, '两条路重复到达也只摘一次（sets=' + c.log.sets + '）');
+    // ③ 关键帧路径：animationend → 40ms → 摘 intro；内容再 40ms 后放（圆已落位）
+    const c = mk(); c.run(); c.start(); c.end();
+    assert(c.sets === 0, 'animationend 到了也不当场摘（sets=' + c.sets + '）');
+    const cFade = c.pending(40);
+    assert(!!cFade, 'animationend 排了一颗 40ms 收尾');
+    if (cFade) fire(cFade);
+    assert(c.sets === 1, '收尾到点才摘 intro（sets=' + c.sets + '）');
+    assert(c.host.ringHide === true, '摘 intro 当场不放内容（必须等圆落位再淡入）');
+    const cHide = c.pending(40);
+    assert(!!cHide, '关键帧路径：摘完再排 40ms 放内容');
+    if (cHide) fire(cHide);
+    assert(c.host.ringHide === false, '关键帧路径 40ms 后内容淡入');
 
-  // ④ 老内核不认 keyframes（animationend 永远不来）：兜底定时器必须能救场
-  const d = mk();
-  d.run();
-  assert(d.log.sets === 0, '兜底到点前不许抢跑（sets=' + d.log.sets + '）');
-  //    ⚠️ 别直接 d.log.timer()：变异把兜底删掉时这里会 TypeError，护栏自己崩了
-  //    反而看不出问题出在哪（报的应该是"少了一条兜底"，不是 crash）。
-  assert(typeof d.log.timer === 'function', '兜底 timer 必须挂着（animationend 不来时它是唯一的路）');
-  fireTimer(d);
-  assert(d.log.sets === 1, '兜底 timer 到点能把 intro 摘掉（否则圆永久盖着屏幕）');
+    // ④ 关键帧没跑（华为系把 fr-ring-drop 丢包）：看门狗 150ms 救场 → transition 收缩 → 300ms 后放内容
+    const d = mk(); d.run();
+    const dKf = d.pending(150);
+    assert(!!dKf, '看门狗挂着（关键帧不来时它是唯一的路，别干等 600ms）');
+    if (dKf) fire(dKf);
+    assert(d.sets === 1, '看门狗到点摘 intro，让 transition 接管收缩（sets=' + d.sets + '）');
+    assert(d.host.ringHide === true, '兜底路径也不当场放内容（还要等 transition 收缩完）');
+    const dHide = d.pending(300);
+    assert(!!dHide, '兜底路径排 300ms 再放内容（等 transition 260ms 缩完）');
+    if (dHide) fire(dHide);
+    assert(d.host.ringHide === false, '兜底路径 300ms 后内容淡入');
 
-  // ⑤ 不是 zoom 进来的（ringIntro=false）：什么都不许发生
-  //    ⚠️ 只用 timer 判：通过 setter 把 ringIntro 置 false 本身就会 +1，拿 sets 判是假红
-  const e = mk();
-  e.host.ringIntro = false;
-  e.run();
-  assert(e.log.timer === null, '非 zoom 进来不挂 probe（timer=' + e.log.timer + '）');
-  assert(e.host._introDone === null, '非 zoom 进来不留收口钩子（ring-pulse 的 end 无处可误摘）');
+    // ⑤ 不是 zoom 进来的（ringIntro=false）：什么都不许发生
+    const e = mk(); e.host.ringIntro = false; e.run();
+    assert(e.timers.length === 0, '非 zoom 进来不挂任何定时器（' + e.timers.length + '）');
+    assert(e.host._introDone === null, '非 zoom 进来不留收口钩子（ring-pulse 的 end 无处可误摘）');
 
-  // ⑥ intro 摘完之后再来的 animationend（ring-pulse 波完那一下）不许再摘
-  const f = mk();
-  f.run();
-  const finOf = (x) => { if (fin) fin(x.host, (fn, ms) => { x.log.fade = fn; x.log.fadeMs = ms; return 8 }, EV) };
-  finOf(f);
-  fireFade(f);
-  const beforeF = f.log.sets;
-  finOf(f);
-  fireFade(f);
-  assert(f.log.sets === beforeF, 'intro 播完之后 pulse 的 animationend 不再摘（sets=' + f.log.sets + '）');
+    // ⑥ 两条路重复到达也只摘一次（两次收缩会重影）
+    const f = mk(); f.run(); f.start(); f.end();
+    const fFade = f.pending(40); if (fFade) fire(fFade);
+    const before = f.sets;
+    f.end();                            // ring-pulse 那类 end 后到：_introDone 已置空，必须 no-op
+    const fFade2 = f.pending(40); if (fFade2) fire(fFade2);
+    assert(f.sets === before, '两条路重复到达也只摘一次（sets=' + f.sets + '）');
   }
 }
 
