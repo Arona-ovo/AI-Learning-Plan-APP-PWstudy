@@ -113,6 +113,9 @@ export function a11yEvents(): number
 /** 护卫最近报上来的前台包名（空串 = 还没报过） */
 export function a11yPkg(): string
 
+/** 护卫是否就绪（已连上且开关开着）—— 强制模式"拉回"可信度判据之一 */
+export function a11yPullReady(): boolean
+
 /**
  * 跳系统的「无障碍」设置页。
  * ⚠️ 安卓 13+ 对侧载安装的应用有「受限设置」闸门，用户需先允许受限设置才能勾上本服务。
@@ -152,6 +155,37 @@ export function keepGuardClass(): boolean
  *   表现就是"消息拦截开了却完全不挡" —— 这正是 2026-10 那版"还是这样"的根因。
  */
 export function keepNotifClass(): boolean
+
+/**
+ * ==================== 专注期拦截通知（通知使用权） ====================
+ *
+ * 番茄 ToDo 同款：专注期间把别家 App 的通知捕获并当场撤下（下拉通知栏也看不到），
+ * 专注结束再把攒下的汇总成一条"已拦截(应用)的通知"发出来。
+ *
+ * 唯一入口是系统的「通知使用权」（NotificationListenerService）。权限是运行时授权，
+ * 用户要在「设置 → 通知使用权」里亲手给（装机即不得）；没授权时 interceptStart()
+ * 如实返回 false，调用方据此绝不承诺"已经帮你挡住了"。
+ *
+ * ⚠️ 这组函数原先漏写进 interface.uts，导致根本没暴露给 JS —— fgsvc.js 里
+ *   `typeof fgs.xxx === 'function'` 永远为 false，拦截通知整条链路（检测授权 /
+ *   跳设置页 / 开始拦截 / 结算条数）全死，表现就是"拦截通知开了却完全不挡、
+ *   点「去开启」也没反应"。2026-10-29 补回声明。
+ */
+
+/** 系统「通知使用权」有没有给 PWstudy（用户在设置里勾上了） */
+export function notifGranted(): boolean
+
+/** 跳系统「通知使用权」设置页；失败（ROM 没开放该页）返回 false，调用方退到应用详情页 */
+export function openNotifSettings(): boolean
+
+/** 开始拦截。没授权返回 false —— 调用方据此绝不承诺"已经帮你挡住了" */
+export function interceptStart(): boolean
+
+/** 已经拦了几条（界面显示"这段专注挡住了多少"用） */
+export function interceptCount(): number
+
+/** 结束拦截：返回攒到的列表 JSON（[{app,title,text}]），标记一并收掉 */
+export function interceptEnd(): string
 
 /**
  * ==================== 白噪音原生播放（后台不中断）====================
@@ -229,3 +263,13 @@ export function leisureDisarm(): boolean
  * 原生 daily 规则据此判断"零专注"；JS 在专注完成时调用。
  */
 export function leisureMarkFocus(): boolean
+
+/**
+ * ⚠️ 同 keepGuardClass / keepNotifClass：把 LeisureGuard（休闲提醒后台闹钟接收器）
+ *   钉在编译产物里。它也是系统按清单创建、源码里没人 new 就会整块被剪掉的类；
+ *   实现里 new 一次只为编译期引用。本函数**需要**被 JS 调用
+ *   （见 utils/fgsvc.js keepNativeClasses → App.vue onLaunch），否则 LeisureGuard
+ *   不在 dex 里，后台闹钟永远不响 —— 休闲提醒整条"真·后台"腿静默失效。
+ *   ⚠️ 原先也漏写进 interface.uts，导致没暴露给 JS（2026-10-29 补回）。
+ */
+export function keepLeisureClass(): boolean

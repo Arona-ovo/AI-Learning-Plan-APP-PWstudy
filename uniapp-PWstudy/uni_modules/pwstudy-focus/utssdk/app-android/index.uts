@@ -1991,7 +1991,9 @@ export function openA11ySettings(): boolean {
   if (ctx == null) return false;
   try {
     let it = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    // 同 openNotifSettings（2026-10-29）：REORDER_TO_FRONT 把已在后台的 Settings task
+    // 提到最前，避免从 Application Context 启动时整页卡在后台、用户以为"点了没反应"。
+    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     ctx!.startActivity(it);
     return true;
   } catch (e) {
@@ -2048,30 +2050,34 @@ export function notifGranted(): boolean {
  *   ③ 再退到本 App 的应用详情页 —— 有的 ROM 把"通知使用权"也挂在详情页入口下。
  * 只要有一条走通就返回 true；三条全挂才让 JS 层去说"跳不过去"。
  */
+/**
+ * 启动系统设置类 intent 的统一步骤：先 resolveActivity 确认能解析到真实 Activity，
+ * 再 startActivity。两道保险对应「点了没效果」的两个根因：
+ *   ① 旗标 NEW_TASK | REORDER_TO_FRONT | SINGLE_TOP —— REORDER_TO_FRONT 把已在后台的
+ *      Settings task 提到最前，避免从 Application Context 启动时整页卡在后台、用户以为没反应
+ *      （本插件拉回页用的同款组合，实测可靠）；
+ *   ② 解析不到就不启动、别假称成功，让调用方的下一档兜底上（避免"返回 true 却什么都没弹"）。
+ */
+function launchSettings(ctx: Context | null, it: Intent): boolean {
+  it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+  try {
+    if (ctx!.getPackageManager().resolveActivity(it, 0) == null) return false;
+  } catch (e) { return false; }
+  try { ctx!.startActivity(it); return true; } catch (e) { return false; }
+}
+
 export function openNotifSettings(): boolean {
   let ctx = UTSAndroid.getAppContext();
   if (ctx == null) return false;
   // ① 直达「通知使用权」
-  try {
-    let it = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx!.startActivity(it);
-    return true;
-  } catch (e) {}
+  if (launchSettings(ctx, new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))) return true;
   // ② 系统设置主页
-  try {
-    let it2 = new Intent(Settings.ACTION_SETTINGS);
-    it2.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx!.startActivity(it2);
-    return true;
-  } catch (e) {}
+  if (launchSettings(ctx, new Intent(Settings.ACTION_SETTINGS))) return true;
   // ③ 本 App 的应用详情页（package: 前缀的 data，不依赖任何 ROM 私有 action）
   try {
     let it3 = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
     it3.setData(Uri.parse('package:' + ctx!.getPackageName()));
-    it3.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx!.startActivity(it3);
-    return true;
+    if (launchSettings(ctx, it3)) return true;
   } catch (e) {}
   return false;
 }

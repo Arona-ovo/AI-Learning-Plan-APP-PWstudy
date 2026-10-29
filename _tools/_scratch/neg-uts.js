@@ -42,9 +42,9 @@ const cases = [
   ['删掉 PWPullActivity 的 constructor',
     (s) => s.replace('  // ⚠️ 同 PFGuardService：extends 生成 `: Activity` 不带括号，缺显式构造\n  //    = kotlin 报 "must be initialized here"（check-uts 守着）\n  constructor() {\n    super();\n  }', '')],
   ['删掉 pullSelf 里的拦截页调用',
-    (s) => s.replace('if ((round % 2) == 1 && pullByIntercept()) return true;', '')],
+    (s) => s.replace('if ((round % 2) == 1 && pullByIntercept()) {', 'if ((round % 2) == 1) {')],
   ['删掉拦截页的 goBack（弹出了却永远不跳回，把人锁在黑页上）',
-    (s) => s.replace('  goBack(): void {\n    try {\n      let launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());', '  goBackX(): void {\n    try {\n      let launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());')],
+    (s) => s.replace('  goBack(): void {', '  goBackX(): void {')],
   ['去掉把 PFGuardService 钉住的 new',
     (s) => s.replace('let probe = new PFGuardService();', 'let probe: any = null;')],
   ['把 WatchLoop 的 super() 去掉',
@@ -125,6 +125,27 @@ for (const [name, mut] of mfCases) {
   if (!hit) bad++;
 }
 fs.writeFileSync(MF, mfOrig);
+
+// ---- 13. interface.uts 漏声明：删掉一个 index.uts 已有导出的声明 = fgsvc 静默降级 ----
+// 2026-10-29 实锤：拦截通知整组函数（notifGranted / openNotifSettings / intercept*）之前
+// 漏写进 interface.uts，fgsvc 里 `typeof fgs.xxx === 'function'` 永远 false → 功能全死
+// （"点去开启没反应"、"拦截通知开了却完全不挡"）。这条反向确认 check-uts 第 13 节真会红。
+const IFC = path.join(ROOT, 'uniapp-PWstudy', 'uni_modules', 'pwstudy-focus', 'utssdk', 'interface.uts');
+const ifcOrig = fs.readFileSync(IFC, 'utf8');
+const ifcCases = [
+  ['interface.uts 漏声明 openNotifSettings（fgsvc 调不到，点去开启没反应）',
+    (s) => s.replace(/export function openNotifSettings\(\): boolean\r?\n/, '')],
+];
+for (const [name, mut] of ifcCases) {
+  const next = mut(ifcOrig);
+  if (next === ifcOrig) { console.log('SKIP 没匹配到改动点: ' + name); bad++; continue; }
+  fs.writeFileSync(IFC, next);
+  const r = runCheck();
+  const hit = r.code !== 0 && r.fails.length > 0;
+  console.log((hit ? 'OK   被抓到: ' : 'MISS 假绿  : ') + name + (hit ? '  → ' + r.fails[0].trim() : ''));
+  if (!hit) bad++;
+}
+fs.writeFileSync(IFC, ifcOrig);
 
 const back = runCheck();
 console.log(back.code === 0 ? '还原后仍是绿 ✓' : '还原后不绿 ✗ ' + back.fails.join(' | '));

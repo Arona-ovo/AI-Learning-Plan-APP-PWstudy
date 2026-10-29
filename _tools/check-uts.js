@@ -596,5 +596,22 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   else bad('settings.focus.capsule 没给默认 false —— 新功能可能默认开启');
 }
 
+console.log('== 13. index.uts 导出必须全部声明进 interface.uts（否则 fgsvc 静默降级） ==');
+{
+  // ⚠️ 2026-10-29 实锤：拦截通知整组函数（notifGranted / openNotifSettings / interceptStart /
+  //    interceptCount / interceptEnd）和 keepLeisureClass 之前**漏写进 interface.uts**，
+  //    导致 fgsvc.js 里 `typeof fgs.xxx === 'function'` 永远 false —— 这些原生能力整条死掉：
+  //      · 拦截通知"开了却完全不挡"、"点「去开启」也没反应"（用户报的就是这个）；
+  //      · 休闲提醒后台闹钟因 LeisureGuard 被 UTS 剪枝而静默不响（keepLeisureClass 没暴露 →
+  //        没被 JS 调用 → 类不在 dex 里）。
+  //    所以硬守：index.uts 每导出一个函数，interface.uts 里都得有同名声明。
+  //    （UTS 只暴露 interface.uts 里声明的函数给 JS，没声明 = 调不到 = 静默降级，见第 12.1 节注释。）
+  const idxFns = (uts.match(/export function (\w+)\s*\(/g) || []).map((s) => s.replace(/export function (\w+)\s*\(/, '$1'));
+  const declared = (read(path.join(PLUGIN, '..', 'interface.uts')).match(/export function (\w+)\s*\(/g) || []).map((s) => s.replace(/export function (\w+)\s*\(/, '$1'));
+  const missing = idxFns.filter((n) => declared.indexOf(n) < 0);
+  if (!missing.length) ok('index.uts 的全部 ' + idxFns.length + ' 个导出函数都在 interface.uts 声明（无遗漏）');
+  else bad('以下 index.uts 导出函数漏写进 interface.uts，fgsvc 调不到会静默降级：' + missing.join(' / '));
+}
+
 console.log(fail === 0 ? '\nUTS 插件校验全部通过' : '\n存在 ' + fail + ' 项失败');
 process.exitCode = fail === 0 ? 0 : 1;
