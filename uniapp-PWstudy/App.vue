@@ -522,7 +522,7 @@ uni-toast .uni-sample-toast {
 .perf-smooth .pop-card,
 .perf-smooth .fnb,
 .perf-smooth .ftb {
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.96) !important;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.97) !important;
   box-shadow: 0 6rpx 18rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.07);
 }
 

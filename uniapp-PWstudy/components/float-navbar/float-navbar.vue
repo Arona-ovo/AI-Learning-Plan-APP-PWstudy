@@ -287,9 +287,9 @@ export default {
   height: 88rpx;
   padding: 0 8rpx;
   border-radius: 44rpx;
-  /* 0.68 → 0.8：顶栏同样常年压在滚动内容之上，比卡片再实一点，避免内容透出 */
-  background: rgba(255, 255, 255, 0.8);
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.8);
+  /* ★ 0.68 → 0.97：顶栏与底栏同理，功能层要压住滚动内容，不能明显透出 */
+  background: rgba(255, 255, 255, 0.97);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.97);
   -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   border: 2rpx solid rgba(255, 255, 255, 0.7);
@@ -299,11 +299,10 @@ export default {
   pointer-events: auto;
 }
 
-/* 不支持 backdrop-filter 的端（或流畅模式关掉模糊）：把顶栏调实，
-   否则 0.8 半透明但没模糊会让滚动内容从顶栏透出来 */
+/* 不支持 backdrop-filter 的端：顶栏同样保持近乎不透明，内容不会透出 */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .fnb {
-    background: rgba(var(--surface-rgb, 255, 255, 255), 0.96);
+    background: rgba(var(--surface-rgb, 255, 255, 255), 0.97);
   }
 }
 

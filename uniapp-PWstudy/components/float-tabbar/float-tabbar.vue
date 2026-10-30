@@ -251,10 +251,12 @@ export default {
   align-items: center;
   height: 112rpx;
   border-radius: 56rpx;
-  /* 0.68 → 0.8：底栏常年压在滚动内容之上，比卡片（0.72）再实一点，
-     既保留磨砂玻璃层次，又避免内容滑动时从底栏"透出来" */
-  background: rgba(255, 255, 255, 0.8);
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.8);
+  /* ★ 0.68 → 0.97：底栏是常年压在滚动内容之上的功能层，任何明显的半透明都会让
+     内容（统计页红色图表柱、列表项文字）从底栏"透出来"变成重影（用户两次反馈）。
+     0.97 近似不透明：内容只剩 3%，肉眼不可见；仍留一丝背景色让底栏跟暖砂底不脱节。
+     磨砂玻璃的层次改由边框 + 投影承担（不再靠降低透明度）。 */
+  background: rgba(255, 255, 255, 0.97);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.97);
   -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   border: 2rpx solid rgba(255, 255, 255, 0.6);
@@ -265,11 +267,10 @@ export default {
   overflow: hidden;
 }
 
-/* 不支持 backdrop-filter 的端（或流畅模式关掉模糊）：把底栏调实，
-   否则 0.8 半透明但没模糊会让滚动内容从底栏透出来 */
+/* 不支持 backdrop-filter 的端：底栏同样保持近乎不透明，内容不会透出 */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .ftb {
-    background: rgba(var(--surface-rgb, 255, 255, 255), 0.96);
+    background: rgba(var(--surface-rgb, 255, 255, 255), 0.97);
   }
 }
 
