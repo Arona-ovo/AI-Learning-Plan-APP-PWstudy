@@ -19,6 +19,7 @@ const navbar = R('components/float-navbar/float-navbar.vue');
 const en = R('utils/i18n-en.js');
 const fgsvc = R('utils/fgsvc.js');
 const focusPage = R('pkgPlan/pages/focus/focus.vue');
+const pagesJson = R('pages.json');
 
 let fail = 0;
 const ok = (m) => console.log('  ✓ ' + m);
@@ -163,15 +164,20 @@ assert(/this\.launchRing = false/.test(home), '回首页复位 launchRing（下�
 assert(/class="hero-main" :class="\{ 'ring-launch': launchRing \}"/.test(home),
   'hero-main 挂 ring-launch（首屏其余内容同步淡出）');
 assert(/hc-ring-run': running, 'ring-launch': launchRing/.test(home), '大圆挂 ring-launch');
-assert(/:style="ringVars"/.test(home), '大圆绑 ringVars（--launch-scale）');
-// ③ 放大倍数必须实测：480rpx 只等于屏宽 64%，写死 750/480 盖不满屏高，
-//   转场中间态上下露一圈底色，两个圆就"对不齐"了（用户原话就是要对齐）
-const bScale = block(home, /launchScale\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/Math\.max\(w, h\) \/ ringPx/.test(bScale) && /480 \* w \/ 750/.test(bScale),
-  'launchScale 实测：480rpx 圆放大到盖住屏宽/屏高的较大者（不写死）');
-// ④ CSS：过渡要在，且规则顺序必须排在按压态之后（特异性打平，位置定胜负）
-assert(/\.tp-block\.focus-card \.hc-ring\.ring-launch \{[\s\S]*?transition: transform 260ms/.test(home),
-  '放大带 260ms transition（没过渡就是硬切，没有"动画"）');
+// ★ 2026-10-30：倍数改成**写死**（原来走 ringVars / --launch-scale 变量）。
+//   华为 WebView 会把 @keyframes 里的 var() 整条丢弃 —— 动画不跑、圆定格在放大态。
+//   "盖满屏"改为靠倍数足够大来保证（见下面 hc-ring-rise 的 ≥4.5 断言）。
+assert(!/ringVars/.test(home),
+  '放大倍数不走 CSS 变量（华为会丢弃 keyframes 里的 var()，圆定格在放大态）');
+// ③ 放大时长必须与 quickStart 的跳页延时**同值**：动画走完就跳页，
+//   中间不留静止帧（2026-10-30 录屏实测：原来 1000ms 长尾里有 234ms 画面完全不动）
+const hRiseDur = (home.match(/\.tp-block\.focus-card \.hc-ring\.ring-launch \{[\s\S]*?hc-ring-rise (\d+)ms/) || [])[1];
+const hQsDelay = (home.match(/fail: \(\) => \{ this\.launchRing = false \}\s*\}\)\s*\}, (\d+)\)/) || [])[1];
+assert(!!hRiseDur && !!hQsDelay && hRiseDur === hQsDelay,
+  '放大时长 == 跳页延时（' + hRiseDur + ' vs ' + hQsDelay + 'ms；不一致就是盖满后白等）');
+// ④ CSS：放大走 animation 自播放（transition 到点会定格，见 hc-ring-rise 注释）
+assert(/\.tp-block\.focus-card \.hc-ring\.ring-launch \{[\s\S]*?animation: hc-ring-rise \d+ms/.test(home),
+  '放大走 animation 自播放（transition 到终点就定格，跟下一段接不上）');
 // ⚠️ 必须先剥注释再比位置：CSS 注释里写着"必须排在 :active 之后"，不剥的话
 //    indexOf 永远先命中注释里的 :active —— 断言恒真，排反了也抓不到（假绿实锤）。
 const cssNoCmt = home.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -183,7 +189,21 @@ assert(/\.hero-main\.ring-launch [\s\S]*?opacity: 0/.test(home), '首屏其余�
 assert(/query && query\.zoom/.test(focusPage), 'focus onLoad 认 zoom=1');
 const bLoad = block(focusPage, /onLoad\(query\)\s*\{[\s\S]*?\n  \}/);
 assert(/this\.ringIntro = true/.test(bLoad), 'zoom 进来先置 ringIntro（初始就是放大态）');
-assert(/480 \* w \/ 750/.test(bLoad), 'coverScale 与首页同一算法（两边倍数不一致，收缩终点对不上）');
+// ★ 2026-10-30 第四轮：App 端页面切换有一段"新 webview 还没绘制"的空档，
+//   露的是**原生窗体底色**（默认灰白）。录屏实测这一段整整 101ms 整屏灰白，
+//   是"衔接处不够丝滑"最刺眼的一处。只有 app-plus.background 能盖住它
+//   （backgroundColor 只作用于小程序的下拉回弹，App 端不吃）。
+for (const p of ['pages/home/home', 'pages/focus/focus']) {
+  const seg = block(pagesJson, new RegExp('"path":\\s*"' + p.replace(/\//g, '\\/') + '"[\\s\\S]*?\\n\\s{0,12}\\}'));
+  assert(/"app-plus":\s*\{\s*"background":\s*"#[0-9A-Fa-f]{6}"/.test(seg),
+    p + ' 配了 app-plus.background（不配就会在换页空档里闪一整屏灰白）');
+}
+// 两页必须是同一个色：转场是"圆盖满一屏粉 → 换页 → 另一颗圆从同一块粉里缩回"，
+// 底色不一致就等于在两颗圆中间夹了一条别的颜色。
+const bgHome = (pagesJson.match(/"path":\s*"pages\/home\/home"[\s\S]*?"background":\s*"(#[0-9A-Fa-f]{6})"/) || [])[1];
+const bgFocus = (pagesJson.match(/"path":\s*"pages\/focus\/focus"[\s\S]*?"background":\s*"(#[0-9A-Fa-f]{6})"/) || [])[1];
+assert(!!bgHome && bgHome === bgFocus,
+  '首页/专注页窗体底色一致（' + bgHome + ' vs ' + bgFocus + '，不一致就夹了一条别的颜色）');
 const bShow = block(focusPage, /onShow\(\)\s*\{[\s\S]*?\n  \}/);
 assert(/try \{ this\.armIntro\(\) \} catch \(e\) \{ this\.ringIntro = false \}/.test(bShow),
   'onShow 调 armIntro 且自带 try（armIntro 炸了也不能拖垮后面的 refresh）');
@@ -218,37 +238,58 @@ assert(/clearTimeout\(this\._introProbeT\)/.test(block(focusPage, /onUnload\(\)\
 // App 端新页面自带 slide-in-right，与"圆从放大态缩回"同时各跑各的 → 抖一下
 assert(/animationType: 'none'/.test(bQuick),
   '这一跳关掉 App 系统窗口动画（H5 本来没有这层，所以电脑端正常、安卓不对劲）');
-// intro 的起点同时写行内：CSS 变量要过一轮 resolve，个别 App 内核上不稳
+// ★ 2026-10-30：放大倍数写死在 CSS 里，transform **不许**再从行内写 ——
+//   行内样式优先级最高，会把 .fr-intro .ring 的 scale 和 transition 一起压死，
+//   收缩动画当场失效（这类"看着改了其实没生效"的坑踩过一次）。
 const bRingStyle = block(focusPage, /ringStyle\(\)\s*\{[\s\S]*?\n    \}/);
-assert(/if \(this\.ringIntro\) st\.transform = 'scale\(' \+ this\.coverScale \+ '\)'/.test(bRingStyle),
-  'intro 的放大起点写成行内值（变量那份留着兜底，行内是硬承诺）');
+// ⚠️ 剥注释再判：注释里写着"别把...写成行内 transform"（历史教训），
+//    不剥的话断言恒红（照着注释里的反例判失败）。
+const bRingStyleCode = bRingStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+assert(!/transform:/.test(bRingStyleCode),
+  'ringStyle 里不许写 transform（行内压过 CSS，收缩动画会失效）');
 assert(/backgroundColor: 'rgba\(23,32,26,0\.08\)'/.test(bRingStyle),
   'conic-gradient 有纯色兜底（老安卓认不出会整条丢掉 background，圆环当场消失）');
 assert(/'fr-intro': ringIntro/.test(focusPage), 'focus 根节点挂 fr-intro');
-assert(/:style="\[appBgStyle, introVars\]"/.test(focusPage), 'focus 根绑 introVars（--cover-scale）');
-// ⑥ 收缩过程不跳色：红色皮肤做成**独立叠层**（.ring-inner::after），只淡 opacity → 零重绘
+assert(/:style="appBgStyle"/.test(focusPage),
+  'focus 根只绑 appBgStyle（放大倍数走 CSS 写死值，不再走 CSS 变量）');
+// ⑥ 收缩过程不跳色：红色皮肤做成**独立叠层**（.ring-tint），只淡 opacity → 零重绘
 const cssRingInner = blockCss(focusPage, /\.fr-intro \.ring-inner \{[\s\S]*?\n\}/);
-const cssRingAfter = blockCss(focusPage, /\.ring-inner::after \{[\s\S]*?\n\}/);
-// ⚠️ 断言要精确到属性：块里 border-color 也写着 brand-rgb，只查"块内有没有
+const cssRingTint = blockCss(focusPage, /\.ring-tint \{[\s\S]*?\n\}/);
+// ⚠️ 断言要精确到属性：块里 border 也写着 brand-rgb，只查"块内有没有
 //    brand-rgb"的话，删掉 background 那行照样算过（假绿）。
-assert(/background: rgba\(var\(--brand-rgb/.test(cssRingAfter) &&
-  /border: 2rpx solid rgba\(var\(--brand-rgb/.test(cssRingAfter),
-  '红色皮肤在 .ring-inner::after 叠层（淡红底 + 红边，收缩时只淡 opacity）');
-assert(/transition: opacity/.test(cssRingAfter) &&
-  /\.fr-intro \.ring-inner::after \{ opacity: 1/.test(focusPage),
+assert(/background: rgba\(var\(--brand-rgb/.test(cssRingTint) &&
+  /border: 2rpx solid rgba\(var\(--brand-rgb/.test(cssRingTint),
+  '红色皮肤在 .ring-tint 叠层（淡红底 + 红边，收缩时只淡 opacity）');
+assert(/transition: opacity/.test(cssRingTint) &&
+  /\.fr-intro \.ring-tint \{ opacity: 1/.test(focusPage),
   'intro 期显出红色叠层，摘 fr-intro 时随 opacity 淡出（零重绘，红→白在收缩里渐完）');
+// ★ 必须是**真实元素**，不能改回伪元素（2026-10-30 第四轮真机实锤）：
+//   伪元素上的 opacity transition 在华为系 WebView 不走 —— 摘 fr-intro 那一帧
+//   圆还有 6 倍大、粉色直接消失，整屏从粉硬切成灰白玻璃，就是"衔接处闪一下"。
+assert(/<view class="ring-tint"><\/view>/.test(focusPage),
+  '红色叠层是真实 view（伪元素的 opacity 过渡在华为系 WebView 不走）');
+assert(!/\.ring-inner::after\s*\{/.test(focusPage),
+  '不许再用 ::after 伪元素做红色叠层（同上）');
 assert(!/background: rgba\(var\(--brand-rgb/.test(cssRingInner),
-  '红色不许写回 .ring-inner 底色（4.5 倍大圆上改 background = 每帧重绘整屏、必掉帧）');
+  '红色不许写回 .ring-inner 底色（6 倍大圆上改 background = 每帧重绘整屏、必掉帧）');
 // ★ intro 态必须关毛玻璃：backdrop-filter 每帧把身后整个屏幕重新模糊一遍，
 //   intro 态圆盖住全屏 = 每帧全屏重模糊 —— 安卓上收缩动画直接掉成幻灯片
 assert(/backdrop-filter: none/.test(cssRingInner),
   'intro 期关掉 backdrop-filter（全屏逐帧重模糊会把收缩拖成幻灯片）');
 const cssRing = blockCss(focusPage, /\.fr-intro \.ring \{[\s\S]*?\n\}/);
-assert(/scale\(var\(--cover-scale/.test(cssRing), 'intro 态 ring 放大到全屏');
+// ★ 起始倍数必须够大（2026-10-30 第四轮）：专注页圆心比首页高（≈320rpx vs 591rpx），
+//   4.5 倍时半径 1080rpx 只够盖住 1304rpx —— 底部仍露出圆弧。交接瞬间圆的可见
+//   边界从"屏外"变成"屏内一小段"，看着就是"衔接处跳了一下"。6 倍才四边都出屏。
+const mIntroScale = cssRing.match(/scale\(([\d.]+)\)/);
+assert(!!mIntroScale && Number(mIntroScale[1]) >= 6,
+  'intro 态 ring 放大到盖满全屏（≥6 倍，当前 ' + (mIntroScale ? mIntroScale[1] : '?') + '）');
+const mDropFrom = (focusPage.match(/@keyframes fr-ring-drop \{[\s\S]*?from \{ transform: scale\(([\d.]+)\)/) || [])[1];
+assert(!!mDropFrom && !!mIntroScale && mDropFrom === mIntroScale[1],
+  'fr-ring-drop 的 from 与 .fr-intro .ring 同倍数（不同则 animation 起跑当场跳一下）');
 assert(/animation: fr-ring-drop 260ms/.test(cssRing),
   '收缩走 CSS animation 自播放（起跑点焊在首帧，不靠 JS 信号 —— 10-27 实锤）');
-assert(/@keyframes fr-ring-drop \{[\s\S]*?scale\(var\(--cover-scale[\s\S]*?scale\(1\)/.test(focusPage),
-  'fr-ring-drop keyframes 在（从 cover-scale 缩到 1）');
+assert(/@keyframes fr-ring-drop \{[\s\S]*?scale\(6\)[\s\S]*?scale\(1\)/.test(focusPage),
+  'fr-ring-drop 从 6 缩到 1（写死倍数，理由见 .fr-intro .ring 注释）');
 assert(/@keyframes fr-skin-back \{/.test(focusPage) && /@keyframes fr-fade-in \{/.test(focusPage),
   '皮肤回玻璃 / 文字淡入各有自播放 keyframes（与收缩同一首帧起跑点）');
 // ★ 基态必须显式 scale(1)：从 none 起算到 scale(N) 的插值，部分安卓 WebView 不补
@@ -256,13 +297,16 @@ assert(/@keyframes fr-skin-back \{/.test(focusPage) && /@keyframes fr-fade-in \{
 const cssRingBase = blockCss(focusPage, /\.ring \{[\s\S]*?\n\}/);
 assert(/transform: scale\(1\)/.test(cssRingBase),
   'ring 基态显式 transform: scale(1)（none↔scale 的插值各家实现松紧不一）');
-assert(/will-change: transform/.test(cssRingBase),
-  'ring 提合成层（will-change：不提前提层，缩放每帧都在重绘含投影）');
+// ★ 反向断言（2026-10-29 真机实锤）：常驻 will-change 会让华为 WebView 把合成层
+//   纹理冻结在放大态 —— DOM 里 fr-intro 已摘、transform 已回 1，屏幕上还显示几百
+//   毫秒前那张放大旧纹理（连圈内文字一起被放大成巨字），息屏再亮后圆盘直接卡死。
+assert(!/will-change/.test(cssRingBase),
+  'ring 不许常驻 will-change（华为会冻结合成层纹理，圆定格在放大态）');
 assert(/\.fr-intro \.focus-body > \*:not\(\.ring-wrap\) \{ opacity: 0/.test(focusPage),
   '圆外内容 intro 期让位（随圆收缩一起淡入）');
-// ⑦ 首页大圆同样要提合成层：放大到盖满全屏的动画不能逐帧重绘
-assert(/will-change: transform/.test(blockCss(home, /\.tp-block\.focus-card \.hc-ring \{[\s\S]*?\n\}/)),
-  '首页大圆提合成层（will-change：放大动画整个走 GPU）');
+// ⑦ 首页大圆同样不许常驻 will-change（与专注页同一个病根：纹理冻结在放大态）
+assert(!/will-change/.test(blockCss(home, /\.tp-block\.focus-card \.hc-ring \{[\s\S]*?\n\}/)),
+  '首页大圆不许常驻 will-change（纹理会冻结在放大态，切页后卡住）');
 // ⑧ 转场期间 onShow 只做轻活：原生权限实测/图标读取延到 deferredChecks
 assert(/_deferT = setTimeout/.test(bShow), 'onShow 把重活挂到 _deferT 定时器（intro 别被拖住）');
 assert(!/hasUsagePermission\(\)/.test(bShow) && !/refreshLearnApps\(\)/.test(bShow),
@@ -283,6 +327,14 @@ console.log('== 6b. 点出（专注页返回）也要有动画，且是同一条
 assert(/'fr-intro': ringIntro[\s\S]{0,90}'fr-exit': ringExit/.test(focusPage) &&
   /'fr-hide': ringHide/.test(focusPage),
   'focus 根节点挂 fr-intro / fr-exit / fr-hide（两个方向 + 转场期内容让位）');
+// 顶栏/底栏也要跟着让位（2026-10-30 用户反馈"只有中间圆在动，其它凭空闪出来"）：
+// 它们 fixed + z-index 400/500，会压在放大盖屏的圆**上面**，不藏就是"闪出来"。
+assert(/\.focus-page\.fr-intro \.fnb-wrap \{ opacity: 0/.test(focusPage),
+  '专注页 intro 期把顶栏也藏起来（fixed + z-index 400，会压在放大圆上面）');
+assert(/\.page-nav\.ring-launch \.fnb-wrap[\s\S]{0,120}\.ftb-wrap \{[\s\S]{0,140}opacity: 0/.test(home),
+  '首页点圆时顶栏/底部悬浮栏跟着淡出（否则只有中间的圆在动，其它凭空消失）');
+assert(/\.page-nav\.ring-return \.fnb-wrap[\s\S]{0,120}\.ftb-wrap \{[\s\S]{0,140}hc-fade-in/.test(home),
+  '回首页时顶栏/底部悬浮栏跟着圆落位淡入');
 assert(/this\.zoomIn = true/.test(block(focusPage, /onLoad\(query\)\s*\{[\s\S]*?\n  \}/)),
   'onLoad 记下"是从首页大圆点进来的"（zoomIn）');
 const bExit = block(focusPage, /    playExit\(\)\s*\{[\s\S]*?\n    \}/);
@@ -293,7 +345,7 @@ assert(/this\.ringExit = true/.test(bExit), 'playExit 置 ringExit（圆开始�
 assert(/if \(this\._exitT\) return/.test(bExit), '连点只退一次（不重复放大 / 重复导航）');
 assert(/if \(this\.ringIntro\) \{[\s\S]*?this\.leaveNow\(\)/.test(bExit),
   'intro 还没播完就返回：不再放大一遍（否则 fr-intro / fr-exit 抢同一条动画，圆先弹回再放大）');
-const bLeave = block(focusPage, /    leaveNow\(\)\s*\{[\s\S]*?\n    \}/);
+const bLeave = block(focusPage, /    leaveNow\(\w*\)\s*\{[\s\S]*?\n    \}/);
 assert(bLeave !== '' && /navigateBack\(\{ delta: 1, animationType: 'none' \}\)/.test(bLeave),
   '点出这一跳关掉系统窗口动画（否则平移和缩放各跑各的）');
 assert(/pages\.length > 1[\s\S]*?switchTab\(\{ url: '\/pages\/home\/home' \}\)/.test(bLeave),
@@ -307,10 +359,16 @@ assert(/this\.playExit\(\)/.test(bBackPress) && /return true/.test(bBackPress),
 assert(/this\.backBlocked\(\)[\s\S]*?return true/.test(bBackPress),
   '强制模式按住那一条仍排在接管之前（拦截优先级不许被动画抢走）');
 const cssExitRing = blockCss(focusPage, /\.fr-exit \.ring \{[\s\S]*?\n\}/);
-assert(/animation: fr-ring-rise 240ms/.test(cssExitRing),
+assert(/animation: fr-ring-rise 700ms/.test(cssExitRing),
   '点出放大走 CSS animation 自播放（同 intro，不靠 JS 信号）');
-assert(/@keyframes fr-ring-rise \{[\s\S]*?scale\(1\)[\s\S]*?scale\(var\(--cover-scale/.test(focusPage),
-  'fr-ring-rise 从 1 放大到 cover-scale（终态与首页那颗圆的放大态一致）');
+// ★ 2026-10-30 第四轮：倍数从 4.5 提到 6 —— 专注页圆心比首页高，4.5 倍时底部
+//   还露圆弧，交接那一帧圆的可见边界会"挪一下"。断言改成读实际值再比。
+const mExitScale = (cssExitRing.match(/transform: scale\(([\d.]+)\)/) || [])[1];
+const mRiseTo = (focusPage.match(/@keyframes fr-ring-rise \{[\s\S]*?34%\s*\{ transform: scale\(([\d.]+)\)/) || [])[1];
+assert(!!mExitScale && Number(mExitScale) >= 6,
+  '点出放大到盖满全屏（≥6 倍，当前 ' + mExitScale + '）');
+assert(!!mRiseTo && mRiseTo === mExitScale,
+  'fr-ring-rise 的 34% 与 .fr-exit .ring 同倍数（不同则动画起跑跳一下）');
 const cssExitInner = blockCss(focusPage, /\.fr-exit \.ring-inner \{[\s\S]*?\n\}/);
 assert(/background: rgba\(var\(--brand-rgb/.test(cssExitInner) && /backdrop-filter: none/.test(cssExitInner),
   '放大期间换首页大圆皮肤并关毛玻璃（navigateBack 那一帧不许跳色 / 逐帧重模糊）');
@@ -339,14 +397,26 @@ assert(/if \(this\.launchRing\) \{\s*this\.startRingReturn\(\)/.test(block(home,
   'onShow 里 launchRing 还在 → 走接力缩回（不是当场弹回去）');
 const cssRet = blockCss(home, /\.tp-block\.focus-card \.hc-ring\.ring-return \{[\s\S]*?\n\}/);
 assert(/animation: hc-ring-land 260ms/.test(cssRet), 'ring-return 走 animation 自播放');
-assert(/@keyframes hc-ring-land \{[\s\S]*?scale\(var\(--launch-scale[\s\S]*?scale\(1\)/.test(home),
-  'hc-ring-land 从 launch-scale 缩到 1（与专注页放大终态同一个倍数）');
+// ★ 跨页不变量（2026-10-30 第四轮）：专注页点出放大到的倍数，必须等于首页接手
+//   缩回的起点。两边不一致 = 交接那一帧圆"跳"一下，是"衔接不丝滑"最直接的来源。
+const mLandFrom = (home.match(/@keyframes hc-ring-land \{\s*from \{ transform: scale\(([\d.]+)\)/) || [])[1];
+assert(!!mLandFrom && mLandFrom === mRiseTo,
+  'hc-ring-land 从专注页放大终点接手（' + mLandFrom + ' vs fr-ring-rise ' + mRiseTo + '）');
+// 进页方向：两边倍数可以不同（都已盖满、边界在屏外就看不出来），
+// 但首页终点必须 ≥4.5 —— 首页圆心约 591rpx、屏高 1624rpx，4.3 倍才盖满。
+const mLaunchTo = (home.match(/@keyframes hc-ring-rise \{[\s\S]*?100% \{ transform: scale\(([\d.]+)\)/) || [])[1];
+assert(!!mLaunchTo && Number(mLaunchTo) >= 4.5,
+  '首页放大终点 ≥4.5（低于 4.3 就在屏内露出圆弧，切换瞬间能看到多出来的一圈）');
 // ⚠️ hc-breath 是 infinite：声明排在 ring-return 之后就会压掉缩放（圆停在 1 倍不动）
 const cssHomeNoCmt = home.replace(/\/\*[\s\S]*?\*\//g, '');
 assert(cssHomeNoCmt.indexOf('.hc-ring-run {') < cssHomeNoCmt.indexOf('.hc-ring.ring-return {'),
   'ring-return 规则排在 .hc-ring-run 之后（否则正在专注时 hc-breath 把收缩动画压掉）');
-assert(/\.tp-block\.focus-card \.hc-ring\.ring-launch \{ animation: none; \}/.test(cssHomeNoCmt),
-  'ring-launch 期关掉 hc-breath（呼吸动画会把 coverScale 顶掉，圆缩在半路）');
+// ★ ring-launch 期不靠 animation: none 压 hc-breath —— 那样会把 hc-ring-rise 一起关掉。
+//   真正的保护是**特异性**：hc-breath 挂在 .hc-ring-run (0,1,0)，ring-launch 那条
+//   选择器带 4 个类 (0,4,0)，天生压过它。少写一个类就等于把呼吸动画放出来抢。
+const launchSel = (cssHomeNoCmt.match(/([.\w\s:>-]*\.hc-ring\.ring-launch)\s*\{/) || [])[1] || '';
+assert((launchSel.match(/\./g) || []).length >= 4,
+  'ring-launch 选择器特异性压过 .hc-ring-run（当前 "' + launchSel.trim() + '"）');
 const cssLaunchTxt = blockCss(home, /\.tp-block\.focus-card \.hc-ring\.ring-launch \.hc-ring-num,[\s\S]*?\n\}/);
 assert(/transition: none/.test(cssLaunchTxt),
   '点进时圈内读数当帧消失（原来是 140ms 淡出 → 一屏巨字）');

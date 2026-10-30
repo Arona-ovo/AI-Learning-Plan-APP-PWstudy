@@ -291,6 +291,18 @@ export function current() {
 }
 
 /**
+ * 当前已**净**专注秒数（扣掉累计暂停），用于"刚点开不到 1 分钟就结束"的判定。
+ * 与 settle 的 60 秒阈值严格对齐：usedSec() < 60 ⇔ settle 会因 min<1 返回 null
+ * （即"不足 1 分钟不落账"）。这样短会话作废的判定和落账阈值用的是同一把尺子。
+ */
+export function usedSec() {
+  const s = state;
+  if (!s) return 0;
+  const spanMs = Math.max(0, (Date.now() - s.startAt) - (s.pausedMs || 0));
+  return Math.floor(spanMs / 1000);
+}
+
+/**
  * 到点：专注 → 转「正计时」继续跑；休息 → 直接收摊。
  * 三个驱动源（页面 tick / 看门狗 / 被人读到）都走这里，保证行为一致 ——
  * 各写一套必然出现"在专注页到点不结束、回到首页才结束"这种分裂。
@@ -648,6 +660,16 @@ export function abort() {
   notify.releaseWake();
   notifLeave(false);
   return had;
+}
+
+/**
+ * 用户主动「不计入学习时长（本次作废）」：与 giveUp 不同 —— giveUp 满 1 分钟仍记一条
+ * 中断会话（done=false），voidSession 什么账都不落（分钟 / 任务进度 / 今日专注数
+ * 一律不计）。与 abort 行为一致（都不 settle），区别只在语义：abort 是"这些记录马上
+ * 就要被清掉"的外部收摊，voidSession 是用户明明白白说"这段我不认"。
+ */
+export function voidSession() {
+  return abort();
 }
 
 // ---------- 每秒驱动 ----------

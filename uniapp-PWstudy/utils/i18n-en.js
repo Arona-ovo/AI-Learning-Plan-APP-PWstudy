@@ -103,6 +103,7 @@ export default {
   '棕噪': 'Brown',
   '雨声': 'Rain',
   '沙滩': 'Beach',
+  '时钟滴答': 'Clock tick',
   '设置 ›': 'Settings ›',
 
   // ---------- 掌握度 / 学习 ----------
@@ -1170,16 +1171,21 @@ export default {
     'In strict mode giving up voids this session, so you cannot give up again this month. Finishing early still works — the time you already sat is kept and counts toward the task.',
   // （'知道了' → 'Got it' 通用段里早就有，别重复加：对象字面量里后者会静默覆盖前者）
   '严格模式开启中，确定要中途退出？': 'Strict mode is on — exit early anyway?',
-  '本月已退出 {a} 次，还可退出 {b} 次。建议仅在必要情况下使用 —— 退出后已坐的时长仍然会记下来。':
-    'You have exited {a} time(s) this month, {b} left. Only use it when you really need to — the time you already sat still gets recorded.',
+  '中途退出会如实记录已坐的时长：选「结束并记录」任务不计入完成量，选「提前完成」则任务进度照算。确定要退出吗？':
+    'Exiting still records the time you already sat: pick "End and record" to leave the task incomplete, or "Finish early" to count the task as done. Sure you want to exit?',
   '确定退出': 'Exit anyway',
   '继续专注': 'Keep focusing',
   '请选择你的操作': 'What do you want to do?',
-  '放弃这段专注（不算完成任务量）': 'Give up (does not count toward the task)',
-  '提前完成（按已学时长记账）': 'Finish early (keep the time)',
-  '放弃 = 分钟照记但不算完成任务量；提前完成 = 坐了多久记多久，任务进度照算。':
-    'Give up = minutes are kept but the task does not advance; finish early = you get credit for exactly how long you sat.',
-  '只剩这一种退出方式了。': 'This is the only way out now.',
+  '本次专注不足 1 分钟': 'Focus session under 1 minute',
+  '不记录学习时长，本次作废。': 'No study time will be recorded; this session is voided.',
+  '作废并退出': 'Void and exit',
+  '结束并记录学习时长（任务未完成）': 'End and record time (task not completed)',
+  '提前完成（任务达标）': 'Finish early (task met)',
+  '结束并记录 = 坐了多久记多久，但任务不算完成；提前完成 = 时长照记，任务进度照算。':
+    'End and record = credit for however long you sat, but the task is not counted as done; finish early = time kept and task progress counts.',
+  '本月的中途退出次数用完了': 'Monthly mid-session exits used up',
+  '严格模式下中途退出仍会如实记录已经坐出来的时长：选「结束并记录」任务不计入完成量，选「提前完成」则任务进度照算。':
+    'Under strict mode, exiting still records the time you already sat: pick "End and record" to leave the task incomplete, or "Finish early" to count the task as done.',
   '写一句心得': 'Write a note',
   '刚才这段专注的收获…': 'What came out of that session…',
   '计算器': 'Calculator',

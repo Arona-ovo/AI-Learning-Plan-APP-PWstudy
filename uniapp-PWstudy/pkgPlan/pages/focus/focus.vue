@@ -17,6 +17,12 @@
       <view class="ring-wrap" @tap="onRingTap">
         <view class="ring" :style="ringStyle" :class="{ 'ring-pulse': ringPulse }" @animationstart="onIntroStart" @animationend="onIntroEnd">
           <view class="ring-inner">
+            <!-- 转场红色叠层（2026-10-30 第四轮）：必须是**真实元素**。
+                 原来它是 .ring-inner::after 伪元素，靠 transition: opacity 在收缩中淡出 ——
+                 但华为系 WebView 上伪元素的 opacity 过渡不走，摘 fr-intro 那一帧粉色
+                 直接消失，圆还剩 5~6 倍大、整屏从粉硬切成灰白（用户："衔接处还是不够丝滑"）。
+                 换成真实 view 后走普通元素过渡，与 .ring 的 transform 同一条渲染路径。 -->
+            <view class="ring-tint"></view>
             <!-- 正计时段：数字前面加个「+」，一眼看出这是"多坐了多久"而不是"还剩多久" -->
             <text class="time">{{ timeText }}</text>
             <!-- 任务名：单行截断，点一下展开（最多 3 行）。
@@ -325,7 +331,7 @@ export default {
       streakDays: 0,     // 连续专注天数（番茄ToDo 那个"连续专注 N 天"）
       noteText: '',      // 休息页的心得（挂在刚落账的那段专注上）
       quotaOk: false,    // 已通过退出配额确认（紧接着的二选一才作数）
-      exitKinds: [],     // 二选一菜单项对应的动作（giveup / early），与 items 一一对应
+      exitKinds: [],     // 二选一菜单项对应的动作（void / early），与 items 一一对应
       calcOpen: false,   // 内置计算器（学数学不用切走 —— 切走会被强制模式当成逃逸）
       strictOn: false,
       forcedOn: false,    // 强制模式：离开学习 App 就当场拉回来
@@ -978,12 +984,15 @@ export default {
      */
     confirmStop() {
       this.quotaOk = false
+      // 刚点开不到 1 分钟就结束：根本没开始学，直接作废（不占强制/严格额度、也没什么可记），
+      // 不再给二选一 —— 短到没什么可记，问也问不出名堂。
+      if (focus.usedSec() < 60) { this.askShortVoid(); return }
       if (!this.exitGuarded()) { this.askExitChoice(); return }
       const left = pw.exitQuotaLeft()
       if (left <= 0) {
         this.ask({
-          title: t('本月的退出额度用完了'),
-          content: t('严格模式下「放弃」会作废这次专注，所以本月不能再放弃了。提前完成仍然可以 —— 已经坐出来的时间照记，任务进度也算。'),
+          title: t('本月的中途退出次数用完了'),
+          content: t('严格模式下中途退出仍会如实记录已经坐出来的时长：选「结束并记录」任务不计入完成量，选「提前完成」则任务进度照算。'),
           btnMode: 'alert',
           confirmText: t('知道了'),
           action: 'quota-out'
@@ -992,9 +1001,9 @@ export default {
       }
       this.ask({
         title: t('严格模式开启中，确定要中途退出？'),
-        // 带两个占位符：拼字符串会多出静态中文，走 t() 的 {a}/{b} 才不占额度
-        content: t('本月已退出 {a} 次，还可退出 {b} 次。建议仅在必要情况下使用 —— 退出后已坐的时长仍然会记下来。',
-          { a: pw.exitQuotaUsed(), b: left }),
+        // 中途退出额度已不再消耗（≥1 分钟如实记账、<1 分钟直接作废都不占额度），
+        // 所以这里不再显示"已退出/还可退出"的计数 —— 那串数字只会永远停在 0/2，纯误导。
+        content: t('中途退出会如实记录已坐的时长：选「结束并记录」任务不计入完成量，选「提前完成」则任务进度照算。确定要退出吗？'),
         confirmText: t('确定退出'),
         cancelText: t('继续专注'),
         countdown: 3,
@@ -1008,46 +1017,62 @@ export default {
       return !!(this.forcedOn || this.strictOn)
     },
 
-    /** 二选一：放弃 / 提前完成。配额用完时只给"提前完成"（放弃那项整个不出现） */
+    /** 短会话（<1 分钟）：直接作废，不再给二选一（没什么可记，问也问不出名堂） */
+    askShortVoid() {
+      this.ask({
+        title: t('本次专注不足 1 分钟'),
+        content: t('不记录学习时长，本次作废。'),
+        confirmText: t('作废并退出'),
+        cancelText: t('继续专注'),
+        danger: true,
+        action: 'void-short'
+      })
+    },
+
+    /**
+     * 二选一（已坐满 1 分钟的真实专注）：结束并记录 / 提前完成。
+     *
+     * ⚠️ 不再提供"不计入学习时长（作废）"：那是 <1 分钟短会话的待遇（askShortVoid），
+     *    真实的专注时间应当如实计入「今日专注分钟」—— 这是 App 的核心指标，
+     *    若对长会话也开放作废，数据就能被人随意抹掉，指标就失去意义了。
+     *    强制/严格模式的"中途退出额度"本来只针对作废；既然 ≥1 分钟不再作废，额度不再消耗。
+     *
+     * 两个选项都如实记录时长，区别只在任务是否达标：
+     *   stop  = 结束并记录（记实际分钟，done=false，任务不计入完成量）
+     *   early = 提前完成（记实际分钟，done=true，任务进度照算）
+     */
     askExitChoice() {
-      const items = []
-      // ⚠️ 记下一一对应的 kind，别靠 label 文本判断：label 走 t() 之后，
-      //    英文态是 "Give up (...)" —— 拿中文去 indexOf 会永远判成"提前完成"
-      const kinds = []
-      if (!this.exitGuarded() || pw.exitQuotaLeft() > 0) {
-        items.push({ label: t('放弃这段专注（不算完成任务量）'), danger: true })
-        kinds.push('giveup')
-      }
-      items.push({ label: t('提前完成（按已学时长记账）') })
-      kinds.push('early')
+      const items = [
+        { label: t('结束并记录学习时长（任务未完成）') },
+        { label: t('提前完成（任务达标）') }
+      ]
+      const kinds = ['stop', 'early']
       this.exitKinds = kinds
       this.ask({
         mode: 'sheet',
         title: t('请选择你的操作'),
-        content: items.length > 1
-          ? t('放弃 = 分钟照记但不算完成任务量；提前完成 = 坐了多久记多久，任务进度照算。')
-          : t('只剩这一种退出方式了。'),
+        content: t('结束并记录 = 坐了多久记多久，但任务不算完成；提前完成 = 时长照记，任务进度照算。'),
         items: items,
         action: 'exit-choice'
       })
     },
 
     /**
-     * 真结束。⚠️ 按 label 判断而不是按下标：配额用完时「放弃」那一项不存在，
-     * 下标会整体错位（照下标写就是"选了提前完成实际执行放弃"）。
+     * 真结束（≥1 分钟路径）。两条路都如实记录时长，区别只在任务是否达标：
+     *   stop  = focus.giveUp()    → 记实际分钟，done=false（任务不计入完成量）
+     *   early = focus.finishEarly()→ 记实际分钟，done=true（任务进度照算）
+     * ⚠️ 按下标不如按 kind：sheet 项与 kinds 严格一一对应，照下标写容易错位。
      */
     doExit(idx) {
-      // 按 kind 而不是下标硬编码：配额用完时「放弃」那一项不存在，下标会整体错位
-      const isGiveUp = (this.exitKinds || [])[idx] === 'giveup'
-      if (isGiveUp && this.quotaOk) pw.useExitQuota()
-      const s = isGiveUp ? focus.giveUp() : focus.finishEarly()
+      const kind = (this.exitKinds || [])[idx]
+      const s = kind === 'stop' ? focus.giveUp() : focus.finishEarly()
       this.cur = null
       this.quotaOk = false
       this.refreshToday()
       this.refreshRound()
       strict.sync()
       forced.sync()
-      if (isGiveUp || !s) return          // 放弃 / 不足 1 分钟没落账 → 不做"完成"引导
+      if (!s) return                        // 理论上 ≥1 分钟不会落空，保险
       this.lastMin = s.min
       this.restDone = false
       if (this.autoRestOn()) this.startRestNow()
@@ -1349,6 +1374,16 @@ export default {
       }
       if (act === 'exit-choice') {
         this.doExit(Number(v))
+        return
+      }
+      if (act === 'void-short') {
+        // 短会话（<1 分钟）直接作废：分钟 / 任务进度 / 今日专注数一律不记
+        focus.voidSession()
+        this.cur = null
+        this.refreshToday()
+        this.refreshRound()
+        strict.sync()
+        forced.sync()
         return
       }
       if (act === 'give-up') {
@@ -1835,9 +1870,13 @@ export default {
      屏幕上还显示着几百毫秒前那张放大旧纹理（连圈内文字一起被放大成巨字），
      定格到下次强制合成才"缩回去"。息屏再亮后圆盘卡死也是同一病根。
      CSS transform/opacity 动画播放时浏览器本来就会临时提层，常驻是负优化。 */
+  /* ★ 圆盘是纯视觉（转场缩放），点击交给稳定的 ring-wrap 承接（见模板）：
+     华为系 WebView 会对 transform 动画中的元素丢触摸，点圆要等动画落定才灵 ——
+     把 ring 设成 pointer-events:none，触摸永远落到不缩放的 ring-wrap 上。 */
+  pointer-events: none;
 }
 .ring-inner {
-  position: relative;           /* 给 .ring-inner::after 的红色叠层做定位 */
+  position: relative;           /* 给 .ring-tint 的红色叠层做定位 */
   width: 420rpx; height: 420rpx;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.82);
@@ -1853,12 +1892,16 @@ export default {
 }
 /* 红色皮肤做成**独立叠层**：收缩时只淡出它的 opacity（GPU 合成、零重绘）——
    红→白在收缩过程中就渐完了，落位时已经是白玻璃，用户说的"先红再变白"那一下消失。
-   ⚠️ 不要再把红色写回 .ring-inner 的 background：那是 4.5 倍盖满整屏的元素，
-     每帧重绘 background 必掉帧（2026-10-30 实测）。 */
-.ring-inner::after {
-  content: '';
+   ⚠️ 不要再把红色写回 .ring-inner 的 background：那是 6 倍盖满整屏的元素，
+     每帧重绘 background 必掉帧（2026-10-30 实测）。
+   ⚠️ 也**不要改回伪元素 ::after**（2026-10-30 第四轮真机实锤）：伪元素上的
+     `transition: opacity` 在华为系 WebView 不走 —— 摘 fr-intro 那一帧圆还有
+     5~6 倍大，粉色直接消失，整屏从粉硬切成灰白玻璃，就是用户说的"衔接处不够
+     丝滑 / 中间闪一下"。真实 view 的 opacity 过渡与 .ring 的 transform 同路径，
+     实测同步渐完。 */
+.ring-tint {
   position: absolute;
-  inset: 0;
+  left: 0; top: 0; right: 0; bottom: 0;
   border-radius: 50%;
   background: rgba(228, 23, 61, 0.1);
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
@@ -1869,7 +1912,7 @@ export default {
   pointer-events: none;
 }
 /* intro 期红色叠层可见；摘 fr-intro（收缩开始）后 opacity 1→0 与 transform 同步淡出 */
-.fr-intro .ring-inner::after { opacity: 1; }
+.fr-intro .ring-tint { opacity: 1; }
 /* ★ 圆圈衔接转场（2026-10-25，与首页 .ring-launch 是一对）：
    从首页大圆点进来（?zoom=1）时 ring 先处于"放大盖满全屏"态，缩回就位。
    ★ 收缩由 CSS animation **自播放**（10-27 改，真机视频实锤的修复）：
@@ -1884,19 +1927,27 @@ export default {
       不认 keyframes 时 animation 不跑，class 由 armIntro 的兜底定时器摘掉，
       那时就退化回"transition 收缩"的旧路径 —— 两条路都通。 */
 .ring { transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1); }
-/* ⚠️ 放大倍数写死 4.5，不要用 var(--cover-scale)（2026-10-29 真机实锤）：
+/* ⚠️ 放大倍数写死，不要用 var(--cover-scale)（2026-10-29 真机实锤）：
    华为 WebView 对 @keyframes 里的 var() 解析失败会**整条丢弃 animation** ——
    收缩动画压根不跑，圆被静态规则钉在放大态约 600ms（直到兜底摘 class），
    定格期间文字淡入动画照常播放，满屏巨字就是这么来的。
-   普通声明里的 var() 它倒认，但 keyframes 里不行 —— 所以三处转场
-   （fr-ring-drop / fr-ring-rise / 首页 hc-ring-rise、hc-ring-land）全部写死
-   同一个 4.5：都盖满屏，盖满之后倍数差异不可见，衔接反而无缝。 */
+   普通声明里的 var() 它倒认，但 keyframes 里不行 —— 所以三处转场全部写死。
+
+   ★ 2026-10-30 第四轮：专注页这边 4.5 → **6**。
+     4.5 倍半径只有 1080rpx，而专注页圆心 ≈320rpx（首页那颗 ≈591rpx，更靠下），
+     屏高 1624rpx —— 要盖住底部得半径 ≥1304rpx。4.5 倍时底部一直露出一截圆弧，
+     录屏里看得很清楚：首页那颗圆是"整屏粉"，切过来底部却有一条边。
+     交接那一帧的可见边界从屏外变成屏内，用户感知就是"衔接处顿一下"。
+     6 倍（半径 1440rpx）四边全部出屏，两边都是纯色整屏，交接看不出任何几何差。
+   ⚠️ 首页那边仍是 4.5（它圆心低，4.3 倍就盖满），两边**允许不同值** ——
+     前提是都真的盖满：盖满之后差多少都看不出来。护栏 check-home-focus
+     分别盯着「专注页 ≥6」「首页 ≥4.5」这两条线。 */
 .fr-intro .ring {
-  transform: scale(4.5);
+  transform: scale(6);
   animation: fr-ring-drop 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 @keyframes fr-ring-drop {
-  from { transform: scale(4.5); }
+  from { transform: scale(6); }
   to   { transform: scale(1); }
 }
 .fr-intro .ring-inner {
@@ -1940,9 +1991,9 @@ export default {
 .fr-hide .ring-inner .time,
 .fr-hide .ring-inner .task-title { opacity: 0; }
 /* 说明（2026-10-30 第三轮）：这里原来还写着一份"静态粉色皮肤"（与 .fr-intro 同值），
-   目的是让摘 fr-intro 时皮肤零变化、零重绘。现在红色改到 .ring-inner::after 叠层后，
+   目的是让摘 fr-intro 时皮肤零变化、零重绘。现在红色改到 .ring-tint 叠层后，
    底色本来就是固定的玻璃色、全程不变，不再需要这份覆盖；红色由叠层 opacity 在收缩
-   过程中淡出。大圆上（4.5 倍盖满屏）**只允许动 transform / opacity**，别再改
+   过程中淡出。大圆上（6 倍盖满屏）**只允许动 transform / opacity**，别再改
    background / box-shadow —— 那是"掉帧"的唯一来源。 */
 @keyframes fr-fade-in {
   from { opacity: 0; }
@@ -1959,7 +2010,13 @@ export default {
    140ms 仍够遮住 0→1 的突变，又不拖延。 */
 .ring-inner .time,
 .ring-inner .task-title { transition: opacity 140ms ease; }
-.fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; }
+.fr-intro .focus-body > *:not(.ring-wrap) { opacity: 0; pointer-events: none; }
+/* ★ 顶栏也要跟着让位（2026-10-30 用户反馈）：.fnb-wrap 是 fixed + z-index 400，
+   会压在放大盖屏的圆**上面** —— 不藏的话圆还在放大、顶栏就先"闪"出来了，
+   正是"中间的圆有动画、其它凭空闪现"的另一半。intro 期藏，摘 fr-intro
+   （收缩开始）随 200ms 淡入，与圆外内容同一节拍。 */
+.focus-page .fnb-wrap { transition: opacity 200ms ease; }
+.focus-page.fr-intro .fnb-wrap { opacity: 0; }
 .focus-body > * { transition: opacity 220ms ease 60ms; }
 /* ★ 点出（2026-10-29）：与上面 fr-intro 是一对，方向相反 ——
    圆从就位处放大盖满全屏（240ms），播完 navigateBack(none)，首页那颗圆接着缩回。
@@ -1968,18 +2025,19 @@ export default {
    ⚠️ 圈内文字/读数必须**当帧消失**，不能淡出：圆放大 3 倍多，字跟着放大，
      淡出的那几十毫秒就是一屏巨字。这和首页 .ring-launch 那边同一处理。 */
 .fr-exit .ring {
-  transform: scale(4.5);
-  /* ★ 长尾放大（2026-10-29，与首页 hc-ring-rise 同一修法）：240ms 到 4.5 倍
+  transform: scale(6);
+  /* ★ 长尾放大（2026-10-29，与首页 hc-ring-rise 同一修法）：240ms 到 6 倍
      后**不停**，继续极慢爬行 —— navigateBack 之后首页 webview 重新上屏有黑洞，
      动画到点定格就是"卡一下"；长尾让这段黑洞里画面仍在动，首页 ring-return
-     从 4.5 倍接手时最多差 4%，肉眼不可见。倍数写死，理由见 fr-ring-drop 注释。 */
+     从这个倍数接手时最多差 4%，肉眼不可见（双方都已盖满屏，边界在屏外）。
+     倍数写死，理由见 fr-ring-drop 注释。 */
   animation: fr-ring-rise 700ms both;
 }
 @keyframes fr-ring-rise {
   0%   { transform: scale(1); animation-timing-function: cubic-bezier(0.4, 0, 0.55, 1); }
   /* 34% ≈ 240ms：与 playExit 里 navigateBack 的 240ms 对齐（改一处要改两处） */
-  34%  { transform: scale(4.5); animation-timing-function: linear; }
-  100% { transform: scale(4.68); }
+  34%  { transform: scale(6); animation-timing-function: linear; }
+  100% { transform: scale(6.24); }
 }
 /* 放大期间换成首页大圆的皮肤（淡红底 + 红边、去玻璃与投影）：
    navigateBack 那一帧首页接手的正是这个淡红圆盘，不换肤就会"白玻璃盘 → 淡红盘"跳色。 */
@@ -2028,6 +2086,8 @@ export default {
   /* 可点：给一点按下反馈，否则用户不知道这里能展开 */
   border-radius: 8rpx;
   padding: 4rpx 8rpx;
+  /* ring 设了 pointer-events:none，任务名要单独放开（自带 .stop，不冒泡误起表） */
+  pointer-events: auto;
 }
 
 /* 展开态：多行显示（最多 3 行，再长仍省略 —— 圆盘里放不下整篇）。

@@ -15,6 +15,9 @@ const ROOT = path.join(__dirname, '..', '..');
 const FILES = {
   home: path.join(ROOT, 'uniapp-PWstudy', 'pages', 'home', 'home.vue'),
   focus: path.join(ROOT, 'uniapp-PWstudy', 'pkgPlan', 'pages', 'focus', 'focus.vue'),
+  // 2026-10-30：转场的"换页空档底色"在 pages.json 的 app-plus.background 上，
+  // 变异要能改到它，否则那条断言永远绿（假绿）。
+  json: path.join(ROOT, 'uniapp-PWstudy', 'pages.json'),
   check: path.join(ROOT, '_tools', 'check-home-focus.js')
 };
 const CHECK = FILES.check;
@@ -111,21 +114,41 @@ const cases = [
     (c) => swap(c, 'focus',
       'clearTimeout(this._deferT)\n    this._deferT = setTimeout(() => {\n      this._deferT = null\n      try { this.deferredChecks() } catch (e) {}\n    }, 320)',
       'this.usageOk = apptime.hasUsagePermission()\n    this.refreshLearnApps()')],
-  ['首页大圆不提合成层（放大到全屏逐帧重绘 → 低端机掉帧）',
-    (c) => swap(c, 'home', '  will-change: transform;', '')],
-  ['专注页圆盘不提合成层（收缩/pulse 每帧重绘）',
-    (c) => swap(c, 'focus', '  will-change: transform;', '')],
+  // ★ 2026-10-30：这两条的**方向反转了**。原设计是"提合成层（will-change）"，
+  //   真机实锤常驻 will-change 会让华为 WebView 把纹理冻在放大态（圆定格），
+  //   所以护栏改成"不许有 will-change"。变异也跟着反转成"加回去必被抓"。
+  ['首页大圆又加回常驻 will-change（华为冻结合成层纹理 → 圆定格在放大态）',
+    (c) => swap(c, 'home', '  box-shadow: 0 0 0 22rpx rgba(228, 23, 61, 0.045);',
+      '  will-change: transform;\n  box-shadow: 0 0 0 22rpx rgba(228, 23, 61, 0.045);')],
+  ['专注页圆盘又加回常驻 will-change（同一病根：纹理冻结在放大态）',
+    (c) => swap(c, 'focus', '  transform: scale(1);', '  will-change: transform;\n  transform: scale(1);')],
   ['onHide 不收 probe（页面都切走了还留着去摘 intro）',
     (c) => swap(c, 'focus',
-      'clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null\n    clearTimeout(this._introFadeT); this._introFadeT = null\n    clearTimeout(this._deferT); this._deferT = null\n    // 注意：严格模式',
+      'clearTimeout(this._introProbeT); this._introProbeT = null; this._introDone = null\n    clearTimeout(this._introFadeT); this._introFadeT = null\n    clearTimeout(this._ringKfT); this._ringKfT = null\n    clearTimeout(this._ringHideT); this._ringHideT = null\n    clearTimeout(this._deferT); this._deferT = null\n    // 注意：严格模式',
       '// 注意：严格模式')],
-  ['intro 的放大起点不写行内值（只剩 CSS 变量，内核不稳时倍数对不上首页）',
-    (c) => swap(c, 'focus', "if (this.ringIntro) st.transform = 'scale(' + this.coverScale + ')'",
-      "if (this.ringIntro) st.opacity = '1'")],
+  ['ringStyle 又写回行内 transform（行内压过 CSS → 收缩动画失效）',
+    (c) => swap(c, 'focus', "        backgroundColor: 'rgba(23,32,26,0.08)',",
+      "        transform: 'scale(6)',\n        backgroundColor: 'rgba(23,32,26,0.08)',")],
+  ['红色叠层改回 ::after 伪元素（华为不走伪元素的 opacity 过渡 → 粉硬切成灰白）',
+    (c) => {
+      swap(c, 'focus', '<view class="ring-tint"></view>', '');
+      swap(c, 'focus', '.ring-tint {', '.ring-inner::after { content: \'\';');
+    }],
+  ['专注页起始倍数退回 4.5（圆心比首页高，底部露圆弧 → 交接时边界挪一下）',
+    (c) => {
+      swap(c, 'focus', 'transform: scale(6);\n  animation: fr-ring-drop', 'transform: scale(4.5);\n  animation: fr-ring-drop');
+      swap(c, 'focus', 'from { transform: scale(6); }', 'from { transform: scale(4.5); }');
+    }],
+  ['专注页去掉 app-plus.background（换页空档闪一整屏灰白）',
+    (c) => swap(c, 'json',
+      '"path": "pages/focus/focus",\n          "style": {\n            "navigationBarTitleText": "专注",\n            "navigationStyle": "custom",\n            "app-plus": { "background": "#F6DFDC" }\n          }',
+      '"path": "pages/focus/focus",\n          "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom" }')],
+  ['放大时长与跳页延时不同步（盖满后白等一段静止画面）',
+    (c) => swap(c, 'home', 'hc-ring-rise 170ms', 'hc-ring-rise 400ms')],
   ['conic-gradient 没有纯色兜底（老安卓认不出会整条丢掉，圆环当场消失）',
     (c) => swap(c, 'focus', "backgroundColor: 'rgba(23,32,26,0.08)',", '')],
   ['ring 基态退回隐式 none（部分安卓 WebView 不补中间帧 → 直接跳到终点）',
-    (c) => swap(c, 'focus', '  transform: scale(1);\n  /* ★ 提合成层', '  /* ★ 提合成层')],
+    (c) => swap(c, 'focus', '  transform: scale(1);\n  /* ★ 不要常驻', '  /* ★ 不要常驻')],
 
   // ===== 3. 两个圆的读数字体同源 =====
   ['专注页 .time 又加回 Georgia（安卓没有 → 退 Noto Serif，两个圆当场分家）',

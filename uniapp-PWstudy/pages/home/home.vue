@@ -1,7 +1,7 @@
 <template>
   <view
     class="container page-tabbar page-nav"
-    :class="appTheme"
+    :class="[appTheme, { 'ring-launch': launchRing, 'ring-return': ringReturn }]"
     :style="[appBgStyle, chromePadStyle]"
     @touchstart="onSlideStart"
     @touchmove="onSlideMove"
@@ -122,7 +122,8 @@
            实色淡底（见 .today-panel），左右与下面那摞卡对齐同一条竖线。 -->
       <!-- 点大圆进专注页的转场动画：圆先放大到盖满全屏，其余内容淡出，
            260ms 后 navigateTo —— 专注页的圆从同一放大态缩回就位（focus.vue fr-intro）。
-           scale 由 launchScale 实测（写死 1.56 只能盖满屏宽，屏高的上下会露背景）。 -->
+           scale 写死 4.5 倍（盖满屏之后倍数差异不可见；华为 WebView 不认 keyframes
+           里的 var()，实测挂变量会被整条丢弃 —— 见 .hc-ring-rise 注释）。 -->
       <view class="hero-main" :class="{ 'ring-launch': launchRing }">
       <view class="today-panel" :class="{ 'ring-return': ringReturn }">
         <!-- 板头：一行小标签 + 日期，给整板一个"这是今天"的锚点 -->
@@ -153,7 +154,6 @@
           <view
             class="hc-ring"
             :class="{ 'hc-ring-run': running, 'ring-launch': launchRing, 'ring-return': ringReturn }"
-            :style="ringVars"
           >
             <text class="hc-ring-num">{{ defTime }}</text>
             <text class="hc-ring-task">{{ ringTask }}</text>
@@ -889,7 +889,7 @@ export default {
       //   （2026-10-26 真机："两张卡看不全，四张就没事"）。见 measureScrollable。
       _scrollablePx: 0,
       winH: 667,          // 视口高度（onShow 实测）：进编辑态要滚到那一摞卡
-      winW: 375,          // 视口宽度（onShow 实测）：算大圆转场的放大倍数
+      winW: 375,          // 视口宽度（onShow 实测）：编排首屏布局用
       launchRing: false,  // 大圆转场播放中（点圆 → 放大盖住全屏 → 跳专注页）
       // 点出（专注页返回）的接力段：圆从 coverScale 缩回就位，内容落位后淡入。
       // 与 launchRing 是同一段转场的两半，见 startRingReturn。
@@ -1088,7 +1088,8 @@ export default {
         { k: 'pink', t: this.$t('粉噪') },
         { k: 'brown', t: this.$t('棕噪') },
         { k: 'rain', t: this.$t('雨声') },
-        { k: 'beach', t: this.$t('沙滩') }
+        { k: 'beach', t: this.$t('沙滩') },
+        { k: 'clock', t: this.$t('时钟滴答') }
       ]
     },
     restCount() {
@@ -1102,8 +1103,10 @@ export default {
       if (!this.revealOn) return {}
       const p = this.revealP
       const off = ((1 - p) * this._parallaxPx).toFixed(1)
-      const sc = (0.955 + 0.045 * p).toFixed(4)
-      return { transform: 'translate3d(0,' + off + 'px,0) scale(' + sc + ')' }
+      // ★ 1.4.1：去掉缩放（原来 p<1 时缩到 0.955，p=1 才归 1）—— 否则抽屉在滑动过程中
+      //   比上面那排卡"小一圈"，用户反馈"抽屉整体还比卡片小一点点"。只保留位移做"从后面推上来"，
+      //   尺寸全程与首屏卡一致。
+      return { transform: 'translate3d(0,' + off + 'px,0)' }
     },
     // 卡片那一层：只淡入（位移在上层 .mod-sheet，底板跟着一起被拉上来）
     listRevealStyle() {
@@ -1223,23 +1226,6 @@ export default {
     ringTask() {
       const t = this.focusTask
       return t && t.task ? t.task.title : this.$t('自由专注')
-    },
-    /**
-     * 大圆转场的放大倍数：把 480rpx 的圆放大到盖满**整屏**（宽、高的较大者）。
-     * 为什么实测而不写死：480rpx = 屏宽的 64%，写死 750/480 只能盖满屏宽，
-     * 屏高方向的上下会露出背景 —— 转场中间态露出一圈底色，两个圆就"对不齐"了。
-     */
-    launchScale() {
-      const w = this.winW || 375
-      const h = this.winH || 667
-      const ringPx = 480 * w / 750     // 480rpx 在当前机型的像素直径
-      const s = Math.max(w, h) / ringPx
-      // 留 2% 余量：个别机型圆边缘抗锯齿会露出一丝背景缝
-      return Math.ceil(s * 102) / 100
-    },
-    /** 大圆的 CSS 变量（--launch-scale 由 .ring-launch 规则消费） */
-    ringVars() {
-      return { '--launch-scale': String(this.launchScale) }
     },
     /** 任务卡还有没列出来的 */
     hasMoreTask() {
@@ -2681,7 +2667,10 @@ export default {
     quickStart() {
       if (this.launchRing) return   // 转场播放中不重复触发（连点只会跳一次）
       this.launchRing = true
-      // 260ms 与 CSS 里 .ring-launch 的 transition 时长对齐（改一处要改两处）
+      // 170ms = CSS 里 hc-ring-rise 爬到 coverScale 的时长（改一处要改两处）。
+      // ⚠️ 2026-10-30 第四轮从 260ms 压到 170ms：圆在 4.5 倍时边界已全在屏外，
+      //    再继续放大屏幕上零变化 —— 录屏逐帧差分实测 260ms 那条要白等 234ms
+      //    完全静止的画面（"衔接处不够丝滑"的主因之一）。现在盖满即走。
       setTimeout(() => {
         uni.navigateTo({
           url: this.focusUrl(true),
@@ -2697,7 +2686,7 @@ export default {
           // 首屏其余内容 opacity 0，不复位就永久停在"一整块粉色"上。
           fail: () => { this.launchRing = false }
         })
-      }, 260)
+      }, 170)
     },
     /**
      * 点出的接力段（2026-10-29 新增）：专注页的圆放大盖屏后 navigateBack(none)，
@@ -3824,10 +3813,10 @@ export default {
   /* 两层圈：外扩散一圈极淡的红（box-shadow 不占布局），里面直接放字 */
   box-shadow: 0 0 0 22rpx rgba(228, 23, 61, 0.045);
   box-shadow: 0 0 0 22rpx rgba(var(--brand-rgb, 228, 23, 61), 0.045);
-  /* ★ 点圆进专注页的转场要把它放大到盖满全屏：不提前提合成层的话，
-     App 端 WebView 每帧都在重绘（含那条 box-shadow），低端机上放大动画
-     本身就掉帧 —— will-change 让缩放整个走 GPU，只动纹理不重绘。 */
-  will-change: transform;
+  /* ★ 不要常驻 will-change（2026-10-29 真机实锤，与 focus.vue .ring 同一病根）：
+     常驻合成层在页面切换时纹理会冻结在旧状态 —— 新页面都上屏了，这层还顶着
+     几百毫秒前的放大旧纹理，定格到下次强制合成才跳回，感知就是"卡一下"。
+     hc-ring-rise 播放时浏览器自会临时提层，不需要提前声明。 */
 }
 /* 按压：整圆缩一丁点（无边框区域不能整片变淡，会像"褪色"） */
 .tp-block.focus-card:active .hc-ring { transform: scale(0.965); }
@@ -3862,8 +3851,8 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 /* ★ 点大圆 → 专注页的共享元素转场（2026-10-25 用户拍板"两个圆之间要有动画、
-   并且要对齐"）：圆先放大到盖满整屏（倍数由 launchScale 实测，不写死 ——
-   480rpx 只等于屏宽 64%，写死 750/480 盖不满屏高，中间态会露一圈底色），
+   并且要对齐"）：圆先放大到盖满整屏（倍数写死 4.5 —— 实测过按屏高算变量，
+   但 keyframes 里的 var() 会被华为 WebView 整条丢弃，写死才跑得动）；
    首屏其余内容同时淡出；260ms 后 navigateTo，专注页的圆从同一放大态缩回
    就位（focus.vue 的 .fr-intro）—— 两页之间是同一个视觉主体，不会跳变错位。
    ⚠️ 下面两条必须排在 .tp-block.focus-card:active .hc-ring（scale(0.965)）
@@ -3877,9 +3866,34 @@ export default {
   opacity: 0;
   transition: opacity 160ms ease;
 }
+/* ★ 顶栏 / 底部悬浮栏也要跟着转场让位（2026-10-30 用户反馈）：
+   它们是 fixed + z-index 400/500，会一直亮到换页那一帧凭空消失 ——
+   观感就是"只有中间的圆在动，其它凭空闪现/闪没"。点圆时与内容一起淡出，
+   回来时跟着圆落位淡入（hc-fade-in 与圆外内容同一个节拍）。 */
+.page-nav.ring-launch .fnb-wrap,
+.page-nav.ring-launch .ftb-wrap {
+  opacity: 0;
+  pointer-events: none;   /* 透明度 0 时也别让人觉得"点得到" */
+  transition: opacity 160ms ease;
+}
+.page-nav.ring-return .fnb-wrap,
+.page-nav.ring-return .ftb-wrap {
+  animation: hc-fade-in 200ms ease 140ms both;
+}
 .tp-block.focus-card .hc-ring.ring-launch {
-  transform: scale(var(--launch-scale, 1.6));
-  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* ★ 2026-10-30 第四轮：去掉"长尾放大"，把 260ms 压到 170ms。
+     原来 26%（260ms）到 4.5 倍后还 linear 爬到 4.77 倍到 1000ms，理由是
+     "黑洞里画面仍在动"。**实测无效**：4.5 倍时圆的边界已经全在屏幕外
+     （圆心 591rpx、半径 1080rpx、屏高 1624rpx），再放大到 4.77 屏幕上一个
+     像素都不会变 —— 录屏逐帧差分量出来 4.104→4.338 整整 234ms 画面完全
+     不动，就是用户说的"衔接处不够丝滑"。
+     现在 170ms 一气到 4.5（盖满即走），navigateTo 也在 170ms 触发，
+     中间不留白等。倍数仍写死，理由见下。 */
+  animation: hc-ring-rise 170ms both;
+}
+@keyframes hc-ring-rise {
+  0%   { transform: scale(1); animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1); }
+  100% { transform: scale(4.5); }
 }
 /* 圈内文字先让位：**不留过渡**。原来给的是 140ms 淡出，可圆 260ms 就放大到
    3 倍多（缓动是 ease-out，前 140ms 已经走了大半）—— 那一百多毫秒里
@@ -3921,16 +3935,17 @@ export default {
    专注页那边已经把圆放大盖屏再 navigateBack，首页这颗圆此刻正停在 coverScale 上
    （点进那年留下的 ring-launch 一直没摘）；这里让它**自播放**缩回就位，圈内读数
    和首屏其余内容在落位那一下淡进来，于是点进/点出是同一条动画的正反两遍。
-   ⚠️ 三条规则都排在 .hc-ring-run 之后：`running`（正在专注）时 hc-breath 是
+   ⚠️ ring-return 规则排在 .hc-ring-run 之后：`running`（正在专注）时 hc-breath 是
       infinite，声明靠后就会压过缩放 —— 圆停在 1 倍不动，收缩动画当场没了。
+      （ring-launch 那条不需要这种保险：hc-ring-rise 的特异性 (0,4,0) 天生压过
+      .hc-ring-run 的 (0,1,0)，breath 抢不走。）
    ⚠️ 用 animation 不用 transition：class 一挂就开跑，不依赖"同一帧加又摘"的时序
       （那套竞速在 App 端被证明靠不住，见 focus.vue fr-ring-drop 的注释）。 */
-.tp-block.focus-card .hc-ring.ring-launch { animation: none; }
 .tp-block.focus-card .hc-ring.ring-return {
   animation: hc-ring-land 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 @keyframes hc-ring-land {
-  from { transform: scale(var(--launch-scale, 1.6)); }
+  from { transform: scale(6); }
   to   { transform: scale(1); }
 }
 .tp-block.focus-card .hc-ring.ring-return .hc-ring-num,
@@ -4101,8 +4116,12 @@ export default {
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.82);
   -webkit-backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
   backdrop-filter: var(--glass-lg, blur(12px) saturate(180%));
-  box-shadow: 0 -8rpx 32rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.16);
-  border-top: 2rpx solid rgba(255, 255, 255, 0.55);
+  /* ★ 1.4.1：之前只有顶部一道弱投影 + 顶部发丝边，底板"浮在首页之上"的关系看不出来
+     （用户反馈：显示不出上下卡片和抽屉的层级关系）。改成**全周投影 + 全周发丝边**，
+     一眼就能看出这一摞是压在首页之上、被模糊背景托着的独立一层，而不是接排下去的卡。 */
+  box-shadow: 0 -12rpx 34rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.18),
+              0 16rpx 44rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.14);
+  border: 2rpx solid rgba(255, 255, 255, 0.62);
 }
 /* 极端情况：底部抽屉一张卡都没有（goal/schedule 被收纳且无 dock/coach），
    只剩一块空玻璃底板，看着很怪 —— 直接不画底板，留「编辑首页」入口即可。 */

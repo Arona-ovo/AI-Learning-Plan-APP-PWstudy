@@ -6,7 +6,12 @@
     },
     {
       "path": "pages/home/home",
-      "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom", "enablePullDownRefresh": true }
+      "style": {
+        "navigationBarTitleText": "专注",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true,
+        "app-plus": { "background": "#F6DFDC" }
+      }
     },
     {
       "path": "pages/goals/goals",
@@ -28,7 +33,11 @@
       "pages": [
         {
           "path": "pages/focus/focus",
-          "style": { "navigationBarTitleText": "专注", "navigationStyle": "custom" }
+          "style": {
+            "navigationBarTitleText": "专注",
+            "navigationStyle": "custom",
+            "app-plus": { "background": "#F6DFDC" }
+          }
         },
         {
           "path": "pages/wizard/wizard",

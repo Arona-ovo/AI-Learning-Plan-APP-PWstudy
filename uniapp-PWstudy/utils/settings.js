@@ -153,7 +153,7 @@ function defaults() {
     //   strict   严格模式：只在专注进行中生效，切到非学习 App 就提醒（默认关）
     //   fgservice 前台服务保活：计时期间常驻前台服务，息屏/后台进程不被杀（默认开；
     //             需自定义基座/云打包才生效，标准基座自动降级为常驻通知）
-    //   noise    专注白噪音音色：'' 关 | white | pink | brown | rain（默认关）
+    //   noise    专注白噪音音色：'' 关 | white | pink | brown | rain | beach | clock（默认关）
     focus: {
       notify: true,
       sound: true,
