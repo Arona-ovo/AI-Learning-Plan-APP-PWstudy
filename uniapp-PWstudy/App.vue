@@ -513,11 +513,16 @@ uni-toast .uni-sample-toast {
   backdrop-filter: none !important;
 }
 
-/* 无模糊 → 表面调实，保证可读性 */
+/* 无模糊 → 表面调实，保证可读性。
+   ⚠️ 顶栏 / 底栏胶囊（.fnb / .ftb）也得调实：它们常年压在滚动内容之上，
+   流畅模式把模糊关掉后若仍保持 0.8 半透明，滚动内容会从导航栏透出来（实锤 bug）。
+   !important 用来压过组件 scoped 里的 0.8 基础透明值。 */
 .perf-smooth .card,
 .perf-smooth .glass,
-.perf-smooth .pop-card {
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.94);
+.perf-smooth .pop-card,
+.perf-smooth .fnb,
+.perf-smooth .ftb {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.96) !important;
   box-shadow: 0 6rpx 18rpx rgba(var(--shadow-rgb, 23, 32, 26), 0.07);
 }
 
