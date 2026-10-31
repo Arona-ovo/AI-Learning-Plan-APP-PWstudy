@@ -45,3 +45,16 @@ _tools/_scratch/_img/*.png
 _tools/_scratch/frames/
 # 云打包产物（APK 十几 MB，不进仓库）
 release/
+
+# ---- 探针目录：截帧对照 / 候选音频试听 / 单次性能测量 ----
+# 一次排查就产生上千个 png（tabbar-probe 那轮 2154 个），全是看一眼就废的中间物。
+# 只忽略**目录**和**下划线开头**的临时文件 —— _scratch 里正经的 run-all.js / neg-*.js
+# 已入库，gitignore 对已跟踪文件无效，不会被这条规则误伤。
+_tools/_scratch/*-probe/
+_tools/_scratch/_*
+_tools/_scratch/profile_*.py
+_tools/_scratch/manifest_backup.json
+
+# ---- Python 字节码缓存（_tools/*.py 跑一次就生成）----
+__pycache__/
+*.pyc
