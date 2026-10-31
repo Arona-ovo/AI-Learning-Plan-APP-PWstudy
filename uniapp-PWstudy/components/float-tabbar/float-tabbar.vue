@@ -2,7 +2,7 @@
   <view class="ftb-wrap">
     <view class="ftb">
       <!-- 选中指示：整格平移（transform，不触发重排），内层胶囊留出与 item 相同的左右间距 -->
-      <view class="ftb-ind" :class="{ 'no-anim': !indAnim }" :style="{ transform: 'translateX(' + indX + '%)' }">
+      <view class="ftb-ind" :style="{ transform: 'translateX(' + indX + '%)' }">
         <view class="ftb-ind-pill"></view>
       </view>
 
@@ -48,58 +48,62 @@
 <script>
 // 悬浮磨砂玻璃 tabBar（页面内显式注册，不依赖 easycom）
 // 用法：在每个 tab 页根节点末尾放 <float-tabbar ref="tabbar" current="home" />，
-//      页面 onShow 里再调一次 this.$refs.tabbar.sync()，指示胶囊会从"上一个 tab"滑过来。
+//      页面 onShow 里调 syncTabbar(this)（utils/nav.js）给实例一次对账机会。
 // 原生 tabBar 由 utils/nav.js 的 hideNativeTabBar() 隐藏（App 端）。
 //
-// tab 页在 uni-app 里是常驻的（switchTab 不销毁页面），所以有两个坑：
-//  ① 每个页面各有一个本组件实例，实例里记的"当前位置"在切回来时是**上一个停留的 tab**
-//     而不是"本页面自己的位置"——起点必须统一取模块级 lastIndex，否则第二次进入
-//     会变成"位置本来就在目标上"，动画直接消失（看起来就是没反馈）。
-//  ② 同理 pending（点击时的即时高亮）会残留在缓存的实例里。页面可见的这一刻，
-//     本实例的 pending 一定是过期的 —— sync() 里无条件清掉（下面的 sync 有详细推导），
-//     否则就是真机截图那种"指示胶囊在目标、红色选中态却在我的"的分裂。
+// ★ 选中态只有唯一数据源：页面写死的 current prop（2026-10-31 重构）
+//
+// 真机录屏实锤过的旧病：红色选中态和淡红胶囊经常"不同步"——切页瞬间出现
+// "胶囊在 A、红色挂在 B"，然后红色才跳过来，看着就像"框先动、红后跟"。
+// 根因链（scrcpy 60fps 逐帧取证）：
+//  ① tab 页在 App 端是常驻 webview，每页各有一个本组件实例，实例状态（当时的
+//     pending 即时高亮 / indIndex 胶囊位置）在页面不可见期间冻结；
+//  ② 切回页面时首帧先用缓存脏状态上屏：红色 = 上次点击残留的 pending，
+//     胶囊 = 上次离开时的位置 —— 两个值来自不同历史时刻，天然互相对不上；
+//  ③ onShow 里的 sync() 纠偏落在首帧之后（App 端渲染先行、上屏在后），
+//     于是红色"跳一下"、胶囊再动 —— 用户看到的就是不同步。
+// 修法不是把 sync 提前（赶不赢首帧渲染管线），而是**让脏状态无处生存**：
+//  - 删掉 pending：App 端点击后一两帧页面就被切走，"即时高亮"用户根本看不到，
+//    真正的即时反馈是 hover 按压态 + 触感震动（都已有）。红色选中态只读 current。
+//  - 胶囊位置也只由 current 派生（computed），不再存实例 data、不再有
+//    "从上一个 tab 滑过来"的跨页动画 —— App 端每个页面是独立 webview，
+//    模块级 lastIndex 各存一份，那个滑动动画在主战场从来就没真正生效过。
+//  - 于是页面可见 ⇒ current 正确 ⇒ 红色和胶囊永远指向同一个 tab，
+//    分裂从数据层面不可能发生。
+// sync() 只剩一个职责：页面可见 ⇒ 清掉本实例残留的连点锁（不清的话，
+// 快速切回后第一次点 tab 会被锁吞掉，"点了没反应"）。
 
 import { TABS, tabIndex, markSwitch, tabText } from '../../utils/tab-slide.js';
 // 触感反馈：点 tab 震一下（跟着设置 › 触感反馈的总开关走，utils/haptic.js）
 import * as haptic from '../../utils/haptic.js';
 
-// 模块级：记住上一次停留的 tab 下标，实现跨页面的连续滑动
-let lastIndex = -1;
-
 export default {
   name: 'FloatTabbar',
   props: {
-    // 当前 tab key：home / library / review / profile
+    // 当前 tab key：home / goals / stats / profile（每个页面写死自己的）
     current: { type: String, default: '' }
   },
   data() {
     return {
-      indIndex: -1,
-      // 起点跳转时临时关掉过渡，否则会先朝反方向滑一下再滑回来（"指示器错位"）
-      indAnim: true,
-      // 点击后立刻生效的"待切换"key：导航完成前先把高亮反馈给手指
-      pending: '',
       tabs: TABS
     };
   },
   computed: {
-    // 页面传进来的 current 要等新页面挂载后才正确；pending 让点击瞬间就有高亮
+    // 选中态唯一来源：current prop。不许引入任何"点击即时高亮"之类的
+    // 第二来源 —— 那正是红与胶囊分裂的根因（见文件头注释）。
     activeKey() {
-      return this.pending || this.current;
+      return this.current;
     },
     curIndex() {
       return tabIndex(this.current);
     },
+    // 胶囊整格平移：25% 宽一格，translateX 一个格宽 = 100%
     indX() {
-      return (this.indIndex < 0 ? 0 : this.indIndex) * 100;
+      const i = this.curIndex;
+      return (i < 0 ? 0 : i) * 100;
     }
   },
   created() {
-    // 初始位置直接取"上一次停留的 tab"，避免第一帧闪一下到别处
-    this.indIndex = lastIndex >= 0 ? lastIndex : -1;
-    // -1 表示"当前没有滑动"；不能用 0，会和首页下标撞上
-    this.__sliding = -1;
-    this.__timer = 0;
     this.__navLock = false;   // 连点保护，同时标记"导航在途"
     this.__navLockT = 0;      // 连点锁的定时器 id（sync 提前解锁时要用）
   },
@@ -110,7 +114,6 @@ export default {
     // #endif
   },
   beforeUnmount() {
-    if (this.__timer) { clearTimeout(this.__timer); this.__timer = 0; }
     if (this.__navLockT) { clearTimeout(this.__navLockT); this.__navLockT = 0; }
   },
   methods: {
@@ -119,85 +122,38 @@ export default {
       void this.__lang;
       return tabText(t && t.key);
     },
-    // 从"上一个 tab"连续滑到当前 tab；冷启动（没有上一个）直接就位、不播动画。
-    //
-    // 关键：这个方法会被调用两次（组件 mounted 一次 + 页面 onShow 一次）。
-    // 旧实现第二次调用会把 indIndex 直接置成目标位置，把正在跑的滑动"掐断"，
-    // 表现为"有时候滑、有时候直接跳"。这里用 __sliding 记住"正在滑向哪里"，
-    // 重复的 sync 直接返回，动画就能稳定播完。
+    // 页面 onShow 时由 syncTabbar(this) 调一次。现在没有滑动状态机要伺候，
+    // 只剩一件事：页面可见 ⇒ 本实例的连点锁必是残留（锁的合法生命期是
+    // "点下 → 导航落地"，只活在被离开的那个页面实例上），无条件清。
+    // 不清的话：快速切回（onShow 落在 350ms 锁窗口内）后第一次点 tab 被吞。
     sync() {
-      const target = this.curIndex < 0 ? 0 : this.curIndex;
-      // ★ 页面可见 ⇒ 本实例的 pending / navLock 一定是过期的，无条件清。
-      //   为什么不再看 navLock 的脸色（旧实现"锁着就先不清"）：pending 的合法生命期
-      //   是"点下 → 导航落地"，它活在**被离开**的那个页面实例上；sync() 只会在
-      //   mounted / onShow 里被调，而这两刻页面必然可见 —— 挂在本实例上的 pending
-      //   只能是残留。快速切回（onShow 落在 350ms 锁窗口内）旧判断就漏了：
-      //   胶囊停在 A、红色选中态挂在 B（真机截图实锤），而且再点 B 会被
-      //   go() 的"点当前 tab"拦掉 —— 点了没反应。过期的锁一并解除，理由相同。
-      this.pending = '';
       this.__navLock = false;
       if (this.__navLockT) { clearTimeout(this.__navLockT); this.__navLockT = 0; }
-      if (this.__sliding === target) return;          // 已经在滑向这个位置，别打断
-
-      // 起点统一用模块级 lastIndex：tab 页常驻，实例自己的 indIndex 不可信
-      const from = lastIndex >= 0 ? lastIndex : target;
-      if (from !== target) {
-        if (this.__timer) { clearTimeout(this.__timer); this.__timer = 0; }
-        // ① 无过渡地落到起点 ② 下一帧再开过渡滑到目标
-        this.indAnim = false;
-        this.indIndex = from;
-        this.__sliding = target;
-        this.__timer = setTimeout(() => {
-          this.__timer = 0;
-          this.indAnim = true;
-          this.indIndex = target;
-          this.__sliding = -1;
-          lastIndex = target;
-        }, 20);
-        return;
-      }
-      this.indAnim = true;
-      this.indIndex = target;
-      this.__sliding = -1;
-      lastIndex = target;
     },
-    // 缓存实例里残留的 pending 由 sync() 无条件清理（见 sync 内注释）——
-    // "导航在途时保留"的判断已被真机截图证伪：sync 只在页面可见时被调，
-    // 那一刻任何 pending 都是残留。
     go(e) {
       const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.k : '';
       const t = this.tabs.find(x => x.key === key);
-      if (!t || t.key === this.activeKey) return;      // 点当前 tab：不重复导航、不重播动画
+      if (!t || t.key === this.current) return;        // 点当前 tab：不重复导航
       if (this.__navLock) return;                      // 连点保护
       this.__navLock = true;
-      // 记下定时器 id：切页很快落地时 sync() 会提前清它（见 sync 内注释），
+      // 记下定时器 id：切页很快落地时 sync() 会提前清它，
       // 不记 id 的话那把清不掉，得等 350ms 自己过期
       if (this.__navLockT) clearTimeout(this.__navLockT);
       this.__navLockT = setTimeout(() => { this.__navLock = false; this.__navLockT = 0; }, 350);
       // 震一下（tap 档，最轻）。⚠️ 必须在"点当前 tab / 连点"都拦掉之后 ——
       // 那两种情况不该有反馈。震不动也要把页切了，所以包 catch。
       try { haptic.tick('tap') } catch (err) { /* 忽略 */ }
-      // 手指离开前先把高亮切过去（导航由系统接管，可能要一两帧才切页面）
-      this.pending = t.key;
       // 记下方向，目标页据此决定从左还是从右滑入
       markSwitch(this.current, t.key);
       // ⚠️ switchTab 会**静默**失败：上一次路由还没落地（快速连点 / 手势快滑切页
-      //    刚松手又点）时，uni 直接拒绝本次跳转。不接 fail 的话 pending 就挂在
-      //    本页实例上 —— 指示胶囊停在原地、红色选中态却到了别的 tab（真机截图
-      //    实锤），而且再点那个 tab 会被上面的"点当前 tab"拦掉：点了没反应。
-      //    歇一拍重试一次（同 nav.js safeNav 的 locked 思路；350ms 在 markSwitch
-      //    的 1500ms 方向 TTL 之内，重试落地动画照播）；再失败才把即时高亮退回去。
-      const self = this;
+      //    刚松手又点）时，uni 直接拒绝本次跳转且不抛错。歇一拍重试一次
+      //    （同 nav.js safeNav 的 locked 思路；350ms 在 markSwitch 的 1500ms
+      //    方向 TTL 之内，重试落地动画照播）。两次都被拒就只能让用户再点一下
+      //    —— 连点锁 350ms 自行过期，之后点击照常。
+      const retry = () => { uni.switchTab({ url: t.path }); };
       uni.switchTab({
         url: t.path,
-        fail: () => {
-          setTimeout(() => {
-            uni.switchTab({
-              url: t.path,
-              fail: () => { self.pending = ''; }
-            });
-          }, 350);
-        }
+        fail: () => { setTimeout(retry, 350); }
       });
     },
     // 供新手引导测量组件内元素（视口坐标）；拿不到给 null。
@@ -275,7 +231,9 @@ export default {
 }
 
 /* 选中指示：整格平移。宽度固定 25%，与 flex:1 + margin:6rpx 的 item 完全对齐；
-   用 transform 而不是 left，避免每帧重排（滑动更顺、不卡）。 */
+   用 transform 而不是 left，避免每帧重排（滑动更顺、不卡）。
+   位置由 current prop 派生（computed indX）—— transition 留着：
+   若未来某页把 current 改成动态值，胶囊仍会平滑跟过去。 */
 .ftb-ind {
   position: absolute;
   top: 0;
@@ -283,15 +241,8 @@ export default {
   left: 0;
   width: 25%;
   z-index: 0;
-  /* 跟手优先：220ms + 起步就快的曲线。再短会失去"连续滑动"的过渡感，
-     再长就会觉得点了之后还要等一下才到位。 */
   transition: transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
-}
-
-/* 跳到起点时关掉过渡（否则会先朝反方向滑一下） */
-.ftb-ind.no-anim {
-  transition: none !important;
 }
 
 .ftb-ind-pill {
@@ -319,7 +270,8 @@ export default {
   transition: transform 120ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 120ms ease;
 }
 
-/* 按下反馈：轻微、快速回弹，避免"按下去半天才弹回来"的黏滞感 */
+/* 按下反馈：轻微、快速回弹，避免"按下去半天才弹回来"的黏滞感。
+   点击后的即时反馈全靠它 + 触感震动 —— 不要再造"即时高亮"第二选中态。 */
 .ftb-item-press {
   transform: scale(0.94);
   opacity: 0.7;

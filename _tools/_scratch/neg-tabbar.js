@@ -37,20 +37,26 @@ function runCheck() {
 }
 
 const cases = [
-  // 2026-10-26 真机截图：胶囊停在目标、红色选中态挂在"我的"。
-  // 旧实现"navLock 期间保留 pending"就是漏洞本体 —— 恢复它必须红。
-  ['sync 恢复旧判断（连点锁期间保留残留 pending）', s => s.replace(
-    '      this.pending = \'\';\n      this.__navLock = false;',
-    '      if (this.pending && !this.__navLock) this.pending = \'\';')],
-  ['sync 不解除过期的连点锁（回来后第一次点 tab 被吞）', s => s.replace(
-    '      this.pending = \'\';\n      this.__navLock = false;',
-    '      this.pending = \'\';')],
-  ['switchTab 不接 fail（路由锁拒绝后 pending 残留 → 选中态分裂 + 点了没反应）', s => s.replace(
-    '        fail: () => {\n          setTimeout(() => {\n            uni.switchTab({\n              url: t.path,\n              fail: () => { self.pending = \'\'; }\n            });\n          }, 350);\n        }',
+  // 2026-10-31 scrcpy 逐帧取证：首帧脏状态 = 红与胶囊分裂的本体。
+  // activeKey 恢复"pending 优先"就是把首帧脏状态请回来 —— 必须红。
+  ['activeKey 恢复 pending 优先（首帧脏状态回来 → 红与胶囊分裂）', s => s.replace(
+    '      return this.current;',
+    '      return this.pending || this.current;')],
+  ['胶囊位置不再由 current 派生（写死归 0，永远停第一格）', s => s.replace(
+    '      const i = this.curIndex;\n      return (i < 0 ? 0 : i) * 100;',
+    '      return 0;')],
+  ['sync 不清残留连点锁（快速切回后第一次点 tab 被吞）', s => s.replace(
+    '      this.__navLock = false;\n      if (this.__navLockT)',
+    '      if (this.__navLockT)')],
+  ['switchTab 不接 fail（路由锁静默拒绝 → 点击被吞，点了没反应）', s => s.replace(
+    '        fail: () => { setTimeout(retry, 350); }',
     '')],
-  ['重试再失败不退回即时高亮（红色选中态挂在别人身上）', s => s.replace(
-    'fail: () => { self.pending = \'\'; }',
-    'fail: () => {}')]
+  ['连点锁被移除（350ms 内连点会连续触发 switchTab）', s => s.replace(
+    'if (this.__navLock) return;',
+    '')],
+  ['实例缓存状态机回潮（this.indIndex 回来 = 首帧脏状态回来）', s => s.replace(
+    'this.__navLock = false;   //',
+    'this.indIndex = 0; this.__navLock = false;   //')]
 ];
 
 // 源码是 CRLF：LF 锚点先按 LF 试，命中后按 CRLF 还原（只动行尾，不改内容）

@@ -76,7 +76,8 @@ assert(/import \* as haptic from '\.\.\/\.\.\/utils\/haptic\.js'/.test(ftb),
   const body = i > 0 ? ftb.slice(i, ftb.indexOf('\n    },', i)) : '';
   assert(body !== '' && /haptic\.tick\('tap'\)/.test(body), '点底栏震一下（tap 档）');
   // 位置：必须在"点当前 tab 直接 return"和连点保护之后 —— 那两种情况不该有反馈
-  const iRet = body.indexOf('t.key === this.activeKey) return');
+  // （2026-10-31 重构后 activeKey 就是 current 本身，锚点跟着改文本不改语义）
+  const iRet = body.indexOf('t.key === this.current) return');
   const iLock = body.indexOf('this.__navLock = true');
   const iTick = body.indexOf("haptic.tick('tap')");
   assert(iRet >= 0 && iTick > iRet, '震动在"点当前 tab 已拦掉"之后（点当前页不该震）');
