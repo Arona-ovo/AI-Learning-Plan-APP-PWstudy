@@ -203,6 +203,18 @@ else bad('首页 onBackPress 判据与专注页不一致 —— 会出现"换个
 if (/pw\.recordPomo\(session\)[\s\S]{0,700}pw\.flush\(\)/.test(fjs)) ok('专注落账后立刻 flush（不等节流，进程被杀也不丢这一笔）');
 else bad('结算路径没有 flush —— 刚跑完的专注可能在 800ms 窗口里整个丢掉');
 
+// 6.4d 服务被系统回收后要能自己站起来（2026-11-01 真机实锤的 P0）
+//   系统按 START_STICKY 重建前台服务时，onStartCommand 的 intent 是 **null**。
+//   签名写成非空 `intent: Intent` 时，生成的 Kotlin 会在方法入口做非空检查 → NPE
+//   → 服务崩 → 重启几次后放弃 → 看门狗永久消失，而状态条还写着"已就绪"。
+if (/onStartCommand\s*\(\s*intent\s*:\s*Intent\s*\|\s*null/.test(uts)) ok('onStartCommand 的 intent 可空（START_STICKY 重建时传的就是 null）');
+else bad('onStartCommand 的 intent 不是可空 —— 服务重建必 NPE，看门狗会永久消失');
+if (/START_STICKY/.test(uts) && /return 1;/.test(uts)) ok('onStartCommand 显式返回 START_STICKY（不靠 super 的默认值）');
+else bad('onStartCommand 没显式返回 START_STICKY —— 被系统回收后不会重建');
+// 光能重建不够：重建出来的是**新实例**，配置得从 SP 里捞回来
+if (/persistWatch\(\)/.test(uts) && /restoreWatch\(\)/.test(uts) && /WATCH_SP/.test(uts)) ok('看门狗配置落盘并在重建时恢复（否则只是"服务活着、看门狗没开"）');
+else bad('看门狗配置没落盘 —— 服务重建后 watchOn 归零，强制模式静默失效');
+
 // 6.5 到点自动收手：JS 在后台可能被冻结，"靠 JS 通知停手"不可靠
 if (/untilSec/.test(uts) && /watchUntilSec/.test(uts)) ok('看门狗自带 untilSec 到点收手（JS 被冻结也不会拉过头）');
 else bad('看门狗没有到点自动收手 —— 专注结束后会一直把人拽回来');
@@ -590,10 +602,16 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   // 12.8 设置开关 + UI：home.vue 有灵动岛开关与引导
   if (/tapCapsule/.test(homeVue) && /capsuleOn/.test(homeVue) && /openCapsulePerm/.test(homeVue)) ok('home.vue 有灵动岛开关 tapCapsule + 引导 openCapsulePerm');
   else bad('home.vue 缺少灵动岛开关/引导');
-  // 12.9 设置默认值：未开胶囊不影响现有行为
+  // 12.9 设置默认值：2026-11-01 起胶囊**默认开**
+  //   用户真机反馈"切到别的 App 后一点提示都没有，只能下拉通知栏点回来" ——
+  //   零打扰的代价是功能看起来不存在，而这个胶囊就是"离开也看得见专注"的唯一解。
   const setSrc = read(path.join(ROOT, 'utils', 'settings.js'));
-  if (/capsule:\s*false/.test(setSrc)) ok('settings.focus.capsule 默认 false（新功能默认关，零打扰）');
-  else bad('settings.focus.capsule 没给默认 false —— 新功能可能默认开启');
+  if (/capsule:\s*true/.test(setSrc)) ok('settings.focus.capsule 默认 true（离开 App 就有胶囊可点回）');
+  else bad('settings.focus.capsule 又改回默认 false 了？离开 App 后屏幕上会一点提示都没有');
+  // 12.10 强制模式必须无视胶囊开关（老用户 storage 里存着 false 不能让功能消失）
+  const focusSrc = read(path.join(ROOT, 'utils', 'focus.js'));
+  if (/\(!!c\.capsule\s*\|\|\s*!!c\.forced\)/.test(focusSrc)) ok('syncCapsule 在强制模式下无视胶囊开关');
+  else bad('syncCapsule 只看 capsule 开关 —— 老用户存了 false 就再也不会看到胶囊');
 }
 
 console.log('== 13. index.uts 导出必须全部声明进 interface.uts（否则 fgsvc 静默降级） ==');

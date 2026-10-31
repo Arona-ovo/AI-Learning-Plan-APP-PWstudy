@@ -254,6 +254,22 @@ let pullGateOpen = true;
 const A11Y_BIND_WINDOW_SEC: Int = 60;   // 统计窗口（秒）
 const A11Y_BIND_MAX: Int = 2;           // 窗口内最多容忍几次 bind（第 3 次跳闸）
 const A11Y_SP = 'pw_a11y';
+/* 看门狗配置的落盘文件（2026-11-01 新增）。
+ * 为什么必须落盘：`watchOn / allowCsv / watchUntilSec` 只在内存字段里，服务被系统
+ * 回收后重建（START_STICKY）拿到的是**全新实例**，字段全是默认值 —— 于是"服务活着
+ * 但看门狗没开"，强制模式静默失效。JS 侧的对账（pushConfig）在 App 后台时跑不到，
+ * 指望它自愈等于没有。 */
+const WATCH_SP = 'pw_watch';
+
+function watchSp(): SharedPreferences | null {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return null;
+  try {
+    return ctx!.getSharedPreferences(WATCH_SP, 0);   // 0 = MODE_PRIVATE
+  } catch (e) {
+    return null;
+  }
+}
 
 let a11yTripped = false;    // 是否已跳闸（进程内镜像，落盘为准）
 // ⚠️ 这两个必须显式 : Int —— 裸 `let x = 0` 会被 UTS 推成 **Number**，
@@ -339,19 +355,81 @@ class PWFocusService extends Service {
     super.onCreate();
     // 护卫要靠这个引用跑"同一套"判定；服务销毁时清掉（否则拿着死对象做判定）
     svcRef = this;
+    // 系统按 START_STICKY 把我们重建出来时，onStartCommand 拿到的 intent 是 null，
+    // 配置只可能在 SP 里 —— 不恢复的话就是"服务活着、看门狗没开"。
+    this.restoreWatch();
+  }
+
+  /** 从 SP 恢复看门狗（只在服务重建时有用；用户主动结束后 on 已经是 0，不会误复活） */
+  private restoreWatch(): void {
+    try {
+      let p = watchSp();
+      if (p == null) return;
+      let on: Int = p!.getInt('on', 0);
+      let until: Int = p!.getInt('until', 0);
+      let allow = p!.getString('allow', '');
+      let t = p!.getString('title', '');
+      let x = p!.getString('text', '');
+      if (t != null && t!.length > 0) lastTitle = t!;
+      if (x != null && x!.length > 0) lastText = x!;
+      if (on != 1) return;
+      let left = until - nowSec();
+      // 过点了就别再自己续命 —— 专注早就结束了，拉人是骚扰
+      if (left < 1) return;
+      let allowCsv = allow == null ? '' : allow!;
+      if (allowCsv.length == 0) return;
+      this.setWatch(true, allowCsv, left);
+    } catch (e) {}
+  }
+
+  /** 配置落盘（服务重建 / 进程重启后靠它恢复，见 restoreWatch） */
+  private persistWatch(): void {
+    try {
+      let p = watchSp();
+      if (p == null) return;
+      let on: Int = this.watchOn ? 1 : 0;
+      p!.edit()
+        .putInt('on', on)
+        .putInt('until', this.watchUntilSec)
+        .putString('allow', this.allowCsv)
+        .putString('title', lastTitle)
+        .putString('text', lastText)
+        .apply();
+    } catch (e) {}
   }
 
   override onBind(_intent?: Intent): IBinder | null {
     return null;
   }
 
-  override onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-    // ① 文案：只有带了 title 的 Intent 才更新 —— setWatch 只送配置，不能把倒计时冲成默认文案
-    if (intent.hasExtra('title')) {
-      let t = intent.getStringExtra('title');
-      let x = intent.getStringExtra('text');
-      if (t != null) lastTitle = t;
-      if (x != null) lastText = x;
+  /**
+   * ⚠️⚠️ intent **必须可空**（2026-11-01 真机实锤的 P0）⚠️⚠️
+   *
+   * 签名原来是非空 `intent: Intent`，末尾 `return super.onStartCommand(...)`
+   * 拿到的是 **START_STICKY**。系统在内存紧张时回收前台服务，随后按 START_STICKY
+   * 重建它 —— 重建时传进来的 `intent` 就是 **null**。
+   * 而 UTS 生成的 Kotlin 会在方法入口做非空参数检查 → 当场 NPE → 服务崩
+   * → 系统重试几次后放弃。**看门狗从此永久消失，界面上还写着"已就绪"。**
+   *
+   * 用户录屏（2026-10-31 22:42）里的表现正是这个：切到别的 App 两三秒毫无反应，
+   * 最后是自己下拉通知栏点回来的；而通知栏里那条「强制模式 · 先把这段专注跑完」
+   * 是 JS 兜底发的 —— 它只在 `!nativeActive()` 时才发，等于反证原生看门狗已经没了。
+   *
+   * 所以这里三件事一起做：
+   *   ① intent 改可空，所有 extra 读取都在空判里；
+   *   ② 显式返回 START_STICKY（1），不要再靠 super 的默认值（签名一改就说不清了）；
+   *   ③ 重建时配置从 SharedPreferences 恢复（见 onCreate 的 restoreWatch）。
+   */
+  override onStartCommand(intent: Intent | null, flags: Int, startId: Int): Int {
+    let it = intent;
+    if (it != null) {
+      // ① 文案：只有带了 title 的 Intent 才更新 —— setWatch 只送配置，不能把倒计时冲成默认文案
+      if (it!.hasExtra('title')) {
+        let t = it!.getStringExtra('title');
+        let x = it!.getStringExtra('text');
+        if (t != null) lastTitle = t!;
+        if (x != null) lastText = x!;
+      }
     }
     let notification = buildNotification(this, lastTitle, lastText);
     // Android 14+ 起 startForeground 可以带类型参数。
@@ -376,13 +454,14 @@ class PWFocusService extends Service {
       }
     }
     // ② 看门狗配置：watch / allow / untilSec 三个 extra 一起来
-    if (intent.hasExtra('watch')) {
-      let on = intent.getIntExtra('watch', 0) == 1;
-      let allow = intent.getStringExtra('allow');
-      let untilSec = intent.getIntExtra('untilSec', 0);
+    if (it != null && it!.hasExtra('watch')) {
+      let on = it!.getIntExtra('watch', 0) == 1;
+      let allow = it!.getStringExtra('allow');
+      let untilSec = it!.getIntExtra('untilSec', 0);
       this.setWatch(on, allow == null ? '' : allow!, untilSec);
     }
-    return super.onStartCommand(intent, flags, startId);
+    // ③ START_STICKY：被杀之后请把我重建起来（重建时 intent 为 null，靠 SP 恢复配置）
+    return 1;
   }
 
   @UTSAndroid.Suppress("DEPRECATION")
@@ -478,6 +557,8 @@ class PWFocusService extends Service {
       postOverlay(false);
       cancelPullNotify(UTSAndroid.getAppContext());
     }
+    // 落盘（含 on=0 这种"用户已收手"的状态 —— 重建时看到 0 就不会瞎复活）
+    this.persistWatch();
   }
 
   private startLoop(): void {
@@ -574,6 +655,9 @@ class PWFocusService extends Service {
       // 回到合规状态：这一次逃逸结束，撤遮罩撤通知，下次离开重新计数
       this.escTicks = 0;
       this.pullTries = 0;
+      // 回到合规（含"跑到了学习 App"）→ 胶囊恢复可见：这时它是唯一的
+      // "你还在专注、还剩多久、点我回去"的入口，藏起来用户就只能下拉通知栏
+      setCapsuleShown(true);
       if (this.inEpisode) {
         this.inEpisode = false;
         postOverlay(false);
@@ -602,6 +686,10 @@ class PWFocusService extends Service {
     if (firstSeen) {
       this.inEpisode = true;
       watchEscapeCount = watchEscapeCount + 1;
+      // 强制模式已经认定"这不是学习 App"→ 把胶囊藏了：这一拍就要拉回 / 盖拦截页，
+      // 胶囊留在最上层只会露一下就被盖住，观感更乱。
+      // （非强制模式时 seen() 根本不会被调，胶囊照常显示 —— 这就是"两种情况"的分界）
+      setCapsuleShown(false);
     } else {
       // 同一段逃逸里的重复拉才需要节流：毫秒级闸门（1800ms）+ 秒级兜底
       if (!pullGateOpen) return true;
@@ -938,6 +1026,10 @@ function applyCapsule(ctx: Context | null) {
       lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
       wm.addView(v, lp)
       capsuleView = v
+      // 新建时按当前判定给初始可见性：挂上它的那一刻往往正是"刚从本 App 逃出去"，
+      // 强制模式下如果已经判定跑偏，就该直接藏起来（马上要被拦截页盖住）。
+      let s = svcRef
+      setCapsuleShown(s == null ? true : !s.inEpisode)
       // 启动原生自转：App 后台时 WebView 不跑 tick，倒计时由这里数（endAt=0 时也不更新，只等停止）
       mainHandler!.postDelayed(new CapsuleTickTask(), 1000)
     } catch (e) {
@@ -954,6 +1046,21 @@ function applyCapsule(ctx: Context | null) {
     // 只刷新文案（胶囊常驻，倒计时每秒变）
     try { capsuleView!.setText(capsuleText) } catch (e) {}
   }
+}
+
+/**
+ * 强制模式下"已判定跑偏"时把胶囊藏起来。
+ *
+ * 为什么藏而不是撤：马上要盖拦截页 / 遮罩，胶囊留在最上层只会闪一下；
+ * 但"胶囊该不该挂"这件事归 JS 管（capsuleShown 是 JS 的状态），原生只负责
+ * **人眼这一层**。两边各记一份必然分叉，分叉的表现就是"回到学习 App 后胶囊没了"。
+ * 所以这里只改 visibility，不动 capsuleView / capsuleWanted。
+ */
+function setCapsuleShown(v: boolean) {
+  let c = capsuleView;
+  if (c == null) return;
+  // 0 = View.VISIBLE，8 = View.GONE（字面量：View 常量在 UTS 里没导出）
+  try { c!.setVisibility(v ? 0 : 8) } catch (e) {}
 }
 
 function postCapsule(want: boolean, text: string, endAt: number, label: string) {

@@ -278,3 +278,86 @@ aapt2 dump resources <your.apk> | grep -i pw_accessibility   # res/xml 打进去
 - 无障碍服务被系统回收后没有"重新拉起"的手段（只能靠系统在下次窗口变化时重 bind）。
 - 「使用情况访问」这条路仍有分钟级聚合误差，只能当无障碍的退路。
 - 保险丝跳闸后（这台机子起不来）只能退到"提醒"，不会硬拦 —— 这是刻意的安全让步。
+
+---
+
+## 七、看门狗掉线：服务重建必崩（2026-11-01，P0）
+
+> 用户录屏（2026-10-31 22:42，18.5 秒）：开始专注 → 切到 Descend 待 2.6 秒 →
+> 最近任务 → 下拉通知栏 → 自己点回专注页；再点「聚创专升本」，待 2.4 秒 →
+> 又下拉通知栏 → 再自己点回。全程**没有任何拦截、没有任何提示**。
+> 用户原话："退出应用后拦截还是太慢了"。
+
+### 先证伪：不是慢，是没人管
+
+录屏最后一帧的通知栏里有两条 PWstudy 通知：常驻的「专注中 · 剩 18:36」，
+以及一条「**强制模式 / 先把这段专注跑完，再去做别的**」（Just now）。
+
+第二条只在 `forced.js` 的 `warn()` 里发，而 `warn()` 只被 `detectJs()` 调用，
+`detectJs()` 的调用条件是 `if (!nativeActive())` —— **JS 兜底接管了**。
+也就是说那一刻原生看门狗已经不在跑。JS 兜底在 App 后台又被 WebView 挂起，
+于是"切走 → 什么都不发生"。用户感知到的"3~4 秒没反应"，其实是永远没反应。
+
+### 根因：START_STICKY 重建时 intent 是 null
+
+```ts
+// 旧签名（非空）
+override onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+  if (intent.hasExtra('title')) { ... }
+  ...
+  return super.onStartCommand(intent, flags, startId);   // ← 默认 START_STICKY
+}
+```
+
+前台服务被系统回收后，系统按 START_STICKY 重建它，`intent` 传的是 **null**。
+UTS 生成 `override fun onStartCommand(intent: Intent, ...)`，Kotlin 在方法入口
+就做非空参数检查 → **NPE → 服务崩** → 系统重试几次后放弃。
+看门狗从此永久消失，而状态条还写着"已就绪 · 离开立刻拉回"。
+
+### 三处修法
+
+| # | 改动 | 为什么 |
+|---|---|---|
+| 1 | `intent: Intent \| null`，所有 extra 读取进空判；`return 1` 显式 START_STICKY | 重建不再崩 |
+| 2 | `persistWatch()` 落 SP（`pw_watch`：on / until / allow / title / text），`onCreate` → `restoreWatch()` | 重建出来是新实例，字段全默认值 → "服务活着、看门狗没开"。JS 对账在后台跑不到，指望不上 |
+| 3 | `forceLine()` 增加 `!c.svc` 分支；`refreshForce()` 每秒问一次 `forced.alive()`（连续 5 秒才当真） | 界面不许把"死了"说成"已就绪" |
+
+`restoreWatch()` 的两个边界：`until - nowSec() < 1` 直接放弃（专注早过了，别拉人）；
+`on != 1` 直接放弃（用户主动结束 / 暂停时 `setWatch(false)` 已经把 on 写成 0）。
+
+⚠️ 已知前提：`stopSelf` 之后系统不会重建；MIUI / ColorOS 划卡片走 force-stop，
+任何自启动都会被 ROM 拦 —— 这条不解决，只兜"内存回收"这一类。
+
+### 胶囊：按"有没有开强制模式"分两种
+
+用户口径（2026-11-01）：
+
+| 场景 | 胶囊 | 行为 |
+|---|---|---|
+| 没开强制模式 | **一直显示**（默认开） | 离开本 App 就挂出来，看得到剩余时间，点一下回来 |
+| 开强制模式 · 去学习 App（放行名单） | **显示** | 那正是"人不在本 App 的常态"，胶囊是唯一入口 |
+| 开强制模式 · 去非学习 App | **不显示** | 这一拍就拉回 / 盖拦截页，留着只会闪一下 |
+| 在本 App（专注页） | 不显示 | 有圆盘了，不重复 |
+
+落点：
+
+- `settings.focus.capsule` 默认 **true**；`syncCapsule()` 的条件改成
+  `(capsule || forced) && 有专注 && 在后台 && 有悬浮窗权限` ——
+  **强制模式无视开关**，老用户 storage 里存着 false 也不会让功能消失。
+- "跑偏时藏起来"由**原生**做：`seen()` 里判合规 → `setCapsuleShown(true)`，
+  判跑偏 → `setCapsuleShown(false)`。只改 `visibility`，不动 `capsuleView` ——
+  "该不该挂"归 JS，"看不看得见"归原生，两边各记一份必然分叉。
+  新建胶囊时也按 `inEpisode` 给一次初始可见性（挂上它的那一刻往往正是刚逃出去）。
+
+### 验证
+
+```
+① 不开强制模式，开始专注 → 按 HOME → 应立刻出现胶囊「专注中 18:36」，点一下回专注页
+② 开强制模式 → 点「学习 App」里的图标 → 胶囊**仍显示**（这是放行名单）
+③ 开强制模式 → 按 HOME 回桌面 → 胶囊**立刻消失** + 拦截页/遮罩盖上来
+④ 杀服务模拟回收：开发者选项「不保留活动」或 `adb shell am stopservice`
+   → 服务应自己重建，状态条不该变成"看门狗已掉线"，切走仍能拦
+⑤ 状态条：把「后台保活」关掉再开专注 → 应显示"看门狗已掉线 · 点右侧自检"
+```
+
+⚠️ 动了 `utssdk/` 必须重新云打包 APK。

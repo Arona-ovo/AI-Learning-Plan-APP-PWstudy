@@ -485,6 +485,10 @@ export default {
       else if (!this.forcedOn) s = '离开不会被拉回'
       else if (!c.native) s = '当前包没有原生拉回能力，只能提醒'
       else if (!c.svcAllowed) s = '「后台保活」或「通知提醒」关着，拉回起不来'
+      // ★ 2026-11-01：服务此刻不在（连续 5 秒）= 看门狗已经被系统回收了。
+      //   这一条必须排在"能力齐不齐"前面说 —— 权限全绿、文案写"已就绪"，
+      //   而后台根本没人盯着，比缺权限更坑人（用户录屏里就是这样，切走毫无反应）。
+      else if (!c.svc) s = '看门狗已掉线 · 这次专注可能拦不住 —— 点右侧自检'
       else if (!c.canDetect) s = '看不出你在哪个 App —— 要开「无障碍」或「使用情况访问」'
       // ⚠️ 这里原来是"去开「无障碍」"—— 错的，而且它让用户把力气花在没用的地方。
       //    无障碍服务是我们自己的组件，不在官方豁免里"被另一个可见应用绑定"那一类，
@@ -1247,8 +1251,17 @@ export default {
         uni.showToast({ title: '去「' + hit.name + '」，回来接着计时', icon: 'none' })
       }
     },
-    /** 刷新强制模式战绩（拉回次数 / 离开次数） */
+    /** 刷新强制模式战绩（拉回次数 / 离开次数）+ 看门狗此刻在不在 */
     refreshForce() {
+      // ★ 2026-11-01：**svc 也要每秒对一次**。原来它只在 refreshForceCap 里取一次，
+      //   而那条路径由页面事件驱动 —— 服务在后台被系统回收之后，状态条会一直停在
+      //   "已就绪 · 离开立刻拉回"，实际后台早已没人盯着（用户录屏实锤：切走毫无反应，
+      //   最后自己下拉通知栏回来的）。跨桥读一个 boolean 很便宜，跟着 1 秒的战绩对账一起取。
+      //   连续 5 秒都没活人才当真：服务刚启动 / 刚重建的那几百毫秒不算掉线。
+      let alive = false
+      try { alive = forced.alive() } catch (e) { alive = false }
+      this.__svcMiss = alive ? 0 : (this.__svcMiss || 0) + 1
+      this.forceCap.svc = alive || this.__svcMiss < 5
       if (!this.forcedOn || !this.cur || this.cur.phase !== 'focus') return
       this.forcedPulls = forced.pullsOf()
       this.forcedEscapes = forced.escapesOf()

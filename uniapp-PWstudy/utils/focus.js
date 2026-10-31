@@ -103,10 +103,10 @@ function isMissed(s) {
 
 function fcfg() {
   try {
-    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: false },
+    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false },
       (settings.get() && settings.get().focus) || {});
   } catch (e) {
-    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: false };
+    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false };
   }
 }
 
@@ -180,15 +180,22 @@ function capsuleContent() {
 
 /**
  * 把胶囊该不该显示对齐到当前状态（幂等）。四个闸门全开才显示：
- *   ① 设置里「灵动岛」开关打开；② 有专注 / 休息在进行；
- *   ③ 本 App 此刻在后台（前台有圆盘，不重复）；④ 用户授了悬浮窗权限。
- * 任何一处不满足都撤掉。App.vue 的 onShow / onHide 与每秒 tick 都会调它。
+ *   ① 有专注 / 休息在进行；② 本 App 此刻在后台（前台有圆盘，不重复）；
+ *   ③ 用户授了悬浮窗权限；④ **要么开了「灵动岛」开关，要么开着强制模式**。
+ *
+ * ④ 是 2026-11-01 按用户口径定的：
+ *   · 没开强制模式 → 离开 App 就默认挂胶囊（开关默认 true），随时知道还剩多久、点一下回来；
+ *   · 开了强制模式 → **同样挂**，但跑到"非学习 App"时由原生把胶囊藏起来
+ *     （见 index.uts 的 setCapsuleShown：那一拍要拉回 / 盖拦截页，留着只会闪一下），
+ *     跑到学习 App（放行名单）则照常显示 —— 那正是用户"人不在本 App"的常态。
+ *   所以强制模式**无视**这个开关：老用户 storage 里存的 false 不能让功能凭空消失。
  */
 export function syncCapsule() {
   let want = false;
   let txt = '', label = '', endAt = 0;
   try {
-    want = !!fcfg().capsule
+    const c = fcfg();
+    want = (!!c.capsule || !!c.forced)
       && !!state
       && (state.phase === 'focus' || state.phase === 'rest')
       && !apptime.isAppForeground()
