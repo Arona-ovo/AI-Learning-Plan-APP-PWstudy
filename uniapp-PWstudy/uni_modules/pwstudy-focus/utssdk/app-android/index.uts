@@ -100,8 +100,19 @@ const WINDOW_TYPE_PHONE: Int = 2002;
 //（裸 const 会被推成 Number，Kotlin 里 Int 与 Number 不是一个类型，比较/传参都会编译不过）。
 // 传给 Thread.sleep() 的延时不能走常量（sleep 收 Long，Int 常量不会自动放宽），
 // 所以那两处直接写字面量，见 WatchLoop.run()。
-const PULL_GAP_SEC: Int = 2;       // 两次"拉回"之间的最小间隔（秒），免得跟系统切前台打架
-const PULL_INTERCEPT_SEC: Int = 3; // 拦截页倒计时（秒）：给用户一个明确的"要被拉回"预期，到点自动跳回
+// 两次"拉回"之间的最小间隔。
+//
+// ★ 2026-10-31：真节流交给**毫秒级旗标** pullGateOpen（见 closePullGate），
+//   这个秒级常量只当最后一道兜底（同一秒内绝不重复拉第二次）。
+//   原来它一个人承担全部节流职责，而 seen() 算差值用的是 nowSec()（取整到秒）：
+//   用户切走那一刻若距上次拉回不到 2 秒，整次逃逸被**静默吞掉**，只能等看门狗
+//   下一拍重判 —— 真机上量出来就是"切走以后 3~4 秒才弹窗"。
+//   节流粒度不能粗于响应目标：目标是 300ms 内响应，节流就得是毫秒级。
+const PULL_GAP_SEC: Int = 1;
+// 拦截页倒计时（秒）。★ 2026-10-31 从 3 改成 2：用户反馈"从切走到被拉回要 3~4 秒，有点慢"。
+// 拦截页现在几乎是即时弹出的（see seen() 的"首拍零节流"），剩下的用户感知就只剩这段倒数。
+// 2 秒够表达"马上把你拉回去"，再长就成了犹豫。
+const PULL_INTERCEPT_SEC: Int = 2;
 // ★ 1 = 第一次看见"非白名单前台"就动手（2026-10-24 从 2 改下来）。
 //   以前留 2 是"抗抖动"：多攒一个心跳，怕用户只是路过别的 App。
 //   代价是轮询那条路上凭空多等一整拍 —— 用户按 HOME 回桌面，屏幕上先**真的**出现
@@ -109,19 +120,26 @@ const PULL_INTERCEPT_SEC: Int = 3; // 拦截页倒计时（秒）：给用户一
 //   "那个页面最好弹出再快一点"）。桌面现在明确算逃逸，这一拍没有存在价值了：
 //   真误判的代价只是一次拉回（人还在合规 App 里的话，下一拍 seen() 就复位）。
 const ESC_TICKS: Int = 1;
-// 拦截页刚 startActivity 出去之后的"遮罩静默期"（秒）。
-// 遮罩和拦截页都是全屏黑，谁后到谁盖住谁 —— 拦截页才是要的那条（3 秒倒数自动回），
+// 拦截页刚 startActivity 出去之后的"遮罩接管窗口"（毫秒）。
+// 遮罩和拦截页都是全屏黑，谁后到谁盖住谁 —— 拦截页才是要的那条（2 秒倒数自动回），
 // 遮罩只是它被 ROM 拦掉时的兜底。拉回那一拍立刻判定前台的话，拦截页还没抢到焦点，
 // needOverlay() 必然为真 → 遮罩当场盖在拦截页上面，用户就得自己点一下。
-// 给拦截页这段时间先把前台抢过来；真被拦掉的话静默期一过，下一拍照样上遮罩。
-const INTERCEPT_GRACE_SEC: Int = 2;
+//
+// ★ 2026-10-31：从"2 秒静态灰期"改成"420 毫秒 + 到点踢看门狗"。
+//   静态灰期是"切走 3~4 秒才弹窗"的第二大来源：拦截页被 ROM 静默拦掉时，
+//   这 2 秒里既没有拦截页也没有遮罩，屏幕上**什么都没有**，用户看到的就是"强制模式没反应"。
+//   现在灰期一结束立刻让看门狗重判，遮罩最迟 0.5 秒内盖上。
+// ⚠️ 数值写字面量（postDelayed 收 Long，Int 常量不放宽），常量只留作文档。
+const INTERCEPT_GRACE_MS: Int = 420;
+
 const FG_WINDOW_MS: Int = 5000;    // 事件配对那条的回溯窗口（毫秒）—— 只当**辅助**用，见 queryForeground
 const WATCH_MAX_SEC: Int = 43200;  // 看门狗自动收手上限：12 小时
-const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24 次（约 50 秒）还没成功就先撤下来
+const OVERLAY_MAX_TRIES: Int = 24; // 遮罩连续挂着的安全阀：拉回 24 次（1.8 秒一次，约 45 秒）还没成功就先撤下来
 // 连续几次"查不出前台是谁"才算真的瞎了（瞎了就撤遮罩收手，别把人锁在看不清的屏幕上）。
-// 冷态一跳 0.6 秒（见 WatchLoop.run），50 次 ≈ 30 秒，足够趟过锁屏 / 切桌面这类短暂查不到的窗口。
+// 冷态一跳 0.2 秒（见 WatchLoop.run），150 次 ≈ 30 秒，足够趟过锁屏 / 切桌面这类短暂查不到的窗口。
 // ⚠️ 这个数字是按"跳数"算的，改 WatchLoop 的节奏必须同步折算，否则静默期会缩放。
-const BLIND_MAX_TICKS: Int = 50;
+//    （2026-10-31：冷态 600ms→200ms，同步 50→150，仍然 30 秒）
+const BLIND_MAX_TICKS: Int = 150;
 // 无障碍事件"静默"多久之后，不再无条件信它报上来的包名，而是拿 UsageStats 交叉验证（秒）。
 //
 // ⚠️ 注意它**不是**"过期就丢弃"的判据。窗口事件是"变化才发"，用户切到微信然后一直
@@ -133,7 +151,9 @@ const BLIND_MAX_TICKS: Int = 50;
 const GUARD_FRESH_SEC: Int = 90;
 // 无障碍服务的事件节流（毫秒）。⚠️ 要赋给 AccessibilityServiceInfo 的 Int 字段，
 // 所以必须显式 : Int（裸字面量会被推成 Number，Kotlin 里 Int 与 Number 不通）
-const A11Y_NOTIFY_MS: Int = 100;
+// ★ 2026-10-31：100 → 30。只订阅 typeWindowStateChanged，事件量本来就小，
+//   30ms 的合并窗口足够防抖；100ms 是白白多等的延迟（窗口一换焦点系统就先攒一会儿再派发）。
+const A11Y_NOTIFY_MS: Int = 30;
 
 /**
  * 一律放行的"中性界面"包名（逗号分隔）。这些窗口**绝不能**被当成跑偏 ——
@@ -206,12 +226,16 @@ let guardAtSec = 0;                 // 上报时刻（秒），过期就不再�
 let guardEvents = 0;                // 护卫累计收到的窗口事件数（诊断用）
 let guardConnAtSec = 0;             // 护卫最近一次连上的时刻（判断"这次稳不稳"用）
 let kickWanted = false;             // 有"人刚切走"的信号 → 让看门狗线程立刻醒一次，别等满一轮
-// 拦截页刚被拉起来时的时间戳（秒）：这段时间内先别盖遮罩，让拦截页把前台抢过去。
-// 见 INTERCEPT_GRACE_SEC 的注释 —— 遮罩和拦截页都是全屏黑，谁后到谁盖住谁，
-// 而我们要的是拦截页（3 秒倒数自动回），遮罩只是它被 ROM 拦掉时的兜底。
-// ⚠️ 必须显式 `: Int`：裸 `let x = 0` 会被推成 **Number**，而 nowSec() 返回 Int，
-//    Kotlin 里 `Int < Number` 没有 compareTo 重载 → 云打包直接编译不过。
-let interceptGraceUntilSec: Int = 0;
+/** 拦截页刚被拉起来时的标记（见 INTERCEPT_GRACE_MS）：这段时间内不重复拉、也不盖遮罩，
+ *  让拦截页把前台抢过去。到点由一个 postDelayed 的任务清掉并踢看门狗立刻重判。
+ *  ⚠️ 它是**毫秒级旗标**，不是原来的秒级时间戳（`interceptGraceUntilSec: Int`）——
+ *     秒级取整会让 420ms 的窗口变成最长 1.99 秒，白等。 */
+let interceptGrace = false;
+/** 拉回闸门（毫秒级）：每次真拉一次就关 1800ms，用 postDelayed 打开。
+ *  为什么不用时间戳做差：`System.currentTimeMillis()` 是 Java long，落进 UTS 就是 Number，
+ *  而 Number 与 Int 字面量在生成的 Kotlin 里没有 compareTo，云打包直接编不过（见 nowSec 注释）。
+ *  旗标 + 定时器是唯一既精确又类型安全的写法。 */
+let pullGateOpen = true;
 
 /* -------- 保险丝：服务被反复 bind = 服务在崩，不能再让它崩 --------
  *
@@ -407,7 +431,7 @@ class PWFocusService extends Service {
     //   以前这里用 homePackage() 把系统默认 Home 并进 allow，理由是"遮罩盖住桌面
     //   会把人锁死"。代价是：按 HOME 回桌面 = 合规 = 强制模式**永远不动手** ——
     //   而"退出到桌面"恰恰是强制模式最该拦的那一下（番茄ToDo 就是这么做的：
-    //   回桌面立刻弹全屏拦截页，3 秒倒数自动回计时页）。
+    //   回桌面立刻弹全屏拦截页，2 秒倒数自动回计时页）。
     //   锁死的风险改由四道闸兜（拦截页可退 / 遮罩可点 / 拉回次数上限 / 逃逸 3 次作废），
     //   详见 utils/apptime.js 的 NEUTRAL 注释。系统 Home 是哪个包只留给诊断看
     //   （watchDiag 的 home=），不再拿来放行。
@@ -435,7 +459,12 @@ class PWFocusService extends Service {
     this.blindTicks = 0;
     this.inEpisode = false;
     this.pullTries = 0;
-    this.lastPullSec = nowSec();
+    // ★ 2026-10-31：**不要**预置成当前时刻。原来 `this.lastPullSec = nowSec()`
+    //   等于给"刚开始专注就切走"的人凭空加最多 2 秒的静默 —— 而那恰恰是
+    //   "我想试一下强制模式灵不灵"的高频动作，最不该慢的一刻。
+    this.lastPullSec = 0;
+    pullGateOpen = true;
+    interceptGrace = false;
     if (untilSec > 0) {
       let sec = untilSec > WATCH_MAX_SEC ? WATCH_MAX_SEC : untilSec;
       this.watchUntilSec = nowSec() + sec;
@@ -558,33 +587,44 @@ class PWFocusService extends Service {
       if (this.escTicks < ESC_TICKS) return true;   // 刚划走不到一个来回：先看看，不算账
     }
 
-    if (!this.inEpisode) {
+    // ★ 拦截页接管窗口内（见 INTERCEPT_GRACE_MS）：前台当然还不是我们 —— startActivity
+    //   刚交出去，系统还没切过去。这一拍既不重复拉也不盖遮罩，否则遮罩会盖在拦截页上面。
+    //   窗口到点会自己踢一次看门狗（armInterceptGrace），不会漏判。
+    if (interceptGrace) return true;
+
+    // ★ 2026-10-31：**新的一次逃逸零节流，当场拉**。
+    //   这是"切走以后 3~4 秒才弹窗"的最大一处来源：原来首拍也要过 PULL_GAP_SEC，
+    //   而那个判断是秒级差值。用户切走的那一刻只要距上次拉回不足 2 秒
+    //   （刚被拉回来又切走、或刚开始专注就切走 —— setWatch 还会把 lastPullSec 预置成当前时刻），
+    //   整次事件就被**静默吞掉**，只能等看门狗下一拍重新走到这里。
+    //   新的一次逃逸没有任何"抗抖动"的意义：人确实走了，就该立刻动手。
+    let firstSeen = !this.inEpisode;
+    if (firstSeen) {
       this.inEpisode = true;
       watchEscapeCount = watchEscapeCount + 1;
-      postPullNotify();
+    } else {
+      // 同一段逃逸里的重复拉才需要节流：毫秒级闸门（1800ms）+ 秒级兜底
+      if (!pullGateOpen) return true;
+      if (nowSec() - this.lastPullSec < PULL_GAP_SEC) return true;
     }
 
     let now = nowSec();
-    if (now - this.lastPullSec < PULL_GAP_SEC) return true;
     this.lastPullSec = now;
     this.pullTries = this.pullTries + 1;
     watchPullCount = watchPullCount + 1;
 
     let ok = pullSelf(this.pullTries);
+    closePullGate();
+    // 通知挪到拉回**之后**：build + notify 是一串 binder 调用（首次还要建渠道），
+    // 放在 pullSelf 前面等于给"界面弹出来"凭空加几十毫秒。
+    if (firstSeen) postPullNotify();
     // 升级成遮罩 —— 那层盖在别的 App 上面，用户点不动，也就绕不过去。
     //
     // ⚠️ 判据不是"pullSelf 返回了什么"（moveTaskToFront 返回 void，拿不到成败，
     //    那条路永远只能报"没抛异常"），而是**再看一眼前台**：还是别人就说明没拉回来。
     //    早期版本写的是 `pullTries >= 2`，等于白等一个来回（约 2 秒）才上遮罩，
     //    用户那 2 秒里是彻底自由的 —— 这正是"切走以后什么都没发生"的观感来源之一。
-    //
-    // ★ 但刚拉过拦截页的那一下要留一段静默期（INTERCEPT_GRACE_SEC）：
-    //   拦截页是 startActivity 出去的，此刻前台**还没**切过去，needOverlay() 必然为真。
-    //   立刻盖遮罩的话，遮罩会压在拦截页上面，用户得自己点一下才回去 ——
-    //   等于把"3 秒倒数自动回"废掉，观感还更差（黑屏闪一下再换一张黑屏）。
-    //   静默期内不盖；拦截页真被 ROM 拦掉的话，静默期一过下一拍照样盖。
-    let inGrace = now < interceptGraceUntilSec;
-    if (!ok || (this.needOverlay() && !inGrace)) postOverlay(true);
+    if (!ok || this.needOverlay()) postOverlay(true);
     // 安全阀：连续拉了很多次还回不来（多半是遇到了我们没认出来的桌面/输入法，
     // 或某个 ROM 把前台事件吞了），先把遮罩撤掉，免得把人锁在屏幕外面。
     // 拉回动作本身照旧继续（下面还在跑），下一轮逃逸会重新盖上。
@@ -632,13 +672,16 @@ class WatchLoop extends Thread {
       } catch (e) {
         hot = false;
       }
-      // 300 = 已经判定跑偏，高频重试（人一回来就能立刻撤遮罩）；
-      // 600 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
+      // 100 = 已经判定跑偏，高频重试（人一回来就立刻撤遮罩）；
+      // 200 = 一切正常，低频看一眼就够。字面量是故意的：Thread.sleep 收 Long，
       // 而 UTS 的 Int 常量不会自动放宽成 Long。
       // ★ 2026-10-24：正常态 1500 → 600。用户实测"按 HOME 回桌面，桌面先静止在那儿
-      //   一秒多，拦截页才弹"。机身自己在正常态只是 0.6 秒查一次前台，代价很小
-      //   （一次 UsageStats 查询，专注期间才跑，最长也就一轮专注那么久），
-      //   换来的是"一按 HOME 几乎立刻被盖住"——这才是强制模式该有的手感。
+      //   一秒多，拦截页才弹"。
+      // ★ 2026-10-31：600 → 200、热态 300 → 100。用户反馈"切走要 3~4 秒才拉回"，
+      //   这条轮询节奏是那条链上最后一处"整拍白等"：事件那条路（kickWanted）最快，
+      //   但事件丢了 / 护卫静默时全靠它兜，600ms 一拍就等于把响应下限钉死在 600ms 上。
+      //   成本可忽略 —— tick 在护卫新鲜时是**纯内存判断**（只读 guardPkg），
+      //   只有护卫静默超过 90 秒才查 UsageStats，而那条路已经加了 1 秒结果缓存。
       // 切成 100ms 小段睡：无障碍事件一报"用户切走了"就置 kickWanted，
       // 这样最迟 100ms 内就会重判一次（否则最坏要等满一轮）。
       // 小段的代价只是一次标志位判断，不建对象、不抢锁。
@@ -646,7 +689,8 @@ class WatchLoop extends Thread {
       // ⚠️ 这里是"睡几轮"而不是"睡多少毫秒"：Thread.sleep 收 Long，
       // 而 UTS 的 Int 变量**不会**自动放宽成 Long（Kotlin 里 Int→Long 也不隐式转换），
       // 把算出来的毫秒数传进去会编译失败。字面量 100 才是安全的。
-      let rounds = hot ? 3 : 6;
+      // ⚠️ 改这里的节奏必须同步折算 BLIND_MAX_TICKS（按跳数算的静默期）。
+      let rounds = hot ? 1 : 2;
       for (let i = 0; i < rounds; i++) {
         if (kickWanted) {
           kickWanted = false;
@@ -677,11 +721,62 @@ class PullNowTask implements Runnable {
   }
 }
 
-function uiPost(task: Runnable) {
+/** 拿主线程 Handler（没有就现建）。失败返回 null —— 调用方自己兜住。 */
+function mainHandlerOr(): Handler | null {
   try {
     if (mainHandler == null) mainHandler = new Handler(Looper.getMainLooper());
-    mainHandler!.post(task);
-  } catch (e) {}
+    return mainHandler;
+  } catch (e) {
+    return null;
+  }
+}
+
+function uiPost(task: Runnable) {
+  let h = mainHandlerOr();
+  if (h == null) return;
+  try { h!.post(task) } catch (e) {}
+}
+
+/* ---------- 两个毫秒级闸门：拉回节流 + 拦截页接管窗口 ----------
+ * 为什么都用"旗标 + 一次性定时任务"而不是时间戳做差：
+ *   `System.currentTimeMillis()` 是 Java long，进 UTS 就是 Number；Number 与 Int
+ *   在生成的 Kotlin 里没有 compareTo 重载 → 云打包直接编不过（见 nowSec 的注释）。
+ *   而秒级时间戳（nowSec）粒度太粗：280ms 的窗口用秒算只能取 1 秒，等于没省。
+ *   定时任务既精确又完全绕开类型坑，成本只是一次 postDelayed。
+ */
+class PullGateTask implements Runnable {
+  override run(): void { pullGateOpen = true }
+}
+
+/** 同一段逃逸里"再拉一次"的最小间隔（毫秒）。
+ *  1800ms ≈ 旧行为（PULL_GAP_SEC = 2 秒，秒级取整实际 2~3 秒），故意**不改快**：
+ *    · 重复拉基本是无效功 —— 拦截页已经在倒计时，同一条 startActivity 再发几次只是打架；
+ *    · 真正需要"每拍都做"的是**判定要不要盖遮罩**，那条路（needOverlay）不受本闸门限制；
+ *    · 拉回次数还要当战绩显示（"已拉回 N 次"），一拍一次会让数字失真。
+ *  首次逃逸完全不走这里（见 seen 的首拍零节流），所以压这个值不会拖慢第一下。 */
+function closePullGate() {
+  pullGateOpen = false;
+  let h = mainHandlerOr();
+  if (h == null) { pullGateOpen = true; return }   // 拿不到主线程就别节流，宁快不堵
+  // ⚠️ 延时写字面量：postDelayed 收 Long，Int 常量不会自动放宽（同 Thread.sleep）
+  try { h!.postDelayed(new PullGateTask(), 1800) } catch (e) { pullGateOpen = true }
+}
+
+class GraceKickTask implements Runnable {
+  override run(): void {
+    interceptGrace = false;
+    // 窗口一结束立刻让看门狗重判：拦截页被 ROM 拦掉的话，遮罩要在这一拍就盖上，
+    // 而不是干等下一轮自然到来（原来 2 秒灰期 + 600ms 轮询就是这么攒出 3 秒的）。
+    kickWanted = true;
+  }
+}
+
+/** 拦截页刚拉起来 → 进入接管窗口（INTERCEPT_GRACE_MS）。到点自己清掉并踢看门狗。 */
+function armInterceptGrace() {
+  interceptGrace = true;
+  let h = mainHandlerOr();
+  if (h == null) { interceptGrace = false; return }
+  try { h!.postDelayed(new GraceKickTask(), 420) } catch (e) { interceptGrace = false }
 }
 
 /* ==================== 悬浮窗遮罩 ====================
@@ -889,7 +984,7 @@ export function hideCapsule(): boolean {
 
 /* ==================== 拦截页（2026-10-15，参照番茄ToDo 严格模式实测录像） ====================
  * 竞品实测（用户录屏）：按 HOME/切走 → 弹出一个**自己的全屏黑页**（"您已禁止访问桌面和
- * 多任务，3 秒后跳转至计时"），倒计时结束自动跳回计时页。整个流程用户几乎看不到桌面。
+ * 多任务，2 秒后跳转至计时"），倒计时结束自动跳回计时页。整个流程用户几乎看不到桌面。
  *
  * 为什么它弹得出来、我们此前弹不出来：拦截页是 startActivity。安卓 10+ 后台启动被
  * AMS 静默拦，唯一的官方豁免是 **SYSTEM_ALERT_WINDOW 已授权**（悬浮窗权限）——
@@ -900,7 +995,7 @@ export function hideCapsule(): boolean {
  *
  * 设计要点（照抄竞品验证过的行为）：
  *   · 黑底全屏 + 大字，除了倒计时什么都不放 —— 它的任务只有一个：把屏幕占住
- *   · 3 秒倒计时自动跳回计时页（launch intent），用户点一下立即跳 —— 比遮罩"点了
+ *   · 2 秒倒计时自动跳回计时页（launch intent），用户点一下立即跳 —— 比遮罩"点了
  *     再拉一次（可能被拦）"的确定性高得多：这时 Activity 在前台，启动自己 App
  *     完全合法，不存在被拦的可能
  *   · excludeFromRecents + noHistory：最近任务里不留痕，按 HOME 即销毁，下次逃逸
@@ -1334,7 +1429,8 @@ function buildGuardInfo(): AccessibilityServiceInfo {
   //    写 `= A11Y_NOTIFY_MS`（Int 常量）会报 "actual type is 'Int', but 'Long' was expected" ——
   //    Kotlin 的**字面量**能按目标类型推断成 Long，但 Int 常量不会自动放宽。
   //    所以这里直接写字面量（与 Thread.sleep 那两处同一个规矩），常量留在上面当注释。
-  info.notificationTimeout = 100;
+  //    30 与 res/xml 的 android:notificationTimeout 保持一致（2026-10-31：100 → 30）。
+  info.notificationTimeout = 30;
   // ⚠️ 常量名是 DEFAULT，不是 FLAG_DEFAULT（后者不存在 → Unresolved reference）。
   //    取值与 res/xml 的 android:accessibilityFlags="flagDefault" 对齐。
   info.flags = AccessibilityServiceInfo.DEFAULT;
@@ -1479,8 +1575,18 @@ function imePackages(ctx: Context | null): string[] {
  * 跟切没切换无关 —— 用户一直停在微信，微信的 lastTimeUsed 就一直是最大的那个。
  * 代价是精度低一档（分钟级聚合），但对"你现在在不在学习 App 里"这个判断完全够用。
  */
+/** UsageStats 查询结果缓存（秒级）。看门狗现在 200ms 一跳，热态 100ms —— 每一跳都
+ *  真去 queryUsageStats 是白烧 CPU（那是要跨到 system_server 查聚合库的）。
+ *  1 秒足够：这条路的定位本来就是"没有无障碍时的备用眼睛"，精度是分钟级，
+ *  多查几次并不会更准，只会更耗电。 */
+let usageCachePkg = ''
+let usageCacheAt: Int = 0;
+const USAGE_CACHE_SEC: Int = 1;
+
 function queryForegroundByUsage(ctx: Context): string {
   try {
+    let at = nowSec();
+    if (usageCacheAt > 0 && at - usageCacheAt < USAGE_CACHE_SEC) return usageCachePkg;
     let usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     let end = System.currentTimeMillis()
     let begin = end - 60000        // 字面量：60 秒，Long 运算（Int 常量不会自动放宽）
@@ -1500,6 +1606,8 @@ function queryForegroundByUsage(ctx: Context): string {
         bestPkg = p!
       }
     }
+    usageCachePkg = bestPkg
+    usageCacheAt = at
     return bestPkg
   } catch (e) {
     return ''
@@ -1546,13 +1654,14 @@ function queryForeground(ctx: Context): string {
 @UTSAndroid.Suppress("DEPRECATION")
 function pullSelf(round: Int): boolean {
   // ★ 拦截页（2026-10-15，番茄ToDo 同款）：奇数轮先试它 —— 授权过悬浮窗时它是
-  //    唯一真的弹得出来的 startActivity 通路（官方后台启动豁免），弹出后 3 秒倒计时
+  //    唯一真的弹得出来的 startActivity 通路（官方后台启动豁免），弹出后 2 秒倒计时
   //    自动跳回计时页。没授权（或 MIUI 的「后台弹出界面」没开）时它会被**静默**拦掉、
   //    返回 true 是假的 —— 所以只在奇数轮先走它，偶数轮照旧走下面两条老路，
   //    假 true 不会把 moveTaskToFront / launch 永远堵死；遮罩由 needOverlay 兜底照盖。
   if ((round % 2) == 1 && pullByIntercept()) {
-    // 刚把拦截页拉起来 → 进入遮罩静默期，别让遮罩抢在它前面盖住（见 INTERCEPT_GRACE_SEC）
-    interceptGraceUntilSec = nowSec() + INTERCEPT_GRACE_SEC;
+    // 刚把拦截页拉起来 → 进入 420ms 的遮罩接管窗口，别让遮罩抢在它前面盖住
+    //（见 INTERCEPT_GRACE_MS）。窗口到点会踢看门狗重判，不会漏。
+    armInterceptGrace();
     return true;
   }
 
