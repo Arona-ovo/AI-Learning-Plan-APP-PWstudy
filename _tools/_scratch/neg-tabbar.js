@@ -56,7 +56,10 @@ const cases = [
     '')],
   ['实例缓存状态机回潮（this.indIndex 回来 = 首帧脏状态回来）', s => s.replace(
     'this.__navLock = false;   //',
-    'this.indIndex = 0; this.__navLock = false;   //')]
+    'this.indIndex = 0; this.__navLock = false;   //')],
+  ['pop 重播被移除（切回页面图标不再弹跳，动效回退）', s => s.replace(
+    'if (replay !== false) this.popSeq++;',
+    '')]
 ];
 
 // 源码是 CRLF：LF 锚点先按 LF 试，命中后按 CRLF 还原（只动行尾，不改内容）

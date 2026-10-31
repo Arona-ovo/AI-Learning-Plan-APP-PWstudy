@@ -18,8 +18,10 @@
         @tap="go"
       >
         <!-- 图标纯 CSS 绘制：颜色吃 currentColor（由 .ftb-icon 的 color 决定），
-             所以换主题色 / 深色模式都能跟着变 —— 之前用 PNG，颜色写在图片里，换色不生效 -->
-        <view class="ftb-icon" :class="{ 'ftb-icon-on': activeKey === t.key }">
+             所以换主题色 / 深色模式都能跟着变 —— 之前用 PNG，颜色写在图片里，换色不生效。
+             :key 是 pop 重播机制：选中图标的 key 挂 popSeq，页面每次可见 sync() 递增一次
+             → 节点重建 → CSS animation 从头播（class 恒定不会重播，只能靠重建）。 -->
+        <view class="ftb-icon" :key="activeKey === t.key ? 'on' + popSeq : 'off-' + t.key" :class="{ 'ftb-icon-on': activeKey === t.key }">
           <block v-if="t.key === 'home'">
             <view class="ic-stem"></view>
             <view class="ic-ring"><view class="ic-hand"></view></view>
@@ -85,7 +87,11 @@ export default {
   },
   data() {
     return {
-      tabs: TABS
+      tabs: TABS,
+      // pop 重播序号：class 恒定（同源架构）时 CSS animation 不会重播，
+      // 递增让选中图标的 :key 变化 → 节点重建 → 动画从头播。纯动画计数，
+      // 不是可见状态，不参与选中态判定（那会重新引入首帧脏状态）。
+      popSeq: 0
     };
   },
   computed: {
@@ -108,7 +114,8 @@ export default {
     this.__navLockT = 0;      // 连点锁的定时器 id（sync 提前解锁时要用）
   },
   mounted() {
-    this.sync();
+    // 首次挂载不重播 pop：active class 首次应用时动画本来就播一次，再递增会连播
+    this.sync(false);
     // #ifdef APP-PLUS
     this.probeVisible();
     // #endif
@@ -122,13 +129,17 @@ export default {
       void this.__lang;
       return tabText(t && t.key);
     },
-    // 页面 onShow 时由 syncTabbar(this) 调一次。现在没有滑动状态机要伺候，
-    // 只剩一件事：页面可见 ⇒ 本实例的连点锁必是残留（锁的合法生命期是
-    // "点下 → 导航落地"，只活在被离开的那个页面实例上），无条件清。
-    // 不清的话：快速切回（onShow 落在 350ms 锁窗口内）后第一次点 tab 被吞。
-    sync() {
+    // 页面 onShow 时由 syncTabbar(this) 调一次。两件事：
+    // ① 页面可见 ⇒ 本实例的连点锁必是残留（锁的合法生命期是"点下 → 导航落地"，
+    //    只活在被离开的那个页面实例上），无条件清。不清的话：快速切回（onShow
+    //    落在 350ms 锁窗口内）后第一次点 tab 被吞。
+    // ② popSeq++ 让选中图标重播一次弹跳（:key 重建节点）。旧架构点击时 pending
+    //    切换会顺带弹一下，同源重构后 class 恒定不重播 —— 在这里补回来，
+    //    且改在"新页面可见"这一刻播（旧架构播在被切走的旧页面上，用户看不全）。
+    sync(replay) {
       this.__navLock = false;
       if (this.__navLockT) { clearTimeout(this.__navLockT); this.__navLockT = 0; }
+      if (replay !== false) this.popSeq++;
     },
     go(e) {
       const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.k : '';

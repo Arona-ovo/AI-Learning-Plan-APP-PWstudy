@@ -35,6 +35,13 @@ eq(ts.TABS.map(t => t.key).join(','), KEYS.join(','), 'tab 次序与 pages.json 
 eq(ts.tabIndex(K1), 1, K1 + ' 下标');
 eq(ts.tabIndex('nope'), -1, '未知 key');
 
+// 2026-10-31：App 端每页独立 webview，模块级 pending 不跨页共享（scrcpy 逐帧实锤
+// 胶囊跨页切换从无滑动中间帧 = 内容滑入动画从未生效）——意图必须同时落 storage
+const tsSrc = require('fs').readFileSync(path.resolve(__dirname, '..', 'uniapp-PWstudy', 'utils', 'tab-slide.js'), 'utf8');
+if (/setStorageSync\(INTENT_KEY/.test(tsSrc) && /getStorageSync\(INTENT_KEY/.test(tsSrc)) {
+  ok('切换意图同时落 storage（App 端跨 webview 传递方向）');
+} else bad('切换意图只存在模块级 —— App 端独立 webview 读不到，内容滑入动画不会播');
+
 console.log('== 2. 方向：按索引大小决定从左还是从右滑入 ==');
 ts.clearPending();
 eq(ts.markSwitch(K0, K2), 'right', '索引变大 → 从右滑入');

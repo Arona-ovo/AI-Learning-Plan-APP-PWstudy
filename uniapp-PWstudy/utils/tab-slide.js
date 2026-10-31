@@ -6,8 +6,9 @@ import * as i18n from './i18n.js';
 //     （索引变大 → 从右滑入；索引变小 → 从左滑入）
 //  2) 手势拖拽的参数与阻尼：内容跟手位移，松手超过阈值才切页，否则弹回
 //
-// tab 页在 uni-app 里是常驻的（switchTab 不销毁），所以"上一次停留的 tab"
-// 这类跨页状态必须放模块级，不能放组件实例里。
+// tab 页在 uni-app 里是常驻的（switchTab 不销毁）；App 端每页还是**独立 webview**，
+// 模块级变量不跨页共享 —— "上一次停留的 tab / 切换方向"这类跨页状态不能只放模块级
+// （切换方向同时落 storage，见下面切换意图一节；底栏实例则一律由 current prop 派生）。
 
 // 唯一的 tab 次序来源：底栏组件、切换方向、手势都读它
 export const TABS = [
@@ -45,29 +46,58 @@ export function tabAt(i) {
 
 // ---------- 切换意图 ----------
 // 点击底栏或手势松手都会先写这里，目标页 onShow 时取走（取走即失效，只播一次）
+// ⚠️ App 端每个 tab 页是**独立 webview**，模块级变量不共享（2026-10-31 scrcpy 逐帧
+//    实锤：底栏胶囊跨页切换从来没有滑动中间帧 = 旧页面写的模块级状态新页面读不到）。
+//    所以意图必须同时落一份 storage：模块级给 H5（单上下文）用，storage 给 App 端
+//    跨 webview 用。takeEnter 消费后两边都清（一次性，防止重复播 / 冷启动误播）。
 let pending = null;
 const PENDING_TTL = 1500;   // 超过这个时间没被取走就当废弃（防止误播）
+const INTENT_KEY = 'tab_slide_intent';
+
+function saveIntent(intent) {
+  pending = intent;
+  try {
+    if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync(INTENT_KEY, intent);
+  } catch (e) { /* storage 不可用：H5 模块级那条路仍有效 */ }
+}
+
+function loadIntent() {
+  if (pending) return pending;                     // H5：同上下文直接命中
+  try {
+    if (typeof uni !== 'undefined' && uni.getStorageSync) {
+      return uni.getStorageSync(INTENT_KEY) || null;
+    }
+  } catch (e) { /* 退化到无方向 */ }
+  return null;
+}
+
+function dropIntent() {
+  pending = null;
+  try {
+    if (typeof uni !== 'undefined' && uni.removeStorageSync) uni.removeStorageSync(INTENT_KEY);
+  } catch (e) { /* 同上 */ }
+}
 
 export function markSwitch(fromKey, toKey) {
   const from = tabIndex(fromKey);
   const to = tabIndex(toKey);
   if (from < 0 || to < 0 || from === to) return '';
-  pending = { from: from, to: to, at: Date.now() };
+  saveIntent({ from: from, to: to, at: Date.now() });
   return to > from ? 'right' : 'left';
 }
 
 // 目标页调用：返回 'left' | 'right' | ''
 export function takeEnter(key) {
-  if (!pending) return '';
-  const p = pending;
-  pending = null;                                  // 一次性消费
+  const p = loadIntent();
+  dropIntent();                                    // 一次性消费
+  if (!p) return '';
   if (tabIndex(key) !== p.to) return '';           // 不是这次的目标页
   if (Date.now() - p.at > PENDING_TTL) return '';  // 过期（比如中间隔了别的导航）
   return p.to > p.from ? 'right' : 'left';
 }
 
 export function clearPending() {
-  pending = null;
+  dropIntent();
 }
 
 // ---------- 手势参数 ----------

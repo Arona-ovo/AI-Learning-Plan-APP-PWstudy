@@ -166,6 +166,11 @@ else bad('连点锁丢了 —— 快速连点会连续触发 switchTab');
 if (/fail:\s*\(\)\s*=>\s*\{\s*setTimeout\(retry/.test(script) || /fail:\s*\(\)\s*=>\s*\{\s*setTimeout/.test(script)) {
   ok('switchTab 接了 fail → 350ms 重试（路由锁静默拒绝的兜底）');
 } else bad('switchTab 没接 fail —— 快速连点时点击会被静默吞掉');
+// pop 重播：class 恒定（同源架构）时 CSS animation 不会重播，必须靠 :key 重建节点。
+// 缺了它用户感觉"图标没动效了"（2026-10-31 用户反馈 + scrcpy 取证旧包点击时有弹跳）
+if (/this\.popSeq\+\+/.test(script) && /'on' \+ popSeq/.test(src)) {
+  ok('图标 pop 重播机制在（sync 递增 popSeq → :key 重建节点 → 动画从头播）');
+} else bad('图标 pop 重播丢了 —— 切回页面时图标不再弹跳（动效回退）');
 
 console.log('== 7. 样式锚点：transform 平移 + 对齐 ==');
 const style = src.slice(src.lastIndexOf('<style'));
