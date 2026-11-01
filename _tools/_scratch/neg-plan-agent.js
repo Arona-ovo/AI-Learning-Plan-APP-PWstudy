@@ -101,7 +101,7 @@ async function shouldCatch(label, mutations) {
     ['agent', '  const fromDay = stretchToCover(tasks, totalDays);', '  const fromDay = 0;']
   ]);
   await shouldCatch('本地模板不铺满（localPlan 绕过兜底）', [
-    ['agent', '  stretchToCover(tasks, totalDays);\n  // 模板没有时段信息', '  // 模板没有时段信息']
+    ['agent', '  stretchToCover(tasks, totalDays);\n  // 模板也要逐日铺满', '  // 模板也要逐日铺满']
   ]);
   await shouldCatch('忘了取整 / 忘了夹回末天（day 越界）', [
     ['agent', 'tasks.forEach(t => { t.day = Math.max(1, Math.min(totalDays, Math.round(t.day * k))); });',
@@ -110,6 +110,10 @@ async function shouldCatch(label, mutations) {
   await shouldCatch('拉伸了却不告诉用户（risks 里没写）', [
     ['agent', "  if (fromDay) {\n    risks.push('原计划只排到第 ' + fromDay + ' 天", "  if (false) {\n    risks.push('x' + fromDay + ' 天"]
   ]);
+  await shouldCatch('重排文案不清洗（「番茄」又漏给用户）', [
+    ['agent', 'const text = deBrand(clampStr(op.text || op.reason, 200));',
+      'const text = clampStr(op.text || op.reason, 200);']
+  ]);
 
   realLog('\n== 2. 规划单位写成时段 / 任务的核又被收紧 ==');
   await shouldCatch('提示词不再写"任务以「天」为单位"', [
@@ -117,10 +121,10 @@ async function shouldCatch(label, mutations) {
       '任务排期**：day = 建议第几天开始（1 = 今天）']
   ]);
   await shouldCatch('任务数上限退回旧的 6-30（长目标排不满的根源）', [
-    ['agent', "'任务总数按长度给：建议 ' + taskCap + ' 个左右", "'任务总数 6-30 个，建议 ' + taskCap + ' 个左右"]
+    ['agent', "'任务总数参考 ' + taskCap + ' 个", "'任务总数 6-30 个，参考 ' + taskCap + ' 个"]
   ]);
   await shouldCatch('提示词不再禁止提前收工', [
-    ['agent', "'不许提前收工（' + totalDays + ' 天的目标排到一半就停 = 排期不完整）", "'尽量往前排"]
+    ['agent', "' 天，不许提前收工。'", "' 天。'"]
   ]);
 
   realLog('\n== 3. 报班 / 补习这个必问项被删 ==');
@@ -146,8 +150,8 @@ async function shouldCatch(label, mutations) {
     ['wiz', 'return gi === 0 ? !!this.fold[gi] : this.fold[gi] !== false', 'return false']
   ]);
   await shouldCatch('新一轮计划不重置折叠状态', [
-    ['wiz', '        if (this.plan !== s.plan) {\n          this.picked = {}\n          this.fold = {}\n        }',
-      '        if (this.plan !== s.plan) {\n          this.picked = {}\n        }']
+    ['wiz', '        if (this.plan !== s.plan) {\n          this.picked = {}\n          this.fold = {}\n          this.more = {}\n        }',
+      '        if (this.plan !== s.plan) {\n          this.picked = {}\n          this.more = {}\n        }']
   ]);
   await shouldCatch('折叠头看不到"几个任务 · 第几天到第几天"', [
     ['wiz', '阶段 {{ gi + 1 }} · {{ group.count }} 个任务 · 第 {{ group.from }}-{{ group.to }} 天', '阶段 {{ gi + 1 }}']

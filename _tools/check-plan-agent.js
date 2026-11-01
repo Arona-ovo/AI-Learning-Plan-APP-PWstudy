@@ -38,11 +38,14 @@ const pw = load('utils/pwstore.js');
 const dailylog = load('utils/dailylog.js', { pw });
 const pacing = load('utils/pacing.js', { pw, dailylog });
 const holiday = load('utils/holiday.js');
+// 术语模块（utils/terms.js 不在 data/ 下，load 不会自动装载，必须显式注入）
+const terms = load('utils/terms.js');
 const agent = load('services/plan-agent.js', {
   chatCompletion: async () => ({ content: '{}' }),
   LLMError: class LLMError extends Error {},
   isAIEnabled: () => true,
-  holiday, dailylog, pacing, timeslot
+  holiday, dailylog, pacing, timeslot,
+  deBrand: terms.deBrand, TERM_RULE: terms.TERM_RULE
 });
 
 const today = pw.today();
@@ -188,6 +191,51 @@ assert(/:disabled="loading \|\| !hint\.trim\(\)"/.test(rp),
   '空话不能提交（不然等于没补，还多花一次调用）');
 // 出错时也要留着输入框：用户往往正是想"换个说法再试"
 assert(/class="hint-input hint-err"/.test(rp), '出错态也留着补话入口（换个说法再试）');
+
+/* ---------- 7. 用词口径：说「专注 / 段」，绝不出现「番茄」（2026-11-01） ---------- */
+// 番茄工作法 / 番茄钟 / 番茄ToDo 是别家产品的叫法，我们照着做的时候抄进来了。
+// 真机截图里 AI 生成的建议仍然在说「3-4 个番茄」—— 露馅。三道闸都得钉住：
+//   ① prompt 里的 TERM_RULE ② llm 出口清洗 ③ 重排卡的字段级清洗 + 兜底大字标题
+console.log('== 7. 用词口径：专注不叫「番茄」==');
+eq(terms.deBrand('每天 3-4 个番茄'), '每天 3-4 段专注', '「3-4 个番茄」→「3-4 段专注」');
+eq(terms.deBrand('上午 2 个专注'), '上午 2 段专注', '「2 个专注」→「2 段专注」（量词是段）');
+eq(terms.deBrand('按计划走'), '按计划走', '没有敏感词时原样返回');
+assert(/段/.test(terms.TERM_RULE) && /番茄/.test(terms.TERM_RULE), 'TERM_RULE 同时讲清「段」和禁用词');
+const pa = R('services/plan-agent.js');
+const ruleUses = (pa.match(/TERM_RULE,/g) || []).length;
+assert(ruleUses >= 4, '规划/重排/聊天/周报四条 prompt 都带上了 TERM_RULE（实测 ' + ruleUses + ' 处）');
+assert(/content: deBrand\(r && r\.content\)/.test(R('services/llm.js')),
+  'llm 出口统一清洗（一道闸兜住所有调用方，包括以后新加的）');
+assert(/cutBrandTail\(carry \+ piece\)/.test(R('services/llm.js')),
+  '流式输出也处理了"一块正好停在「番」上"的跨块情况');
+assert(/v-if="op\.headline"/.test(rp), '重排卡渲染大字标题（op.headline）');
+
+// 真跑一遍 normalizeReplan：模型给的脏文案必须被洗干净、每条都要有大字标题
+const TK = [{ id: 'tk1', title: '背单词', day: 3, pomos: 2, status: 'todo' }];
+const rpl = agent.normalizeReplan({
+  summary: '把每天拆两段，约 3-4 个番茄',
+  ops: [
+    { op: 'note', level: 'strategy', headline: '', text: '上午 3-4 个番茄背单词，下午 2 个番茄做数学' },
+    { op: 'resize', level: 'content', taskId: 'tk1', pomos: 4 },
+    { op: 'move', level: 'time', taskId: 'tk1', day: 6 }
+  ]
+}, TK, { maxDeferDays: 0 });
+assert(rpl.ops.length === 3, '三条 op 都保留下来（' + rpl.ops.length + '）');
+assert(rpl.ops.every(o => !!o.headline), '每条 op 都有大字标题（模型没给就按类型兜一个）');
+assert(rpl.summary.indexOf('番茄') < 0 && rpl.summary.indexOf('段专注') >= 0,
+  'summary 里的「3-4 个番茄」被洗成「3-4 段专注」：' + rpl.summary);
+assert(rpl.ops[0].text.indexOf('番茄') < 0, 'note 正文也洗过：' + rpl.ops[0].text);
+eq(rpl.ops[1].headline, '专注数改为 4 段', 'resize 兜底标题');
+eq(rpl.ops[2].headline, '改到第 6 天', 'move 兜底标题');
+
+// 承重墙：剥掉注释后源码里不许再有「番茄」（terms.js 是清洗器本体，例外）
+function stripC(s) {
+  return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/[^\n]*$/gm, '');
+}
+const dirty = ['services/plan-agent.js', 'services/llm.js', 'services/ai-content.js',
+  'pkgPlan/pages/replan/replan.vue', 'utils/i18n.js', 'utils/i18n-en.js']
+  .filter(f => { try { return stripC(R(f)).indexOf('番茄') >= 0; } catch (e) { return false; } });
+assert(!dirty.length, '源码（除注释）里没有「番茄」' + (dirty.length ? '：漏在 ' + dirty.join('、') : ''));
 
 console.log('');
 console.log(fail === 0 ? '全部通过 ✓' : '失败 ' + fail + ' 项 ✗');

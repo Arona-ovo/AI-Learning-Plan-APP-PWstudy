@@ -16,6 +16,8 @@ settings.init();
 
 const config = load('services/config.js', { settings });
 const http = load('services/http.js');
+// 术语口径（services/llm.js 出口会洗「番茄」→「专注」）：用真模块，别用假实现糊过去
+const terms = load('utils/terms.js');
 
 // ---- 本地 TTS mock：记录是否真的被调用（验证降级/默认委托） ----
 const localCalls = [];
@@ -98,6 +100,7 @@ function bad(m) { fail++; console.error('  ✗ ' + m); }
     PROVIDER_PRESETS: config.PROVIDER_PRESETS,
     apiUsage: { record(){}, recordFailure(){}, estimateMessages(){return 0}, estimateTokens(){return 0} },
     noteFailure(){}, breakerKeyOf:(u)=>String(u||''), resetBreaker(){},
+    deBrand: terms.deBrand,
   });
   let threw = false, degradable = false;
   try { await llm.chatCompletion([{ role: 'user', content: 'hi' }]); }
@@ -113,6 +116,7 @@ function bad(m) { fail++; console.error('  ✗ ' + m); }
     PROVIDER_PRESETS: config.PROVIDER_PRESETS,
     apiUsage: { record(){}, recordFailure(){}, estimateMessages(){return 0}, estimateTokens(){return 0} },
     noteFailure(){}, breakerKeyOf:(u)=>String(u||''), resetBreaker(){},
+    deBrand: terms.deBrand,
   });
   const r = await llmOk.chatCompletion([{ role: 'user', content: 'hi' }]);
   if (r && r.content === '生成结果') ok('大模型返回内容正确');

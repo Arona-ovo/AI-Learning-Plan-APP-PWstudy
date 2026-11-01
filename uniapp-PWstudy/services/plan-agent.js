@@ -13,6 +13,8 @@ import * as holiday from '../utils/holiday.js';
 import * as dailylog from '../utils/dailylog.js';
 import * as pacing from '../utils/pacing.js';
 import * as timeslot from '../utils/timeslot.js';
+// 术语口径：专注不叫「番茄」，量词是「段」（详见 utils/terms.js 文件头）
+import { deBrand, TERM_RULE } from '../utils/terms.js';
 
 const PLAN_TIMEOUT = 60000;
 const MAX_ROUNDS = 3;
@@ -100,6 +102,27 @@ function clampInt(v, min, max, dft) {
   const n = Math.floor(Number(v));
   if (isNaN(n)) return dft;
   return Math.max(min, Math.min(max, n));
+}
+
+/* ---------- 用词口径：「专注」不叫「番茄」 ----------
+ * 术语表与清洗函数在 utils/terms.js（llm 层也要用，放这里会循环依赖）。
+ * 这里只做重排卡片的字段级清洗 + 兜底大字标题。 */
+
+/**
+ * 重排卡片的「大字标题」：模型给了就用它的，没给就按 op 类型确定性地拼一个。
+ * 为什么要兜底：这张卡的第一行原来只有「策略」「建议」两个小标签，
+ * 用户得读完整段淡色小字才知道改了什么 —— 大字标题是扫一眼就懂的那句。
+ */
+function headlineOf(op, kind, info, text) {
+  const own = deBrand(clampStr(op && (op.headline || op.title), 28));
+  if (own) return own;
+  if (kind === 'move') return '改到第 ' + info.day + ' 天';
+  if (kind === 'resize') return '专注数改为 ' + info.pomos + ' 段';
+  if (kind === 'drop') return '砍掉这条任务';
+  if (kind === 'defer') return '截止日顺延 ' + info.days + ' 天';
+  // note 类：拿正文第一句顶上，截到 14 字（不硬编"调整策略"这种空话）
+  const first = String(text || '').split(/[。；;！!？?\n]/)[0].replace(/[，,、]$/, '');
+  return first.length > 14 ? first.slice(0, 14) + '…' : first;
 }
 
 /**
@@ -372,6 +395,7 @@ function planSystemPrompt(input) {
       (input.slotOn ? ',"slot":"am|noon|pm"' : '') +
       ',"tags":["标签"]' + (input.resOn ? ',"res":["资料/工具建议"]' : '') + ']}',
     '约束：',
+    TERM_RULE,
     '1. 里程碑 2-6 个；',
     // 规划单位必须是「天」：早/中/晚是天内的时段，不是日程单位 ——
     // 按时段排会把长目标切碎、排不满，AI 也就"规划不了那么多"
@@ -476,7 +500,7 @@ export function localPlan(input) {
 
   return {
     strategy: '未接入 AI，按' + totalDays + '天、每天' + dailyMin + '分钟排了一份通用计划：预排了阶段骨架，中间的空白天用复习与自测补齐，每天都有安排。配好 AI 后会按你的具体情况重排。',
-    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天专注数按 ' + perDay + ' 个估算，跟不上就及时收工填报让计划重排']
+    risks: ['这是通用模板，颗粒度较粗，建议边做边改', '每天专注数按 ' + perDay + ' 段估算，跟不上就及时收工填报让计划重排']
       .concat(cover.added ? ['中间 ' + cover.added + ' 天是通用复习/自测，接上 AI 后会换成贴合内容的具体安排'] : []),
     milestones,
     tasks,
@@ -738,6 +762,7 @@ export async function chatToday(text, ctx, history) {
     '你是学习教练。用户会用一句大白话告诉你他今天实际做了什么 —— 可能和 AI 排的计划不一样，也可能只是想聊聊。',
     '你要做三件事：①把他说的**事实**提炼出来；②判断这和今天的计划算不算不一致；③给一条今天就照做的建议。',
     '只输出一个 JSON 对象：{"reply":"回给用户的话","facts":["事实1","事实2"],"drift":true|false,"goalId":"涉及的目标id","credits":[{"taskId":"任务id","add":这次新做的专注数}]}',
+    TERM_RULE,
     '要求：',
     '1. reply 150 字内，说人话，像朋友复盘不像老师评语；先接住他说的事实再给建议，不要复述原话、不要列编号；',
     '2. facts 每条 20 字内，只写事实（做了什么 / 没做什么 / 做了多少），不写评价；听不出事实就给空数组；',
@@ -792,7 +817,7 @@ export function normalizeReplan(raw, tasks, opt) {
   const o = raw || {};
   const byId = {};
   tasks.forEach(t => { byId[t.id] = t; });
-  const summary = clampStr(o.summary, 300);
+  const summary = deBrand(clampStr(o.summary, 300));
   const ops = [];
   // 顺延上限：页面按"还剩多少天"算好传进来，避免模型一次把期限推到半年后。
   // 没传就按 30 天兜底；显式传 0 = 这次不许顺延（连续少做不够久时不给这个选项）。
@@ -811,8 +836,8 @@ export function normalizeReplan(raw, tasks, opt) {
     const kind = clampStr(op.op, 10);
     const lv = levelOf(op, kind);
     if (kind === 'note') {
-      const text = clampStr(op.text || op.reason, 200);
-      if (text) ops.push({ op: 'note', level: lv, text });
+      const text = deBrand(clampStr(op.text || op.reason, 200));
+      if (text) ops.push({ op: 'note', level: lv, text, headline: headlineOf(op, 'note', null, text) });
       return;
     }
     // defer 动的是整个目标的截止日期，本来就没有 taskId ——
@@ -824,7 +849,11 @@ export function normalizeReplan(raw, tasks, opt) {
       if (!days) return;
       deferred = true;
       // 顺延期限恒为 time 档（最后手段），不接受模型自称的 level
-      ops.push({ op: 'defer', level: 'time', days: days, reason: clampStr(op.reason, 120) });
+      ops.push({
+        op: 'defer', level: 'time', days: days,
+        headline: headlineOf(op, 'defer', { days: days }),
+        reason: deBrand(clampStr(op.reason, 120))
+      });
       return;
     }
     const t = byId[op.taskId];
@@ -832,14 +861,26 @@ export function normalizeReplan(raw, tasks, opt) {
     if (kind === 'move') {
       const day = clampInt(op.day, 1, 3650, 0);
       if (!day || day === t.day) return;
-      ops.push({ op: 'move', level: lv, taskId: t.id, day, reason: clampStr(op.reason, 120) });
+      ops.push({
+        op: 'move', level: lv, taskId: t.id, day,
+        headline: headlineOf(op, 'move', { day: day }),
+        reason: deBrand(clampStr(op.reason, 120))
+      });
     } else if (kind === 'resize') {
       const pomos = clampInt(op.pomos, 1, 16, 0);
       if (!pomos || pomos === t.pomos) return;
-      ops.push({ op: 'resize', level: lv, taskId: t.id, pomos, reason: clampStr(op.reason, 120) });
+      ops.push({
+        op: 'resize', level: lv, taskId: t.id, pomos,
+        headline: headlineOf(op, 'resize', { pomos: pomos }),
+        reason: deBrand(clampStr(op.reason, 120))
+      });
     } else if (kind === 'drop') {
       if (t.status === 'dropped' || t.status === 'done') return;
-      ops.push({ op: 'drop', level: lv, taskId: t.id, reason: clampStr(op.reason, 120) });
+      ops.push({
+        op: 'drop', level: lv, taskId: t.id,
+        headline: headlineOf(op, 'drop', null),
+        reason: deBrand(clampStr(op.reason, 120))
+      });
     }
   });
   // 展示顺序：先策略、再内容、最后时间，与"优先调整策略"的口径一致
@@ -864,6 +905,7 @@ export async function reviewWeek(payload) {
   const sys = [
     '你是学习教练。下面是学习者这一周的真实数据，请给出一份简短、说人话的复盘。',
     '只输出一个 JSON 对象：{"summary":"一句总评，60字内","good":"做得好的一点，40字内","bad":"最该改的一点，40字内","next":["下周建议1","下周建议2","下周建议3"],"focus":"下周最重要的一件事"}',
+    TERM_RULE,
     '要求：',
     '1. 只基于给的数据说话，不要编造；数据少就直说"样本太少"；',
     '2. bad 只挑一条最该改的，别列一筐让人无从下手；',
@@ -1075,8 +1117,13 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
   const maxDefer = Math.max(0, Math.min(90, (opt && typeof opt.maxDeferDays === 'number') ? Math.floor(opt.maxDeferDays) : 30));
   const sys = [
     '你是学习规划专家。根据学习者的真实执行情况，对剩余任务提出调整建议。',
-    '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|defer|note","level":"strategy|content|time","taskId":"任务id","day":新建议第几天,"pomos":新专注数,"days":顺延天数,"reason":"一句话理由","text":note类建议的正文}]}',
+    '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|defer|note","level":"strategy|content|time","headline":"这条改动的大字标题，6-14字","taskId":"任务id","day":新建议第几天,"pomos":新专注数,"days":顺延天数,"reason":"一句话理由","text":note类建议的正文}]}',
     '规则：',
+    TERM_RULE,
+    // headline 是卡片上最大的字：用户扫一眼就知道这条要改什么，不用读整段理由
+    '每条 op 都要给 headline：一句短语说清「这条会改什么」，6-14 字，' +
+      '例如「增加上下午专注时间」「数学挪到下午做」「砍掉重复的背诵」。' +
+      '要像标题一样能一眼看懂，**不要**把 reason 的整句抄过来，也不要写成"调整策略"这种没有信息量的空话；',
     '1. 只调整未完成任务；已完成/已放弃的任务不要动；',
     '2. **调整优先级（必须严格遵守）**：① strategy 调策略（换个学法、调顺序、调配比——不动任务量与期限）',
     '   ② content 调内容（砍掉低价值任务、减量、合并）③ time 调时间（顺延任务日期/阶段，最后手段）；',

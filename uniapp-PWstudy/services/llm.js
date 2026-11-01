@@ -5,6 +5,8 @@
 import { request, streamRequest, ServiceError, noteFailure, breakerState, breakerKeyOf } from './http.js';
 import { getAIConfig, isAIEnabled, chatEndpoint, PROVIDER_PRESETS } from './config.js';
 import * as apiUsage from '../utils/api-usage.js';
+// 术语口径：AI 文案一律把「番茄」说成「专注」（产品叫法，见 utils/terms.js）
+import { deBrand, cutBrandTail } from '../utils/terms.js';
 
 export class LLMError extends ServiceError {}
 
@@ -59,7 +61,11 @@ function normalizeHttpError(e, cfg, timeoutMs) {
 // 返回 { content, raw }
 export async function chatCompletion(messages, opts = {}) {
   try {
-    return await chatOnce(messages, opts);
+    const r = await chatOnce(messages, opts);
+    // 术语闸（第二道，第一道是 prompt 里的 TERM_RULE）：不管哪个调用方、
+    // 不管模型怎么自由发挥，出去的文字一律不出现「番茄」。放在这一层是为了
+    // 兜住以后新加的调用点 —— 产品叫法不属于某个功能的细节。
+    return Object.assign({}, r, { content: deBrand(r && r.content) });
   } catch (e) {
     // 没配置不算"调用失败"，那种是用户还没填，不是服务出问题
     if (!(e && e.notConfigured)) apiUsage.recordFailure();
@@ -153,6 +159,15 @@ export async function chatCompletionStream(messages, opts = {}) {
   const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : function () {};
   let buf = '';
   let full = '';
+  // 流式下术语替换有个坑：一块可能正好停在「番」上，直接替换会漏掉半个词。
+  // 末尾若是疑似品牌词就先扣住，等下一块拼齐再发（结束时兜底 flush）。
+  // 判定逻辑在 utils/terms.js —— 品牌词只在那一个文件里出现。
+  let carry = '';
+  const emit = (piece) => {
+    const cut = cutBrandTail(carry + piece);
+    carry = cut.tail;
+    if (cut.head) onDelta(deBrand(cut.head));
+  };
 
   const feed = (text) => {
     buf += text;
@@ -167,7 +182,7 @@ export async function chatCompletionStream(messages, opts = {}) {
       try { o = JSON.parse(payload); } catch (e) { continue; }
       const ch = o && o.choices && o.choices[0];
       const piece = (ch && ch.delta && ch.delta.content) || (ch && ch.text) || '';
-      if (piece) { full += piece; onDelta(piece); }
+      if (piece) { full += piece; emit(piece); }
     }
   };
 
@@ -196,5 +211,6 @@ export async function chatCompletionStream(messages, opts = {}) {
   }
 
   apiUsage.record('llm', apiUsage.estimateMessages(messages), apiUsage.estimateTokens(full));
-  return { content: full, raw: null };
+  if (carry) onDelta(deBrand(carry));   // 扣着的尾巴（流在这里结束）照发
+  return { content: deBrand(full), raw: null };
 }

@@ -40,8 +40,13 @@
           <view class="op-line">
             <text class="op-level" :class="'lv-' + (op.level || 'content')">{{ levelText(op) }}</text>
             <text class="op-kind" :class="'op-' + op.op">{{ kindText(op) }}</text>
-            <text class="op-title">{{ taskTitle(op) }}</text>
+            <!-- 大字标题：一眼看出这条要改什么。原来第一行只有「策略」「建议」
+                 两个小标签，用户得读完整段淡色小字才知道改了什么。
+                 标题一律由 services/plan-agent.js 的 headlineOf() 产出（含兜底），
+                 页面不再自己拼一遍 —— 单一口径，也少一处漏翻的中文 -->
+            <text class="op-head" v-if="op.headline">{{ op.headline }}</text>
           </view>
+          <view class="op-task" v-if="taskTitle(op)">{{ taskTitle(op) }}</view>
           <view class="op-detail" v-if="opDetail(op)">{{ opDetail(op) }}</view>
           <view class="op-reason" v-if="op.reason || op.text">{{ op.reason || op.text }}</view>
         </view>
@@ -181,7 +186,7 @@ export default {
     },
     opDetail(op) {
       if (op.op === 'move') return '开始时间：第 ' + op.day + ' 天'
-      if (op.op === 'resize') return '预估专注：' + op.pomos + ' 个'
+      if (op.op === 'resize') return '预估专注：' + op.pomos + ' 段'
       if (op.op === 'defer') {
         const g = this.goal()
         const to = g ? pw.addDays(g.deadline, op.days) : ''
@@ -311,7 +316,18 @@ export default {
 .op-defer { background: rgba(194, 50, 58, 0.12); color: #c2323a; }
 .op-resize { background: rgba(247, 144, 9, 0.14); color: #b26400; }
 .op-note { background: rgba(23, 32, 26, 0.07); color: #5a6560; color: var(--ink-2, #5a6560); }
-.op-title { font-size: 27rpx; color: #17201a; color: var(--ink-1, #17201a); }
+/* 大字标题：卡片上最大的字，紧跟「策略/内容/时间」标签 */
+.op-head {
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.42;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+}
+/* 任务名降到下一行：之前和大字标题挤在同一行，标题一长就被挤没 */
+.op-task { margin-top: 8rpx; font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
 .op-detail { margin-top: 8rpx; font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
 .op-reason { margin-top: 8rpx; font-size: 23rpx; line-height: 1.6; color: #98a19b; color: var(--ink-3, #98a19b); }
 
