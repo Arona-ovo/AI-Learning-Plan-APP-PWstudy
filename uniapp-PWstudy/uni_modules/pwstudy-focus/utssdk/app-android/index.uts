@@ -685,41 +685,18 @@ class PWFocusService extends Service {
     //   （刚被拉回来又切走、或刚开始专注就切走 —— setWatch 还会把 lastPullSec 预置成当前时刻），
     //   整次事件就被**静默吞掉**，只能等看门狗下一拍重新走到这里。
     //   新的一次逃逸没有任何"抗抖动"的意义：人确实走了，就该立刻动手。
-    let firstSeen = !this.inEpisode;
-    if (firstSeen) {
+    // ★ 2026-11-01：强制模式逃生改为「可移动小胶囊」，**彻底移除全屏拦截页 / 全屏遮罩 /
+    //   全屏通知**这三道满屏机制（用户原话："满屏控制不了" → 要"可移动的胶囊，点一下返回"）。
+    //   判定跑偏（退出到非学习 App）后只把胶囊亮出来（setCapsuleShown(true)），
+    //   返回动作完全交给胶囊自身的点击（PullNowTask → pullBackSoft，只做 moveTaskToFront /
+    //   launch intent，不弹任何全屏页）。强制模式从"硬拦"降级为"胶囊提醒 + 一键返回"，
+    //   用户要可控、不再被满屏锁住。回到学习 App / PWstudy 时，上面 isAllowed 分支会
+    //   把 inEpisode 复位、胶囊照常显示。
+    if (!this.inEpisode) {
       this.inEpisode = true;
       watchEscapeCount = watchEscapeCount + 1;
-      // 强制模式已经认定"这不是学习 App"→ 把胶囊藏了：这一拍就要拉回 / 盖拦截页，
-      // 胶囊留在最上层只会露一下就被盖住，观感更乱。
-      // （非强制模式时 seen() 根本不会被调，胶囊照常显示 —— 这就是"两种情况"的分界）
-      setCapsuleShown(false);
-    } else {
-      // 同一段逃逸里的重复拉才需要节流：毫秒级闸门（1800ms）+ 秒级兜底
-      if (!pullGateOpen) return true;
-      if (nowSec() - this.lastPullSec < PULL_GAP_SEC) return true;
     }
-
-    let now = nowSec();
-    this.lastPullSec = now;
-    this.pullTries = this.pullTries + 1;
-    watchPullCount = watchPullCount + 1;
-
-    let ok = pullSelf(this.pullTries);
-    closePullGate();
-    // 通知挪到拉回**之后**：build + notify 是一串 binder 调用（首次还要建渠道），
-    // 放在 pullSelf 前面等于给"界面弹出来"凭空加几十毫秒。
-    if (firstSeen) postPullNotify();
-    // 升级成遮罩 —— 那层盖在别的 App 上面，用户点不动，也就绕不过去。
-    //
-    // ⚠️ 判据不是"pullSelf 返回了什么"（moveTaskToFront 返回 void，拿不到成败，
-    //    那条路永远只能报"没抛异常"），而是**再看一眼前台**：还是别人就说明没拉回来。
-    //    早期版本写的是 `pullTries >= 2`，等于白等一个来回（约 2 秒）才上遮罩，
-    //    用户那 2 秒里是彻底自由的 —— 这正是"切走以后什么都没发生"的观感来源之一。
-    if (!ok || this.needOverlay()) postOverlay(true);
-    // 安全阀：连续拉了很多次还回不来（多半是遇到了我们没认出来的桌面/输入法，
-    // 或某个 ROM 把前台事件吞了），先把遮罩撤掉，免得把人锁在屏幕外面。
-    // 拉回动作本身照旧继续（下面还在跑），下一轮逃逸会重新盖上。
-    if (this.pullTries >= OVERLAY_MAX_TRIES) postOverlay(false);
+    setCapsuleShown(true);
     return true;
   }
 
@@ -808,8 +785,23 @@ class OverlaySyncTask implements Runnable {
 
 class PullNowTask implements Runnable {
   override run(): void {
-    pullSelf(1);
+    // ★ 2026-11-01：胶囊「点一下返回」走软拉回，不弹全屏拦截页、不挂遮罩。
+    //   用户主动想回来 → 直接把 PWstudy 提到最前即可。
+    pullBackSoft();
   }
+}
+
+/** 胶囊点击返回用的软拉回：只把 PWstudy 提到最前（moveTaskToFront / REORDER_TO_FRONT launch），
+ *  不弹全屏拦截页（PWPullActivity）、不挂遮罩、不带 fullScreenIntent 通知。
+ *  用于「用户主动想回来」的场景，不需要任何强制视觉。 */
+function pullBackSoft(): boolean {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return false;
+  let pkg = ctx!.getPackageName();
+  // 优先 moveTaskToFront（复用已在跑的 task，专注页状态不丢），失败再 launch intent
+  if (pullByTask(ctx!, pkg)) return true;
+  if (pullByLaunch(ctx!, pkg)) return true;
+  return false;
 }
 
 /** 拿主线程 Handler（没有就现建）。失败返回 null —— 调用方自己兜住。 */
@@ -957,7 +949,7 @@ let capsuleWanted = false;
 let capsuleText = '';
 let capsuleEndAt = 0;   // 倒计时终点（ms）；0 = 不自转（暂停 / 正计时由 JS 静态显示）
 let capsuleLabel = '';  // 阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
-let capsuleStyle: string = 'pill';   // 'pill' 顶部药丸 | 'ball' 可拖动小球 | 'ring' 圆环进度
+let capsuleStyle: string = 'ball';   // 'pill' 顶部药丸 | 'ball' 可拖动小球 | 'ring' 圆环进度
 let capsuleTotalSec: number = 0;     // 本轮总时长（秒），圆环画进度用
 let capsuleRemain: number = 0;       // 当前剩余秒（原生 tick 更新，圆环 onDraw 读）
 let capsuleWM: WindowManager | null = null;        // 挂胶囊时记下（拖动 updateViewLayout 用）
@@ -1197,10 +1189,9 @@ function applyCapsule(ctx: Context | null) {
       capsuleView = v
       capsuleWM = wm
       capsuleLP = lp
-      // 新建时按当前判定给初始可见性：挂上它的那一刻往往正是"刚从本 App 逃出去"，
-      // 强制模式下如果已经判定跑偏，就该直接藏起来（马上要被拦截页盖住）。
-      let s = svcRef
-      setCapsuleShown(s == null ? true : !s.inEpisode)
+      // 新建即显示：强制模式逃生现在也是"显示胶囊"而非盖全屏遮罩，所以始终可见
+      // （见 seen() 的 2026-11-01 改造）。胶囊点击返回走 pullBackSoft，不弹全屏页。
+      setCapsuleShown(true)
       // 启动原生自转：App 后台时 WebView 不跑 tick，倒计时由这里数（endAt=0 时也不更新，只等停止）
       mainHandler!.postDelayed(new CapsuleTickTask(), 1000)
     } catch (e) {

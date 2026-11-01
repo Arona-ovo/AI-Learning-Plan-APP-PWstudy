@@ -1164,7 +1164,7 @@ export default {
       openSec: '',
       // 悬浮胶囊：退后台的专注倒计时，形态三选一（pill 药丸 / ball 小球 / ring 圆环）
       capsuleOn: false,
-      capsuleStyle: 'pill',
+      capsuleStyle: 'ball',
       darkOn: false,
       followSystem: false,
       systemDark: false,

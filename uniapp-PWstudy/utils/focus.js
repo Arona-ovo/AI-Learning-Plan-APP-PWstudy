@@ -103,10 +103,10 @@ function isMissed(s) {
 
 function fcfg() {
   try {
-    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false },
+    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false, capsuleStyle: 'ball' },
       (settings.get() && settings.get().focus) || {});
   } catch (e) {
-    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false };
+    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false, capsuleStyle: 'ball' };
   }
 }
 
@@ -198,7 +198,7 @@ export function syncCapsule() {
   try {
     const c = fcfg();
     // 形态：变了才推一次给原生（原生持久化，已挂则就地撤重挂）
-    const style = c.capsuleStyle || 'pill';
+    const style = c.capsuleStyle || 'ball';
     if (capsuleStyleApplied !== style) {
       capsuleStyleApplied = style;
       try { fgsvc.capsuleSetStyle(style); } catch (e) {}
