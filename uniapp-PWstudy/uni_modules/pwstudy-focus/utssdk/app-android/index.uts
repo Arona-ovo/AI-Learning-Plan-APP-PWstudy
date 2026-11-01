@@ -1036,7 +1036,7 @@ function drawRing(canvas: Canvas) {
     let h = canvas.getHeight().toFloat();
     let cx = w / 2.0.toFloat();
     let cy = h / 2.0.toFloat();
-    let r = Math.min(w, h) / 2.0.toFloat() - 4.0.toFloat();
+    let r = (Math.min(w, h) / 2.0.toFloat() - 4.0.toFloat()).toFloat();
 
     // 半透明圆底：让中央倒计时文字在任意壁纸上都可读
     let fill = new Paint();
