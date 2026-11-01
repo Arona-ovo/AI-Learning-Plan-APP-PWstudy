@@ -230,14 +230,20 @@ export function ambientError(): string
  * 文案由 JS 侧算好传进来（"专注中 24:13" 这种），原生只负责挂/撤/刷新 + 点击拉回。
  */
 
-/** 挂出胶囊（若未授权或已挂则按刷新处理） */
-export function showCapsule(text: string, endAt: number, label: string): boolean
+/** 挂出胶囊（若未授权或已挂则按刷新处理）。totalSec = 本轮总时长（秒，圆环形态画进度用；0 = 不知道） */
+export function showCapsule(text: string, endAt: number, label: string, totalSec: number): boolean
 
-/** 刷新胶囊文案与终点（已挂则改字，未挂则先挂） */
-export function updateCapsule(text: string, endAt: number, label: string): boolean
+/** 刷新胶囊文案与终点（已挂则改字，未挂则先挂）。totalSec 同上 */
+export function updateCapsule(text: string, endAt: number, label: string, totalSec: number): boolean
 
 /** 撤掉胶囊 */
 export function hideCapsule(): boolean
+
+/**
+ * 设胶囊形态：'pill'（顶部药丸，默认）/ 'ball'（可拖动小球）/ 'ring'（圆环进度，可拖动）。
+ * 持久化（下次挂起沿用），已挂时立即重排。
+ */
+export function setCapsuleStyle(style: string): boolean
 
 /**
  * ==================== 休闲提醒后台检测（LeisureGuard） ====================

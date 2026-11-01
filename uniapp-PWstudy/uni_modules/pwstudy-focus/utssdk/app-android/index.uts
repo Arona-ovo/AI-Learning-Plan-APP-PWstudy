@@ -52,6 +52,8 @@ import Color from 'android.graphics.Color';
 import PixelFormat from 'android.graphics.PixelFormat';
 import GradientDrawable from 'android.graphics.drawable.GradientDrawable';
 import Paint from 'android.graphics.Paint';
+import Canvas from 'android.graphics.Canvas';
+import RectF from 'android.graphics.RectF';
 import MotionEvent from 'android.view.MotionEvent';
 import AccessibilityService from 'android.accessibilityservice.AccessibilityService';
 import AccessibilityEvent from 'android.view.accessibility.AccessibilityEvent';
@@ -955,17 +957,126 @@ let capsuleWanted = false;
 let capsuleText = '';
 let capsuleEndAt = 0;   // 倒计时终点（ms）；0 = 不自转（暂停 / 正计时由 JS 静态显示）
 let capsuleLabel = '';  // 阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
+let capsuleStyle: string = 'pill';   // 'pill' 顶部药丸 | 'ball' 可拖动小球 | 'ring' 圆环进度
+let capsuleTotalSec: number = 0;     // 本轮总时长（秒），圆环画进度用
+let capsuleRemain: number = 0;       // 当前剩余秒（原生 tick 更新，圆环 onDraw 读）
+let capsuleWM: WindowManager | null = null;        // 挂胶囊时记下（拖动 updateViewLayout 用）
+let capsuleLP: WindowManager.LayoutParams | null = null;  // 当前窗口参数（拖动改 x/y）
+let capsuleX: Int = 0;               // 小球/圆环当前绝对 x（px）
+let capsuleY: Int = 0;               // 小球/圆环当前绝对 y（px）
 
 class CapsuleView extends TextView {
-  constructor(ctx: Context) {
+  private mode: string;
+  private downRawX: Float = 0.0.toFloat();
+  private downRawY: Float = 0.0.toFloat();
+  private downLPX: Int = 0;
+  private downLPY: Int = 0;
+  private dragging: Boolean = false;
+
+  constructor(ctx: Context, mode: string) {
     super(ctx);
+    this.mode = mode;
   }
 
   override onTouchEvent(event: MotionEvent): boolean {
-    // 点一下 = 回到 PWstudy（复用强制模式那条现成的拉回链路）
-    uiPost(new PullNowTask());
-    return true;
+    // pill：只点击拉回，不拖动（顶部药丸本来就不该被拖得到处跑）
+    if (this.mode == 'pill') {
+      if (event.getAction() == MotionEvent.ACTION_UP) {
+        uiPost(new PullNowTask());
+      }
+      return true;
+    }
+    // ball / ring：拖动 + 点击拉回。位移小 = 点击（回前台），位移大 = 拖动（挪位置）。
+    if (event.getAction() == MotionEvent.ACTION_DOWN) {
+      this.downRawX = event.getRawX();
+      this.downRawY = event.getRawY();
+      this.downLPX = capsuleX;
+      this.downLPY = capsuleY;
+      this.dragging = false;
+      return true;
+    }
+    if (event.getAction() == MotionEvent.ACTION_MOVE) {
+      let dx = event.getRawX() - this.downRawX;
+      let dy = event.getRawY() - this.downRawY;
+      if (Math.abs(dx) > 8.0.toFloat() || Math.abs(dy) > 8.0.toFloat()) this.dragging = true;
+      if (this.dragging) {
+        capsuleX = this.downLPX + dx.toInt();
+        capsuleY = this.downLPY + dy.toInt();
+        this.moveTo(capsuleX, capsuleY);
+      }
+      return true;
+    }
+    if (event.getAction() == MotionEvent.ACTION_UP) {
+      if (this.dragging) {
+        saveCapsulePos(capsuleX, capsuleY);   // 拖完记住位置，下次挂起还在那
+      } else {
+        uiPost(new PullNowTask());            // 没拖 = 点击 = 回前台
+      }
+      return true;
+    }
+    return super.onTouchEvent(event);
   }
+
+  // 拖动时把窗口就地挪到新位置（updateViewLayout 重排，不重建窗口）
+  moveTo(x: Int, y: Int) {
+    try {
+      if (capsuleWM != null && capsuleLP != null) {
+        capsuleLP!.x = x;
+        capsuleLP!.y = y;
+        capsuleWM!.updateViewLayout(this, capsuleLP!);
+      }
+    } catch (e) {}
+  }
+
+  // 圆环形态：先画进度环，再画文字（文字落在环中央）
+  override onDraw(canvas: Canvas): void {
+    if (this.mode == 'ring') {
+      drawRing(canvas);
+    }
+    super.onDraw(canvas);
+  }
+}
+
+/** 圆环形态的进度环：背景环 + 品牌红进度弧（从顶部顺时针，长度 = 已过比例） */
+function drawRing(canvas: Canvas) {
+  try {
+    let w = canvas.getWidth().toFloat();
+    let h = canvas.getHeight().toFloat();
+    let cx = w / 2.0.toFloat();
+    let cy = h / 2.0.toFloat();
+    let r = Math.min(w, h) / 2.0.toFloat() - 4.0.toFloat();
+
+    // 半透明圆底：让中央倒计时文字在任意壁纸上都可读
+    let fill = new Paint();
+    fill.setStyle(Paint.Style.FILL);
+    fill.setColor(Color.argb(200, 23, 25, 38));
+    fill.setAntiAlias(true);
+    canvas.drawCircle(cx, cy, r + 2.0.toFloat(), fill);
+
+    let bg = new Paint();
+    bg.setStyle(Paint.Style.STROKE);
+    bg.setStrokeWidth(4.0.toFloat());
+    bg.setColor(Color.argb(90, 255, 255, 255));
+    bg.setAntiAlias(true);
+    canvas.drawCircle(cx, cy, r, bg);
+
+    let total = capsuleTotalSec;
+    if (total > 0) {
+      let remain = capsuleRemain;
+      if (remain < 0) remain = 0;
+      if (remain > total) remain = total;
+      let ratio = 1 - remain / total;               // 已过比例 0~1
+      let sweep = (-360.0 * ratio).toFloat();       // 负 = 逆时针消耗，视觉上从顶部顺时针走
+      let fg = new Paint();
+      fg.setStyle(Paint.Style.STROKE);
+      fg.setStrokeWidth(4.0.toFloat());
+      fg.setColor(Color.argb(255, 228, 23, 61));    // 品牌红 #e4173d
+      fg.setStrokeCap(Paint.Cap.ROUND);
+      fg.setAntiAlias(true);
+      let rect = new RectF(cx - r, cy - r, cx + r, cy + r);
+      canvas.drawArc(rect, -90.0.toFloat(), sweep, false, fg);
+    }
+  } catch (e) {}
 }
 
 // 原生每秒自转一次：App 在后台时 WebView 的 JS 计时器被系统挂起，胶囊倒计时会冻住；
@@ -976,7 +1087,15 @@ class CapsuleTickTask implements Runnable {
     if (capsuleEndAt > 0) {
       let remain = Math.floor((capsuleEndAt - System.currentTimeMillis()) / 1000);
       if (remain < 0) remain = 0;
-      try { capsuleView!.setText(capsuleLabel + capsuleMmss(remain)); } catch (e) {}
+      capsuleRemain = remain;
+      try {
+        // 圆环形态：中央只放 mm:ss（"专注中 " 前缀太长，装不进小球），药丸/小球照常带前缀
+        let txt = capsuleStyle == 'ring' ? capsuleMmss(remain) : (capsuleLabel + capsuleMmss(remain));
+        capsuleView!.setText(txt);
+      } catch (e) {}
+      if (capsuleStyle == 'ring') {
+        try { capsuleView!.invalidate(); } catch (e) {}   // 进度弧每秒重画
+      }
     }
     if (capsuleWanted) mainHandler!.postDelayed(new CapsuleTickTask(), 1000);
   }
@@ -1005,14 +1124,36 @@ function capsuleMmss(sec: number): string {
  * 胶囊直接占满整屏。这里用 Paint 实测文本宽 + 按文本行高算高，得到确定性的像素值，
  * 效果同 WRAP_CONTENT，但不依赖系统对 -2 的处理。
  */
-function capsuleLayout(ctx: Context, text: string): WindowManager.LayoutParams {
+function capsuleLayout(ctx: Context, text: string, style: string): WindowManager.LayoutParams {
   let dm = ctx.getResources().getDisplayMetrics()
   let p = new Paint()
   // 与 setTextSize(15sp) 同源的 px 值：TextView.setTextSize(15f) 内部按 sp 换算，这里手动换成 px 喂给 Paint
   let textPx = 15.0.toFloat() * dm.scaledDensity
   p.setTextSize(textPx)
   let tw = p.measureText(text)                       // 文本实测宽（px）
-  // 文本宽 + 左右各 34px padding；行高按 1.5 倍字高 + 上下各 12px padding
+  // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）—— 三种形态都要
+  let baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+
+  if (style == 'ball' || style == 'ring') {
+    // 圆形：ball 56dp，ring 64dp（圆环需要更大的环面）
+    let diaDp: Int = style == 'ring' ? 64 : 56
+    let dia = ((diaDp * dm.density) as Number).toInt()
+    // 位置：优先记忆位置（上次拖过）；没有再算默认（贴右边、垂直 55% 处，避开状态栏和底栏）
+    if (capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
+      capsuleX = dm.widthPixels - dia - ((16 * dm.density) as Number).toInt()
+      capsuleY = ((dm.heightPixels * 0.55) as Number).toInt()
+    }
+    let lp = new WindowManager.LayoutParams(dia, dia)
+    lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
+    lp.format = PixelFormat.TRANSLUCENT
+    lp.gravity = Gravity.TOP | Gravity.START
+    lp.x = capsuleX
+    lp.y = capsuleY
+    lp.flags = baseFlags
+    return lp
+  }
+
+  // pill：顶部居中药丸（文本宽 + 左右各 34px padding；行高按 1.5 倍字高 + 上下各 12px padding）
   let w = ((tw + 68) as Number).toInt()
   let h = ((textPx * 1.5.toFloat() + 24) as Number).toInt()
   let lp = new WindowManager.LayoutParams(w, h)
@@ -1021,8 +1162,7 @@ function capsuleLayout(ctx: Context, text: string): WindowManager.LayoutParams {
   lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
   // 顶栏下方一点（40dp），避开状态栏
   lp.y = ((40 * dm.density) as Number).toInt()
-  // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）
-  lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+  lp.flags = baseFlags
   return lp
 }
 
@@ -1032,20 +1172,30 @@ function applyCapsule(ctx: Context | null) {
     if (!canDrawOverlays(ctx!)) { capsuleWanted = false; return; }
     try {
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-      let v = new CapsuleView(ctx!)
+      let v = new CapsuleView(ctx!, capsuleStyle)
       v.setText(capsuleText)
       v.setTextSize(15.0.toFloat())
       v.setTextColor(Color.WHITE)
-      let bg = new GradientDrawable()
-      bg.setColor(Color.argb(232, 23, 25, 38))
-      bg.setCornerRadius(999.0.toFloat())
-      v.setBackground(bg)
+      if (capsuleStyle == 'ball') {
+        let bg = new GradientDrawable()
+        bg.setColor(Color.argb(232, 23, 25, 38))
+        bg.setShape(GradientDrawable.OVAL)
+        v.setBackground(bg)
+      } else if (capsuleStyle == 'pill') {
+        let bg = new GradientDrawable()
+        bg.setColor(Color.argb(232, 23, 25, 38))
+        bg.setCornerRadius(999.0.toFloat())
+        v.setBackground(bg)
+      }
+      // ring：不设背景，圆底 + 环都由 drawRing 画
       v.setGravity(Gravity.CENTER)
-      v.setPadding(34, 12, 34, 12)
+      if (capsuleStyle == 'pill') v.setPadding(34, 12, 34, 12)
       // ★ 显式像素尺寸（见 capsuleLayout 注释）：悬浮窗上 WRAP_CONTENT 会被当成 MATCH_PARENT
-      let lp = capsuleLayout(ctx!, capsuleText)
+      let lp = capsuleLayout(ctx!, capsuleText, capsuleStyle)
       wm.addView(v, lp)
       capsuleView = v
+      capsuleWM = wm
+      capsuleLP = lp
       // 新建时按当前判定给初始可见性：挂上它的那一刻往往正是"刚从本 App 逃出去"，
       // 强制模式下如果已经判定跑偏，就该直接藏起来（马上要被拦截页盖住）。
       let s = svcRef
@@ -1062,13 +1212,17 @@ function applyCapsule(ctx: Context | null) {
       wm.removeView(capsuleView!)
     } catch (e) {}
     capsuleView = null
+    capsuleWM = null
+    capsuleLP = null
   } else if (capsuleWanted && capsuleView != null) {
     // 刷新文案 + 重排宽度：暂停前缀（"已暂停 · 专注中 "）比纯倒计时宽，宽度得自己管
     // （WRAP_CONTENT 不可靠）。mm:ss 每秒变由原生 tick 直接 setText，不经过这里。
     try {
       capsuleView!.setText(capsuleText)
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-      wm.updateViewLayout(capsuleView!, capsuleLayout(ctx!, capsuleText))
+      let lp = capsuleLayout(ctx!, capsuleText, capsuleStyle)
+      capsuleLP = lp
+      wm.updateViewLayout(capsuleView!, lp)
     } catch (e) {}
   }
 }
@@ -1088,29 +1242,99 @@ function setCapsuleShown(v: boolean) {
   try { c!.setVisibility(v ? 0 : 8) } catch (e) {}
 }
 
-function postCapsule(want: boolean, text: string, endAt: number, label: string) {
+const CAPSULE_SP = 'pw_capsule';
+
+function capsuleSp(): SharedPreferences | null {
+  let ctx = UTSAndroid.getAppContext();
+  if (ctx == null) return null;
+  try {
+    return ctx!.getSharedPreferences(CAPSULE_SP, 0);   // 0 = MODE_PRIVATE
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 拖动结束：把小球/圆环的位置落盘，下次挂起还在那 */
+function saveCapsulePos(x: Int, y: Int) {
+  try {
+    let p = capsuleSp();
+    if (p != null) p.edit().putInt('x', x).putInt('y', y).apply();
+  } catch (e) {}
+}
+
+/** 挂球/环前：先看有没有记忆位置。读到（>=0）就填进 capsuleX/Y 并返回 true */
+function restoreCapsulePos(): boolean {
+  try {
+    let p = capsuleSp();
+    if (p == null) return false;
+    let x = p.getInt('x', -1);
+    let y = p.getInt('y', -1);
+    if (x >= 0 && y >= 0) {
+      capsuleX = x;
+      capsuleY = y;
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function postCapsule(want: boolean, text: string, endAt: number, label: string, totalSec: number) {
   capsuleText = text
   capsuleEndAt = endAt
   capsuleLabel = label
+  capsuleTotalSec = totalSec
+  // 给圆环一个正确的首帧剩余：endAt>0 按差值算，否则 0（暂停/正计时 = 环画满）
+  if (endAt > 0) {
+    capsuleRemain = Math.max(0, Math.floor((endAt - System.currentTimeMillis()) / 1000));
+  } else {
+    capsuleRemain = 0;
+  }
   capsuleWanted = want
   uiPost(new CapsuleApplyTask())
 }
 
-/** 显示 / 刷新悬浮胶囊（text = 即时文案兜底，endAt = 倒计时终点 ms，label = 阶段前缀供原生自转拼接） */
-export function showCapsule(text: string, endAt: number, label: string): boolean {
-  postCapsule(true, text, endAt, label)
+/** 显示 / 刷新悬浮胶囊（text = 即时文案兜底，endAt = 倒计时终点 ms，label = 阶段前缀，totalSec = 本轮总时长秒） */
+export function showCapsule(text: string, endAt: number, label: string, totalSec: number): boolean {
+  postCapsule(true, text, endAt, label, totalSec)
   return true
 }
 
 /** 只刷新胶囊文案与终点（已显示时更新倒计时，没显示时也排上） */
-export function updateCapsule(text: string, endAt: number, label: string): boolean {
-  postCapsule(true, text, endAt, label)
+export function updateCapsule(text: string, endAt: number, label: string, totalSec: number): boolean {
+  postCapsule(true, text, endAt, label, totalSec)
   return true
 }
 
 /** 撤掉胶囊 */
 export function hideCapsule(): boolean {
-  postCapsule(false, '', 0, '')
+  postCapsule(false, '', 0, '', 0)
+  return true
+}
+
+/**
+ * 设胶囊形态：'pill'（顶部药丸，默认）/ 'ball'（可拖动小球）/ 'ring'（圆环进度，可拖动）。
+ * 非法值一律回落 'pill'。持久化；已挂且形态变化时先撤再重挂（背景/尺寸/位置都不同，
+ * 就地 updateViewLayout 换不干净）。
+ */
+export function setCapsuleStyle(style: string): boolean {
+  let s = (style == 'ball' || style == 'ring') ? style : 'pill';
+  if (capsuleStyle != s) {
+    capsuleStyle = s;
+    if (capsuleView != null) {
+      let old = capsuleView;
+      capsuleView = null;
+      try {
+        if (capsuleWM != null) capsuleWM!.removeView(old!);
+      } catch (e) {}
+      capsuleWM = null;
+      capsuleLP = null;
+      if (capsuleWanted) uiPost(new CapsuleApplyTask());
+    }
+  }
+  try {
+    let p = capsuleSp();
+    if (p != null) p.edit().putString('style', capsuleStyle).apply();
+  } catch (e) {}
   return true
 }
 

@@ -579,8 +579,9 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
     if (new RegExp('export function ' + fn + '\\s*\\(').test(uts)) ok('index.uts 实现了 ' + fn + '()');
     else bad('index.uts 没实现 ' + fn + '()');
   });
-  // 12.2 胶囊复用拉回链路：点一下 = PullNowTask（回前台）
-  if (/class CapsuleView extends TextView/.test(uts) && /CapsuleView[\s\S]{0,300}new PullNowTask\(\)/.test(uts)) ok('胶囊点击复用 PullNowTask 拉回链路（点一下回前台）');
+  // 12.2 胶囊复用拉回链路：点一下 = PullNowTask（回前台）。
+  //   形态多了拖动分支后类体变长，距离放宽到 2000（意图不变：CapsuleView 里必须接到拉回链路）
+  if (/class CapsuleView extends TextView/.test(uts) && /CapsuleView[\s\S]{0,2000}new PullNowTask\(\)/.test(uts)) ok('胶囊点击复用 PullNowTask 拉回链路（点一下回前台）');
   else bad('胶囊没接到 PullNowTask 拉回链路');
   // 12.3 非阻塞：要 FLAG_NOT_FOCUSABLE + FLAG_NOT_TOUCH_MODAL，否则会吞掉别家 App 的操作
   if (/FLAG_NOT_FOCUSABLE/.test(uts) && /FLAG_NOT_TOUCH_MODAL/.test(uts)) ok('胶囊是 FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCH_MODAL（非阻塞，不吞别家操作）');
@@ -620,6 +621,21 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   else bad('胶囊没走 capsuleLayout 显式像素 —— 写 WRAP_CONTENT 会在部分 ROM 上被当成 MATCH_PARENT，占满整屏');
   if (!/ViewGroup\.LayoutParams\.WRAP_CONTENT/.test(utsSrc)) ok('全文件没有 ViewGroup.LayoutParams.WRAP_CONTENT（悬浮窗上不可靠，一律显式尺寸）');
   else bad('又出现 ViewGroup.LayoutParams.WRAP_CONTENT —— 悬浮窗上会被 ROM 当成 MATCH_PARENT，胶囊占满整屏');
+  // 12.12 胶囊形态三选一（2026-11-01 用户提"系统胶囊调不了，做成圈/小球可选"）：
+  //      setCapsuleStyle 必须在 interface/index 都声明（不声明 = JS 调不到，形态永远退成 pill）
+  if (/export function setCapsuleStyle\s*\(/.test(iface) && /export function setCapsuleStyle\s*\(/.test(uts)) ok('setCapsuleStyle 在 interface/index 都声明（形态可选）');
+  else bad('setCapsuleStyle 缺声明 —— JS 调不到，形态永远退成 pill');
+  //      三种形态分支都在 capsuleLayout 里（ball/ring 圆形可拖动，pill 药丸）
+  if (/'ball'/.test(utsSrc) && /'ring'/.test(utsSrc) && /'pill'/.test(utsSrc)) ok('胶囊三种形态 pill/ball/ring 都在');
+  else bad('胶囊形态分支不全 —— 缺 pill/ball/ring 之一');
+  //      拖动位置落盘（小球/圆环拖到哪，下次挂起还在那）
+  //      ⚠️ 用 "function saveCapsulePos(" 精确匹配，不能只写 "saveCapsulePos" ——
+  //      saveCapsulePosX 这种改名会把子串匹配掉，反向测试就假绿了
+  if (/function saveCapsulePos\s*\(/.test(utsSrc) && /function restoreCapsulePos\s*\(/.test(utsSrc)) ok('小球/圆环拖动位置落盘 + 恢复（saveCapsulePos/restoreCapsulePos）');
+  else bad('小球/圆环位置没落盘 —— 每次挂起都回到默认位，白拖');
+  //      JS 侧桥接：fgsvc 把 capsuleSetStyle 包出去（跟胶囊四个能力同一套降级兜底）
+  if (/export function capsuleSetStyle/.test(fgsvc)) ok('fgsvc 暴露了 capsuleSetStyle() 桥');
+  else bad('fgsvc 缺 capsuleSetStyle() 桥 —— 首页选了形态也推不到原生');
 }
 
 console.log('== 13. index.uts 导出必须全部声明进 interface.uts（否则 fgsvc 静默降级） ==');

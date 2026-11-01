@@ -676,6 +676,14 @@
           </view>
           <view v-if="capsuleOn && !capsuleOk" class="fc-warn" @tap="openCapsulePerm">{{ $t('灵动岛需开启「显示在其他应用上层」') }}</view>
 
+          <!-- 悬浮形态三选一：胶囊（顶部药丸）/ 小球（可拖动）/ 圆环（进度环，可拖动） -->
+          <view v-if="capsuleOn" class="fc-style">
+            <text class="fc-style-label">{{ $t('悬浮形态') }}</text>
+            <view class="fc-style-opt" :class="{ 'fc-style-on': capsuleStyle === 'pill' }" @tap="pickCapsuleStyle('pill')">{{ $t('胶囊') }}</view>
+            <view class="fc-style-opt" :class="{ 'fc-style-on': capsuleStyle === 'ball' }" @tap="pickCapsuleStyle('ball')">{{ $t('小球') }}</view>
+            <view class="fc-style-opt" :class="{ 'fc-style-on': capsuleStyle === 'ring' }" @tap="pickCapsuleStyle('ring')">{{ $t('圆环') }}</view>
+          </view>
+
           <view class="fc-row">
             <view class="fc-info">
               <text class="fc-title">{{ $t('拦截通知') }}</text>
@@ -891,6 +899,7 @@ export default {
       overlayOk: false,      // 「显示在其他应用上层」权限：强制模式拉回的准入条件
       capsuleOn: false,      // 首页「专注设置」卡片：退到后台时挂悬浮灵动岛倒计时
       capsuleOk: false,      // 「显示在其他应用上层」权限：灵动岛的准入条件（与强制模式共用）
+      capsuleStyle: 'pill',  // 胶囊形态：pill 顶部药丸 | ball 可拖动小球 | ring 圆环进度
       // ---- 「专注设置」卡片新增的三组 ----
       // ⚠️ 时长那份配置在 pwstore 的 pomoCfg（focus.setCfg 写），**不在** settings.focus：
       //    两处各存一份就会出现"首页改了 25、专注页还是 45"。
@@ -1594,6 +1603,7 @@ export default {
       this.restMin = pc.rest || 5
       this.overlayOk = apptime.canDrawOverlays()
       this.capsuleOn = !!f.capsule
+      this.capsuleStyle = f.capsuleStyle || 'pill'
       this.capsuleOk = apptime.canDrawOverlays()
       if (this.locked) this.focusSheet = false
       // 内容变了 → 下面那摞卡的文档高度也变了（目标卡今天一项 vs 三项，高度就不一样），
@@ -2730,6 +2740,14 @@ export default {
       try { apptime.openOverlaySettings() } catch (e) {}
       setTimeout(() => { this.capsuleOk = apptime.canDrawOverlays() }, 1200)
     },
+    /** 灵动岛形态：pill 药丸 / ball 小球 / ring 圆环。选了立刻写设置并推给原生 */
+    pickCapsuleStyle(style) {
+      if (!style || ['pill', 'ball', 'ring'].indexOf(style) < 0) style = 'pill'
+      this.capsuleStyle = style
+      this.saveFocus('capsuleStyle', style)
+      // 原生立即切形态（已挂则撤重挂），不等下次 syncCapsule
+      try { fgsvc.capsuleSetStyle(style) } catch (e) {}
+    },
     // ---------- 统一弹窗 ----------
     // 全 App 只有一套弹窗（components/app-dialog）：系统弹窗在 App 端样式管不到，
     // 跟这套毛玻璃卡片不是一个画风。ask() 只负责描述，动作在 onDlgYes 里按 action 分派。
@@ -3740,6 +3758,42 @@ export default {
   text-align: center;
 }
 .fc-warn:active { opacity: 0.8; }
+
+/* 灵动岛形态三选一：胶囊 / 小球 / 圆环（选中的小胶囊转品牌红） */
+.fc-style {
+  display: flex;
+  align-items: center;
+  margin: 4rpx 0 16rpx;
+}
+.fc-style-label {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  margin-right: 16rpx;
+}
+.fc-style-opt {
+  flex: 1;
+  text-align: center;
+  padding: 12rpx 0;
+  margin: 0 6rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+  background: rgba(23, 32, 26, 0.06);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.06);
+  transition: all 160ms ease;
+}
+.fc-style-opt:first-of-type { margin-left: 0; }
+.fc-style-opt:last-of-type { margin-right: 0; }
+.fc-style-on {
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
+  color: #e4173d;
+  color: var(--brand, #e4173d);
+  font-weight: 600;
+}
 
 /* iOS 风开关（与专注页 .sr-switch 同语言） */
 .fc-switch {

@@ -1212,6 +1212,10 @@ export default {
   '灵动岛': 'Dynamic Island',
   '退到别的 App 时显示专注倒计时': 'Show the focus countdown when you switch to another app',
   '灵动岛需开启「显示在其他应用上层」': 'Dynamic Island needs "Display over other apps"',
+  '悬浮形态': 'Style',
+  '胶囊': 'Pill',
+  '小球': 'Ball',
+  '圆环': 'Ring',
   '超时': 'Overtime',
   '强制模式：先把这段专注跑完': 'Forced mode: finish this focus session first',
   // 触感反馈（设置 › 触感反馈）

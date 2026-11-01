@@ -554,12 +554,13 @@ export function capsuleGranted() {
  * @param {string} text   JS 侧算好的即时文案（兜底 / 首帧）
  * @param {number} endAt  倒计时终点 ms；0 = 不让原生自转（暂停 / 正计时段由 JS 静态显示）
  * @param {string} label  阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
+ * @param {number} totalSec  本轮总时长秒（圆环形态画进度用；0 = 不知道）
  */
-export function capsuleShow(text, endAt, label) {
+export function capsuleShow(text, endAt, label, totalSec) {
   if (!capsuleGranted()) return false;
   // #ifdef APP-PLUS
   try {
-    if (typeof fgs.showCapsule === 'function') return !!fgs.showCapsule(String(text || ''), Number(endAt) || 0, String(label || ''));
+    if (typeof fgs.showCapsule === 'function') return !!fgs.showCapsule(String(text || ''), Number(endAt) || 0, String(label || ''), Number(totalSec) || 0);
   } catch (e) {}
   // #endif
   return false;
@@ -570,12 +571,13 @@ export function capsuleShow(text, endAt, label) {
  * @param {string} text
  * @param {number} endAt
  * @param {string} label
+ * @param {number} totalSec
  */
-export function capsuleUpdate(text, endAt, label) {
+export function capsuleUpdate(text, endAt, label, totalSec) {
   if (!capsuleGranted()) return false;
   // #ifdef APP-PLUS
   try {
-    if (typeof fgs.updateCapsule === 'function') return !!fgs.updateCapsule(String(text || ''), Number(endAt) || 0, String(label || ''));
+    if (typeof fgs.updateCapsule === 'function') return !!fgs.updateCapsule(String(text || ''), Number(endAt) || 0, String(label || ''), Number(totalSec) || 0);
   } catch (e) {}
   // #endif
   return false;
@@ -586,6 +588,16 @@ export function capsuleHide() {
   // #ifdef APP-PLUS
   try {
     if (typeof fgs.hideCapsule === 'function') return !!fgs.hideCapsule();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 设胶囊形态：'pill' 顶部药丸 / 'ball' 可拖动小球 / 'ring' 圆环进度。原生持久化。 */
+export function capsuleSetStyle(style) {
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.setCapsuleStyle === 'function') return !!fgs.setCapsuleStyle(String(style || 'pill'));
   } catch (e) {}
   // #endif
   return false;

@@ -147,15 +147,17 @@ function ongoingPair() {
  */
 
 let capsuleShown = false;   // 上次实际想要的状态：避免每秒都重挂 / 重撤
+let capsuleStyleApplied = null;   // 上次同步给原生的形态：变了才推一次（避免每拍都过桥）
 
 /**
- * 算出胶囊该显示的 { txt, label, endAt }：
- *   txt    —— 即时兜底文案（首帧 / 静态态直接显示）
- *   label  —— 阶段前缀（"专注中 " / "休息中 "），原生自转时拼在剩余时间前
- *   endAt  —— 倒计时终点（ms）；0 表示不让原生自转（暂停 / 正计时段由 JS 静态显示）
+ * 算出胶囊该显示的 { txt, label, endAt, totalSec }：
+ *   txt      —— 即时兜底文案（首帧 / 静态态直接显示）
+ *   label    —— 阶段前缀（"专注中 " / "休息中 "），原生自转时拼在剩余时间前
+ *   endAt    —— 倒计时终点（ms）；0 表示不让原生自转（暂停 / 正计时段由 JS 静态显示）
+ *   totalSec —— 本轮总时长（秒），圆环形态画进度弧用
  */
 function capsuleContent() {
-  if (!state) return { txt: '', label: '', endAt: 0 };
+  if (!state) return { txt: '', label: '', endAt: 0, totalSec: 0 };
   const focusWord = t('专注中');
   const restWord = t('休息中');
   const pauseWord = t('已暂停');
@@ -175,7 +177,7 @@ function capsuleContent() {
   const head = state.paused ? (pauseWord + ' · ' + phaseWord + ' ') : (phaseWord + ' ');
   const full = head + timeStr + overSuffix;
   const txt = full.length <= 16 ? full : (timeStr + overSuffix);  // 太长就退化为只留倒计时
-  return { txt, label: head, endAt };
+  return { txt, label: head, endAt, totalSec: Number(state.totalSec) || 0 };
 }
 
 /**
@@ -192,9 +194,15 @@ function capsuleContent() {
  */
 export function syncCapsule() {
   let want = false;
-  let txt = '', label = '', endAt = 0;
+  let txt = '', label = '', endAt = 0, totalSec = 0;
   try {
     const c = fcfg();
+    // 形态：变了才推一次给原生（原生持久化，已挂则就地撤重挂）
+    const style = c.capsuleStyle || 'pill';
+    if (capsuleStyleApplied !== style) {
+      capsuleStyleApplied = style;
+      try { fgsvc.capsuleSetStyle(style); } catch (e) {}
+    }
     want = (!!c.capsule || !!c.forced)
       && !!state
       && (state.phase === 'focus' || state.phase === 'rest')
@@ -203,11 +211,11 @@ export function syncCapsule() {
   } catch (e) { want = false; }
   if (want) {
     const r = capsuleContent();
-    txt = r.txt; label = r.label; endAt = r.endAt;
+    txt = r.txt; label = r.label; endAt = r.endAt; totalSec = r.totalSec;
   }
   if (want) {
-    if (capsuleShown) fgsvc.capsuleUpdate(txt, endAt, label);
-    else { fgsvc.capsuleShow(txt, endAt, label); capsuleShown = true; }
+    if (capsuleShown) fgsvc.capsuleUpdate(txt, endAt, label, totalSec);
+    else { fgsvc.capsuleShow(txt, endAt, label, totalSec); capsuleShown = true; }
   } else if (capsuleShown) {
     fgsvc.capsuleHide();
     capsuleShown = false;

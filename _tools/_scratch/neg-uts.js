@@ -59,9 +59,15 @@ const cases = [
   ['Int 函数的 return 用了裸 let 计数（推成 Number）',
     (s) => s.replace('let a11yBindN: Int = 0;', 'let a11yBindN = 0;')],
   ['long 字段传了 Int 常量（不会放宽成 Long）',
-    (s) => s.replace('info.notificationTimeout = 100;', 'info.notificationTimeout = A11Y_NOTIFY_MS;')],
+    (s) => s.replace('info.notificationTimeout = 30;', 'info.notificationTimeout = A11Y_NOTIFY_MS;')],
   ['FLAG_DEFAULT 写回来了（这个常量不存在）',
-    (s) => s.replace('info.flags = AccessibilityServiceInfo.DEFAULT;', 'info.flags = AccessibilityServiceInfo.FLAG_DEFAULT;')]
+    (s) => s.replace('info.flags = AccessibilityServiceInfo.DEFAULT;', 'info.flags = AccessibilityServiceInfo.FLAG_DEFAULT;')],
+
+  // ---- 第 12.12 节：胶囊形态三选一（2026-11-01）----
+  ['小球/圆环位置不落盘（拖到哪下次都回到默认位）',
+    (s) => s.replace('function saveCapsulePos(x: Int, y: Int) {', 'function saveCapsulePosX(x: Int, y: Int) {')],
+  ['胶囊形态 setCapsuleStyle 被改名（JS 调不到，形态永远退成 pill）',
+    (s) => s.replace('export function setCapsuleStyle(style: string): boolean {', 'export function setCapsuleStyleX(style: string): boolean {')]
 ];
 
 const base = runCheck();
@@ -135,6 +141,8 @@ const ifcOrig = fs.readFileSync(IFC, 'utf8');
 const ifcCases = [
   ['interface.uts 漏声明 openNotifSettings（fgsvc 调不到，点去开启没反应）',
     (s) => s.replace(/export function openNotifSettings\(\): boolean\r?\n/, '')],
+  ['interface.uts 漏声明 setCapsuleStyle（首页选形态推不到原生）',
+    (s) => s.replace(/export function setCapsuleStyle\(style: string\): boolean\r?\n/, '')],
 ];
 for (const [name, mut] of ifcCases) {
   const next = mut(ifcOrig);
