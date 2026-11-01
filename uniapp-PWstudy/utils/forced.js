@@ -424,14 +424,13 @@ function detectJs() {
 }
 
 function pullNow() {
-  const now = Date.now();
-  if (now - lastPullAt < PULL_GAP_MS) return false;
-  lastPullAt = now;
-  // 原生优先（前台服务持着 task，moveTaskToFront 最可靠），桥接兜底
-  let pulled = false;
-  try { pulled = !!fgsvc.bringToFront(); } catch (e) { pulled = false; }
-  if (!pulled) { try { pulled = !!apptime.bringSelfFront(); } catch (e) { pulled = false; } }
-  return pulled;
+  // ★ 2026-11-02：强制模式不再自动把人拉回前台。
+  // 旧逻辑会 fgsvc.bringToFront() → 原生 pullSelf() → 弹出全屏拦截页 PWPullActivity
+  // （就是用户说的"巨大不可移动的弹窗"）。改版后逃生是「可移动小胶囊 + 点一下返回」：
+  // 原生 seen() 判跑偏只 setCapsuleShown(true) 把胶囊亮出来，返回完全交给胶囊点击
+  // （PullNowTask → pullBackSoft，仅 moveTaskToFront / launch intent，不弹任何全屏页）。
+  // 所以 JS 兜底检测也彻底不拉，只让计数 / 提醒逻辑照常走。
+  return false;
 }
 
 function warn() {
