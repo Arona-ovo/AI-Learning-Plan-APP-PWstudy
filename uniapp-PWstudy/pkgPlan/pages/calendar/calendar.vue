@@ -6,11 +6,18 @@
     <!-- 月历 -->
     <view class="card">
       <view class="card-head">
-        <text class="card-title">{{ year }} 年 {{ month }} 月</text>
+        <!-- 月份切换：箭头紧贴月份文字（原来这两个箭头挤在「今天」两边，
+             用户以为是切"哪一天"，点下去翻的却是月份 —— 2026-11-01 真机反馈） -->
+        <view class="cm-month">
+          <text class="cm-marrow" @tap="shift(-1)">‹</text>
+          <text class="card-title">{{ year }} 年 {{ month }} 月</text>
+          <text class="cm-marrow" @tap="shift(1)">›</text>
+        </view>
+        <!-- 日期切换：按「天」走，跨月自动翻页；中间的日期点了回今天 -->
         <view class="cm-nav">
-          <text class="cm-arrow" @tap="shift(-1)">‹</text>
-          <text class="cm-today" @tap="goToday">今天</text>
-          <text class="cm-arrow" @tap="shift(1)">›</text>
+          <text class="cm-arrow" @tap="shiftDay(-1)">‹</text>
+          <text class="cm-today" @tap="goToday">{{ picked === todayStr ? '今天' : '回今天' }}</text>
+          <text class="cm-arrow" @tap="shiftDay(1)">›</text>
         </view>
       </view>
       <view class="cm-week">
@@ -57,6 +64,13 @@
       />
     </view>
 
+    <!-- 跟 AI 说说今天：翻到某天发现"这天没空 / 排得不对"时，就地一句话，
+         不用再绕回首页找对话入口。组件与首页是同一个（components/coach-box），
+         口径一致：AI 会记功、判断偏差，并给"去重排"的出口。 -->
+    <view class="card">
+      <coach-box ref="coach" @changed="onCoachChanged" />
+    </view>
+
     <!-- 任务完成弹窗（fixed 层，放在页面根下）：与首页同一个组件、同一套文案 -->
     <task-done-dialog ref="doneDlg" @open="doneDlgOn = true" @close="doneDlgOn = false" />
   </view>
@@ -70,11 +84,12 @@ import * as harvest from '../../../utils/harvest.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import ScheduleList from '../../../components/schedule-list/schedule-list.vue'
 import TaskDoneDialog from '../../../components/task-done-dialog/task-done-dialog.vue'
+import CoachBox from '../../../components/coach-box/coach-box.vue'
 
 const WEEK = ['一', '二', '三', '四', '五', '六', '日']
 
 export default {
-  components: { FloatNavbar, ScheduleList, TaskDoneDialog },
+  components: { FloatNavbar, ScheduleList, TaskDoneDialog, CoachBox },
   data() {
     return {
       weekNames: WEEK,
@@ -166,6 +181,15 @@ export default {
       //    （真机："取消完要退出 app 重进才刷新"，2026-10-25 实锤）。
       this.$forceUpdate && this.$forceUpdate()
     },
+    /**
+     * AI 对话改动了记录（记功 / 偏差）→ 月历格子里的任务数与当日列表都要重算。
+     * 不刷新的话，用户刚说"这项我做完了"，上面的列表还显示 0/2，看着像没生效。
+     */
+    onCoachChanged() {
+      this.build()
+      this.refreshList()
+      this.$forceUpdate && this.$forceUpdate()
+    },
     // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
     /** 勾掉一项 → 弹「恭喜你完成任务」（取消完成不弹） */
     onTaskDone(row) {
@@ -210,6 +234,24 @@ export default {
       this.month = m
       this.build()
     },
+    /**
+     * 按天切（‹ 今天 › 那两个箭头）。
+     * 与 shift(n) 分清楚：shift 翻**月**，这里翻**天** —— 用户看着「今天」两边的箭头
+     * 一定是想切日期，翻月份是另一件事（2026-11-01 真机反馈）。
+     * 跨月时自动翻页，不用他再手动点一下月份。
+     */
+    shiftDay(n) {
+      const d = holiday.addDays(this.picked || this.todayStr, n)
+      this.picked = d
+      const y = Number(d.slice(0, 4))
+      const m = Number(d.slice(5, 7))
+      if (y !== this.year || m !== this.month) {
+        this.year = y
+        this.month = m
+        this.build()
+      }
+      this.refreshList()
+    },
     goToday() {
       const t = pw.today().split('-')
       this.year = Number(t[0])
@@ -240,6 +282,8 @@ export default {
 .cal-page { min-height: 100vh; padding-bottom: 60rpx; }
 
 .cm-nav { display: flex; align-items: center; }
+.cm-month { display: flex; align-items: center; }
+.cm-marrow { font-size: 26rpx; color: var(--ink-3, #98a19b); padding: 0 10rpx; }
 .cm-arrow { font-size: 34rpx; color: var(--ink-2, #5a6560); padding: 0 16rpx; }
 .cm-today { font-size: 23rpx; color: var(--brand-strong, #bb1332); }
 

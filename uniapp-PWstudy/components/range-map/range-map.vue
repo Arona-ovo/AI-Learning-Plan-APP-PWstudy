@@ -119,6 +119,8 @@ const PIN = '/static/pin.png'; // 图钉素材（_tools/gen-pin.py 生成；icon
 
 import * as loc from '../../utils/location.js';
 
+import { holdScroll, releaseScroll } from '../../utils/scroll-lock.js';
+
 export default {
   name: 'RangeMap',
   props: {
@@ -206,9 +208,13 @@ export default {
     show(v) {
       if (v) this.open();
       else clearTimeout(this._ctrT); // 关掉就别再回来改地图状态（组件常驻，定时器得自己收）
+      // 锁页面滚动：遮罩上的 touchmove.prevent 拦不住 App 端 scroll-view 的链式滚动
+      if (v) holdScroll('rmap-' + this._uid)
+      else releaseScroll('rmap-' + this._uid)
     }
   },
   beforeDestroy() {
+    if (this.show) releaseScroll('rmap-' + this._uid);
     clearTimeout(this._ctrT);
     this._ctrT = null;
   },

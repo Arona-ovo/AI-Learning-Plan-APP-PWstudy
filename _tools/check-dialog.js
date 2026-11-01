@@ -202,6 +202,39 @@ eq(fvm.dlg.show, false, '50 分钟 → 弹窗关闭');
 eq(fvm.minutes, 50, 'minutes = 50');
 assert(fvm.minutesOptions.indexOf(50) >= 0, '50 进了时长选项（下次能直接选）');
 
+console.log('== 12. 更新弹窗也走统一 UI（utils/updater.js） ==');
+// 背景：页面早就统一了，但 updater 在 utils 层自己裸调 uni.showModal —— 检查更新
+// 弹出的"有新版本"框是系统原生的，跟 App 的玻璃卡片完全两个风格（2026-11-01 真机）。
+// 现在改成可由页面注入宿主（setDialogHost），utils 层只描述"问什么"，不决定"长什么样"。
+const upd = read(path.join(ROOT, 'utils', 'updater.js'));
+const updCode = strip(upd);
+const modalHits = (updCode.match(/uni\.showModal/g) || []).length;
+assert(modalHits <= 1, 'updater 里没有裸调系统弹窗（只留 askDialog 的兜底 1 处，实测 ' + modalHits + '）');
+assert(/export function setDialogHost/.test(updCode), 'updater 暴露 setDialogHost（页面注入统一弹窗）');
+assert(/export function clearDialogHost/.test(updCode), 'updater 暴露 clearDialogHost（页面退栈要还回去）');
+const askUses = (updCode.match(/askDialog\(\{/g) || []).length;
+assert(askUses >= 5, '五个更新提示都过 askDialog（有新版本/整包/失败/无网/查不到，实测 ' + askUses + '）');
+assert(/updater\.setDialogHost/.test(strip(read(path.join(ROOT, 'pages', 'home', 'home.vue')))),
+  '首页注入弹窗宿主（启动自检的"有新版本"是在首页弹的）');
+assert(/updater\.setDialogHost/.test(strip(read(path.join(ROOT, 'pkgManage', 'pages', 'settings', 'settings.vue')))),
+  '设置页注入弹窗宿主（手动检查更新）');
+
+console.log('== 13. 浮层打开时锁住页面滚动 ==');
+// 背景：fixed 遮罩挡不住触摸的**默认滚动**，App 端的 scroll-view 还会把"滚到边界"的
+// 余量链给背后页面 —— 真机实测（2026-11-01）：首页「管理」面板开着，手指一划首页跟着走。
+// overscroll-behavior 在原生 scroll-view 上不生效，所以必须真的锁滚动容器。
+const lockPath = path.join(ROOT, 'utils', 'scroll-lock.js');
+assert(fs.existsSync(lockPath), 'utils/scroll-lock.js 存在');
+assert(/export function holdScroll/.test(read(lockPath)) && /export function releaseScroll/.test(read(lockPath)),
+  'scroll-lock 提供 hold / release');
+assert(/holdScroll\(/.test(read(DIALOG)) && /releaseScroll\(/.test(read(DIALOG)),
+  'app-dialog 打开时锁页面（一个组件覆盖所有走统一弹窗的地方）');
+const hmCode = strip(read(path.join(ROOT, 'pages', 'home', 'home.vue')));
+['home-manage', 'home-focus', 'home-sheet'].forEach((k) => {
+  assert(hmCode.indexOf("holdScroll('" + k + "')") >= 0 && hmCode.indexOf("releaseScroll('" + k + "')") >= 0,
+    '首页「' + k + '」浮层成对持锁 / 还锁');
+});
+
 console.log('');
 console.log(fail === 0 ? '统一弹窗校验全部通过 ✓' : '失败 ' + fail + ' 项 ✗');
 process.exit(fail === 0 ? 0 : 1);

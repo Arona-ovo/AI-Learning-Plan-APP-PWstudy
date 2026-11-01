@@ -54,6 +54,8 @@
 //
 // 运算说明：先 × ÷ 后 + −（有优先级，不是左到右硬算）——
 //   2+3×4 得 14 而不是 20，跟人拿起实体计算器的预期一致。
+import { holdScroll, releaseScroll } from '../../utils/scroll-lock.js';
+
 export default {
   name: 'FocusCalc',
   props: {
@@ -63,7 +65,15 @@ export default {
     return { expr: '', res: '' }
   },
   watch: {
-    show(v) { if (v) { this.expr = ''; this.res = '' } }
+    show(v) {
+      if (v) { this.expr = ''; this.res = '' }
+      // 锁页面滚动：遮罩上的 touchmove.prevent 在 App 端拦不住 scroll-view 的链式滚动
+      if (v) holdScroll('fcalc-' + this._uid)
+      else releaseScroll('fcalc-' + this._uid)
+    }
+  },
+  beforeDestroy() {
+    if (this.show) releaseScroll('fcalc-' + this._uid)
   },
   methods: {
     noop() {},

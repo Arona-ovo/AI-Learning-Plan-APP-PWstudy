@@ -7,7 +7,7 @@
   <view class="pop-mask" v-if="show" @tap="onMaskTap" @touchmove.stop.prevent="noop">
     <view class="pop-card" @tap.stop="noop" @touchmove.stop>
       <view class="dlg-title" v-if="title">{{ title }}</view>
-      <view class="dlg-content" v-if="content">{{ content }}</view>
+      <view class="dlg-content" :class="{ 'dlg-content-pre': isMultiline }" v-if="content">{{ content }}</view>
 
       <!-- 输入模式 -->
       <input
@@ -75,6 +75,8 @@
 
 <script>
 import { t } from '../../utils/i18n.js';
+// 弹窗打开时锁住页面滚动（fixed 遮罩挡不住触摸的默认滚动，App 端最明显）
+import { holdScroll, releaseScroll } from '../../utils/scroll-lock.js';
 // components/app-dialog/app-dialog.vue - 全 App 统一的弹窗
 //
 // 为什么不用 uni.showModal / showActionSheet：
@@ -131,6 +133,11 @@ export default {
     return { draft: '', picked: {}, left: 0 }
   },
   computed: {
+    // 多行正文（如更新说明）要保留换行并左对齐 —— 居中的多行段落很难读，
+    // 而 uni-app 的 <text> 默认把 \n 当普通空白吞掉
+    isMultiline() {
+      return String(this.content || '').indexOf('\n') >= 0
+    },
     normItems() {
       return (this.items || []).map(it =>
         typeof it === 'string' ? { label: it, danger: false } : { label: it.label, danger: !!it.danger }
@@ -149,8 +156,12 @@ export default {
         this.draft = String(this.value || '')
         this.syncPicked()
         this.startCountdown()
+        // 锁住背后的页面：fixed 遮罩挡不住触摸的默认滚动，App 端（原生 scroll-view）
+        // 尤其明显 —— 不锁的话在弹窗上划一下，底下的页面就跟着走（2026-11-01 真机）
+        holdScroll('dlg-' + this._uid)
       } else {
         this.clearCountdown()
+        releaseScroll('dlg-' + this._uid)
       }
     },
     value(v) {
@@ -164,6 +175,8 @@ export default {
   },
   beforeDestroy() {
     this.clearCountdown()
+    // 弹窗还开着就被销毁（跳页/整页重渲染）→ 锁必须还回去，否则页面永久滚不动
+    if (this.show) releaseScroll('dlg-' + this._uid)
   },
   methods: {
     noop() {},
@@ -241,6 +254,8 @@ export default {
   color: var(--ink-2, #5a6560);
   text-align: center;
 }
+/* 多行正文（更新说明这类）：保住换行、左对齐。居中排一段四五行的字没法读 */
+.dlg-content-pre { white-space: pre-line; text-align: left; }
 
 /* 操作菜单 */
 .dlg-sheet {

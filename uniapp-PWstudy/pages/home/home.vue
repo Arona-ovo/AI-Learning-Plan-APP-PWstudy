@@ -182,9 +182,11 @@
 
         <!-- ② 今日任务 —— 焦点是"下一条做什么"，只列最该做的三条。
              行按压底色是"这行可点"的暗示（点行进专注、点勾选框完成）。 -->
-        <view class="tp-block task-card">
+        <view class="tp-block task-card" @tap="onTaskCardTap">
           <view class="hc-head">
             <text class="hc-title">{{ $t('今日任务') }}</text>
+            <!-- 小箭头：让"这块能点"看得出来（去日程看今天全部任务 + 后面的安排） -->
+            <text class="hc-jump">›</text>
             <text class="hc-count">{{ taskStat.done }}/{{ taskStat.total }}</text>
           </view>
           <view class="hc-bar"><view class="hc-fill" :style="{ width: taskStat.pct + '%' }"></view></view>
@@ -198,7 +200,7 @@
               class="hc-task"
               :class="{ 'hc-task-lead': ti === 0 }"
               hover-class="hc-task-press"
-              @tap="startFor(item)"
+              @tap.stop="startFor(item)"
             >
               <view
                 class="tk-check"
@@ -213,7 +215,7 @@
                 <text class="hc-sub">{{ item.goal.title }} · {{ $t('剩 {n} 分钟', { n: item.estMin }) }}</text>
               </view>
             </view>
-            <view v-if="hasMoreTask" class="hc-more" @tap="goCalendar">
+            <view v-if="hasMoreTask" class="hc-more" @tap.stop="goCalendar">
               <text class="hc-sub">{{ $t('查看全部 ›') }}</text>
             </view>
           </block>
@@ -221,7 +223,7 @@
                和任务清单是一回事，不单独占面板底部一层。
                填过就变成「改一下」，不重复催促；编辑首页时让位给编辑按钮。 -->
           <view v-if="!editing" class="home-cta">
-            <button class="btn-primary cta-btn" @tap="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
+            <button class="btn-primary cta-btn" @tap.stop="goDaily()">{{ checked ? '改一下今天的收工' : '今日收工' }}</button>
           </view>
         </view>
       </view>
@@ -523,6 +525,19 @@
       @cancel="onDlgCancel"
     />
 
+    <!-- 更新询问（有新版本 / 需要整包 / 装失败 / 没联网）：updater 通过 setDialogHost
+         注进来，和上面那张卡是同一个组件 —— 以前这里是系统原生弹窗，画风完全脱节。 -->
+    <app-dialog
+      :show="upd.show"
+      :btn-mode="upd.onlyOk ? 'alert' : 'confirm'"
+      :title="upd.title"
+      :content="upd.content"
+      :confirm-text="upd.confirmText"
+      :cancel-text="upd.cancelText"
+      @confirm="onUpdAnswer(true)"
+      @cancel="onUpdAnswer(false)"
+    />
+
     <!-- 任务完成弹窗（fixed 层，必须放在 .page-slide 之外 —— 记忆约束 3）。
          勾掉一项立刻弹：「取消」就这么着，「额外收获」去跟 AI 说两句。
          记账不在这里做 —— 完成那一刻 utils/pwstore.js 已经写进当日台账了。 -->
@@ -780,6 +795,8 @@ import * as coach from '../../utils/coach.js'
 import * as urgency from '../../utils/urgency.js'
 import * as partner from '../../utils/partner.js'
 import * as updater from '../../utils/updater.js'
+// 浮层打开时锁页面滚动（fixed 遮罩挡不住触摸的默认滚动，见 utils/scroll-lock.js）
+import { holdScroll, releaseScroll, resetScrollLock } from '../../utils/scroll-lock.js'
 import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
 import * as reminder from '../../utils/reminder.js'
@@ -888,6 +905,8 @@ export default {
       noiseKind: 'rain',     // 白噪音音色
       // 统一弹窗（components/app-dialog）：危险确认也走自绘卡片，不用 uni.showModal
       dlg: { show: false, mode: 'confirm', title: '', content: '', confirmText: '确定', danger: false, seq: 0, action: '', items: [], item: null },
+      // 更新询问（updater 注入的宿主用的状态）：与 dlg 分开，免得跟"关联询问"抢 action/seq
+      upd: { show: false, title: '', content: '', confirmText: '确定', cancelText: '取消', onlyOk: false },
       // ---------- 首页分层：首屏三卡（常驻）+ 下面一摞可排模块 ----------
       // 下面那摞卡跟在首屏后面**正常滚动**（不是抽屉）：不用学手势、不会误触，
       // 下面的内容也一直"在那儿"，不滑也知道它存在。
@@ -1325,6 +1344,9 @@ export default {
   onShow() {
     hideNativeTabBar()
     syncTabbar(this)
+    // 更新询问走本页的 app-dialog（见 utils/updater.js 的 setDialogHost）：
+    // 启动自检下来的"有新版本"就是在首页弹的，这里不注入就退回系统原生框
+    try { updater.setDialogHost((o) => this.askUpdateDlg(o), this) } catch (e) {}
     // 强制模式：专注跑着的时候，App 内部也不许乱逛（回首页/统计/我的都算逃逸）。
     // 判定与跳转全在 utils/forced.js，这里只问一句 —— 被拦就直接 return，
     // 后面 refresh / startTick 都不用跑了（马上要跳走，跑了也是白跑）。
@@ -1383,10 +1405,17 @@ export default {
     // 离开首页一律退出编辑态，保证回来时界面是简洁的
     this.finishEdit()
     this.focusSheet = false
+    // 浮层被强制关掉时要还锁，否则回首页发现页面滚不动
+    releaseScroll('home-focus')
+    releaseScroll('home-sheet')
     this.stopTick()
+    // 只清自己注入的那个宿主（设置页也会注入，别把它的带走）
+    try { updater.clearDialogHost(this) } catch (e) {}
   },
   onUnload() {
     this.stopTick()
+    try { updater.clearDialogHost(this) } catch (e) {}
+    resetScrollLock()
     clearTimeout(this.__scrollableT)
     clearTimeout(this.__throttleT)
     // 转场接力那两个定时器（点出的圆缩回 / 摘 class）：页面没了就别再改状态
@@ -1405,7 +1434,7 @@ export default {
     // 任务完成弹窗同理：按返回只是"不说了"，不是退出 App。
     if (this.doneDlgOn && this.$refs.doneDlg) { this.$refs.doneDlg.close(); return true }
     if (this.gdOn) { this.endGuide(); return true }
-    if (this.sheetShow) { this.sheetShow = false; return true }
+    if (this.sheetShow) { this.sheetShow = false; releaseScroll('home-sheet'); return true }
     if (this.editing) { this.finishEdit(); return true }
     if (!this.forcedOn) return false
     // 正计时段放行：专注已跑满，这时候还把人按在首页就是"拦人不放"
@@ -1878,13 +1907,14 @@ export default {
       // 进编辑态要把那一摞卡滚到眼前：把手 / 收纳 / 排序全在卡片上，
       // 停在首屏看的话等于进了一个什么都看不见的编辑态。
       if (this.editing) this.scrollToModules()
-      if (!this.editing) this.sheetShow = false
+      if (!this.editing && this.sheetShow) { this.sheetShow = false; releaseScroll('home-sheet') }
       this.dragIndex = -1
       this.dragDy = 0
     },
     finishEdit() {
       this.editing = false
       this.sheetShow = false
+      releaseScroll('home-sheet')
       this.dragIndex = -1
       this.dragDy = 0
     },
@@ -1892,9 +1922,11 @@ export default {
     openSheet() {
       try { this.sheetList = layout.stashed() } catch (e) { this.sheetList = [] }
       this.sheetShow = true
+      holdScroll('home-sheet')
     },
     closeSheet() {
       this.sheetShow = false
+      releaseScroll('home-sheet')
     },
     stashModule(id) {
       // 全收干净了首页就是一张白板，用户会以为 App 坏了 —— 至少留一张
@@ -2028,6 +2060,15 @@ export default {
     },
     goDaily() { uni.navigateTo({ url: '/pkgPlan/pages/daily/daily' }) },
     goCalendar() { safeNav('/pkgPlan/pages/calendar/calendar') },
+    /**
+     * 点「今日任务」整张卡 → 日程页。
+     * 首页只列了最该做的三条，想看清今天全部 + 后面几天的安排就得进日程；
+     * 编辑态不响应（那时整张卡是拖拽把手，跳走会打断编辑）。
+     */
+    onTaskCardTap() {
+      if (this.editing || this.locked) return
+      this.goCalendar()
+    },
     // AI 可能补记了收工事实、也可能把某个任务记成已完成 → 提示条和今日队列都要跟着变
     onCoachChanged() { this.refresh() },
     // ---------- 权限与后台保活 ----------
@@ -2084,9 +2125,34 @@ export default {
      */
     maybeUpdatePrompt() {
       setTimeout(() => {
-        // 页面上的弹窗状态只有这里看得到，所以"忙不忙"由页面传给 updater
-        try { updater.promptOnce({ busy: !!this.dlg.show }) } catch (e) {}
+        // 页面上的弹窗状态只有这里看得到，所以"忙不忙"由页面传给 updater。
+        // 更新询问自己也算"有弹窗在场"（否则连点两下会叠两个框）
+        try { updater.promptOnce({ busy: !!this.dlg.show || !!this.upd.show }) } catch (e) {}
       }, 1800)
+    },
+    /**
+     * updater 的弹窗宿主：返回 Promise<boolean>（true = 点了确认）。
+     * 与 dlg 分开一套状态：dlg 是"关联询问/危险确认"，带 action 分派；
+     * 混用会在"更新框还开着时来了个确认框"时互相覆盖。
+     */
+    askUpdateDlg(o) {
+      return new Promise((resolve) => {
+        this.__updResolve = resolve
+        this.upd = {
+          show: true,
+          title: o.title || '',
+          content: o.content || '',
+          confirmText: o.confirmText || '确定',
+          cancelText: o.cancelText || '取消',
+          onlyOk: !!o.onlyOk
+        }
+      })
+    },
+    onUpdAnswer(yes) {
+      this.upd.show = false
+      const r = this.__updResolve
+      this.__updResolve = null
+      if (r) r(!!yes)
     },
     // ---------- 新手引导（步骤与状态在 utils/onboarding.js）----------
 
@@ -2346,15 +2412,23 @@ export default {
     toggleManage() {
       if (this.editing || this.locked) return
       this.manageOn = !this.manageOn
-      if (this.manageOn) this.focusSheet = false
+      if (this.manageOn) {
+        if (this.focusSheet) { this.focusSheet = false; releaseScroll('home-focus') }
+        // 锁页面：fixed 遮罩挡不住触摸的默认滚动，App 端的 scroll-view 会把
+        // "滚到边界"的余量链给背后的首页（真机实测：面板开着还能拉动首页）
+        holdScroll('home-manage')
+      } else {
+        releaseScroll('home-manage')
+      }
     },
     /** 面板里某一行的去路。专注设置是就地展开（多一层跳转没必要），其余跳页面。 */
     manageGo(k) {
       this.manageOn = false
+      releaseScroll('home-manage')
       if (!k) return
       if (k === 'focus') {
         // 等遮罩退场再展开第二张卡：同时两张会叠在一起，看着像卡住了
-        setTimeout(() => { this.focusSheet = true }, 180)
+        setTimeout(() => { this.focusSheet = true; holdScroll('home-focus') }, 180)
         return
       }
       const map = {
@@ -2370,6 +2444,8 @@ export default {
     toggleFocusSheet() {
       if (this.editing || this.locked) return
       this.focusSheet = !this.focusSheet
+      if (this.focusSheet) holdScroll('home-focus')
+      else releaseScroll('home-focus')
     },
     /** 面板里的"强制模式"开关：与专注页 toggleForced 同口径（记录意图 + 缺权限引导）。
        真正的拉回能力在专注开始时随前台服务一起起来，这里只管"开了没、权限齐不齐"。 */
@@ -4080,6 +4156,15 @@ export default {
   white-space: nowrap;
 }
 .hc-head { display: flex; align-items: baseline; justify-content: space-between; }
+/* 「今日任务 ›」的那个箭头：紧贴标题、把计数推到最右（margin-right:auto 吃掉空档） */
+.hc-jump {
+  margin-left: 10rpx;
+  margin-right: auto;
+  font-size: 26rpx;
+  line-height: 1;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
 .hc-count { font-size: 23rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 /* 进度条：实心色只用在进度条上（项目令牌：不给按钮上实心红） */
 .hc-bar {

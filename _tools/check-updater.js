@@ -319,13 +319,19 @@ function main() {
         updater.failDialog(e.message);
         const m = log.modal[log.modal.length - 1];
         assert(!!m && m.confirmText === '去下载', '失败弹窗有「去下载」按钮');
-        assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '点「去下载」真的打开整包页');
-        // 手动检查失败（连不上版本服务）走的是另一个弹窗，同样要验
-        log.opened.length = 0;
-        updater.checkFailDialog('连不上');
-        const m2 = log.modal[log.modal.length - 1];
-        assert(!!m2 && m2.confirmText === '去下载', '手动检查失败也有「去下载」出口');
-        assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '它点了也真的打开整包页');
+        // 弹窗现在走 askDialog（返回 Promise，好让页面用 app-dialog 渲染）——
+        // "点了去下载"这个动作落在微任务里，同步断言会跑在它前面（假红）
+        return new Promise(r => setTimeout(r, 0)).then(() => {
+          assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '点「去下载」真的打开整包页');
+          // 手动检查失败（连不上版本服务）走的是另一个弹窗，同样要验
+          log.opened.length = 0;
+          updater.checkFailDialog('连不上');
+          const m2 = log.modal[log.modal.length - 1];
+          assert(!!m2 && m2.confirmText === '去下载', '手动检查失败也有「去下载」出口');
+          return new Promise(r2 => setTimeout(r2, 0));
+        }).then(() => {
+          assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '它点了也真的打开整包页');
+        });
       });
   });
   steps.push(() => { plus.__installFail = false; return Promise.resolve(); });
@@ -434,7 +440,10 @@ function main() {
       updater.showResult(r);
       const m = log.modal[log.modal.length - 1];
       assert(!!m && /完整包/.test(m.title), '整包也弹"要装完整包"（' + (m && m.title) + '）');
-      assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '点「去下载」真的打开整包页');
+      // 确认动作在 askDialog 的微任务里（实现从 sync showModal 回调改成了 Promise）
+      return new Promise(r => setTimeout(r, 0)).then(() => {
+        assert(log.opened.indexOf(updater.RELEASE_URL) >= 0, '点「去下载」真的打开整包页');
+      });
     });
   });
   steps.push(() => {
@@ -685,9 +694,12 @@ function main() {
       .then((r) => updater.prefetch().then(() => r))
       .then((r) => {
         updater.showResult(r);
-        const u = settings.get().update || {};
-        eq(u.skip, '1.0.3', '点「不再提示」记下了这个版本');
-        return updater.pending();
+        // 「不再提示」的处理在 askDialog 的 Promise 里（微任务）→ 等一拍再读设置
+        return new Promise((res) => setTimeout(res, 0)).then(() => {
+          const u = settings.get().update || {};
+          eq(u.skip, '1.0.3', '点「不再提示」记下了这个版本');
+          return updater.pending();
+        });
       })
       .then((p) => {
         // ★ 先证明包是就绪的：否则下面"红点不亮"可能是"没下好"造成的假绿
@@ -1145,7 +1157,8 @@ assert(!!run && /failDialog/.test(run), '其它失败仍然给"去下载完整�
 
 // ⑦ netHint 不许给下载按钮 —— 那时给"去下整包"等于把他推回同一个坑
 const hint = fnBody(upCode, 'netHint');
-assert(!!hint && /showCancel:\s*false/.test(hint), 'netHint 只留一个「知道了」');
+// 只留一个「知道了」= 单按钮提示（走 askDialog 的 onlyOk；退回系统弹窗时等价于 showCancel:false）
+assert(!!hint && /onlyOk:\s*true/.test(hint), 'netHint 只留一个「知道了」');
 assert(!!hint && !/openRelease/.test(hint), 'netHint 不给下载入口（点了还是下不动）');
 
 // ⑧ watchNetwork 幂等（挂在 launch 上会被反复调用）

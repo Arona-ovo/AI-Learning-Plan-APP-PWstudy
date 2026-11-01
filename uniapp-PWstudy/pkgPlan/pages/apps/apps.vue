@@ -315,6 +315,7 @@
 import * as pw from '../../../utils/pwstore.js'
 import * as apptime from '../../../utils/apptime.js'
 import * as focusMod from '../../../utils/focus.js'
+import { holdScroll, releaseScroll } from '../../../utils/scroll-lock.js';
 import * as settings from '../../../utils/settings.js'
 import * as aiGuess from '../../../services/ai-app-guess.js'
 import { isAIEnabled } from '../../../services/config.js'
@@ -379,6 +380,9 @@ export default {
     }
   },
   watch: {
+    // 编辑浮层开着时锁页面滚动：fixed 遮罩挡不住触摸的默认滚动，
+    // App 端 scroll-view 会把余量链给背后的列表（同 app-dialog）
+    'editor.show'(v) { if (v) holdScroll('apps-editor'); else releaseScroll('apps-editor') },
     candidates(list) {
       list.forEach(c => this.ensureIcon(c.pkg))
     },

@@ -104,7 +104,8 @@ console.log('== 3. 首页：规划入口收起、收工升为核心操作 ==');
 // ⚠️ 先剥注释再扫：注释里提到"AI 规划目标"（说明它为什么被删）会把自己命中（已踩多次）
 const homeTpl = home.slice(0, home.indexOf('\n<script')).replace(/<!--[\s\S]*?-->/g, '');
 assert(!/AI 规划目标/.test(homeTpl), '首页已移除「AI 规划目标」按钮');
-assert(/class="btn-primary cta-btn"[^>]*@tap="goDaily\(\)"/.test(homeTpl), '收工是首页底部的主按钮（btn-primary 尺寸）');
+// @tap 可能带修饰符（@tap.stop —— 整卡可点之后按钮要拦住冒泡，别跳两次）
+assert(/class="btn-primary cta-btn"[^>]*@tap(?:\.\w+)*="goDaily\(\)"/.test(homeTpl), '收工是首页底部的主按钮（btn-primary 尺寸）');
 assert(/class="home-cta"/.test(homeTpl), '收工按钮包在自己的区块里（不与编辑按钮抢位）');
 assert(/v-if="!editing"/.test(homeTpl.slice(homeTpl.indexOf('home-cta') - 60)), '编辑首页时收工按钮让位');
 // 原来那个小链接必须真的没了，否则两个入口并存
@@ -276,6 +277,33 @@ assert(/toggle\s*\(row\)\s*\{[\s\S]{0,1100}\$forceUpdate/.test(comSc || ''),
 assert(/onListChanged\s*\(\)\s*\{[\s\S]{0,300}\$forceUpdate/.test(calSc || ''),
   '⚠️ 日历页 changed 后强刷（同上）');
 assert(cal.indexOf('<schedule-list') >= 0 && !/:checkable="false"/.test(cal), '日历页也开着勾选');
+
+/* ---------- 8. 日程页：日期切换是「天」不是「月」+ 就地能跟 AI 说话（2026-11-01） ---------- */
+// 真机反馈：左上角「‹ 今天 ›」两个箭头看着像切日期，点下去翻的却是月份。
+// 现在拆成两套：月份箭头紧贴"2026 年 11 月"（shift），日期箭头走 shiftDay（跨月自动翻页）。
+console.log('== 8. 日程页日期切换 + AI 对话 ==');
+assert(/@tap="shiftDay\(-1\)"/.test(cal) && /@tap="shiftDay\(1\)"/.test(cal),
+  '‹ › 切的是日期（shiftDay）');
+assert(/@tap="shift\(-1\)"/.test(cal) && /@tap="shift\(1\)"/.test(cal),
+  '月份切换另有一组箭头（shift）');
+assert(/shiftDay\(n\)\s*\{[\s\S]{0,400}this\.picked\s*=/.test(calSc),
+  'shiftDay 真的改了选中日期');
+assert(/shiftDay\(n\)\s*\{[\s\S]{0,500}this\.build\(\)/.test(calSc),
+  '跨月时自动重算月历（不用再手动点一次月份）');
+assert(/<coach-box/.test(cal), '日程页有跟 AI 对话的入口（复用首页同一个组件）');
+assert(/onCoachChanged\(\)\s*\{[\s\S]{0,300}this\.build\(\)/.test(calSc),
+  '对话改动后重算月历与当日列表（不然刚说做完还显示 0/2）');
+
+/* ---------- 9. 首页今日任务整卡可点 → 日程 ---------- */
+console.log('== 9. 首页今日任务整卡跳日程 ==');
+const homeTpl2 = home.slice(0, home.indexOf('\n<script')).replace(/<!--[\s\S]*?-->/g, '');
+assert(/class="tp-block task-card"\s+@tap="onTaskCardTap"/.test(homeTpl2), '整张「今日任务」卡可点');
+assert(/class="hc-task"[\s\S]{0,200}@tap\.stop="startFor\(item\)"/.test(homeTpl2),
+  '任务行仍是「开始专注」，用 .stop 拦住冒泡（别跳两次）');
+assert(/onTaskCardTap\(\)\s*\{[\s\S]{0,200}goCalendar\(\)/.test(home.slice(home.indexOf('\n<script'))),
+  '点卡片 = 跳日程');
+assert(/onTaskCardTap\(\)\s*\{[\s\S]{0,120}this\.editing/.test(home.slice(home.indexOf('\n<script'))),
+  '编辑态不跳（那时整卡是拖拽把手）');
 
 console.log(fail === 0 ? '\n日程表与收工校验全部通过' : '\n失败 ' + fail + ' 项 ✗');
 process.exit(fail ? 1 : 0);

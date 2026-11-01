@@ -1001,24 +1001,22 @@ export function openRelease() {
  * components/app-dialog），而这类"更新链路内部"的提示本来就归 updater 管。
  */
 export function checkFailDialog(msg) {
-  uni.showModal({
+  askDialog({
     title: '没查到版本信息',
     content: (msg || '连不上版本服务') + '。可以直接去下载完整安装包。',
     confirmText: '去下载',
-    cancelText: '知道了',
-    success: (res) => { if (res && res.confirm) openRelease(); }
-  });
+    cancelText: '知道了'
+  }).then((yes) => { if (yes) openRelease(); });
 }
 
 /** 更新失败时那个弹窗：说清出什么事了，并给出去整包的按钮 */
 export function failDialog(msg) {
-  uni.showModal({
+  askDialog({
     title: '更新没装上',
     content: (msg || '下载或安装失败了') + '。可以去下载完整安装包，装完数据都在。',
     confirmText: '去下载',
-    cancelText: '知道了',
-    success: (res) => { if (res && res.confirm) openRelease(); }
-  });
+    cancelText: '知道了'
+  }).then((yes) => { if (yes) openRelease(); });
 }
 
 /**
@@ -1028,11 +1026,11 @@ export function failDialog(msg) {
  *    是当下连不上网 —— 给他一个下载按钮，点下去还是失败，只会更莫名其妙。
  */
 export function netHint() {
-  uni.showModal({
+  askDialog({
     title: '没有联网',
     content: '当前没有联网。连上网络后回到这里，点一下就能更新。',
     confirmText: '知道了',
-    showCancel: false
+    onlyOk: true
   });
 }
 
@@ -1040,6 +1038,66 @@ export function netHint() {
 
 function toast(title) {
   try { uni.showToast({ title, icon: 'none', duration: 2200 }); } catch (e) {}
+}
+
+/* ---------------- 弹窗宿主：统一的 UI 适配 ----------------
+ * utils 层画不了组件，所以"怎么问用户"由页面注入（设置页 / 首页在 onShow 里注入）。
+ * 注入了就走 components/app-dialog 的玻璃卡片（与全 App 一致）；没注入才退回系统
+ * uni.showModal 兜底 —— 宁可样式不统一，也不能让更新流程卡死在没宿主的时候。
+ * 纪律见 _tools/check-dialog.js：页面不许直接调系统弹窗，utils 里的这类提示
+ * 一律经过 askDialog（以前这 5 处裸调 showModal，真机上就是一张与 App 风格
+ * 完全脱节的系统框，2026-11-01 用户截图指出）。
+ */
+let dialogHost = null;
+let dialogOwner = null;
+
+/**
+ * 页面注入：fn({ title, content, confirmText, cancelText, onlyOk, danger }) → Promise<boolean>
+ * owner 传页面实例（this）：多个页面都会注入，退栈时谁清的算谁的 ——
+ * 否则 settings onUnload 会把刚返回的首页注入的宿主一起清掉。
+ */
+export function setDialogHost(fn, owner) {
+  dialogHost = (typeof fn === 'function') ? fn : null;
+  dialogOwner = dialogHost ? (owner || null) : null;
+}
+
+/** 页面 onHide / onUnload 调用：只清自己注入的那个，别把别人的宿主带走 */
+export function clearDialogHost(owner) {
+  if (!owner || owner === dialogOwner) {
+    dialogHost = null;
+    dialogOwner = null;
+  }
+}
+
+function askDialog(o) {
+  const opts = {
+    title: o.title || '',
+    content: o.content || '',
+    confirmText: o.confirmText || '确定',
+    cancelText: o.cancelText || '取消',
+    onlyOk: !!o.onlyOk,
+    danger: !!o.danger
+  };
+  if (dialogHost) {
+    try {
+      const r = dialogHost(opts);
+      if (r && typeof r.then === 'function') return r.then(v => !!v, () => false);
+      return Promise.resolve(!!r);
+    } catch (e) { /* 宿主炸了就退回下面 */ }
+  }
+  return new Promise((resolve) => {
+    try {
+      uni.showModal({
+        title: opts.title,
+        content: opts.content,
+        confirmText: opts.confirmText,
+        cancelText: opts.cancelText,
+        showCancel: !opts.onlyOk,
+        success: (res) => resolve(!!(res && res.confirm)),
+        fail: () => resolve(false)
+      });
+    } catch (e) { resolve(false); }
+  });
 }
 
 /**
@@ -1092,15 +1150,14 @@ function showAsk(r, info) {
   } else {
     lines.push('需要下载更新包，建议在 Wi-Fi 下进行。装完会自动重启一次，学习数据不受影响。');
   }
-  uni.showModal({
+  askDialog({
     title: '有新版本',
     content: lines.join('\n').slice(0, 480),
     confirmText: info.cached ? '立即更新' : '下载并安装',
-    cancelText: '不再提示',
-    success: (res) => {
-      if (!res || !res.confirm) { markSkip(v.version); return; }
-      runUpdate(r);
-    }
+    cancelText: '不再提示'
+  }).then((yes) => {
+    if (!yes) { markSkip(v.version); return; }
+    runUpdate(r);
   });
 }
 
@@ -1157,19 +1214,17 @@ export function showResult(r) {
 export function askFull(r) {
   const v = (r.remote && r.remote.version) || '';
   const cached = !!cachedPath(r.remote);
-  uni.showModal({
+  askDialog({
     title: '需要更新到完整包',
     content: '新版本 ' + v + ' 要更新的原生基座，热更新装不了。' +
       (cached ? '安装包已经下好了，点一下转到系统安装界面就行，数据都在。'
               : '下载完整安装包覆盖安装即可，数据都在。'),
     confirmText: cached ? '立即安装' : '去下载',
-    cancelText: '不再提示',
-    success: (res) => {
-      if (!res) return;
-      if (!res.confirm) { markSkip(v); return; }
-      if (cached) runUpdate(r);          // 装不动会兜底回"去下载整包"
-      else openRelease();
-    }
+    cancelText: '不再提示'
+  }).then((yes) => {
+    if (!yes) { markSkip(v); return; }
+    if (cached) runUpdate(r);          // 装不动会兜底回"去下载整包"
+    else openRelease();
   });
 }
 

@@ -965,6 +965,20 @@
       @cancel="confirm.show = false"
     />
 
+    <!-- 更新相关的询问（升级 / 整包 / 失败 / 没联网）：updater 通过 setDialogHost 注进来。
+         单独一个实例而不是复用上面那个 —— 危险确认有自己的 seq / action 逻辑，
+         混用会在"检查更新时刚好有个异步确认框在处理"这类场景下打架。 -->
+    <app-dialog
+      :show="upd.show"
+      :btn-mode="upd.onlyOk ? 'alert' : 'confirm'"
+      :title="upd.title"
+      :content="upd.content"
+      :confirm-text="upd.confirmText"
+      :cancel-text="upd.cancelText"
+      @confirm="onUpdAnswer(true)"
+      @cancel="onUpdAnswer(false)"
+    />
+
     <!-- ===== 彩蛋：连点「版本」触发 =====
          fixed 浮层，挂在页面最外层（不随内容滚动）。
          材质直接复用 App.vue 的 .pop-mask/.pop-card，这里只写内容层。 -->
@@ -999,6 +1013,7 @@
 import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
+import { holdScroll, releaseScroll } from '../../../utils/scroll-lock.js';
 import * as onboarding from '../../../utils/onboarding.js'
 import * as timeslot from '../../../utils/timeslot.js'
 import * as updater from '../../../utils/updater.js'
@@ -1082,6 +1097,13 @@ export default {
       confirm: {
         show: false, mode: 'confirm', title: '', content: '',
         confirmText: t('确定'), items: [], danger: true, seq: 0, action: ''
+      },
+      // 更新询问（升级 / 需要整包 / 更新失败 / 没联网）：由 utils/updater.js 通过
+      // setDialogHost 注进来，统一走 app-dialog —— 以前这 4 个框是系统原生弹窗，
+      // 跟 App 的玻璃卡片完全两个风格（2026-11-01 用户截图指出）
+      upd: {
+        show: false, title: '', content: '', confirmText: t('确定'),
+        cancelText: t('取消'), onlyOk: false
       },
       // 外观
       accents: ACCENTS,
@@ -1186,6 +1208,10 @@ export default {
       eggTaps: 0,
       eggLastAt: 0
     }
+  },
+  watch: {
+    // 彩蛋浮层开着时锁页面滚动（fixed 遮罩挡不住触摸的默认滚动，见 utils/scroll-lock.js）
+    eggShow(v) { if (v) holdScroll('set-egg'); else releaseScroll('set-egg') }
   },
   computed: {
     // 当前语言的显示名（如「简体中文」）
@@ -1341,6 +1367,14 @@ export default {
       const head = t('系统语音已就绪 · {zh} / {en}', { zh: zh, en: en });
       return l.device ? head + t('（设备语言 {d}）', { d: l.device }) : head;
     }
+  },
+  onLoad() {
+    // 更新询问（有新版本 / 需要整包 / 装失败 / 没联网）统一走本页的 app-dialog。
+    // updater 在 utils 层，自己画不了组件 —— 由页面把"怎么问"注进去（见 setDialogHost）。
+    updater.setDialogHost((o) => this.askUpdateDlg(o), this)
+  },
+  onUnload() {
+    updater.clearDialogHost(this)
   },
   onShow() {
     this.refresh()
@@ -1757,9 +1791,32 @@ export default {
       updater.setAuto(on)
       this.refresh()
     },
+    /**
+     * updater 的弹窗宿主：返回 Promise<boolean>（true = 点了确认）。
+     * updater 是 utils，画不了组件，所以由页面提供"怎么问"，
+     * 这样升级框和 App 里其他框是同一张玻璃卡片（以前是系统原生框）。
+     */
+    askUpdateDlg(o) {
+      return new Promise((resolve) => {
+        this.__updResolve = resolve
+        this.upd = {
+          show: true,
+          title: o.title || '',
+          content: o.content || '',
+          confirmText: o.confirmText || t('确定'),
+          cancelText: o.cancelText || t('取消'),
+          onlyOk: !!o.onlyOk
+        }
+      })
+    },
+    onUpdAnswer(yes) {
+      this.upd.show = false
+      const r = this.__updResolve
+      this.__updResolve = null
+      if (r) r(!!yes)
+    },
     /** 手动检查：这次要给人一个明确结果（启动自检是静默的，这里不是） */
-    doCheckUpdate() {
-      if (this.checking) return
+    doCheckUpdate() {      if (this.checking) return
       this.checking = true
       try { uni.showLoading({ title: '检查中…', mask: true }) } catch (e) {}
       updater.manualCheck().then((r) => {

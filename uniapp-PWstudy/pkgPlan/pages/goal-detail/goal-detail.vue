@@ -132,6 +132,7 @@
 import * as pw from '../../../utils/pwstore.js'
 import * as taskGuide from '../../../utils/task-guide.js'
 import * as link from '../../../utils/link.js'
+import { holdScroll, releaseScroll } from '../../../utils/scroll-lock.js';
 import * as pacing from '../../../utils/pacing.js'
 import * as reminder from '../../../utils/reminder.js'
 import * as timeslot from '../../../utils/timeslot.js'
@@ -173,6 +174,10 @@ export default {
       mustAskApps: false,
       __appsLater: 0
     }
+  },
+  watch: {
+    // 引导浮层开着时锁页面滚动（fixed 遮罩挡不住触摸的默认滚动，见 utils/scroll-lock.js）
+    guideOpen(v) { if (v) holdScroll('gd-guide'); else releaseScroll('gd-guide') }
   },
   computed: {
     remindOn() {
