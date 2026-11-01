@@ -51,6 +51,7 @@ import Gravity from 'android.view.Gravity';
 import Color from 'android.graphics.Color';
 import PixelFormat from 'android.graphics.PixelFormat';
 import GradientDrawable from 'android.graphics.drawable.GradientDrawable';
+import Paint from 'android.graphics.Paint';
 import MotionEvent from 'android.view.MotionEvent';
 import AccessibilityService from 'android.accessibilityservice.AccessibilityService';
 import AccessibilityEvent from 'android.view.accessibility.AccessibilityEvent';
@@ -996,6 +997,35 @@ function capsuleMmss(sec: number): string {
   return m.toString() + ':' + rs;
 }
 
+/**
+ * 计算胶囊的显式像素尺寸与窗口参数。
+ *
+ * 为什么不用 WRAP_CONTENT：2026-11-01 真机复现（Mate 50 Pro / Android 12），
+ * 悬浮窗（TYPE_APPLICATION_OVERLAY）上写 WRAP_CONTENT 会被 ROM 当成 MATCH_PARENT，
+ * 胶囊直接占满整屏。这里用 Paint 实测文本宽 + 按文本行高算高，得到确定性的像素值，
+ * 效果同 WRAP_CONTENT，但不依赖系统对 -2 的处理。
+ */
+function capsuleLayout(ctx: Context, text: string): WindowManager.LayoutParams {
+  let dm = ctx.getResources().getDisplayMetrics()
+  let p = new Paint()
+  // 与 setTextSize(15sp) 同源的 px 值：TextView.setTextSize(15f) 内部按 sp 换算，这里手动换成 px 喂给 Paint
+  let textPx = 15.0.toFloat() * dm.scaledDensity
+  p.setTextSize(textPx)
+  let tw = p.measureText(text)                       // 文本实测宽（px）
+  // 文本宽 + 左右各 34px padding；行高按 1.5 倍字高 + 上下各 12px padding
+  let w = ((tw + 68) as Number).toInt()
+  let h = ((textPx * 1.5.toFloat() + 24) as Number).toInt()
+  let lp = new WindowManager.LayoutParams(w, h)
+  lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
+  lp.format = PixelFormat.TRANSLUCENT
+  lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
+  // 顶栏下方一点（40dp），避开状态栏
+  lp.y = ((40 * dm.density) as Number).toInt()
+  // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）
+  lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+  return lp
+}
+
 function applyCapsule(ctx: Context | null) {
   if (ctx == null) return;
   if (capsuleWanted && capsuleView == null) {
@@ -1012,18 +1042,8 @@ function applyCapsule(ctx: Context | null) {
       v.setBackground(bg)
       v.setGravity(Gravity.CENTER)
       v.setPadding(34, 12, 34, 12)
-      let lp = new WindowManager.LayoutParams(
-        ViewGroup.LayoutParams.WRAP_CONTENT,
-        ViewGroup.LayoutParams.WRAP_CONTENT
-      )
-      lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
-      lp.format = PixelFormat.TRANSLUCENT
-      lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
-      // 顶栏下方一点（40dp），避开状态栏
-      let dm = ctx!.getResources().getDisplayMetrics()
-      lp.y = ((40 * dm.density) as Number).toInt()
-      // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）
-      lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+      // ★ 显式像素尺寸（见 capsuleLayout 注释）：悬浮窗上 WRAP_CONTENT 会被当成 MATCH_PARENT
+      let lp = capsuleLayout(ctx!, capsuleText)
       wm.addView(v, lp)
       capsuleView = v
       // 新建时按当前判定给初始可见性：挂上它的那一刻往往正是"刚从本 App 逃出去"，
@@ -1043,8 +1063,13 @@ function applyCapsule(ctx: Context | null) {
     } catch (e) {}
     capsuleView = null
   } else if (capsuleWanted && capsuleView != null) {
-    // 只刷新文案（胶囊常驻，倒计时每秒变）
-    try { capsuleView!.setText(capsuleText) } catch (e) {}
+    // 刷新文案 + 重排宽度：暂停前缀（"已暂停 · 专注中 "）比纯倒计时宽，宽度得自己管
+    // （WRAP_CONTENT 不可靠）。mm:ss 每秒变由原生 tick 直接 setText，不经过这里。
+    try {
+      capsuleView!.setText(capsuleText)
+      let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+      wm.updateViewLayout(capsuleView!, capsuleLayout(ctx!, capsuleText))
+    } catch (e) {}
   }
 }
 

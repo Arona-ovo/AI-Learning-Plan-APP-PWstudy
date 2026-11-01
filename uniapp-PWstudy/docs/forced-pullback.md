@@ -348,6 +348,10 @@ UTS 生成 `override fun onStartCommand(intent: Intent, ...)`，Kotlin 在方法
   判跑偏 → `setCapsuleShown(false)`。只改 `visibility`，不动 `capsuleView` ——
   "该不该挂"归 JS，"看不看得见"归原生，两边各记一份必然分叉。
   新建胶囊时也按 `inEpisode` 给一次初始可见性（挂上它的那一刻往往正是刚逃出去）。
+- ★ 胶囊尺寸**必须显式像素**（2026-11-01 真机复现）：悬浮窗（TYPE_APPLICATION_OVERLAY）上
+  写 `WRAP_CONTENT` 会被 ROM（Mate 50 Pro / Android 12）当成 `MATCH_PARENT`，
+  胶囊直接占满整屏。改用 `capsuleLayout()`：`Paint.measureText` 实测文本宽 +
+  按行高算高，得到确定性的 `LayoutParams(w, h)`。`check-uts.js` 第 12.11 节钉住。
 
 ### 验证
 
@@ -358,6 +362,8 @@ UTS 生成 `override fun onStartCommand(intent: Intent, ...)`，Kotlin 在方法
 ④ 杀服务模拟回收：开发者选项「不保留活动」或 `adb shell am stopservice`
    → 服务应自己重建，状态条不该变成"看门狗已掉线"，切走仍能拦
 ⑤ 状态条：把「后台保活」关掉再开专注 → 应显示"看门狗已掉线 · 点右侧自检"
+⑥ 胶囊形状：离开 App 后胶囊应是**顶部居中的小药丸**（宽≈文本+padding，高≈40dp 内），
+   绝不允许占满整屏 —— 占满 = WRAP_CONTENT 又被当 MATCH_PARENT 了
 ```
 
 ⚠️ 动了 `utssdk/` 必须重新云打包 APK。

@@ -612,6 +612,14 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   const focusSrc = read(path.join(ROOT, 'utils', 'focus.js'));
   if (/\(!!c\.capsule\s*\|\|\s*!!c\.forced\)/.test(focusSrc)) ok('syncCapsule 在强制模式下无视胶囊开关');
   else bad('syncCapsule 只看 capsule 开关 —— 老用户存了 false 就再也不会看到胶囊');
+  // 12.11 胶囊尺寸必须显式像素（2026-11-01 真机复现）：悬浮窗上写 WRAP_CONTENT 会被
+  //      ROM（Mate 50 Pro / Android 12）当成 MATCH_PARENT，胶囊直接占满整屏。
+  //      必须走 capsuleLayout（Paint.measureText 实测文本宽 + 显式像素 LayoutParams），
+  //      不能再退回 WRAP_CONTENT —— 那是"编译能过、真机才炸"的静默坑。
+  if (/function capsuleLayout\(/.test(utsSrc) && /measureText/.test(utsSrc)) ok('胶囊尺寸走 capsuleLayout 显式像素（Paint.measureText），不依赖 WRAP_CONTENT');
+  else bad('胶囊没走 capsuleLayout 显式像素 —— 写 WRAP_CONTENT 会在部分 ROM 上被当成 MATCH_PARENT，占满整屏');
+  if (!/ViewGroup\.LayoutParams\.WRAP_CONTENT/.test(utsSrc)) ok('全文件没有 ViewGroup.LayoutParams.WRAP_CONTENT（悬浮窗上不可靠，一律显式尺寸）');
+  else bad('又出现 ViewGroup.LayoutParams.WRAP_CONTENT —— 悬浮窗上会被 ROM 当成 MATCH_PARENT，胶囊占满整屏');
 }
 
 console.log('== 13. index.uts 导出必须全部声明进 interface.uts（否则 fgsvc 静默降级） ==');
