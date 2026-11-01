@@ -230,7 +230,11 @@ assert(/export function holdScroll/.test(read(lockPath)) && /export function rel
 assert(/holdScroll\(/.test(read(DIALOG)) && /releaseScroll\(/.test(read(DIALOG)),
   'app-dialog 打开时锁页面（一个组件覆盖所有走统一弹窗的地方）');
 const hmCode = strip(read(path.join(ROOT, 'pages', 'home', 'home.vue')));
-['home-manage', 'home-focus', 'home-sheet'].forEach((k) => {
+// 管理面板是纯点击面板、不该滚也不能透传：必须走硬锁（scrollable:false）。
+// focusSheet / 底部 sheet 内部仍需自己滚动：软锁即可。
+assert(/holdScroll\('home-manage',\s*\{\s*scrollable:\s*false\s*\}\)/.test(hmCode) && hmCode.indexOf("releaseScroll('home-manage')") >= 0,
+  '首页「管理」浮层成对持锁 / 还锁（硬锁 scrollable:false，杜绝穿透滚动）');
+['home-focus', 'home-sheet'].forEach((k) => {
   assert(hmCode.indexOf("holdScroll('" + k + "')") >= 0 && hmCode.indexOf("releaseScroll('" + k + "')") >= 0,
     '首页「' + k + '」浮层成对持锁 / 还锁');
 });

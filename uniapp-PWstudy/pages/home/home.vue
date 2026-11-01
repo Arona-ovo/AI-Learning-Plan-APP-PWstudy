@@ -724,7 +724,9 @@
           <view class="fs-close" @tap="toggleManage">×</view>
         </view>
 
-        <scroll-view class="fs-body" scroll-y>
+        <!-- 纯点击面板（内容是固定的几行入口，不滚也不该滚）：用普通 view，不要 scroll-view。
+             scroll-view 会让面板自己产生滚动，且把 touchmove 透传到底层首页。 -->
+        <view class="fs-body">
           <text class="fc-group">{{ $t('专注') }}</text>
           <view class="mg-item" @tap="manageGo('focus')">
             <view class="mg-info">
@@ -765,7 +767,7 @@
             </view>
             <text class="mg-go">›</text>
           </view>
-        </scroll-view>
+        </view>
       </view>
     </view>
 
@@ -2544,9 +2546,10 @@ export default {
       this.manageOn = !this.manageOn
       if (this.manageOn) {
         if (this.focusSheet) { this.focusSheet = false; releaseScroll('home-focus') }
-        // 锁页面：fixed 遮罩挡不住触摸的默认滚动，App 端的 scroll-view 会把
-        // "滚到边界"的余量链给背后的首页（真机实测：面板开着还能拉动首页）
-        holdScroll('home-manage')
+        // 硬锁：管理面板是纯点击面板、内容短，自己不该滚，更不能让 touch 穿透到首页。
+        // scrollable:false → 在 document 上挂 non-passive touchmove 直接 preventDefault，
+        // 从源头掐掉 App 原生页面滚动（光靠 overflow:hidden 在真机锁不住）。
+        holdScroll('home-manage', { scrollable: false })
       } else {
         releaseScroll('home-manage')
       }
