@@ -538,8 +538,12 @@ uni-toast .uni-sample-toast {
 
 .perf-smooth .page-slide { transition-duration: 120ms; }
 .perf-smooth .ftb-ind { transition-duration: 120ms; }
+/* 日历翻月（pkgPlan/pages/calendar 的 .cm-in-*）与切页是同一类"翻页"动画，
+   画质/动效档位要一起管，否则调档时它会漏在外面显眼 */
 .perf-smooth .slide-in-right,
-.perf-smooth .slide-in-left { animation-duration: 140ms; }
+.perf-smooth .slide-in-left,
+.perf-smooth .cm-in-left,
+.perf-smooth .cm-in-right { animation-duration: 140ms; }
 
 /* ===== 画质档位：毛玻璃 / 动效 / 阴影 三档 =====
    三档由 utils/perf.js 探测后写进 settings.performance.fx，theme.rootClass() 落成
@@ -565,7 +569,9 @@ uni-toast .uni-sample-toast {
 .fx-motion-reduced .page-slide,
 .fx-motion-reduced .ftb-ind { transition-duration: 140ms; }
 .fx-motion-reduced .slide-in-right,
-.fx-motion-reduced .slide-in-left { animation-duration: 160ms; }
+.fx-motion-reduced .slide-in-left,
+.fx-motion-reduced .cm-in-left,
+.fx-motion-reduced .cm-in-right { animation-duration: 160ms; }
 /* 纯装饰的循环动画停掉：引导挖洞的呼吸描边、封面光晕 —— 它们在 offscreen
    也照样逐帧跑，停了对信息传达没有任何损失 */
 .fx-motion-reduced .gd-hole,
@@ -589,7 +595,9 @@ uni-toast .uni-sample-toast {
 .fx-motion-off .gd-hole,
 .fx-motion-off .ring,
 .fx-motion-off .float,
-.fx-motion-off .load-fill { animation: none !important; }
+.fx-motion-off .load-fill,
+.fx-motion-off .cm-in-left,
+.fx-motion-off .cm-in-right { animation: none !important; }
 /* 同上：光晕与告急光环停掉，核心呼吸（ug-core）与"排不下"的闪烁（ug-need-over）
    保留 —— 这两条是这张卡要说的话，不是装饰。 */
 .fx-motion-off .ug-halo,

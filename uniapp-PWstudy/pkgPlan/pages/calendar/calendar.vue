@@ -23,7 +23,18 @@
       <view class="cm-week">
         <text v-for="w in weekNames" :key="w" class="cm-wname">{{ w }}</text>
       </view>
-      <view class="cm-grid">
+      <!-- 左右滑动切月：整块网格都是手势区（比两个小箭头好按得多，单手也能滑）。
+           坐标只在 JS 侧记，touchmove 期间**一次 data 都不写** —— 这 42 个格子每改
+           一次 data 就是一次"逻辑层 → 视图层"通信，拿跟手位移换这点手感不值。
+           翻月后的方向感交给进场动画（见 .cm-in-left / .cm-in-right）。 -->
+      <view
+        class="cm-grid"
+        :class="cmEnter ? 'cm-in-' + cmEnter : ''"
+        @touchstart="cmTouchStart"
+        @touchmove="cmTouchMove"
+        @touchend="cmTouchEnd"
+        @touchcancel="cmTouchEnd"
+      >
         <view
           v-for="(c, i) in cells"
           :key="i"
@@ -46,6 +57,7 @@
       <view class="cm-legend">
         <text class="lg-item"><text class="cm-dot"></text> 有任务</text>
         <text class="lg-item"><text class="lg-rest"></text> 假期 / 周末</text>
+        <text class="lg-hint">{{ $t('左右滑动切月') }}</text>
       </view>
     </view>
 
@@ -81,6 +93,9 @@ import * as pw from '../../../utils/pwstore.js'
 import * as holiday from '../../../utils/holiday.js'
 import * as schedule from '../../../utils/schedule.js'
 import * as harvest from '../../../utils/harvest.js'
+// 手势阈值借 tab 切页那一套（8px 判轴 / 1.2 纵横比 / 60px 触发）：
+// 同一个人手、两种翻页，手感不该有两套数字。这里只用 DRAG，不用它的切页逻辑。
+import * as tabSlide from '../../../utils/tab-slide.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import ScheduleList from '../../../components/schedule-list/schedule-list.vue'
 import TaskDoneDialog from '../../../components/task-done-dialog/task-done-dialog.vue'
@@ -98,7 +113,10 @@ export default {
       picked: '',
       todayStr: pw.today(),
       list: [],
-      doneDlgOn: false
+      doneDlgOn: false,
+      // 翻月进场方向：'' | 'left' | 'right'。动画放完必须清空（同名 class
+      // 再来一次不会重播），见 playMonthIn()。
+      cmEnter: ''
     }
   },
   computed: {
@@ -119,9 +137,15 @@ export default {
     // 重排会改 tasks[].day，从重排页退回日历页必须重算。
     // 以前只有 onLoad：页面常驻着，日历上还是重排前的排期，看着像"改了没生效"。
     // 这里不重置 picked / 月份 —— 用户翻到别的月份再回来，不该被弹回今天。
+    // 但要清掉手势追踪标记：手指按到一半被电话/切页打断时，留着 tracking=true
+    // 会让下一次抬手凭空算出一段位移。
+    this.__tracking = false
     this.build()
     this.refreshList()
     this.runReplanFlow()
+  },
+  onUnload() {
+    if (this.__cmTimer) { clearTimeout(this.__cmTimer); this.__cmTimer = 0 }
   },
   /**
    * 返回键先收完成弹窗（与首页同一个规矩：按返回只是"不说了"，不是离开页面）。
@@ -222,6 +246,9 @@ export default {
       }
     },
     pick(date) {
+      // 刚滑动翻过月的那一下 tap 是手势的副产物（WebView 对几十 px 的位移
+      // 仍会合成一次 click），不能让它顺手把选中日改掉。
+      if (this.__swipedAt && Date.now() - this.__swipedAt < 320) { this.__swipedAt = 0; return }
       this.picked = date
       this.refreshList()
     },
@@ -233,6 +260,56 @@ export default {
       this.year = y
       this.month = m
       this.build()
+    },
+    /* ---------- 左右滑动切月（2026-11-01 用户反馈：点小箭头一月一月翻太烦） ----------
+       判定照 tab 切页那一套：先看主轴，横向明显大于纵向才认；纵向一律放过，
+       让页面正常上下滚 —— 日历卡长在滚动页里，把上下滚吃掉会更难受。
+       坐标只记在实例上（不进 data）：touchmove 触发频率可以到 120Hz，
+       每写一次 data 都是一次跨层通信，而这里根本不需要跟手位移。 */
+    cmTouchStart(e) {
+      const t = e && e.touches && e.touches[0]
+      if (!t) return
+      this.__sx = t.clientX
+      this.__sy = t.clientY
+      this.__dx = 0
+      this.__axis = 0          // 0 未判定 / 1 横向（翻月） / -1 纵向（放手）
+      this.__tracking = true
+    },
+    cmTouchMove(e) {
+      if (!this.__tracking) return
+      const t = e && e.touches && e.touches[0]
+      if (!t) return
+      const dx = t.clientX - this.__sx
+      const dy = t.clientY - this.__sy
+      if (!this.__axis) {
+        const ax = Math.abs(dx)
+        const ay = Math.abs(dy)
+        if (ax < tabSlide.DRAG.AXIS && ay < tabSlide.DRAG.AXIS) return
+        if (ax < ay * tabSlide.DRAG.RATIO) { this.__axis = -1; this.__tracking = false; return }
+        this.__axis = 1
+      }
+      // 只记最后一个位（不写 data）；判定用位移，不用速度 —— 慢速拖到位也该翻
+      this.__dx = dx
+    },
+    cmTouchEnd() {
+      if (!this.__tracking) return
+      this.__tracking = false
+      // 纵向手势 / 只是点了一下：什么都不做，交给原来的 tap
+      if (this.__axis !== 1) return
+      const dx = this.__dx || 0
+      if (Math.abs(dx) < tabSlide.DRAG.TRIGGER) return
+      // 手指往左 → 看下个月（新月份从右边进来）；往右 → 上个月
+      const dir = dx < 0 ? 1 : -1
+      this.__swipedAt = Date.now()
+      this.shift(dir)
+      this.playMonthIn(dir)
+    },
+    /** 翻月后的进场动画：新月份从"来向"滑入，方向感跟手感一致 */
+    playMonthIn(dir) {
+      this.cmEnter = dir > 0 ? 'right' : 'left'
+      if (this.__cmTimer) clearTimeout(this.__cmTimer)
+      // ⚠️ 动画放完必须摘掉 class：同名 class 停留在身上时，下次再翻月不会重播
+      this.__cmTimer = setTimeout(() => { this.cmEnter = ''; this.__cmTimer = 0 }, 240)
     },
     /**
      * 按天切（‹ 今天 › 那两个箭头）。
@@ -313,8 +390,25 @@ export default {
   position: absolute; bottom: 6rpx;
   font-size: 17rpx; color: #b25e00;
 }
-.cm-legend { display: flex; margin-top: 18rpx; }
+.cm-legend { display: flex; align-items: center; margin-top: 18rpx; }
 .lg-item { display: flex; align-items: center; margin-right: 28rpx; font-size: 21rpx; color: var(--ink-3, #98a19b); }
+/* 「左右滑动切月」：贴在行尾当提示，不抢主体的注意力 */
+.lg-hint { margin-left: auto; font-size: 21rpx; color: var(--ink-3, #98a19b); }
+
+/* ===== 翻月进场 =====
+   位移只有 24rpx：这是"确实翻页了"的确认，不是主角。幅度做大了晃眼，
+   而且日历一屏 6 行数字，越大的位移越容易让人以为数据在跳。
+   方向与手势一致：往左滑（看下个月）→ 新月份从右边进来。 */
+.cm-in-left { animation: cm-in-left 200ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+.cm-in-right { animation: cm-in-right 200ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes cm-in-left {
+  from { transform: translateX(-24rpx); opacity: 0.3; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes cm-in-right {
+  from { transform: translateX(24rpx); opacity: 0.3; }
+  to { transform: translateX(0); opacity: 1; }
+}
 .lg-rest {
   width: 22rpx; height: 14rpx; border-radius: 4rpx; margin-right: 8rpx;
   background: rgba(247, 144, 9, 0.28);

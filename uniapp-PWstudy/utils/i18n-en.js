@@ -1405,5 +1405,8 @@ export default {
     'The first item is the AI key: the app works without it, but planning, chat and reviews stop. Below that are the permissions Android has to grant, and missing one makes the matching feature look broken. The last few switches decide how strictly you want to be managed. All skippable, all reversible in Settings.',
   '填一次就行。规划目标、收工对话、识别学习 App 都走你自己的大模型账号，不填这几处就用不了。':
     "Fill it in once. Goal planning, the wrap-up chat and study-app detection all use your own model account — without it these parts don't work.",
-  '已配好：AI 规划、对话点评、学习 App 识别都能用了': 'Configured: AI planning, chat reviews and study-app detection all work'
+  '已配好：AI 规划、对话点评、学习 App 识别都能用了': 'Configured: AI planning, chat reviews and study-app detection all work',
+
+  /* ---------- 日历（pkgPlan/pages/calendar）：左右滑动切月 ---------- */
+  '左右滑动切月': 'Swipe to change month'
 };

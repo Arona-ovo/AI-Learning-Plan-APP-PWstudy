@@ -294,6 +294,32 @@ assert(/<coach-box/.test(cal), '日程页有跟 AI 对话的入口（复用首�
 assert(/onCoachChanged\(\)\s*\{[\s\S]{0,300}this\.build\(\)/.test(calSc),
   '对话改动后重算月历与当日列表（不然刚说做完还显示 0/2）');
 
+/* ---------- 8b. 月历左右滑动切月（2026-11-01 用户反馈：点小箭头一月一月翻太烦） ---------- */
+console.log('== 8b. 月历左右滑动切月 ==');
+// 手势区是**月历网格**，不是整页：整页滑动会跟 tab 切页、列表拖动打架
+assert(/class="cm-grid"[\s\S]{0,160}@touchstart="cmTouchStart"/.test(cal),
+  '滑动手势接在月历网格上（不是整页）');
+assert(/@touchmove="cmTouchMove"/.test(cal) && /@touchcancel="cmTouchEnd"/.test(cal),
+  'touchmove / touchcancel 也接了（cancel 不接 = 被来电打断后手势卡住）');
+// 纵向为主必须作废 —— 不然上下滚页面时会顺手把月份翻掉
+assert(/tabSlide\.DRAG\.RATIO/.test(calSc) && /this\.__axis = -1/.test(calSc),
+  '纵向为主的手势直接作废（不抢页面上下滚）');
+assert(/Math\.abs\(dx\) < tabSlide\.DRAG\.TRIGGER/.test(calSc),
+  '翻月有位移阈值（手指只是点一下 / 轻微抖动不算滑）');
+assert(/const dir = dx < 0 \? 1 : -1/.test(calSc), '往左滑 = 下个月（方向别接反）');
+assert(/this\.shift\(dir\)/.test(calSc), '越过阈值才真翻月');
+assert(/this\.playMonthIn\(dir\)/.test(calSc), '翻月后播进场动画（否则翻完无声无息）');
+// 动画 class 不摘掉的话，第二次翻月不会重播（同名 class 留在身上）
+assert(/setTimeout\(\(\) => \{ this\.cmEnter = ''/.test(calSc), '进场动画放完摘掉 class');
+// touchmove 期间一次 data 都不能写：42 个格子每写一次都是一次跨层通信
+const cmMove = (calSc.match(/cmTouchMove\(e\)\s*\{[\s\S]*?\n    \},/) || [''])[0];
+assert(!!cmMove, 'cmTouchMove 是一段独立方法（可被静态检查）');
+assert(cmMove && !/this\.(cmEnter|cmDx)\s*=/.test(cmMove), 'touchmove 期间不写 data（不做跟手位移）');
+// 滑完 WebView 常会补一次 click；不挡住的话"翻到 11 月"会顺带把选中日改掉
+assert(/pick\(date\)\s*\{[\s\S]{0,320}__swipedAt/.test(calSc),
+  '滑动之后那一下合成 tap 不改选中日');
+assert(/\$t\('左右滑动切月'\)/.test(cal), '有「左右滑动切月」的提示（否则没人知道能滑）');
+
 /* ---------- 9. 首页今日任务整卡可点 → 日程 ---------- */
 console.log('== 9. 首页今日任务整卡跳日程 ==');
 const homeTpl2 = home.slice(0, home.indexOf('\n<script')).replace(/<!--[\s\S]*?-->/g, '');

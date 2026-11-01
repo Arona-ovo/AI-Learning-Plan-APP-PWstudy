@@ -150,6 +150,32 @@ function swap(cur, file, from, to) {
       '      this.$forceUpdate && this.$forceUpdate()', '      void 0'),
     '日历页 changed 后强刷');
 
+  /* ---------- 月历左右滑动切月（2026-11-01） ---------- */
+  // 四条最容易"看着对、实际不对"的变异：纵向不判轴（滚页面顺手翻月）、
+  // 方向接反、动画 class 不摘（第二次翻月静默）、滑完不挡合成 tap（顺手改选中日）。
+  await shouldCatch('纵向手势不判轴（上下滚页面顺手把月份翻了）',
+    c => swap(c, 'pkgPlan/pages/calendar/calendar.vue',
+      'if (ax < ay * tabSlide.DRAG.RATIO) { this.__axis = -1; this.__tracking = false; return }',
+      'if (false) { this.__axis = -1; this.__tracking = false; return }'),
+    '纵向为主');
+
+  await shouldCatch('滑动方向接反（往左滑反而看上个月）',
+    c => swap(c, 'pkgPlan/pages/calendar/calendar.vue',
+      'const dir = dx < 0 ? 1 : -1', 'const dir = dx < 0 ? -1 : 1'),
+    '方向别接反');
+
+  await shouldCatch('进场动画的 class 不摘（第二次翻月不会重播）',
+    c => swap(c, 'pkgPlan/pages/calendar/calendar.vue',
+      "this.__cmTimer = setTimeout(() => { this.cmEnter = ''; this.__cmTimer = 0 }, 240)",
+      'this.__cmTimer = setTimeout(() => { this.__cmTimer = 0 }, 240)'),
+    '摘掉 class');
+
+  await shouldCatch('滑完不挡那一下合成 tap（翻月顺手改掉选中日）',
+    c => swap(c, 'pkgPlan/pages/calendar/calendar.vue',
+      'if (this.__swipedAt && Date.now() - this.__swipedAt < 320) { this.__swipedAt = 0; return }',
+      'if (false) { this.__swipedAt = 0; return }'),
+    '合成 tap');
+
   console.log(fail === 0 ? '\n反向测试全部通过（护栏不是假绿）' : '\n反向测试失败 ' + fail + ' 项 ✗');
   process.exit(fail ? 1 : 0);
 })();
