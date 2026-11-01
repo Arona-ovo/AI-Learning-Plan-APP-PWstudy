@@ -390,7 +390,9 @@ export default {
   position: absolute; bottom: 6rpx;
   font-size: 17rpx; color: #b25e00;
 }
-.cm-legend { display: flex; align-items: center; margin-top: 18rpx; }
+/* 允许换行：英文的 "Swipe to change month" 比中文长得多，一行放不下时
+   让提示整条落到第二行靠右，而不是把前面两项挤成两行字 */
+.cm-legend { display: flex; align-items: center; flex-wrap: wrap; margin-top: 18rpx; }
 .lg-item { display: flex; align-items: center; margin-right: 28rpx; font-size: 21rpx; color: var(--ink-3, #98a19b); }
 /* 「左右滑动切月」：贴在行尾当提示，不抢主体的注意力 */
 .lg-hint { margin-left: auto; font-size: 21rpx; color: var(--ink-3, #98a19b); }
