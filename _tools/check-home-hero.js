@@ -8,6 +8,8 @@
 //  4) 滚动进度只认 onPageScroll 的 scrollTop（App 端没有 document，量节点那条路会静默失效）
 //  5) 编辑入口压在最后一卡下面（滑到底才够得着）
 //  6) 起表仍然只有准备页那颗确认键（首页不带任何 auto 参数）
+//  7) 顶部提醒卡（权限 / API Key / 规划中）是 absolute 浮层，不顶「今天」面板；
+//     关掉时逐张走 tc-fade 平滑淡出（2026-11-02 反馈）
 //
 // ⚠️ 2026-10-23 这版把"底部抽屉"整块拆了：
 //    以前那是一层 fixed 面板 + 一套上滑手势，手势在屏幕**任何位置**划 12px 就接管
@@ -446,6 +448,25 @@ console.log('== 10. 真跑 syncReveal（静态断言说"算对了"不算数）==
     assert(i4.revealP === 1, '到底最后几 px 报不上来时靠判满兜住（296/300，实际 ' + i4.revealP + '）');
   }
 }
+
+console.log('== 7. 顶部提醒卡：悬顶浮层（不顶「今天」面板）+ 逐张平滑淡出 ==');
+// ★ 2026-11-02 反馈：首页顶部的临时提醒卡（权限没完成 / 还差 API Key / AI 规划进行中）
+//   以前直接排在文档流里，会把下面的「今天」面板整摞顶下去；而且关掉时「啪」地消失。
+//   现在改成：包在 .top-cards = position:absolute 浮层（不占文档流），只给 .home-hero
+//   留等量 padding-top 把它托住；关掉时逐张走 tc-fade 过渡平滑淡出。
+assert(/class="top-cards"/.test(home), '顶部提醒卡包在 .top-cards 浮层（不占文档流，不顶「今天」面板）');
+// 三张临时卡都用 tc-fade 过渡（出现即视为接入淡出机制）
+assert(/transition name="tc-fade"/.test(home), '临时卡关闭走 tc-fade 淡出（不「啪」地消失）');
+// 浮层 CSS：absolute + 不挡点击空白处
+const bTop = cssBlock(/\.top-cards \{[^}]*\}/);
+assert(/position:\s*absolute/.test(bTop), '浮层 .top-cards 是 absolute（脱离文档流）');
+assert(/pointer-events:\s*none/.test(bTop), '浮层 .top-cards 容器 pointer-events:none（空白处仍可戳到面板）');
+// 淡出过渡本身：leave 阶段有 opacity + transform 过渡
+const bFade = cssBlock(/\.tc-fade-(enter|leave)-active[^{]*\{[^}]*\}/);
+assert(/transition:\s*opacity/.test(bFade) && /transform/.test(bFade), 'tc-fade 过渡含 opacity + transform（平滑淡出 + 轻微上移）');
+// .home-hero 留 padding-top 且带过渡：浮层消失时首屏一起平滑收起，不跳
+const bHeroPad = cssBlock(/\.home-hero \{[^}]*\}/);
+assert(/transition:\s*padding-top/.test(bHeroPad), '.home-hero 留 padding-top 且带过渡（浮层收起时平滑托住，不跳）');
 
 console.log(fail ? '\n首页分层校验失败 ' + fail + ' 项 ✗' : '\n首页分层校验全部通过 ✓');
 process.exit(fail ? 1 : 0);

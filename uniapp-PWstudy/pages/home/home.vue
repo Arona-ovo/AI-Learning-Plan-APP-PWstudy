@@ -57,12 +57,17 @@
       <!-- ===== 空闲态：卡片按用户保存的顺序渲染（可在「编辑首页」里排 / 收纳） =====
            顺序与显隐由 utils/home-layout.ts 管，这里只负责渲染与编辑交互。 -->
       <block v-else>
+      <!-- 顶部提醒卡：浮在首屏之上（模板里包在 .top-cards = position:absolute，不占文档流），
+           所以不会再把下面的「今天」面板顶下去；关掉时逐张平滑淡出（见 tc-fade）。
+           它们不参与排序与收纳，永远排在最前面。 -->
+      <view class="top-cards" id="topCards" ref="topCards">
       <!-- 临时卡：权限提醒 / 未完成的 AI 规划。
            它们不是"组件"，不参与排序与收纳，也永远排在最前面 ——
            权限没开是真的会让计时断掉的，不该被用户收起来。
            右上角那个 × 是"我知道，别拿它烦我"：按缺项逐条记（见 setup.mutePending），
            以后冒出**新**的缺项还会再提醒。没有这个出口的话，权限一天不开，
            这张卡就一天压在首屏上、把下面几张卡全挤下去。 -->
+      <transition name="tc-fade" @after-leave="measureTopCards">
       <view v-if="setupPending.length" class="card setup-card">
         <view class="sc-main" @tap="goSetup()">
           <view class="sc-badge">{{ setupPending.length }}</view>
@@ -74,12 +79,14 @@
         </view>
         <view class="sc-x" hover-class="sc-x-press" hover-stay-time="80" @tap.stop="muteSetup">×</view>
       </view>
+      </transition>
 
       <!-- AI 还没配：一张跟权限卡同皮肤的小卡，插在"权限"之后、"进行中的规划"之前。
            为什么非要有它：这个 App 的主体功能（规划 / 对话 / 点评 / 识别学习 App）
            全走用户自己的大模型账号，不填就等于一大半功能是关着的 ——
            而设置里那个开关默认关、还折在四层里，靠用户自己找到的概率很低。
            点 × 只是"别催了"（记 ai.promptMuted），配好之后卡自己消失。 -->
+      <transition name="tc-fade" @after-leave="measureTopCards">
       <view v-if="aiNeed" class="card setup-card ai-card">
         <view class="sc-main" @tap="goAiSetup()">
           <view class="sc-badge sc-badge-ai">AI</view>
@@ -91,8 +98,10 @@
         </view>
         <view class="sc-x" hover-class="sc-x-press" hover-stay-time="80" @tap.stop="muteAi">×</view>
       </view>
+      </transition>
 
       <!-- 未完成的 AI 规划：退出页面也能接着聊 -->
+      <transition name="tc-fade" @after-leave="measureTopCards">
       <view v-if="resumePlan" class="card resume-card" @tap="goWizard()">
         <view class="rc-main">
           <view class="rc-dot" :class="{ 'rc-dot-run': resumePlan.running }"></view>
@@ -102,6 +111,8 @@
           </view>
           <text class="rc-go">继续 ›</text>
         </view>
+      </view>
+      </transition>
       </view>
 
       <!-- ===== 主页：只放今天要用的三张卡（精简适配版） =====
@@ -118,7 +129,7 @@
            靠 JS 算初值的话，脚本一环没跑卡片就永久不见（同类实现已经踩过）。
            上滑时整块首屏随滚动上抬、缩小、渐隐（heroCardStyle / heroBodyStyle），
            下面那摞卡从折叠线下被推上来 —— 两层不同速，才有"另一层被拉上来"的景深。 -->
-      <view class="home-hero" :style="[heroCardStyle, viewMinStyle]">
+      <view class="home-hero" :style="[heroCardStyle, viewMinStyle, heroPadStyle]">
       <view class="hero-body" :style="heroBodyStyle">
       <!-- 首屏内容整组（三张卡 + 收工按钮）：整组用 auto margin 在首屏里垂直居中。
            内容比首屏高时 auto margin 自动归零、从顶部顺排 —— 不会把卡片顶部裁到导航栏下。
@@ -929,6 +940,9 @@ export default {
       //   ⚠️ 反过来给 1 曾把首屏 fade 成 0 —— 首页一片空白，只有底下一张卡露个边。
       revealP: 0,
       revealOn: false,
+      // 顶部提醒卡（权限/API Key/规划中）浮层的实测高度：用它给 .home-hero 留 padding-top，
+      // 面板就不会被卡片挡住。0 = 没有卡片（不占位）。
+      topCardsH: 0,
       // Q 弹：下面那摞卡拉到位瞬间播一次过冲（pop-a / pop-b 交替挂以重触发）
       popOn: false,
       popSeq: 0,
@@ -1253,6 +1267,19 @@ export default {
       if (!(h >= 320)) return {}
       return { minHeight: Math.round(h) + 'px' }
     },
+    // 顶部提醒卡浮层的高度 → 给首屏留等量顶部内边距，让面板落到卡片下方、不被挡。
+    // 0 时不留（没有卡片就不占位）。
+    heroPadStyle() {
+      if (!this.topCardsH) return {}
+      return { paddingTop: Math.round(this.topCardsH) + 'px' }
+    },
+    // 顶部有几张提醒卡（0/1/2/3）：出现 / 消失时重测高度，让首屏 padding 跟着收放。
+    topCardsKey() {
+      const a = (this.setupPending && this.setupPending.length) ? 1 : 0
+      const b = this.aiNeed ? 1 : 0
+      const c = this.resumePlan ? 1 : 0
+      return a + b + c
+    },
     /**
      * 主页任务卡只列最该做的三条 —— 第一行永远是主任务
      * （超期优先，其次剩余专注最多），后面按原队列顺序补齐。
@@ -1328,7 +1355,9 @@ export default {
         try { this.measureScrollable() } catch (e) {}
       }, 260)
     },
-    locked() { this.syncReveal(-1) }
+    locked() { this.syncReveal(-1) },
+    // 顶部提醒卡增减（× 掉 / 从设置页回来补出）都要重测浮层高度，padding-top 跟着收放
+    topCardsKey() { this.$nextTick(this.measureTopCards) }
   },
   /**
    * 上滑多少 → 0→1 的滚动进度：下面那摞卡随之淡入并**落后于滚动**地上移，
@@ -1388,6 +1417,9 @@ export default {
     try { this.syncReveal(this._scrollTop) } catch (e) {}
     this.refresh()
     this.startTick()
+    // 顶部提醒卡浮层的高度要等卡片渲染完才能量；量出来给 .home-hero 留 padding-top，
+    // 面板就不会被浮层挡住（退出设置页回来、首次进场都会走这里）。
+    try { this.$nextTick(this.measureTopCards) } catch (e) {}
     // 进 App 先补一次每日提醒（没开着时错过的那个点，进来就补上，当天只补一次）
     this.__remindMin = -1
     this.checkRemind()
@@ -2123,6 +2155,22 @@ export default {
       try { settings.set({ ai: { promptMuted: true } }) } catch (e) {}
       this.aiNeed = false
       try { haptic.tick('switch') } catch (e) {}
+    },
+    /**
+     * 量一下顶部提醒卡浮层的实际高度，写进 topCardsH，给 .home-hero 留等量 padding-top。
+     * 这样浮层盖在首屏最顶时，下面的「今天」面板会落到卡片正下方，不会被挡住
+     * （2026-11-02：纯 absolute 浮层在「今天」面板比一屏还高的手机上会盖住「今天」标题）。
+     * 没有卡片（ref 不存在）时归零，不占位。
+     * ⚠️ 必须用 uni.createSelectorQuery 量：uni-app 的元素 ref 没有可靠 offsetHeight
+     *   （真机上拿不到），$el 在原生组件上也不稳定，这条是官方推荐量高方式。
+     */
+    measureTopCards() {
+      if (!this.$refs.topCards) { this.topCardsH = 0; return }
+      try {
+        uni.createSelectorQuery().in(this).select('#topCards').boundingClientRect((r) => {
+          this.topCardsH = (r && typeof r.height === 'number') ? r.height : 0
+        }).exec()
+      } catch (e) { this.topCardsH = 0 }
     },
     /** 去填 API：专用页只有三步（选服务商 → 粘 Key → 测通），比设置页那四层折叠好走 */
     goAiSetup() {
@@ -3137,6 +3185,9 @@ export default {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  /* 顶部提醒卡的定位锚点：.top-cards 是 absolute，必须挂在一个定位祖先上，
+     否则会漂到页面根（被导航栏盖住 / 滚不动）。 */
+  position: relative;
   /* ⚠️ 这里**绝不能**再写 touch-action:none：那是为上滑拉抽屉的手势加的，
      手势一去就得放开 —— 否则整个首页滚不动，下面那摞卡永远够不着
      （抽屉版本的遗留，2026-10-23 改滚动流时踩到）。
@@ -3147,10 +3198,41 @@ export default {
 /* ★ 首屏：自己撑满一屏。下面那摞模块卡静止时**必然**落在折叠线之下 ——
      这是**结构**保证的，不靠 opacity 把卡片藏起来（靠 JS 算 opacity 的话，
      脚本一环没跑卡片就永久不见了）。上滑时它随滚动上抬 / 缩小 / 渐隐。 */
+
+/* 顶部提醒卡浮层（权限 / API Key / 规划中）：absolute 不占文档流，
+   不会把 .home-hero（含底部「今日收工」）顶出首屏（2026-11-02 反馈）。
+   top:0 = .home-slide 内容顶边 = 导航栏底边，刚好贴在导航栏正下方、不盖导航栏。
+   容器 pointer-events:none，只有卡本体接点击，空白处照样能戳到下面的面板。 */
+.top-cards {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.top-cards > .card {
+  margin-bottom: 12rpx;
+  pointer-events: auto;
+}
+.top-cards > .card:last-child { margin-bottom: 0; }
+/* 这几张卡原本各自写了 margin-bottom，进浮层后要统一成 12rpx 间距 */
+.top-cards .setup-card,
+.top-cards .resume-card { margin-bottom: 12rpx; }
+
+/* 逐张淡出：关掉 × / 状态满足后自动消失时，opacity + 轻微上移，不要「啪」地没 */
+.tc-fade-enter-active,
+.tc-fade-leave-active { transition: opacity .28s ease, transform .28s ease; }
+.tc-fade-enter,
+.tc-fade-leave-to { opacity: 0; transform: translateY(-14rpx); }
+
 .home-hero {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  /* 顶部提醒卡浮层会盖在首屏最顶上，这里留出等高的内边距把它托住，
+     面板就不会被卡片挡住（见 utils 里量好的 topCardsH）。收起时一起过渡，不跳。 */
+  transition: padding-top .28s ease;
   min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px));
   min-height: calc(100vh - var(--status-bar-height, 0px) - 136rpx - 220rpx - var(--safe-bottom, 0px) - env(safe-area-inset-bottom));
 }
