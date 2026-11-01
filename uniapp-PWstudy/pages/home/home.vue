@@ -75,6 +75,23 @@
         <view class="sc-x" hover-class="sc-x-press" hover-stay-time="80" @tap.stop="muteSetup">×</view>
       </view>
 
+      <!-- AI 还没配：一张跟权限卡同皮肤的小卡，插在"权限"之后、"进行中的规划"之前。
+           为什么非要有它：这个 App 的主体功能（规划 / 对话 / 点评 / 识别学习 App）
+           全走用户自己的大模型账号，不填就等于一大半功能是关着的 ——
+           而设置里那个开关默认关、还折在四层里，靠用户自己找到的概率很低。
+           点 × 只是"别催了"（记 ai.promptMuted），配好之后卡自己消失。 -->
+      <view v-if="aiNeed" class="card setup-card ai-card">
+        <view class="sc-main" @tap="goAiSetup()">
+          <view class="sc-badge sc-badge-ai">AI</view>
+          <view class="sc-info">
+            <view class="sc-title">{{ $t('还差一个 API Key') }}</view>
+            <view class="sc-sub">{{ $t('填一次，AI 规划 / 对话点评 / 学习 App 识别才能用') }}</view>
+          </view>
+          <text class="sc-go">{{ $t('去填写') }} ›</text>
+        </view>
+        <view class="sc-x" hover-class="sc-x-press" hover-stay-time="80" @tap.stop="muteAi">×</view>
+      </view>
+
       <!-- 未完成的 AI 规划：退出页面也能接着聊 -->
       <view v-if="resumePlan" class="card resume-card" @tap="goWizard()">
         <view class="rc-main">
@@ -741,6 +758,7 @@
       :dark="gdDark"
       @next="guideNext"
       @skip="guideSkip"
+      @action="guideAction"
       @resize="guideResize"
     />
   </view>
@@ -766,6 +784,8 @@ import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
 import * as reminder from '../../utils/reminder.js'
 import * as onboarding from '../../utils/onboarding.js'
+// 只为了判「AI 到底配没配」——判定逻辑只有一处（services/config.js），别在页面里另写
+import { aiGateReason } from '../../services/config.js'
 import * as harvest from '../../utils/harvest.js'
 import * as theme from '../../utils/theme.js'
 import * as insets from '../../utils/insets.js'
@@ -827,6 +847,9 @@ export default {
       appTodayMin: 0,
       resumePlan: null,
       setupPending: [],
+      // AI 服务还没配（地址 / 密钥 / 总开关缺一样）时首页那张提醒卡要露出来。
+      // 用户点过 × 就不再催，配好了自动消失（见 refreshAiNeed）
+      aiNeed: false,
       checked: false,
       checkText: '',
       // 今日紧迫程度（utils/urgency.js 算好：标题 + 档位 + 三行读数，其余靠图形）
@@ -920,6 +943,10 @@ export default {
       gdOn: false,
       gdStep: null,
       gdIndex: 0,
+      // 引导开始时 AI 配没配 —— **开场时定，整轮不变**。
+      // 为什么冻结：末步（填 API）的在场条件依赖它，而用户可能正是从引导里点
+      // "现在去填"、填完再回来。条件一变，步骤表长度就变，gdIndex 会指到别的步上。
+      gdAiReady: false,
       gdBox: null,
       // ---------- 任务完成反馈 + 动态重排（utils/harvest.js）----------
       // doneDlgOn 弹窗是否在场（返回键要先收它；页面自己看得见，别去问组件）
@@ -1243,7 +1270,7 @@ export default {
       try { return schedule.dateLabel(pw.today()) } catch (e) { return pw.today() }
     },
     gdTotal() {
-      return onboarding.count()
+      return onboarding.count(this.guideOpts())
     },
     /** 遮罩层用固定配色，深浅由这里显式传下去（不跟 CSS 变量，见组件内注释） */
     gdDark() {
@@ -1506,6 +1533,7 @@ export default {
       this.appTodayMin = this.sumAppMin()
       this.syncResume()
       this.refreshSetup()
+      this.refreshAiNeed()
       this.refreshCheck()
       this.syncLayout()
       this.refreshUrgency()
@@ -2020,6 +2048,32 @@ export default {
       this.setupPending = []
       try { haptic.tick('switch') } catch (e) {}
     },
+    // ---------- AI 服务未配置 ----------
+    /**
+     * 首页那张「AI 还没配好」的卡：没配就是一张压在首屏的提醒，配好自己消失。
+     *
+     * ⚠️ 用 data 字段而不是 computed：settings 不是响应式的，computed 只会在
+     *   依赖变化时重算，而这里的"依赖"是存储 —— 从配页返回、点掉静音都得手动刷新。
+     *   onShow → refresh() 每次都调一次，成本就是读一次设置。
+     */
+    refreshAiNeed() {
+      let need = false
+      try {
+        const ai = (settings.get().ai) || {}
+        need = !!aiGateReason() && !ai.promptMuted
+      } catch (e) { need = false }
+      this.aiNeed = need
+    },
+    /** 点 × —— "我知道，别催了"。配好之后卡自己就没，所以只记静音不记状态 */
+    muteAi() {
+      try { settings.set({ ai: { promptMuted: true } }) } catch (e) {}
+      this.aiNeed = false
+      try { haptic.tick('switch') } catch (e) {}
+    },
+    /** 去填 API：专用页只有三步（选服务商 → 粘 Key → 测通），比设置页那四层折叠好走 */
+    goAiSetup() {
+      safeNav('/pkgManage/pages/ai-setup/ai-setup')
+    },
     // 首次进入（或有新缺项）主动问一次：不然用户根本不知道要开这些
     /**
      * 有新版本时问一次。
@@ -2070,6 +2124,8 @@ export default {
       this.gdOn = true
       this.gdIndex = 0
       this.gdBox = null
+      // 开场快照：AI 已经能用的人，末步（填 API）自动不出现 —— 见 guideOpts
+      try { this.gdAiReady = !aiGateReason() } catch (e) { this.gdAiReady = false }
       // 挖洞的目标（.focus-card / .task-card）就在首屏上 —— 但如果用户已经把页面
       // 滑到下面那一摞卡了，它们就在屏幕外，量不到矩形会被当"目标不存在"跳过，
       // 引导讲一半。所以先回到顶。
@@ -2085,7 +2141,7 @@ export default {
      * @param {boolean} retried 已经为这一步滚过一次了（防止来回滚不停）
      */
     measureStep(retried) {
-      const step = onboarding.stepAt(this.gdIndex)
+      const step = onboarding.stepAt(this.gdIndex, this.guideOpts())
       if (!step) { this.endGuide(); return }
       const t = step.target
       if (!t) { this.gdBox = null; this.gdStep = step; return }  // 欢迎步：整屏居中
@@ -2139,7 +2195,7 @@ export default {
 
     /** 推进一步；走完就收尾并落盘（下次不再放） */
     guideAdvance() {
-      const r = onboarding.advance(this.gdIndex, onboarding.count())
+      const r = onboarding.advance(this.gdIndex, onboarding.count(this.guideOpts()))
       this.gdIndex = r.index
       this.gdBox = null
       this.gdStep = null
@@ -2151,6 +2207,27 @@ export default {
     },
     guideSkip() {
       this.endGuide()
+    },
+    /**
+     * 步骤表的在场条件（utils/onboarding.js 的 when 读它）。
+     * 只用开场那一拍的快照（gdAiReady），不实时读设置 —— 否则用户从引导里
+     * 去填了 Key 再回来，步骤表会中途变短，gdIndex 直接错位。
+     */
+    guideOpts() {
+      return { aiReady: !!this.gdAiReady }
+    },
+    /**
+     * 末步那个「现在去填」按钮。
+     *
+     * 先 endGuide()（记完成、收起遮罩）再跳：引导是一层全屏遮罩，压在页面上，
+     * 不收起就跳页的话，返回时会看到遮罩还挂着、且停在一个已经不适用的步骤上。
+     * 记成"看过了"也没问题 —— 首页那张「还差一个 API Key」的卡会接手提醒。
+     */
+    guideAction() {
+      const step = onboarding.stepAt(this.gdIndex, this.guideOpts())
+      const act = step && step.action
+      this.endGuide()
+      if (act === 'ai') this.goAiSetup()
     },
     /** 正常收尾：记完成，下次不再放 */
     endGuide() {
@@ -3273,6 +3350,16 @@ export default {
   margin-right: 18rpx; flex-shrink: 0;
 }
 .sc-info { flex: 1; min-width: 0; }
+/* AI 那张卡的徽章写的是「AI」两个字母：圆形会把它挤成两行，改成小胶囊 */
+.sc-badge-ai {
+  width: auto; min-width: 52rpx; height: 40rpx; padding: 0 12rpx;
+  border-radius: 999rpx;
+  font-size: 21rpx; letter-spacing: 1rpx;
+  /* 琥珀色留给"要你去开权限"，AI 配置是"推荐但可选"，用品牌色弱化一档 */
+  background: rgba(228, 23, 61, 0.12);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
+  color: #bb1332; color: var(--brand-strong, #bb1332);
+}
 .sc-title { font-size: 29rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .sc-sub {
   font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560);

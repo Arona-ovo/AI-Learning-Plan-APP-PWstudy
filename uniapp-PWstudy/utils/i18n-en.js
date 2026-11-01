@@ -859,15 +859,16 @@ export default {
   '满圈 = 1 小时 · 时间只记在本机': 'A full ring = 1 hour · the time never leaves this device',
   // ---------- 新手引导（utils/onboarding.js） ----------
   '欢迎使用 PWstudy': 'Welcome to PWstudy',
-  '它这么转起来：先定一个远期目标，AI 把它拆成每天的日程；专注的时候用它计时，收工时说一句今天的出入，明天的安排自己就重排好了。下面几步带你认一下首页，随时可以跳过。': 'Here is the loop: set a long-term goal, AI breaks it into a daily schedule, use the timer while you focus, then log how today actually went — tomorrow re-plans itself. A few steps to show you around; skip any time.',
-  '专注计时：一切从这里开始': 'Focus timer: it all starts here',
-  '点这张卡进专注页（改时长、调设置），点右边的「开始」才直接起表 —— 只有那一个按钮会开始计时。': 'Tap the card to open the focus page (change duration, tweak settings); only the "Start" button on the right actually starts the clock.',
+  '它这么转起来：先定一个远期目标，AI 把它拆成每天的日程；专注时用它计时；收工时说一句今天的出入，明天的安排自己就重排好了。三步认完首页，最后一步是填 AI 的 Key —— 不填也能用，只是 AI 那几处会停。': 'The loop: set a long-term goal, AI breaks it into a daily schedule, use the timer to focus, then log how today actually went — tomorrow re-plans itself. Three steps around the home page, and one last step for your AI key. You can use the app without it; only the AI parts stop.',
+  '开始专注：点这个大圆': 'Start focusing: tap the big circle',
+  '圆里写着这一段多长、做哪件事。点一下直接起表；想改时长或调设置，点圆下面那行字进专注页。': 'The circle shows how long this session runs and what you are working on. Tap it to start; to change the duration or settings, tap the line under the circle.',
   '今日任务：今天要做什么': "Today's tasks: what to do today",
-  '目标拆到今天的这几项。点一整行直接开始专注，点左边的小圈就地勾掉。这里空着的话，去底栏「目标」定一个远期目标。': 'These are the items your goal breaks down into for today. Tap a row to start focusing, tap the circle on the left to tick it off. If it is empty, set a long-term goal under "Goals".',
+  '目标拆到今天的这几项。点一整行直接开始专注，点左边的小圈就地勾掉。这里空着的话，先去底栏「目标」定一个远期目标。': 'These are the items your goal breaks down into for today. Tap a row to start focusing, tap the circle on the left to tick it off. If it is empty, set a long-term goal under "Goals" first.',
   '今日收工：说一句今天的出入': 'Wrap up: log how today went',
-  '做多了、做少了、临时加了别的 —— 花十几秒说完，明天的安排才排得准。填过就变成「改一下」。': 'Did more, did less, or did something unplanned — say it in a few seconds and tomorrow gets planned accurately. Once logged, this becomes "Edit".',
-  '底部导航：另外三个页': 'Bottom tabs: three more pages',
-  '目标（定目标、看进度）、统计（用时与走势）、我的（设置与 AI 配置）。首页左右滑动也能切页。': 'Goals (set one, track progress), Stats (time spent and trends), Me (settings and AI config). Swiping sideways on the home page switches tabs too.',
+  '做多了、做少了、临时换了别的 —— 花十几秒说完，明天的安排才排得准。填过就变成「改一下」。': 'Did more, did less, or swapped something in — a few seconds to say it and tomorrow gets planned accurately. Once logged this becomes "Edit".',
+  '最后一步：填一个 API Key': 'Last step: add an API key',
+  '定目标时 AI 拆日程、收工时那句对话点评、学习 App 的识别，都要用你自己的大模型账号。填一次就好，密钥只存在这台手机上。': 'AI planning, the wrap-up chat, and study-app detection all run on your own model account. You fill it in once, and the key stays on this phone.',
+  '现在去填': 'Fill it in now',
   '跳过': 'Skip',
   '下一步': 'Next',
   '开始使用': 'Get started',
@@ -1351,5 +1352,57 @@ export default {
   '复盘时间': 'Recap time',
   '静默时段（不提醒）': 'Quiet hours (no nudges)',
   '还没选休闲 App，先去「选择休闲 App」挑几个，否则不会提醒。':
-    "You haven't picked any leisure apps yet — choose some first, otherwise nothing will be nudged."
+    "You haven't picked any leisure apps yet — choose some first, otherwise nothing will be nudged.",
+
+  /* ---------- 填 API（ai-setup 专页 / 首页提醒卡 / 开始前几件事）---------- */
+  '填写 API': 'Add API key',
+  'AI 密钥': 'AI key',
+  '还没填': 'not set',
+  '去填写': 'Fill in',
+  'AI 是这个 App 的大脑': 'AI is the brain of this app',
+  '定目标时把远期目标拆成每天的日程、收工时听你说一句就重排明天的安排、点评你今天跑得怎么样 —— 这些都要调大模型。填一次，以后不用再管。':
+    'Breaking a long-term goal into a daily schedule, re-planning tomorrow from a sentence you say at wrap-up, commenting on how today went — all of it calls a large model. Fill this in once and you never touch it again.',
+  '密钥只存在这台手机上，直连你选的服务商，不经过我们':
+    'The key stays on this phone and calls your provider directly — we never see it',
+  '不填也能用：专注计时、日程、统计都是本地的，只是 AI 那几处会停用':
+    'You can skip it: timer, schedule and stats are local. Only the AI parts stop',
+  '已经配置好了': 'Already configured',
+  '要换服务商或密钥，直接改下面几项再点保存。': 'To switch provider or key, change the fields below and save again.',
+  '选服务商': 'Pick a provider',
+  '粘贴 API Key': 'Paste your API key',
+  'sk- 开头的那一长串': 'the long string starting with sk-',
+  '从剪贴板粘贴': 'Paste from clipboard',
+  '去申请一个': 'Get one',
+  '地址与模型': 'Endpoint and model',
+  '默认就行，点开可改': 'Defaults are fine — tap to change',
+  '如 gpt-4o-mini / deepseek-chat': 'e.g. gpt-4o-mini / deepseek-chat',
+  '用的是 OpenAI 兼容接口；中转 / 自建地址填根地址即可，会自动补 /chat/completions。':
+    'Uses the OpenAI-compatible API. For a proxy or self-hosted endpoint, just enter the root URL — /chat/completions is appended for you.',
+  '测试通过': 'Test passed',
+  '没测通': 'Test failed',
+  '正在测试…': 'Testing…',
+  '保存并重新测试': 'Save and retest',
+  '测试并保存': 'Test and save',
+  '测通之后，AI 规划、对话、点评就都能用了。以后想改：我的 › 设置 › AI 服务。':
+    'Once it passes, AI planning, chat and reviews all work. To change it later: Me › Settings › AI service.',
+  '上一次测试通过': 'Last test passed',
+  '配好了': 'Configured',
+  '已粘贴': 'Pasted',
+  '剪贴板是空的': 'Clipboard is empty',
+  '读不到剪贴板，手动粘贴一下': "Couldn't read the clipboard — paste manually",
+  '已复制申请页地址，粘到浏览器打开': 'Link copied — open it in your browser',
+  '没能打开浏览器': "Couldn't open a browser",
+  '任何 OpenAI 兼容的地址都行，包括自己搭的或中转服务；地址和模型要自己填。':
+    'Any OpenAI-compatible endpoint works, including self-hosted or proxy services. Fill in the URL and model yourself.',
+  '阿里云百炼的兼容模式，地址已填好，只要 Key。': "Alibaba Bailian's compatible mode — URL is preset, you only need the key.",
+  '地址和模型已按这家填好，只要粘一个 Key。': 'URL and model are preset for this provider — just paste a key.',
+  '还差一个 API Key': 'One API key to go',
+  '填一次，AI 规划 / 对话点评 / 学习 App 识别才能用': 'Fill it in once to unlock AI planning, chat reviews and study-app detection',
+  '还没填 API Key，和 AI 聊不下去。点这里填，一分钟的事。': "No API key yet, so there's no talking to AI. Tap here — takes a minute.",
+  '打不开填写页，去「我的 › 设置 › AI 服务」': "Couldn't open the page — go to Me › Settings › AI service",
+  '最上面那项是 AI 密钥：不填也能用，只是规划、对话、点评这几处会停。再往下是 Android 要你点头才给的能力，缺一件对应的功能就会「看着像坏了」；最后几个开关决定你要不要被管着。全都能跳过，也都能在设置里改回来。':
+    'The first item is the AI key: the app works without it, but planning, chat and reviews stop. Below that are the permissions Android has to grant, and missing one makes the matching feature look broken. The last few switches decide how strictly you want to be managed. All skippable, all reversible in Settings.',
+  '填一次就行。规划目标、收工对话、识别学习 App 都走你自己的大模型账号，不填这几处就用不了。':
+    "Fill it in once. Goal planning, the wrap-up chat and study-app detection all use your own model account — without it these parts don't work.",
+  '已配好：AI 规划、对话点评、学习 App 识别都能用了': 'Configured: AI planning, chat reviews and study-app detection all work'
 };

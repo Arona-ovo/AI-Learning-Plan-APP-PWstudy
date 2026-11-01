@@ -160,7 +160,12 @@
 
       <view v-if="error" class="error-card">{{ error }}</view>
       <button class="btn-primary go-btn" :disabled="!canGo" @tap="startSession">下一步：和 AI 聊聊细节</button>
-      <view v-if="!aiReady" class="ai-off">还没配置 AI 服务：到「我的 → 设置 → AI 服务」填好密钥后再来。</view>
+      <!-- 没配 AI 就等于这一步走不下去（对话要靠它）——所以这句不能只是"说明"，
+           得是一条能点的路：点这里直接去填，填完回来本页 onShow 会重算 aiReady。 -->
+      <view v-if="!aiReady" class="ai-off" @tap="goAiSetup">
+        <text class="ai-off-t">{{ $t('还没填 API Key，和 AI 聊不下去。点这里填，一分钟的事。') }}</text>
+        <text class="ai-off-go">{{ $t('去填写') }} ›</text>
+      </view>
     </view>
 
     <!-- ============ 第二步：对话式收集需求 ============ -->
@@ -527,6 +532,8 @@ export default {
     // 开关可能在设置页被改过（那边和这里写的是同一个 settings.plan.slot）
     this.slotOn = timeslot.enabled()
     this.syncFromTask()
+    // 从「填写 API」页退回来：那行提示要当场消失（不重读的话，填完了它还挂在那里说没填）
+    try { this.aiReady = !aiGateReason() } catch (e) { this.aiReady = false }
   },
   onUnload() {
     try { if (this.__onChange) uni.$off(planTask.CHANGE_EVENT, this.__onChange) } catch (e) {}
@@ -535,6 +542,14 @@ export default {
     clearTimeout(this.__kbBlurT)
   },
   methods: {
+    /** 去「填写 API」：这条提示本身就是路，别让用户自己去设置里翻四层 */
+    goAiSetup() {
+      try {
+        uni.navigateTo({ url: '/pkgManage/pages/ai-setup/ai-setup' })
+      } catch (e) {
+        try { uni.showToast({ title: this.$t('打不开填写页，去「我的 › 设置 › AI 服务」'), icon: 'none' }) } catch (e2) {}
+      }
+    },
     /**
      * 点了输入框：键盘必然要弹出来。
      *
@@ -979,7 +994,14 @@ export default {
   font-size: 25rpx; line-height: 1.7; color: #c2323a;
 }
 .go-btn { margin-top: 10rpx; }
-.ai-off { margin-top: 18rpx; font-size: 23rpx; color: #8a5800; text-align: center; }
+.ai-off {
+  margin-top: 18rpx; padding: 18rpx 24rpx;
+  display: flex; align-items: center; justify-content: space-between;
+  border-radius: 18rpx;
+  background: rgba(247, 144, 9, 0.1);
+}
+.ai-off-t { flex: 1; min-width: 0; font-size: 23rpx; line-height: 1.5; color: #8a5800; }
+.ai-off-go { flex-shrink: 0; margin-left: 16rpx; font-size: 23rpx; font-weight: 600; color: #b26400; }
 
 /* ===== 对话 ===== */
 .chat-stage { display: flex; flex-direction: column; flex: 1; }

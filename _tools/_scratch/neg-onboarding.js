@@ -92,7 +92,7 @@ console.log('');
 
 // 1. 步骤表里混回背单词内容
 shouldCatch('步骤文案里出现「查词」', (c) => {
-  swap(c, ONB, "title: '专注计时：计时从这里开始',", "title: '专注计时：查词与计时',");
+  swap(c, ONB, "title: '开始专注：点这个大圆',", "title: '专注计时：查词与计时',");
 }, '查词');
 
 // 2. 页面内锚点被改名（量不到 → 那一步会静默消失）
@@ -102,9 +102,13 @@ shouldCatch('首页的 class 改了（.focus-card 不再存在）', (c) => {
 }, 'focus');
 
 // 3. 子组件内的锚点：ref 名改了
+//    ⚠️ 2026-11-01 重做引导后，步骤表里已经没有 ref 锚点了（底部导航那步换成了填 API），
+//    但"ref 指向的子组件里量不到"这条通路还活着（首页仍挂着 ref="tabbar"）。
+//    所以这里把末步的居中步骤改成"指向一个不存在的 ref"来测这条通路，
+//    真实场景就是"哪天给某一步加了 ref 高亮、ref 名却写错了"。
 shouldCatch('ref 名改了（ref="tabbar" 不存在）', (c) => {
-  swap(c, ONB, "target: { ref: 'tabbar', sel: '.ftb' }", "target: { ref: 'tabbarX', sel: '.ftb' }");
-}, 'tabbar');
+  swap(c, ONB, "target: null,\n    when:", "target: { ref: 'tabbarX', sel: '.ftb' },\n    when:");
+}, 'tabbarX');
 
 // 4. 量不到时不再自动跳过 —— 用户会被永远卡在遮罩里
 shouldCatch('量不到矩形时不跳过（会卡死）', (c) => {
@@ -150,7 +154,7 @@ shouldCatch('步骤文案缺英文', (c) => {
 // ---- 屏幕尺寸 / 横竖屏 / 箭头（2026-10-14 补的那批）----
 // 11. 步骤数超上限：用户明确要求 3-5 步
 shouldCatch('步骤加到 6 步（超出 3-5 步）', (c) => {
-  swap(c, ONB, "  {\n    id: 'tabbar',", "  {\n    id: 'edit',\n    title: '编辑首页：卡片自己排',\n    body: '点「编辑首页」可以拖动卡片。',\n    target: { sel: '.foot-link' }\n  },\n  {\n    id: 'tabbar',");
+  swap(c, ONB, "  {\n    id: 'ai',", "  {\n    id: 'edit',\n    title: '编辑首页：卡片自己排',\n    body: '点「编辑首页」可以拖动卡片。',\n    target: { sel: '.foot-link' }\n  },\n  {\n    id: 'ai',");
 }, '3-5 步');
 
 // 12. 转屏后不重排：尺寸只在 created 读一次
@@ -191,6 +195,16 @@ shouldCatch('目标不在视口时不滚进视口', (c) => {
 shouldCatch('resize 后不重新量目标', (c) => {
   swap(c, HOME, 'setTimeout(() => { if (this.gdOn) this.measureStep() }, 160)', '/* 不重测 */');
 }, '重新量目标矩形');
+
+// 19. 末步的行动按钮没接线 —— 「现在去填」点了没反应（那一步白讲）
+shouldCatch('遮罩的 action 没接到首页', (c) => {
+  swap(c, HOME, '@action="guideAction"', '/* 没接 */');
+}, 'guideAction');
+
+// 20. 行动按钮的文案没有英文（遮罩里是 $t(step.actionText)，check-i18n 扫不到）
+shouldCatch('行动按钮文案缺英文', (c) => {
+  swap(c, EN, "'现在去填': 'Fill it in now',", "'现在去填X': 'Fill it in now',");
+}, '英文译文');
 
 restore();
 console.log('');

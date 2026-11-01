@@ -35,7 +35,13 @@
         <view class="gd-dots">
           <view v-for="n in total" :key="n" class="gd-dot" :class="{ on: n - 1 <= index }"></view>
         </view>
-        <view class="gd-btn" @tap.stop="onNext">{{ isLast ? $t('开始使用') : $t('下一步') }}</view>
+        <!-- 带行动的那一步（现在是末步「填 API」）：给两个出口 —— 真去做（去填）
+             和"以后再说"（照常收尾）。只留一个「下一步」的话，这步就退化成一段说明文字。 -->
+        <template v-if="step.action">
+          <view class="gd-btn gd-btn-ghost" @tap.stop="onNext">{{ isLast ? $t('以后再说') : $t('下一步') }}</view>
+          <view class="gd-btn" @tap.stop="onAction">{{ $t(step.actionText) }}</view>
+        </template>
+        <view v-else class="gd-btn" @tap.stop="onNext">{{ isLast ? $t('开始使用') : $t('下一步') }}</view>
       </view>
     </view>
 
@@ -52,7 +58,13 @@
           <view class="gd-dots">
             <view v-for="n in total" :key="n" class="gd-dot" :class="{ on: n - 1 <= index }"></view>
           </view>
-          <view class="gd-btn" @tap.stop="onNext">{{ isLast ? $t('开始使用') : $t('下一步') }}</view>
+          <!-- 带行动的那一步（现在是末步「填 API」）：给两个出口 —— 真去做（去填）
+               和"以后再说"（照常收尾）。只留一个「下一步」的话，这步就退化成一段说明文字。 -->
+          <template v-if="step.action">
+            <view class="gd-btn gd-btn-ghost" @tap.stop="onNext">{{ isLast ? $t('以后再说') : $t('下一步') }}</view>
+            <view class="gd-btn" @tap.stop="onAction">{{ $t(step.actionText) }}</view>
+          </template>
+          <view v-else class="gd-btn" @tap.stop="onNext">{{ isLast ? $t('开始使用') : $t('下一步') }}</view>
         </view>
       </view>
     </view>
@@ -83,7 +95,7 @@ export default {
     dark: { type: Boolean, default: false }
   },
   // resize：转屏 / 分屏 / 折叠屏展开后让页面重新量一次目标（尺寸变了，旧矩形全作废）
-  emits: ['next', 'skip', 'resize'],
+  emits: ['next', 'skip', 'action', 'resize'],
   data() {
     return {
       sw: 375,  // 视口宽（px）
@@ -193,6 +205,10 @@ export default {
     },
     onSkip() {
       this.$emit('skip');
+    },
+    /** 行动按钮（step.action）：只抛事件，去哪由页面决定（本组件不认识路由） */
+    onAction() {
+      this.$emit('action');
     }
   }
 };
@@ -351,6 +367,16 @@ export default {
   opacity: 0.85;
 }
 
+/* 末步有两个按钮时的间距：「以后再说」+「现在去填」并排 */
+.gd-btn + .gd-btn { margin-left: 8px; }
+
+/* 次要按钮：不该跟「现在去填」一样醒目 */
+.gd-btn-ghost {
+  background: transparent;
+  border-color: rgba(23, 32, 26, 0.16);
+  color: #5a6560;
+}
+
 /* 深色模式：固定深色配色（不跟主题变量，模态层要稳定可读） */
 .gd-dark .gd-tip {
   background: rgba(30, 34, 32, 0.97);
@@ -393,6 +419,12 @@ export default {
   background: rgba(249, 124, 138, 0.16);
   border-color: rgba(249, 124, 138, 0.45);
   color: #f97c8a;
+}
+
+.gd-dark .gd-btn-ghost {
+  background: transparent;
+  border-color: rgba(234, 240, 237, 0.22);
+  color: #a7b3ae;
 }
 
 /* 流畅模式：关掉呼吸动画（与全局 perf-smooth 约定一致） */

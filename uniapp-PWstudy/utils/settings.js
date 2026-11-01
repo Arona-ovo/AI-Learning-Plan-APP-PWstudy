@@ -226,7 +226,12 @@ function defaults() {
       ttsModel: '',        // 语音模型，空则默认 tts-1
       ttsVoice: 'alloy',   // 音色
       ttsSpeed: 1.0,       // 云端语速
-      customTTS: false     // 仅 provider=custom 时生效：用户声明该地址提供 /audio/speech
+      customTTS: false,    // 仅 provider=custom 时生效：用户声明该地址提供 /audio/speech
+      // verify 上一次连通性测试的结论（sig 是配置指纹，改了地址/模型/密钥就作废）
+      verify: { sig: '', ok: false, msg: '', latency: 0, ts: 0 },
+      // promptMuted 首页那张「AI 还没配好」的提醒卡被点掉过 —— 用户明确说"知道了，
+      // 别拿它烦我"。配好之后卡自己就没了，所以这里只记"别催"，不记"配没配"。
+      promptMuted: false
     }
   };
 }

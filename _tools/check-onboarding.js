@@ -171,6 +171,14 @@ assert(/<onboarding-mask/.test(homeSrc), '首页渲染了 onboarding-mask');
 });
 assert(/@next="guideNext"/.test(homeSrc) && /@skip="guideSkip"/.test(homeSrc), '遮罩的 next / skip 都接了');
 assert(/maybeGuide\(\)/.test(homeSrc), 'onShow 里会尝试放引导');
+// 末步「填 API」的行动按钮：遮罩要抛 action，首页要接住并真的跳转 ——
+// 只加文案、不接线的话，那一步就是一段说明文字，白占一个步骤位
+assert(/@action="guideAction"/.test(homeSrc), '遮罩的 action 事件接上了 guideAction');
+const gAction = fnBody(homeSrc, 'guideAction');
+assert(gAction.length > 0 && /ai-setup/.test(homeSrc),
+  'guideAction() 会跳到填 API 的页面');
+assert(/gdAiReady/.test(homeSrc), '引导开场会记下"AI 配没配"（决定末步在不在场）');
+assert(/guideOpts\(\)/.test(homeSrc), '步骤表现场条件由 guideOpts() 供给');
 
 const measure = fnBody(homeSrc, 'measureStep');
 assert(measure.length > 0, '能切到 measureStep() 的函数体');
@@ -210,6 +218,11 @@ assert(miss.length === 0, miss.length === 0
   ? '每条文案在 i18n-en.js 里都有译文'
   : '缺英文：' + miss.slice(0, 3).join(' / '));
 
+// 行动按钮上的字也是界面文案（遮罩里是 $t(step.actionText)，同样是动态取键）
+const act = /actionText:\s*'([^']*)'/.exec(onbCode);
+assert(!!act, '末步的按钮文案写在步骤表里（actionText）');
+assert(act && enSrc.indexOf("'" + act[1] + "'") >= 0, '「' + (act ? act[1] : '') + '」有英文译文');
+
 /* ---------- 7. 屏幕尺寸 / 横竖屏适配（真跑布局计算，不只看有没有那行代码） ---------- */
 console.log('');
 console.log('== 7. 屏幕尺寸与横竖屏适配 ==');
@@ -224,6 +237,12 @@ assert(steps.length >= 3 && steps.length <= 5,
 // 视口尺寸不能只在 created 里读一次：转屏 / 分屏 / 折叠屏展开都会改
 // ⚠️ 判据要认"订阅动作"而不是"方法名"：方法名还出现在 typeof 的可用性判断里，
 //    只测名字的话，把订阅那行删掉照样绿（反向测试第 12/13 条专门盯这个）
+// 行动按钮（末步「现在去填」）：点的是 onAction，不是 onNext。
+// 也别写成 v-else-if="step.action" —— 与 v-if 同条件，第二个分支永远不成立，
+// 主按钮直接消失，静态看着还挺像对的。
+assert(/@tap\.stop="onAction"/.test(maskCode), '行动按钮绑的是 onAction（不是 onNext）');
+assert(!/v-else-if="step\.action"/.test(maskCode), '没有 v-else-if="step.action" 这种自相矛盾的分支');
+assert(/actionText/.test(maskCode), '按钮上的字取 step.actionText');
 assert(/uni\.onWindowResize\(/.test(maskCode), '遮罩订阅了窗口尺寸变化（转屏后重排）');
 assert(/uni\.offWindowResize\(/.test(maskCode), '遮罩在卸载时解绑尺寸监听');
 const mUnmount = fnBody(maskSrc, 'unmounted');

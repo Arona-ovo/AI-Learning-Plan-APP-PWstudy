@@ -5,11 +5,33 @@
     <view class="card lead">
       <text class="lead-title">{{ $t('先把这几件事定下来') }}</text>
       <text class="lead-txt">
-        {{ $t('上面几项是 Android 要你点头才给的能力，缺一件对应的功能就会「看着像坏了」；下面几个开关决定你要不要被管着。全部都可以跳过，也都能在设置里改回来。') }}
+        {{ $t('最上面那项是 AI 密钥：不填也能用，只是规划、对话、点评这几处会停。再往下是 Android 要你点头才给的能力，缺一件对应的功能就会「看着像坏了」；最后几个开关决定你要不要被管着。全都能跳过，也都能在设置里改回来。') }}
       </text>
     </view>
 
-    <!-- ① 系统权限：直接拿 setup 的清单（唯一出处），不在这里另写一份名单 -->
+    <!-- ① 先配 AI：它不在"系统要我点头"那一类里（不需要任何权限），
+         但没配的话规划 / 对话 / 点评是全停的 —— 用户最容易得出的结论是"这 App 坏了"。
+         所以摆在最前面、和权限卡同目视重量，并直接给"去填写"的按钮。 -->
+    <view class="card ai-card">
+      <view class="ai-head">
+        <view class="ai-dot" :class="{ 'ai-dot-ok': aiReady }"></view>
+        <view class="ai-info">
+          <text class="ai-title">
+            {{ $t('AI 密钥') }}
+            <text v-if="!aiReady" class="st-opt">{{ $t('还没填') }}</text>
+          </text>
+          <text class="ai-sub">
+            {{ aiReady
+              ? $t('已配好：AI 规划、对话点评、学习 App 识别都能用了')
+              : $t('填一次就行。规划目标、收工对话、识别学习 App 都走你自己的大模型账号，不填这几处就用不了。') }}
+          </text>
+        </view>
+        <view v-if="!aiReady" class="st-btn st-btn-must" @tap.stop="goAi">{{ $t('去填写') }}</view>
+        <text v-else class="st-done">{{ $t('已开启') }}</text>
+      </view>
+    </view>
+
+    <!-- ② 系统权限：直接拿 setup 的清单（唯一出处），不在这里另写一份名单 -->
     <view class="card">
       <text class="card-title">{{ $t('要系统放行的') }}</text>
       <view
@@ -44,7 +66,7 @@
       <text v-if="forced" class="st-note">{{ $t('开了强制模式，「显示在其他应用上层」和「无障碍」就变成必办项 —— 它们是拉你回来的唯一通道。') }}</text>
     </view>
 
-    <!-- ② 可选开关：这些不是权限，是"要不要被管着" -->
+    <!-- ③ 可选开关：这些不是权限，是"要不要被管着" -->
     <view class="card">
       <text class="card-title">{{ $t('要不要被管着') }}</text>
       <view class="st-row">
@@ -89,6 +111,7 @@ import * as settings from '../../../utils/settings.js'
 import * as forced from '../../../utils/forced.js'
 import * as strict from '../../../utils/strict.js'
 import * as loc from '../../../utils/location.js'
+import { aiGateReason } from '../../../services/config.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 
 // 标题简写走 setup.shortTitle（去掉括号里的补充说明）—— 弹窗 / toast / 列表三处
@@ -101,6 +124,7 @@ export default {
     return {
       items: [],        // setup.status()：权限清单（含 must 与实测结果）
       open: '',         // 当前展开说明的那一项的 key
+      aiReady: false,   // AI 服务是否可用（地址 + 密钥 + 总开关齐备）
       forced: false,
       strict: false,
       autoRest: false,
@@ -128,6 +152,16 @@ export default {
     refresh() {
       this.items = setup.status()
       this.readSwitches()
+      // AI 状态每次显示都重读：从填写页返回时，这张卡要当场变成「已开启」
+      try { this.aiReady = !aiGateReason() } catch (e) { this.aiReady = false }
+    },
+    /** 去填 API：专用页（选服务商 → 粘 Key → 测通保存），回来 onShow 自动刷新本条 */
+    goAi() {
+      try {
+        uni.navigateTo({ url: '/pkgManage/pages/ai-setup/ai-setup' })
+      } catch (e) {
+        try { uni.showToast({ title: this.$t('打不开填写页，去「我的 › 设置 › AI 服务」'), icon: 'none' }) } catch (e2) {}
+      }
     },
     /** 开关的当前值：全部从 settings 读，页面上不存第二份 */
     readSwitches() {
@@ -208,6 +242,23 @@ export default {
   display: block;
   margin-top: 16rpx;
   font-size: 24rpx; line-height: 1.75;
+  color: #5a6560; color: var(--ink-2, #5a6560);
+}
+
+/* ===== AI 密钥卡 ===== */
+.ai-head { display: flex; align-items: center; }
+.ai-dot {
+  width: 16rpx; height: 16rpx; border-radius: 50%;
+  background: #f79009;
+  margin: 6rpx 18rpx 0 0; flex-shrink: 0;
+  align-self: flex-start;
+}
+.ai-dot-ok { background: #3b9d11; }
+.ai-info { flex: 1; min-width: 0; margin-right: 16rpx; }
+.ai-title { font-size: 28rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
+.ai-sub {
+  display: block; margin-top: 8rpx;
+  font-size: 22rpx; line-height: 1.6;
   color: #5a6560; color: var(--ink-2, #5a6560);
 }
 
