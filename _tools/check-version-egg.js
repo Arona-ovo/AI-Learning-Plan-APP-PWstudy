@@ -125,7 +125,12 @@ const eq = (a, b, m) => assert(a === b, m + '（期望 ' + b + '，实际 ' + a 
   console.log('== 8. 连点计数实跑 ==');
   // 前面几组都是静态扫描，守不住"计数到底对不对"。这里把 tapVersion 的方法体抽出来，
   // 在沙箱里用可控时钟真跑一遍 —— 阈值、窗口、提示时机都是跑出来的，不是看出来的。
-  const body = (src.match(/\n    tapVersion\(\) \{\n([\s\S]*?)\n    \},/) || [])[1];
+  // ⚠️ 先归一换行再抽方法体。`core.autocrlf=true` 时 git 检出的是 CRLF、仓库里存的是
+  //    LF —— 脚本（python/node）写出来的文件是 LF，`git checkout` 覆盖出来的却是 CRLF，
+  //    于是同一份源码"有时候抽得到、有时候抽不到"（2026-11-01 实锤：settings.vue 被
+  //    另一处 checkout 重写后这一段直接变红，代码一行没改）。
+  const srcLF = src.replace(/\r\n/g, '\n');
+  const body = (srcLF.match(/\n    tapVersion\(\) \{\n([\s\S]*?)\n    \},/) || [])[1];
   assert(!!body, '抽得到 tapVersion 的方法体');
   if (body) {
     let clock = 1e6;
