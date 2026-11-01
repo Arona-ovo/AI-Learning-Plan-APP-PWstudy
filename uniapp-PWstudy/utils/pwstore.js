@@ -507,6 +507,41 @@ export function useExitQuota() {
   return true;
 }
 
+// = 每月 3 次暂停（强制模式下）。为什么单独一套配额：强制模式的意思是"这轮专注
+// 跑不完就别想走"，暂停就是那个唯一的"合法中场"。不限它，人就会拿暂停当无限休息，
+// 强制模式名存实亡（用户原话："暂停就无限休息了"）。每次暂停限 2 分钟，到点自动恢复。
+const PAUSE_QUOTA_MAX = 3;
+
+/** 本月（强制模式下）还剩几次暂停额度 */
+export function pauseQuotaLeft() {
+  const q = get().pauseQuota;
+  if (!q || q.month !== monthOf(Date.now())) return PAUSE_QUOTA_MAX;
+  return Math.max(0, PAUSE_QUOTA_MAX - (Number(q.used) || 0));
+}
+
+/** 本月已经用掉几次暂停额度 */
+export function pauseQuotaUsed() {
+  const q = get().pauseQuota;
+  if (!q || q.month !== monthOf(Date.now())) return 0;
+  return Math.max(0, Number(q.used) || 0);
+}
+
+export function pauseQuotaMax() { return PAUSE_QUOTA_MAX; }
+
+/**
+ * 用掉一次强制模式暂停额度。没额度了返回 false —— 调用方据此把「暂停」堵上。
+ * 跨月自动重置：只认 month 字段等于当前月的那条记录（与 exitQuota 同一口径）。
+ */
+export function usePauseQuota() {
+  const st = get();
+  const m = monthOf(Date.now());
+  if (!st.pauseQuota || st.pauseQuota.month !== m) st.pauseQuota = { month: m, used: 0 };
+  if (st.pauseQuota.used >= PAUSE_QUOTA_MAX) return false;
+  st.pauseQuota.used += 1;
+  touch();
+  return true;
+}
+
 /**
  * 给刚落账的那段专注补一句心得（休息页上填的）。
  * 存会话本身而不是另开一份"心得表"：它本来就是这一段专注的附属信息，

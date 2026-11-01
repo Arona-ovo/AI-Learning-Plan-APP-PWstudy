@@ -168,9 +168,11 @@
 
       <!-- 运行态 / 暂停态 -->
       <view v-else-if="active" class="ctrl">
-        <button class="ctrl-btn ctrl-main" @tap="togglePause">{{ paused ? '继续' : '暂停' }}</button>
-        <button class="ctrl-btn ctrl-ghost" @tap="confirmStop">{{ $t('结束') }}</button>
+        <button class="ctrl-btn ctrl-main" :class="{ 'ctrl-rest': isRest }" @tap="togglePause">{{ paused ? '继续' : '暂停' }}</button>
+        <button class="ctrl-btn ctrl-ghost" :class="{ 'ctrl-rest': isRest }" @tap="confirmStop">{{ isRest ? $t('放弃休息') : $t('结束') }}</button>
       </view>
+      <!-- 强制模式暂停：到点自动恢复，别让用户以为可以无限歇下去 -->
+      <text v-if="paused && cur && cur.forcedResumeAt" class="forced-resume-hint">{{ $t('强制模式：2 分钟后自动恢复专注') }}</text>
       <text v-if="overrun" class="over-hint">{{ $t('预设时长已跑完，继续计时中') }}</text>
 
       <!-- 运行态的白噪音控制：以前开关只在空闲态，一开表想关噪音就得先放弃 -->
@@ -971,8 +973,20 @@ export default {
     },
     togglePause() {
       if (!this.cur) { this.beginFocus(); return }
-      if (this.cur.paused) focus.resume()
-      else focus.pause()
+      if (this.cur.paused) {
+        focus.resume()
+      } else {
+        const r = focus.pause()
+        if (r && r.ok === false && r.reason === 'no-quota') {
+          this.ask({
+            title: t('本月暂停次数用完'),
+            content: t('强制模式下每月只能暂停 3 次，每次 2 分钟。这次就一口气跑完吧。'),
+            confirmText: t('知道了'),
+            action: 'pause-quota-out'
+          })
+          return
+        }
+      }
       this.cur = focus.current()
       strict.sync()
       forced.sync()
@@ -987,6 +1001,8 @@ export default {
      * 没开强制/严格模式就没有这道闸，直接给二选一 —— 不该拿额度去烦没开的人。
      */
     confirmStop() {
+      // 休息中「结束」其实是「放弃休息」：只放弃这次休息、不算结束任务，也不占任何退出额度
+      if (this.isRest) { this.confirmAbandonRest(); return }
       this.quotaOk = false
       // 刚点开不到 1 分钟就结束：根本没开始学，直接作废（不占强制/严格额度、也没什么可记），
       // 不再给二选一 —— 短到没什么可记，问也问不出名堂。
@@ -1013,6 +1029,20 @@ export default {
         countdown: 3,
         danger: true,
         action: 'exit-quota'
+      })
+    },
+
+    /**
+     * 休息中「放弃休息」：只放弃这次休息，不算结束任务。
+     * 回到空闲态（点圆盘就能开始下一段专注），已完成的专注账不受影响。
+     */
+    confirmAbandonRest() {
+      this.ask({
+        title: t('放弃休息？'),
+        content: t('放弃这次休息，不会影响已完成的专注。接下来随时可以开始下一段专注。'),
+        confirmText: t('放弃休息'),
+        cancelText: t('继续休息'),
+        action: 'abandon-rest'
       })
     },
 
@@ -1128,6 +1158,8 @@ export default {
       this.cur = focus.startRest()
       this.refreshRound()
       strict.sync()
+      // ★ 休息阶段强制模式**立即**收手：别等 forced.js 的 2 秒对账，让人一进休息就能自由切 App
+      forced.sync()
     },
     startNextFocus() {
       this.finished = false
@@ -1383,6 +1415,18 @@ export default {
       }
       if (act === 'quota-out') {
         this.askExitChoice()           // 额度用完：只剩"提前完成"那一项
+        return
+      }
+      if (act === 'abandon-rest') {
+        // 放弃休息：giveUp 在休息阶段只清状态、不落账、不碰任务 → 回到空闲态可开始下一段专注
+        focus.giveUp()
+        this.cur = null
+        this.restDone = false
+        this.finished = false
+        this.refreshToday()
+        this.refreshRound()
+        strict.sync()
+        forced.sync()
         return
       }
       if (act === 'exit-choice') {
@@ -2280,9 +2324,43 @@ export default {
   display: flex; align-items: center; justify-content: center;
   margin: 0 16rpx;
 }
-.ctrl-main { width: 300rpx; }
-.ctrl-ghost { width: 200rpx; }
+/* 专注态主/次按钮：淡红底 + 深红字（与 .btn-primary/.btn-ghost 同一套语言）。
+   ⚠️ 曾经这两个 class 只有宽没有色 → 落到 uni-button 默认灰，红字全丢。 */
+.ctrl-main {
+  width: 300rpx;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  background: rgba(228, 23, 61, 0.1);
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+  border: 2rpx solid rgba(228, 23, 61, 0.4);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.4);
+}
+.ctrl-ghost {
+  width: 200rpx;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  background: rgba(255, 255, 255, 0.66);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.66);
+  border: 2rpx solid rgba(228, 23, 61, 0.34);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.34);
+}
 .ctrl-btn::after { border: none; }
+/* 休息态：按钮跟着整页一起变绿（与 .phase-rest / 圆环绿同色），红色只留给专注中 */
+.ctrl-rest.ctrl-main,
+.ctrl-rest.ctrl-ghost {
+  color: #3b6d11;
+  background: rgba(59, 109, 17, 0.10);
+  border: 2rpx solid rgba(59, 109, 17, 0.4);
+}
+/* 强制模式暂停：到点自动恢复的提示 */
+.forced-resume-hint {
+  display: block;
+  margin-top: 18rpx;
+  font-size: 22rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  text-align: center;
+}
 /* 正计时说明：环上那个 +MM:SS 是什么意思，必须写出来 ——
    不然用户只会以为"倒计时卡在 00:00 不动了" */
 .over-hint {

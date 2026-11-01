@@ -40,6 +40,11 @@ let lastNotifyAt = 0;
 // 模块级 = 切页不销毁（JS 上下文活着），App 真被杀则由 restoreIfNeeded 兜底。
 let watchdog = 0;
 
+// 强制模式暂停的自动恢复：每次暂停最多 2 分钟，到点自动 resume（不是无限休息）。
+// 与 watchdog 同理是模块级定时器：切页不销毁，App 真被杀则靠 restoreIfNeeded + maybeAutoResume 兜底。
+let forcedResumeTimer = 0;
+const FORCED_PAUSE_MS = 120000;   // 2 分钟
+
 /* ---------- 专注期拦截通知（通知使用权，番茄ToDo 同款） ----------
  *
  * 专注期间把别家 App 的通知**捕获并当场撤下**（下拉通知栏也看不到），
@@ -94,6 +99,32 @@ function armWatchdog() {
     if (Date.now() < state.endAt) { armWatchdog(); return; }
     onDue(isMissed(state));
   }, delay);
+}
+
+function clearForcedResume() {
+  if (forcedResumeTimer) { clearTimeout(forcedResumeTimer); forcedResumeTimer = 0; }
+}
+
+/** 强制暂停的 2 分钟自动恢复：到点把专注拉回来。只在进程活着时有效，进程被杀靠 maybeAutoResume 兜底 */
+function armForcedResume() {
+  clearForcedResume();
+  if (!state || !state.paused || !state.forcedResumeAt) return;
+  const delay = Math.max(500, state.forcedResumeAt - Date.now());
+  if (delay > 0x7fffffff) return;
+  forcedResumeTimer = setTimeout(() => {
+    forcedResumeTimer = 0;
+    if (state && state.paused && state.forcedResumeAt && Date.now() >= state.forcedResumeAt) resume();
+  }, delay);
+}
+
+/**
+ * 强制暂停到点自动恢复的兜底：定时器被节流 / 进程被杀恢复现场后，只要任何驱动源
+ * （页面 tick、current 对账、看门狗）还在跑，就会在这里补上"到点就恢复"。
+ */
+function maybeAutoResume() {
+  if (!state || !state.paused || !state.forcedResumeAt) return;
+  if (Date.now() < state.forcedResumeAt) return;
+  resume();
 }
 
 /** 是不是"人不在的时候跑完的"：差 15 秒以上才算，否则就是正常到点 */
@@ -203,9 +234,12 @@ export function syncCapsule() {
       capsuleStyleApplied = style;
       try { fgsvc.capsuleSetStyle(style); } catch (e) {}
     }
+    // ★ 阶段始终同步给原生：哪怕这一拍胶囊不显示（休息阶段就不显示），
+    //   原生 seen() 也要靠它判断"休息中退出不算逃逸、不弹胶囊、不拉回"
+    try { fgsvc.setCapsulePhase(state ? state.phase : 'focus'); } catch (e) {}
     want = (!!c.capsule || !!c.forced)
       && !!state
-      && (state.phase === 'focus' || state.phase === 'rest')
+      && state.phase === 'focus'   // ★ 休息阶段不挂胶囊（休息中退出不拦截）
       && !apptime.isAppForeground()
       && fgsvc.capsuleGranted();
   } catch (e) { want = false; }
@@ -296,6 +330,7 @@ export function setCfg(patch) {
 
 export function current() {
   restoreIfNeeded();
+  maybeAutoResume();
   // 读到就顺手推进：专注早就到点了（人切到别的应用 / 停在别的 tab，没人调 tick）
   // 时若原样返回"专注中 + 剩 0"，严格/强制模式会一直以为还在计时 ——
   // 强制模式就会持续把 App 拉回前台并累加违规，第 3 次自动作废还会按超长时长落一条账。
@@ -359,6 +394,7 @@ export function stopOverrun() {
   if (!state || !state.overrun) return null;
   const s = state;
   state = null;
+  clearForcedResume();
   syncCapsule();
   persist();
   clearWatchdog();
@@ -412,6 +448,7 @@ function snapshot() {
     overrun: !!state.overrun,
     overSec: overSecOf(state),
     paused: !!state.paused,
+    forcedResumeAt: state.forcedResumeAt || 0,
     count: state.count
   };
 }
@@ -561,7 +598,11 @@ export function startBreak(minutes, taskId, goalId, taskTitle, count) {
 }
 
 export function pause() {
-  if (!state || state.paused) return;
+  if (!state || state.paused) return { ok: false };
+  // 强制模式 + 专注阶段：暂停受"每月 3 次、每次 2 分钟"配额管（用户口径：暂停不能当无限休息）。
+  // 没开强制模式 / 正在休息，就还是原来的无限暂停。
+  const forcedPause = state.phase === 'focus' && fcfg().forced;
+  if (forcedPause && !pw.usePauseQuota()) return { ok: false, reason: 'no-quota' };
   state.remainSec = Math.max(0, Math.round((state.endAt - Date.now()) / 1000));
   // 正计时的读数必须自己冻结：下面 resume() 会把 endAt 重算成 now + remainSec（= now），
   // 若只靠 endAt 推，暂停再恢复会把"已经多坐了多久"清零 —— 环上的 +08:12 一夜回到 00:00。
@@ -571,8 +612,11 @@ export function pause() {
   }
   state.paused = true;
   state.pausedAt = Date.now();     // 从这里开始不算专注时长
+  // 强制模式暂停：2 分钟后自动恢复，不许无限休息
+  if (forcedPause) state.forcedResumeAt = Date.now() + FORCED_PAUSE_MS;
   persist();
   clearWatchdog();                 // 暂停期间不该结算，恢复时再排
+  armForcedResume();               // 有 forcedResumeAt 才排，否则无事
   ambient.pause();
   // 暂停是"我主动想歇会儿"，这时候还替人挡着通知就没道理了
   notifLeave(false);
@@ -581,10 +625,13 @@ export function pause() {
   // 拽回来就太不讲道理了。恢复时 resume() 会再打开。
   fgsvc.pauseWatch();
   syncCapsule();
+  return { ok: true };
 }
 
 export function resume() {
   if (!state || !state.paused) return;
+  state.forcedResumeAt = 0;        // 手动/自动恢复都清掉"到点自动恢复"标记
+  clearForcedResume();
   if (state.pausedAt) state.pausedMs = (state.pausedMs || 0) + (Date.now() - state.pausedAt);
   state.pausedAt = 0;
   state.endAt = Date.now() + state.remainSec * 1000;
@@ -605,6 +652,7 @@ export function giveUp() {
   if (!state) return null;
   const s = state;
   state = null;
+  clearForcedResume();
   syncCapsule();
   persist();
   clearWatchdog();
@@ -640,6 +688,7 @@ export function finishEarly() {
   if (!state) return null;
   const s = state;
   state = null;
+  clearForcedResume();
   syncCapsule();
   persist();
   clearWatchdog();
@@ -665,6 +714,7 @@ export function finishEarly() {
 export function abort() {
   const had = !!state;
   state = null;
+  clearForcedResume();
   syncCapsule();
   persist();
   clearWatchdog();
@@ -693,6 +743,7 @@ export function voidSession() {
 //   justOverrun  = 专注跑满预设时长、刚转入正计时（人还在继续，UI 不用弹"完成"面板）
 export function tick() {
   restoreIfNeeded();
+  maybeAutoResume();
   syncCapsule();
   if (!state || state.paused) return { state: state ? snapshot() : null, justFinished: null, justOverrun: false };
   const now = Date.now();
@@ -825,6 +876,7 @@ function restoreIfNeeded() {
     // 已经在休息就让它随上面的 dndLeave 自然还原
     if (state.phase === 'focus' && !state.paused) notifEnter();
     armWatchdog();      // 恢复现场后接着看时间
+    armForcedResume();  // 强制暂停的 2 分钟自动恢复：进程被杀后恢复现场也要接着排
     syncCapsule();
   }
 }

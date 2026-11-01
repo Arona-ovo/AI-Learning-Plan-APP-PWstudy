@@ -239,6 +239,9 @@ export function updateCapsule(text: string, endAt: number, label: string, totalS
 /** 撤掉胶囊 */
 export function hideCapsule(): boolean
 
+/** 同步当前阶段给原生（'focus' / 'rest'）：seen() 据此在休息阶段跳过拦截（无视胶囊是否显示） */
+export function setCapsulePhase(phase: string): boolean
+
 /**
  * 设胶囊形态：'pill'（顶部药丸，默认）/ 'ball'（可拖动小球）/ 'ring'（圆环进度，可拖动）。
  * 持久化（下次挂起沿用），已挂时立即重排。

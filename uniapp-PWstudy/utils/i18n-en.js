@@ -1448,5 +1448,17 @@ export default {
   '已配好：AI 规划、对话点评、学习 App 识别都能用了': 'Configured: AI planning, chat reviews and study-app detection all work',
 
   /* ---------- 日历（pkgPlan/pages/calendar）：左右滑动切月 ---------- */
-  '左右滑动切月': 'Swipe to change month'
+  '左右滑动切月': 'Swipe to change month',
+
+  /* ---------- 专注：休息放弃 + 强制模式暂停配额 ---------- */
+  '放弃休息': 'Skip break',
+  '放弃休息？': 'Skip this break?',
+  '放弃这次休息，不会影响已完成的专注。接下来随时可以开始下一段专注。':
+    "Skipping this break won't affect the focus you've already completed. You can start the next focus anytime.",
+  '继续休息': 'Keep resting',
+  '本月暂停次数用完': 'Out of pauses this month',
+  '强制模式下每月只能暂停 3 次，每次 2 分钟。这次就一口气跑完吧。':
+    'Forced mode allows only 3 pauses a month, 2 minutes each. Push through this one.',
+  '强制模式：2 分钟后自动恢复专注': 'Forced mode: focus resumes automatically in 2 minutes',
+  '强制模式每月限暂停 3 次，本次不能暂停': 'Forced mode: only 3 pauses a month — can\'t pause right now'
 };

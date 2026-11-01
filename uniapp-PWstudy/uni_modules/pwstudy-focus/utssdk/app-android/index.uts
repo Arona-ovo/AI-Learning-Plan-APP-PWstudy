@@ -669,6 +669,10 @@ class PWFocusService extends Service {
       return false;
     }
 
+    // ★ 休息阶段不拦截：休息中退出 App 是用户自由，不弹胶囊、不拉回（用户明确要求）。
+    //   但回到合规 App 时上面 isAllowed 分支已复位 inEpisode，这里只需静默放行。
+    if (capsulePhase == 'rest') return false;
+
     if (!fromEvent) {
       this.escTicks = this.escTicks + 1;
       if (this.escTicks < ESC_TICKS) return true;   // 刚划走不到一个来回：先看看，不算账
@@ -949,6 +953,7 @@ let capsuleWanted = false;
 let capsuleText = '';
 let capsuleEndAt = 0;   // 倒计时终点（ms）；0 = 不自转（暂停 / 正计时由 JS 静态显示）
 let capsuleLabel = '';  // 阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
+let capsulePhase = 'focus';  // 'focus' | 'rest'：休息阶段 seen() 据此跳过拦截（见 seen）
 let capsuleStyle: string = 'ball';   // 'pill' 顶部药丸 | 'ball' 可拖动小球 | 'ring' 圆环进度
 let capsuleTotalSec: number = 0;     // 本轮总时长（秒），圆环画进度用
 let capsuleRemain: number = 0;       // 当前剩余秒（原生 tick 更新，圆环 onDraw 读）
@@ -1300,6 +1305,12 @@ export function updateCapsule(text: string, endAt: number, label: string, totalS
 /** 撤掉胶囊 */
 export function hideCapsule(): boolean {
   postCapsule(false, '', 0, '', 0)
+  return true
+}
+
+/** 同步当前阶段给原生（JS 每拍都推，无视胶囊是否显示）：seen() 据此在休息阶段跳过拦截 */
+export function setCapsulePhase(phase: string): boolean {
+  capsulePhase = (phase == 'rest') ? 'rest' : 'focus'
   return true
 }
 

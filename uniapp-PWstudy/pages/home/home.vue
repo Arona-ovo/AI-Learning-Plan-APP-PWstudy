@@ -2517,8 +2517,15 @@ export default {
     // 首页被"硬控"时，这三个就是全部操作：让时间继续 / 让时间停下 / 不学了
     togglePause() {
       if (!this.cur) { this.goFocus(); return }
-      if (this.cur.paused) focus.resume()
-      else focus.pause()
+      if (this.cur.paused) {
+        focus.resume()
+      } else {
+        const r = focus.pause()
+        if (r && r.ok === false && r.reason === 'no-quota') {
+          uni.showToast({ title: this.$t('强制模式每月限暂停 3 次，本次不能暂停'), icon: 'none', duration: 2600 })
+          return
+        }
+      }
       this.cur = focus.current()
       strict.sync()
       forced.sync()
