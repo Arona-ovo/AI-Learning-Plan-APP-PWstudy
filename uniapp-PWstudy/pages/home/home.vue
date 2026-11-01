@@ -772,6 +772,7 @@
       :box="gdBox"
       :dark="gdDark"
       @next="guideNext"
+      @prev="guidePrev"
       @skip="guideSkip"
       @action="guideAction"
       @resize="guideResize"
@@ -2202,55 +2203,126 @@ export default {
     },
 
     /**
-     * 量当前步的目标矩形。量不到（模块被收纳 / 结构改了 / 正在硬控）
-     * 就**自动跳过这一步** —— 绝不把用户卡死在引导里。
+     * 量当前步的目标矩形，量到了就挖洞高亮。
+     *
+     * 目标可能量不到（卡片被收纳 / 被点了 × / 结构改了）或不在视口里，三级处理，
+     * 顺序就是"信息量从高到低"：
+     *   1) 不在视口 → 滚进去再量一次（只滚一次，防来回滚）
+     *   2) 量不到 → 退到 step.fallback（同一处的兜底锚点，比如收工键 → 整张任务卡）
+     *   3) 还是没有 → 居中讲（步骤带 art 就带示意图）；连图都没有才跳过这一步
+     * 每条路都有出口，绝不把用户卡在一个空遮罩里。
      * @param {boolean} retried 已经为这一步滚过一次了（防止来回滚不停）
      */
     measureStep(retried) {
       const step = onboarding.stepAt(this.gdIndex, this.guideOpts())
       if (!step) { this.endGuide(); return }
       const t = step.target
-      if (!t) { this.gdBox = null; this.gdStep = step; return }  // 欢迎步：整屏居中
-      const got = (rect) => {
-        if (!rect || !rect.width || !rect.height) { this.guideAdvance(); return }
-        // 目标不在视口里（首页往下滚过 / 转屏后布局变了）：先把页面滚到它可见再量一次。
-        // 滚完还是看不见就退化成"居中讲解"—— 宁可没有挖洞，也别把这一步整步吞掉，
-        // 用户会以为引导坏了（这一步讲的正是最该知道的入口）。
-        if (!this._inView(rect) && !retried && !t.ref) {
-          try {
-            uni.pageScrollTo({ selector: t.sel, duration: 200 })
-            setTimeout(() => { if (this.gdOn) this.measureStep(true) }, 280)
-            return
-          } catch (e) { /* 不支持滚动定位 → 走下面的居中兜底 */ }
-          this.gdBox = null
-          this.gdStep = step
-          return
-        }
-        if (!this._inView(rect)) {
-          this.gdBox = null
-          this.gdStep = step
-          return
-        }
-        this.gdBox = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
-        this.gdStep = step
-      }
+      if (!t) { this.guideShow(step, null); return }   // 欢迎步：整屏居中
       if (t.ref) {
+        // 组件内部元素：页面的 query 选不进去，必须让组件自己量
         const c = this.$refs[t.ref]
-        if (c && typeof c.rect === 'function') { c.rect(t.sel, got); return }
-        this.guideAdvance()
+        if (!c || typeof c.rect !== 'function') { this.guideMiss(step); return }
+        c.rect(t.sel, (rect) => {
+          if (!rect || !rect.width || !rect.height) { this.guideMiss(step); return }
+          this.guideShow(step, rect)
+        })
         return
       }
-      try {
-        uni.createSelectorQuery().in(this).select(t.sel).boundingClientRect(got).exec()
-      } catch (e) { this.guideAdvance() }
+      // 主锚点 + 兜底锚点按顺序试，第一个量得到的就是它
+      const sels = [t.sel]
+      if (step.fallback && step.fallback !== t.sel) sels.push(step.fallback)
+      this._measureFirst(sels, 0, step, !retried)
     },
 
-    /** 量到的矩形是否整个落在视口里（留 8px 余量，贴边不算"看得见"） */
+    /** 依次量候选锚点：量到 → 高亮；看不全 → 滚进去重来一次；全量不到 → guideMiss() */
+    _measureFirst(sels, i, step, canScroll) {
+      if (i >= sels.length) { this.guideMiss(step); return }
+      const sel = sels[i]
+      this._measure(sel, (rect, scrollTop) => {
+        if (!rect || !rect.width || !rect.height) {
+          this._measureFirst(sels, i + 1, step, canScroll)
+          return
+        }
+        if (this._inView(rect)) { this.guideShow(step, rect); return }
+        if (canScroll) {
+          this._scrollTo(rect, scrollTop, sel, () => { if (this.gdOn) this.measureStep(true) })
+          return
+        }
+        // 滚过一次还是看不全（横屏 / 目标比屏幕还高）：照样把矩形交出去，
+        // 遮罩会把挖洞夹回视口 —— 总比这一步退成纯文字强
+        this.guideShow(step, rect)
+      })
+    },
+
+    /** 量单个选择器：矩形 + 当前滚动位置（算 scrollTop 要用），一次 exec 取回 */
+    _measure(sel, cb) {
+      try {
+        uni.createSelectorQuery().in(this)
+          .select(sel).boundingClientRect()
+          .selectViewport().scrollOffset()
+          .exec((res) => {
+            const r = res && res[0]
+            const s = res && res[1]
+            cb(r || null, (s && s.scrollTop) || 0)
+          })
+      } catch (e) { cb(null, 0) }
+    },
+
+    /**
+     * 把目标滚到视口偏上：上面留 96px 躲开悬浮顶栏，下面留出气泡的位置。
+     *
+     * ⚠️ 不能只丢一个 selector 给 pageScrollTo 就完事：App 端不保证认 selector，
+     *   滚不动时这一步就永远"看不见"，直接退成纯文字（收工键踩过这个）。
+     *   所以自己算 scrollTop（当前滚动位置 + 元素相对视口的 top - 留白），
+     *   selector 只作为算不出来时的兜底。
+     */
+    _scrollTo(rect, scrollTop, sel, done) {
+      const want = Math.max(0, (scrollTop || 0) + (rect.top || 0) - 96)
+      let asked = false
+      try {
+        uni.pageScrollTo({ scrollTop: want, duration: 200 })
+        asked = true
+      } catch (e) { asked = false }
+      if (!asked) {
+        try { uni.pageScrollTo({ selector: sel, duration: 200 }) } catch (e) { /* 滚不动就按原位摆 */ }
+      }
+      setTimeout(done, 320)
+    },
+
+    /** 显示某一步：rect 有值 → 挖洞高亮；null → 居中（步骤带 art 时遮罩会画示意图） */
+    guideShow(step, rect) {
+      this.gdBox = rect
+        ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+        : null
+      this.gdStep = step
+    },
+
+    /**
+     * 量不到目标时的出口：
+     *   有示意图（step.art）→ 居中讲，别把这一步吞掉（用户会以为引导坏了）；
+     *   没有 → 自动跳到下一步，绝不把用户卡死在一个空遮罩里。
+     */
+    guideMiss(step) {
+      if (step && step.art) { this.guideShow(step, null); return }
+      this.guideAdvance()
+    },
+
+    /**
+     * 量到的矩形是否"够看"。
+     *
+     * ⚠️ 别要求整块完整落在视口里：收工键长在任务卡最底下，真机上常被悬浮底栏压住
+     *   一截 —— 那么严的判定直接判负，那一步就退成纯文字（用户反馈"只有文字提示"）。
+     *   现在：留出底栏高度，可见部分 ≥ 60% 且至少 88px 就算看得见。
+     */
     _inView(rect) {
       if (!rect || !rect.height) return false
       let vh = 667
       try { vh = uni.getSystemInfoSync().windowHeight || 667 } catch (e) {}
-      return rect.top >= 8 && rect.top + rect.height <= vh - 8
+      const top = Math.max(rect.top, 8)
+      const bottom = Math.min(rect.top + rect.height, vh - 72)  // 72px ≈ 悬浮底栏 + 安全区
+      const seen = bottom - top
+      if (seen <= 0) return false
+      return seen >= Math.min(rect.height, 88) && seen / rect.height >= 0.6
     },
 
     /** 转屏 / 分屏 / 折叠屏展开：旧矩形作废，等布局落地后重新量当前这一步 */
@@ -2270,6 +2342,20 @@ export default {
     },
     guideNext() {
       this.guideAdvance()
+    },
+    /**
+     * 上一步：回看前一条。
+     *
+     * 为什么要它：这 5 步是"讲完就没"的，误点一下「下一步」就再也翻不回去，
+     * 用户只能从头重看一遍（或者干脆跳过）。回退不落盘、不改完成状态。
+     * 上一步的目标可能已经滚出视口 —— 交给 measureStep 自己滚回来。
+     */
+    guidePrev() {
+      if (this.gdIndex <= 0) return
+      this.gdIndex -= 1
+      this.gdBox = null
+      this.gdStep = null
+      this.$nextTick(() => this.measureStep())
     },
     guideSkip() {
       this.endGuide()

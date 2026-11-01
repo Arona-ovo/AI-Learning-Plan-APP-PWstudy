@@ -1,6 +1,6 @@
 <template>
   <!-- 新手引导遮罩：全屏模态层。
-       点遮罩 / 点按钮 = 下一步；「跳过」直接结束。
+       点遮罩 / 点按钮 = 下一步；「跳过」直接结束；「上一步」回看。
        touch 事件全部截断，避免引导期间把底下的页面横滑切走。 -->
   <view
     v-if="step"
@@ -13,18 +13,79 @@
     @touchcancel.stop
   >
     <!-- 高亮挖洞：巨大 spread 的 box-shadow 在框外铺满遮罩色，中间自然镂空。
-         各端（H5/小程序/App webview）都支持 box-shadow，比四块矩形拼接稳。 -->
-    <view v-if="box" class="gd-hole" :style="layout.hole" @tap.stop="onNext"></view>
+         各端（H5/小程序/App webview）都支持 box-shadow，比四块矩形拼接稳。
+         没有可指的目标时（欢迎步 / 量不到目标）退化成整屏压暗一层。 -->
+    <view v-if="box" class="gd-hole" :style="layout.hole"></view>
+    <view v-else class="gd-center"></view>
 
-    <!-- 气泡：有高亮时贴着目标（下方 → 上方 → 居中三级兜底），无高亮（欢迎步骤）时整屏居中 -->
-    <view v-if="box" class="gd-tip" :style="layout.tip" @tap.stop="onNext">
+    <!-- 气泡：有高亮时贴着目标（下方 → 上方 → 居中三级兜底），无高亮时整屏居中。
+         ⚠️ 只有一份模板 —— 以前"挖洞态 / 居中态"各写一遍，两边文案一改就漏一处。 -->
+    <view
+      class="gd-tip"
+      :class="{ 'gd-tip-center': !box }"
+      :style="box ? layout.tip : ''"
+      @tap.stop="onNext"
+    >
       <!-- 指示箭头：气泡在目标下方就朝上指，反之朝下；居中态（放不下）不画 -->
       <view
-        v-if="layout.side !== 'center'"
+        v-if="box && layout.side !== 'center'"
         class="gd-arrow"
         :class="'gd-arrow-' + layout.side"
         :style="layout.arrow"
       ></view>
+
+      <!-- 示意图：这张卡没有高亮可指的时候，给这一步一张图，别让引导退化成一段纯文字。
+           只画形状和数字，不带中文，免得又多一堆译文要维护。 -->
+      <view v-if="step.art" class="gd-art" :class="'gd-art-' + step.art">
+        <view v-if="step.art === 'flow'" class="ga-flow">
+          <block v-for="n in 4" :key="n">
+            <view class="ga-node" :class="{ 'ga-node-on': n === 1 }">
+              <text class="ga-node-n">{{ n }}</text>
+            </view>
+            <view v-if="n < 4" class="ga-link"></view>
+          </block>
+        </view>
+
+        <view v-else-if="step.art === 'ring'" class="ga-ring">
+          <text class="ga-ring-n">25</text>
+          <text class="ga-ring-u">{{ $t('分钟') }}</text>
+        </view>
+
+        <view v-else-if="step.art === 'task'" class="ga-list">
+          <view class="ga-row">
+            <view class="ga-check ga-check-on"></view>
+            <view class="ga-bar ga-bar-s"></view>
+          </view>
+          <view class="ga-row">
+            <view class="ga-check"></view>
+            <view class="ga-bar"></view>
+          </view>
+          <view class="ga-row">
+            <view class="ga-check"></view>
+            <view class="ga-bar ga-bar-m"></view>
+          </view>
+        </view>
+
+        <view v-else-if="step.art === 'cta'" class="ga-list">
+          <view class="ga-row">
+            <view class="ga-bar ga-bar-m"></view>
+          </view>
+          <view class="ga-row">
+            <view class="ga-bar ga-bar-s"></view>
+          </view>
+          <view class="ga-pill"><text class="ga-pill-t">✓</text></view>
+        </view>
+
+        <view v-else-if="step.art === 'key'" class="ga-key">
+          <text class="ga-key-badge">AI</text>
+          <view class="ga-key-col">
+            <view class="ga-bar ga-bar-m"></view>
+            <view class="ga-bar ga-bar-s"></view>
+          </view>
+          <text class="ga-key-go">›</text>
+        </view>
+      </view>
+
       <view class="gd-head">
         <text class="gd-step-no">{{ stepNo }}</text>
         <text class="gd-skip" @tap.stop="onSkip">{{ $t('跳过') }}</text>
@@ -35,35 +96,13 @@
         <view class="gd-dots">
           <view v-for="n in total" :key="n" class="gd-dot" :class="{ on: n - 1 <= index }"></view>
         </view>
-        <!-- 带行动的那一步（现在是末步「填 API」）：给两个出口 —— 真去做（去填）
-             和"以后再说"（照常收尾）。只留一个「下一步」的话，这步就退化成一段说明文字。 -->
-        <template v-if="step.action">
-          <view class="gd-btn gd-btn-ghost" @tap.stop="onNext">{{ isLast ? $t('以后再说') : $t('下一步') }}</view>
-          <view class="gd-btn" @tap.stop="onAction">{{ $t(step.actionText) }}</view>
-        </template>
-        <view v-else class="gd-btn" @tap.stop="onNext">{{ isLast ? $t('开始使用') : $t('下一步') }}</view>
-      </view>
-    </view>
-
-    <!-- 欢迎步骤：没有挖洞，整层半透明，气泡垂直居中 -->
-    <view v-else class="gd-center" @tap.stop="onNext">
-      <view class="gd-tip gd-tip-center" @tap.stop="onNext">
-        <view class="gd-head">
-          <text class="gd-step-no">{{ stepNo }}</text>
-          <text class="gd-skip" @tap.stop="onSkip">{{ $t('跳过') }}</text>
-        </view>
-        <text class="gd-title">{{ $t(step.title) }}</text>
-        <text class="gd-body">{{ $t(step.body) }}</text>
-        <view class="gd-foot">
-          <view class="gd-dots">
-            <view v-for="n in total" :key="n" class="gd-dot" :class="{ on: n - 1 <= index }"></view>
-          </view>
-          <!-- 带行动的那一步（现在是末步「填 API」）：给两个出口 —— 真去做（去填）
-               和"以后再说"（照常收尾）。只留一个「下一步」的话，这步就退化成一段说明文字。 -->
-          <template v-if="step.action">
-            <view class="gd-btn gd-btn-ghost" @tap.stop="onNext">{{ isLast ? $t('以后再说') : $t('下一步') }}</view>
-            <view class="gd-btn" @tap.stop="onAction">{{ $t(step.actionText) }}</view>
-          </template>
+        <view class="gd-acts">
+          <!-- 上一步：误点「下一步」不至于没得救（第 1 步没得回，不显示） -->
+          <view v-if="index > 0" class="gd-btn gd-btn-ghost" @tap.stop="onPrev">{{ $t('上一步') }}</view>
+          <!-- 带行动的那一步（现在是末步「填 API」）：主按钮直接"真去做"。
+               这步只给两个出口 —— 头部的「跳过」（=以后再说）和「现在去填」。
+               再塞一颗「以后再说」就是三颗并排，300px 宽的气泡直接挤爆。 -->
+          <view v-if="step.action" class="gd-btn" @tap.stop="onAction">{{ $t(step.actionText) }}</view>
           <view v-else class="gd-btn" @tap.stop="onNext">{{ isLast ? $t('开始使用') : $t('下一步') }}</view>
         </view>
       </view>
@@ -74,7 +113,7 @@
 <script>
 // components/onboarding-mask.vue - 新手引导的遮罩层（纯展示组件）
 // 步骤文案与状态在 utils/onboarding.js，测量与推进在 pages/home/home.vue。
-// 这里只负责：画挖洞、画气泡（上下自适应 / 居中两态）、把 next/skip 抛回给页面。
+// 这里只负责：画挖洞、画气泡（上下自适应 / 居中两态）、把 next/prev/skip/action 抛回给页面。
 //
 // 用大 spread box-shadow 实现"遮罩挖洞"而不是四块矩形拼接：
 //   - 一次渲染一个元素，位置变化不会露出接缝
@@ -90,12 +129,12 @@ export default {
     step: { type: Object, default: null },
     index: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
-    // 目标元素的视口矩形 { left, top, width, height }（px）；null = 欢迎步骤
+    // 目标元素的视口矩形 { left, top, width, height }（px）；null = 没有可指的目标
     box: { type: Object, default: null },
     dark: { type: Boolean, default: false }
   },
   // resize：转屏 / 分屏 / 折叠屏展开后让页面重新量一次目标（尺寸变了，旧矩形全作废）
-  emits: ['next', 'skip', 'action', 'resize'],
+  emits: ['next', 'prev', 'skip', 'action', 'resize'],
   data() {
     return {
       sw: 375,  // 视口宽（px）
@@ -203,6 +242,10 @@ export default {
     onNext() {
       this.$emit('next');
     },
+    /** 上一步：只抛事件，退到哪一步由页面算（本组件不认识步骤表） */
+    onPrev() {
+      this.$emit('prev');
+    },
     onSkip() {
       this.$emit('skip');
     },
@@ -239,7 +282,7 @@ export default {
   50% { border-color: rgba(255, 255, 255, 0.3); }
 }
 
-/* 欢迎步骤：整屏半透明（没有挖洞），气泡居中 */
+/* 没有可指的目标：整屏压暗一层（气泡自己居中，见 .gd-tip-center） */
 .gd-center {
   position: fixed;
   left: 0;
@@ -247,9 +290,6 @@ export default {
   top: 0;
   bottom: 0;
   background: rgba(10, 14, 12, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* 气泡卡片：固定浅色系，保证任何背景上可读 */
@@ -262,10 +302,13 @@ export default {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
 }
 
+/* 居中态：没有内联定位，靠 50% + 位移摆到屏幕正中 */
 .gd-tip-center {
-  position: relative;
+  left: 50%;
+  top: 50%;
   width: 300px;
   max-width: calc(100vw - 48px);
+  transform: translate(-50%, -50%);
 }
 
 /* 指示箭头：纯 CSS 三角，颜色跟气泡一致（深色档在下面单独换色） */
@@ -287,6 +330,167 @@ export default {
 .gd-arrow-above {
   bottom: -8px;
   border-top: 8px solid rgba(255, 255, 255, 0.97);
+}
+
+/* ---------- 示意图（只在没有高亮可指时出现） ---------- */
+.gd-art {
+  height: 62px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  background: rgba(228, 23, 61, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* ① 流程：四个编号节点 + 连接线（欢迎步——一眼看懂这个 App 怎么转） */
+.ga-flow {
+  display: flex;
+  align-items: center;
+}
+
+.ga-node {
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  border: 1px solid rgba(228, 23, 61, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ga-node-on {
+  background: rgba(228, 23, 61, 0.12);
+  border-color: rgba(228, 23, 61, 0.7);
+}
+
+.ga-node-n {
+  font-size: 11px;
+  color: #bb1332;
+  font-weight: 600;
+}
+
+.ga-link {
+  width: 18px;
+  height: 1px;
+  background: rgba(228, 23, 61, 0.28);
+  margin: 0 4px;
+}
+
+/* ② 专注大圆 */
+.ga-ring {
+  width: 46px;
+  height: 46px;
+  border-radius: 23px;
+  border: 3px solid rgba(228, 23, 61, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.ga-ring-n {
+  font-size: 13px;
+  font-weight: 700;
+  color: #bb1332;
+  line-height: 1.1;
+}
+
+.ga-ring-u {
+  font-size: 8px;
+  color: rgba(187, 19, 50, 0.7);
+  line-height: 1.1;
+}
+
+/* ③ 任务清单 / ④ 收工：几行占位条 */
+.ga-list {
+  width: 78%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ga-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.ga-check {
+  width: 11px;
+  height: 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(23, 32, 26, 0.28);
+  margin-right: 7px;
+  flex-shrink: 0;
+}
+
+.ga-check-on {
+  background: #e4173d;
+  border-color: #e4173d;
+}
+
+.ga-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(23, 32, 26, 0.16);
+  flex: 1;
+}
+
+.ga-bar-s { max-width: 46%; }
+.ga-bar-m { max-width: 70%; }
+
+/* 收工那步的"按钮" */
+.ga-pill {
+  margin-top: 2px;
+  padding: 3px 16px;
+  border-radius: 999px;
+  background: rgba(228, 23, 61, 0.12);
+  border: 1px solid rgba(228, 23, 61, 0.4);
+}
+
+.ga-pill-t {
+  font-size: 10px;
+  color: #bb1332;
+  font-weight: 700;
+}
+
+/* ⑤ API 卡：AI 徽标 + 两行字 + 箭头 */
+.ga-key {
+  width: 78%;
+  display: flex;
+  align-items: center;
+}
+
+.ga-key-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: rgba(228, 23, 61, 0.12);
+  color: #bb1332;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 24px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.ga-key-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.ga-key-col .ga-bar { margin-bottom: 5px; }
+.ga-key-col .ga-bar:last-child { margin-bottom: 0; }
+
+.ga-key-go {
+  font-size: 13px;
+  color: #bb1332;
+  margin-left: 6px;
 }
 
 .gd-head {
@@ -335,6 +539,8 @@ export default {
 .gd-dots {
   display: flex;
   align-items: center;
+  flex-shrink: 1;
+  overflow: hidden;
 }
 
 .gd-dot {
@@ -352,25 +558,33 @@ export default {
   background: #e4173d;
 }
 
+/* 按钮组：上一步 + 主操作，靠右排 */
+.gd-acts {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 /* 主按钮走 tint（淡红底 + 深红字 + 红描边）：大块实心红在这个 App 里是被否决过的 */
 .gd-btn {
-  padding: 8px 18px;
+  padding: 8px 16px;
   border-radius: 999px;
   background: rgba(228, 23, 61, 0.1);
   border: 1px solid rgba(228, 23, 61, 0.4);
   color: #bb1332;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .gd-btn:active {
   opacity: 0.85;
 }
 
-/* 末步有两个按钮时的间距：「以后再说」+「现在去填」并排 */
-.gd-btn + .gd-btn { margin-left: 8px; }
+/* 并排按钮之间的间距（「上一步 / 以后再说」+「现在去填」） */
+.gd-acts .gd-btn + .gd-btn { margin-left: 6px; }
 
-/* 次要按钮：不该跟「现在去填」一样醒目 */
+/* 次要按钮：不该跟主操作一样醒目 */
 .gd-btn-ghost {
   background: transparent;
   border-color: rgba(23, 32, 26, 0.16);
@@ -425,6 +639,62 @@ export default {
   background: transparent;
   border-color: rgba(234, 240, 237, 0.22);
   color: #a7b3ae;
+}
+
+/* 示意图的深色档 */
+.gd-dark .gd-art {
+  background: rgba(249, 124, 138, 0.08);
+}
+
+.gd-dark .ga-node {
+  border-color: rgba(249, 124, 138, 0.4);
+}
+
+.gd-dark .ga-node-on {
+  background: rgba(249, 124, 138, 0.16);
+  border-color: rgba(249, 124, 138, 0.75);
+}
+
+.gd-dark .ga-node-n,
+.gd-dark .ga-ring-n,
+.gd-dark .ga-pill-t,
+.gd-dark .ga-key-badge,
+.gd-dark .ga-key-go {
+  color: #f97c8a;
+}
+
+.gd-dark .ga-ring {
+  border-color: rgba(249, 124, 138, 0.5);
+}
+
+.gd-dark .ga-ring-u {
+  color: rgba(249, 124, 138, 0.7);
+}
+
+.gd-dark .ga-link {
+  background: rgba(249, 124, 138, 0.3);
+}
+
+.gd-dark .ga-bar {
+  background: rgba(234, 240, 237, 0.22);
+}
+
+.gd-dark .ga-check {
+  border-color: rgba(234, 240, 237, 0.35);
+}
+
+.gd-dark .ga-check-on {
+  background: #f97c8a;
+  border-color: #f97c8a;
+}
+
+.gd-dark .ga-pill {
+  background: rgba(249, 124, 138, 0.16);
+  border-color: rgba(249, 124, 138, 0.45);
+}
+
+.gd-dark .ga-key-badge {
+  background: rgba(249, 124, 138, 0.16);
 }
 
 /* 流畅模式：关掉呼吸动画（与全局 perf-smooth 约定一致） */

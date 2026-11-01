@@ -102,20 +102,21 @@ shouldCatch('首页的 class 改了（.focus-card 不再存在）', (c) => {
 }, 'focus');
 
 // 3. 子组件内的锚点：ref 名改了
-//    ⚠️ 2026-11-01 重做引导后，步骤表里已经没有 ref 锚点了（底部导航那步换成了填 API），
-//    但"ref 指向的子组件里量不到"这条通路还活着（首页仍挂着 ref="tabbar"）。
-//    所以这里把末步的居中步骤改成"指向一个不存在的 ref"来测这条通路，
+//    ⚠️ 2026-11-01 重做引导后，步骤表里已经没有 ref 锚点了（底部导航那步换成了填 API，
+//    AI 那步现在指向首页的 .ai-card），但"ref 指向的子组件里量不到"这条通路还活着。
+//    所以这里把欢迎步的居中目标改成"指向一个不存在的 ref"来测这条通路，
 //    真实场景就是"哪天给某一步加了 ref 高亮、ref 名却写错了"。
 shouldCatch('ref 名改了（ref="tabbar" 不存在）', (c) => {
-  swap(c, ONB, "target: null,\n    when:", "target: { ref: 'tabbarX', sel: '.ftb' },\n    when:");
+  swap(c, ONB, "    target: null,\n    art: 'flow'", "    target: { ref: 'tabbarX', sel: '.ftb' },\n    art: 'flow'");
 }, 'tabbarX');
 
-// 4. 量不到时不再自动跳过 —— 用户会被永远卡在遮罩里
-shouldCatch('量不到矩形时不跳过（会卡死）', (c) => {
+// 4. 量不到时既不再跳过、也不居中 —— 用户会被永远卡在遮罩里
+//    （现在的出口在 guideMiss()：有图就居中讲，没图才跳过。两样都不做就是死路）
+shouldCatch('量不到目标时既不跳过也不居中（会卡死）', (c) => {
   swap(c, HOME,
-    "if (!rect || !rect.width || !rect.height) { this.guideAdvance(); return }",
-    "if (!rect || !rect.width || !rect.height) { this.gdStep = step; return }");
-}, '自动跳过');
+    "      if (step && step.art) { this.guideShow(step, null); return }\n      this.guideAdvance()",
+    "      if (step && step.art) { this.guideShow(step, null); return }\n      this.gdStep = step");
+}, '自动跳到下一步');
 
 // 5. stopGuide 里落盘 —— 专注一起表把引导顶掉，就再也不会重放了
 shouldCatch('stopGuide 也记了完成', (c) => {
@@ -187,9 +188,12 @@ shouldCatch('删掉指示箭头', (c) => {
 }, '指示箭头');
 
 // 17. 目标滚出视口不滚回来 —— 那一步被整步吞掉
+//     现在滚动走 _scrollTo()，滚完靠 measureStep(true) 重测；删掉重测就等于没滚
 shouldCatch('目标不在视口时不滚进视口', (c) => {
-  swap(c, HOME, "uni.pageScrollTo({ selector: t.sel, duration: 200 })", "/* 忘了滚 */");
-}, '滚进视口');
+  swap(c, HOME,
+    "this._scrollTo(rect, scrollTop, sel, () => { if (this.gdOn) this.measureStep(true) })",
+    "this.guideShow(step, rect)");
+}, '重测只做一次');
 
 // 18. 转屏后页面不重测
 shouldCatch('resize 后不重新量目标', (c) => {
@@ -207,6 +211,30 @@ shouldCatch('行动按钮文案缺英文', (c) => {
 }, '英文译文');
 
 restore();
+
+// ---- 每步都有画面 / 能回退（2026-11-01 补的那批）----
+// 21. 某一步的 art 写了组件不认识的类型 —— 那一步退成居中时只剩一个空图框
+shouldCatch('art 写了遮罩不认识的类型', (c) => {
+  swap(c, ONB, "art: 'key'", "art: 'none'");
+}, '示意图');
+
+// 22. 上一步没接线 —— 按钮点了没反应，用户还是回不去
+shouldCatch('「上一步」没接到首页', (c) => {
+  swap(c, HOME, '@prev="guidePrev"', '/* 没接 */');
+}, '首页接了 prev');
+
+// 23. 兜底锚点被删 —— 收工键被底栏压住时那一步又退成纯文字
+shouldCatch('收工那步的兜底锚点被删', (c) => {
+  swap(c, ONB, "    fallback: '.task-card',\n", "");
+}, '兜底锚点');
+
+// 24. 判"看得见"又退回"必须整块在屏内" —— 底部那步永远退成纯文字
+shouldCatch('_inView 又要求整块可见', (c) => {
+  swap(c, HOME,
+    "return seen >= Math.min(rect.height, 88) && seen / rect.height >= 0.6",
+    "return rect.top >= 8 && rect.top + rect.height <= vh - 8");
+}, '纯文字');
+
 console.log('');
 console.log(fail === 0 ? '反向测试全部通过（护栏真的会红）' : '失败 ' + fail + ' 项 ✗');
 process.exit(fail ? 1 : 0);

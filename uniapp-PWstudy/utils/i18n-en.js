@@ -859,7 +859,7 @@ export default {
   '满圈 = 1 小时 · 时间只记在本机': 'A full ring = 1 hour · the time never leaves this device',
   // ---------- 新手引导（utils/onboarding.js） ----------
   '欢迎使用 PWstudy': 'Welcome to PWstudy',
-  '它这么转起来：先定一个远期目标，AI 把它拆成每天的日程；专注时用它计时；收工时说一句今天的出入，明天的安排自己就重排好了。三步认完首页，最后一步是填 AI 的 Key —— 不填也能用，只是 AI 那几处会停。': 'The loop: set a long-term goal, AI breaks it into a daily schedule, use the timer to focus, then log how today actually went — tomorrow re-plans itself. Three steps around the home page, and one last step for your AI key. You can use the app without it; only the AI parts stop.',
+  '它这么转起来：先定一个远期目标，AI 把它拆成每天的日程；专注时用它计时；收工时说一句今天的出入，明天的安排自己就重排好了。三步认完首页（其余内容在底栏「目标 / 统计 / 我的」），最后一步是填 AI 的 Key —— 不填也能用，只是 AI 那几处会停。': 'The loop: set a long-term goal, AI breaks it into a daily schedule, use the timer to focus, then log how today actually went — tomorrow re-plans itself. Three steps around the home page (everything else lives in the bottom bar: Goals / Stats / Me), and one last step for your AI key. You can use the app without it; only the AI parts stop.',
   '开始专注：点这个大圆': 'Start focusing: tap the big circle',
   '圆里写着这一段多长、做哪件事。点一下直接起表；想改时长或调设置，点圆下面那行字进专注页。': 'The circle shows how long this session runs and what you are working on. Tap it to start; to change the duration or settings, tap the line under the circle.',
   '今日任务：今天要做什么': "Today's tasks: what to do today",
@@ -870,6 +870,7 @@ export default {
   '定目标时 AI 拆日程、收工时那句对话点评、学习 App 的识别，都要用你自己的大模型账号。填一次就好，密钥只存在这台手机上。': 'AI planning, the wrap-up chat, and study-app detection all run on your own model account. You fill it in once, and the key stays on this phone.',
   '现在去填': 'Fill it in now',
   '跳过': 'Skip',
+  '上一步': 'Back',
   '下一步': 'Next',
   '开始使用': 'Get started',
   // ---------- 设置：重看引导 ----------

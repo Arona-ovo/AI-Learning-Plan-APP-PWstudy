@@ -182,11 +182,13 @@ assert(/guideOpts\(\)/.test(homeSrc), '步骤表现场条件由 guideOpts() 供�
 
 const measure = fnBody(homeSrc, 'measureStep');
 assert(measure.length > 0, '能切到 measureStep() 的函数体');
-// ⚠️ 只认"拿到空矩形"那一个分支里的跳过：别处（ref 拿不到组件 / query 抛错）也有
-//    guideAdvance()，在函数体里泛泛地找会跨分支命中 —— 真把跳过删了也还是绿（已踩过）
-const got = /const got = \(rect\) => \{([\s\S]*?)\n {6}\}/.exec(measure);
-assert(!!got, '能切到 measureStep 里的 got(rect) 回调');
-assert(got && /guideAdvance\(\)/.test(got[1]), '量到的矩形是空的时候自动跳到下一步（不把用户卡死）');
+// ⚠️ 量不到时的出口集中在 guideMiss()：别在 measureStep 里泛泛找 guideAdvance，
+//    那个函数体里还有别的分支（ref 拿不到组件），跨分支命中会假绿（已踩过）。
+const missFn = fnBody(homeSrc, 'guideMiss');
+assert(missFn.length > 0, '能切到 guideMiss() 的函数体（量不到目标时的唯一出口）');
+assert(/guideAdvance\(\)/.test(missFn), '没图可画的时候自动跳到下一步（不把用户卡死）');
+assert(/gdBox = rect[\s\S]{0,200}?gdStep = step/.test(fnBody(homeSrc, 'guideShow')),
+  'guideShow() 一处写 gdBox + gdStep（挖洞态与居中态共用，别各写一遍）');
 const endGuide = fnBody(homeSrc, 'endGuide');
 const stopGuide = fnBody(homeSrc, 'stopGuide');
 assert(/onboarding\.finish\(\)/.test(endGuide), 'endGuide() 落盘"看过了"（下次不再放）');
@@ -252,12 +254,17 @@ assert(/@resize="guideResize"/.test(homeSrc), '首页接了 resize 并重测当�
 const gResize = fnBody(homeSrc, 'guideResize');
 assert(gResize.length > 0 && /measureStep\(\)/.test(gResize), 'guideResize() 真的会重新量目标矩形');
 
-// 目标滚出视口：先滚进去再量一次，别整步吞掉
-const mMeasure = fnBody(homeSrc, 'measureStep');
-assert(/pageScrollTo/.test(mMeasure), '目标不在视口里会先滚进视口再量');
-assert(/measureStep\(true\)/.test(mMeasure), '重测只做一次（retried 防来回滚死循环）');
-assert(/this\.gdBox = null[\s\S]{0,120}this\.gdStep = step/.test(mMeasure),
-  '滚完还是看不见就退化成居中讲解（不吞掉这一步）');
+// 目标滚出视口：算 scrollTop 滚进去再量一次，别整步吞掉
+const mFirst = fnBody(homeSrc, '_measureFirst');
+assert(mFirst.length > 0, '能切到 _measureFirst()（依次量主锚点 / 兜底锚点）');
+assert(/measureStep\(true\)/.test(mFirst), '重测只做一次（retried 防来回滚死循环）');
+assert(/sels/.test(mFirst) && /i \+ 1/.test(mFirst), '主锚点量不到会换下一个候选（兜底锚点）');
+const mScroll = fnBody(homeSrc, '_scrollTo');
+assert(/pageScrollTo/.test(mScroll), '目标不在视口里会先滚进视口再量');
+assert(/scrollTop/.test(mScroll), '自己算 scrollTop（只丢 selector 给 App 端不一定认）');
+const mInView = fnBody(homeSrc, '_inView');
+assert(/0\.6/.test(mInView), '判"看得见"允许被压住一截（太严会把底部那步退成纯文字）');
+assert(/vh - 72|vh-72/.test(mInView), '判"看得见"给悬浮底栏留出位置');
 // 指示箭头
 assert(/class="gd-arrow"/.test(maskCode), '气泡带指示箭头（指向高亮）');
 assert(/gd-arrow-below/.test(maskCode) && /gd-arrow-above/.test(maskCode),
@@ -334,6 +341,42 @@ if (mask) {
   assert(Math.abs((num(L.tip, 'left') + ax + 8) - holeCx) <= 2,
     '箭头指向挖洞中心（偏差 ' + Math.round(Math.abs((num(L.tip, 'left') + ax + 8) - holeCx)) + 'px）');
 }
+
+/* ---------- 8. 每一步都有画面，且能回退 ---------- */
+console.log('');
+console.log('== 8. 每步都有画面（不再是一张纯文字卡）+ 能回退 ==');
+// 8.1 每个步骤都配 art：量不到目标时退成居中，总得有一张图，不然就是一屏干文字
+const artCount = (onbCode.match(/\bart:\s*'/g) || []).length;
+assert(artCount === steps.length, '每个步骤都配了 art（' + artCount + '/' + steps.length + '）');
+const arts = [];
+const reArt = /art:\s*'([a-z]+)'/g;
+let ma;
+while ((ma = reArt.exec(onbCode))) arts.push(ma[1]);
+// 8.2 遮罩真的画得出这些图（步骤表里写了 art，组件没这分支 = 白配）
+assert(/class="gd-art"/.test(maskCode), '遮罩里有示意图容器 .gd-art');
+assert(/'gd-art-' \+ step\.art/.test(maskCode), '示意图按 step.art 分型');
+arts.forEach(a => {
+  assert(maskCode.indexOf('step.art === \'' + a + '\'') >= 0, '遮罩画得出「' + a + '」这种示意图');
+});
+assert(/v-if="step\.art"/.test(maskCode), '示意图只在没有高亮时才出现（有挖洞就不必再画）');
+// 8.3 气泡模板只留一份：以前挖洞态 / 居中态各抄一遍，改文案必漏一处
+assert((maskCode.match(/class="gd-title"/g) || []).length === 1,
+  '标题只渲染一处（没有第二份复制粘贴的气泡）');
+assert((maskCode.match(/class="gd-body"/g) || []).length === 1, '正文也只渲染一处');
+// 8.4 上一步：误点「下一步」不至于没得救
+assert(/@tap\.stop="onPrev"/.test(maskCode), '气泡里有「上一步」按钮');
+assert(/emits:\s*\[[^\]]*'prev'/.test(maskCode), '遮罩声明了 prev 事件');
+assert(/onPrev\(\)\s*\{[\s\S]{0,80}\$emit\('prev'\)/.test(maskCode), 'onPrev 把事件抛回页面');
+assert(/v-if="index > 0"/.test(maskCode), '第 1 步不显示「上一步」');
+assert(/@prev="guidePrev"/.test(homeSrc), '首页接了 prev');
+const gPrev = fnBody(homeSrc, 'guidePrev');
+assert(gPrev.length > 0, '能切到 guidePrev() 的函数体');
+assert(/gdIndex -= 1|gdIndex = this\.gdIndex - 1/.test(gPrev), 'guidePrev() 真的退一步');
+assert(/measureStep\(\)/.test(gPrev), '退回去后重新量目标（上一步可能已经滚出视口）');
+// 8.5 贴卡片底部的目标必须有兜底锚点（收工键被底栏压住是常态）
+assert(/fallback:\s*'\./.test(onbCode), '「今日收工」那步配了兜底锚点（贴底部的目标易被压住）');
+assert(/sels\.push\(step\.fallback\)/.test(fnBody(homeSrc, 'measureStep')),
+  '首页真的会把兜底锚点加进候选');
 
 console.log('');
 console.log(fail === 0 ? '新手引导校验全部通过' : '失败 ' + fail + ' 项 ✗');
