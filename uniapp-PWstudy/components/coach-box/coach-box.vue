@@ -31,10 +31,12 @@
       <view id="cb-bottom"></view>
     </scroll-view>
 
-    <!-- AI 没配：说清楚去哪开，别让输入框变成一个永远转圈的坑 -->
+    <!-- AI 没配：说清楚去哪填，别让输入框变成一个永远转圈的坑。
+         出口直接给「填写 API」那个三步页 —— 让人自己在设置里翻四层折叠，
+         结果多半是退回来把这块当坏的。 -->
     <view v-if="aiOff" class="cb-off">
-      <text class="cb-off-txt">AI 还没配置，先到「设置 → AI 服务」填好服务商与密钥。</text>
-      <text class="cb-off-go" @tap.stop="goSettings">去设置 ›</text>
+      <text class="cb-off-txt">{{ $t('AI 还没配置：填一个 API Key 就能在这儿说话了。') }}</text>
+      <text class="cb-off-go" @tap.stop="goAiSetup">{{ $t('去填写') }} ›</text>
     </view>
 
     <!-- 判定"和计划有出入"才出现：照计划走完就别在这儿打扰 -->
@@ -115,7 +117,7 @@ export default {
     async send() {
       const text = String(this.draft || '').trim()
       if (!text || this.thinking) return
-      if (this.aiOff) { this.goSettings(); return }
+      if (this.aiOff) { this.goAiSetup(); return }
       const today = pw.today()
       this.draft = ''
       this.err = ''
@@ -150,7 +152,8 @@ export default {
       uni.navigateTo({ url: '/pkgPlan/pages/replan/replan?id=' + id + '&from=log' })
     },
     goFull() { uni.navigateTo({ url: '/pkgPlan/pages/coach/coach' }) },
-    goSettings() { uni.navigateTo({ url: '/pkgManage/pages/settings/settings' }) },
+    /** 去「填写 API」：三步填完回来，refresh() 会把 aiOff 关掉 */
+    goAiSetup() { try { uni.navigateTo({ url: '/pkgManage/pages/ai-setup/ai-setup' }) } catch (e) {} },
     // 弹窗不在这里弹：本组件是嵌在首页 .page-slide 里的，
     // 而 .pop-mask 是 fixed —— 放在有 transform 的祖先里会跟着一起位移（硬约束 3/4）。
     // 所以只往上抛一个 ask，由页面（弹窗在 .page-slide 之外）统一弹。

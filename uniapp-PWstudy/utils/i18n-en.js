@@ -1399,6 +1399,7 @@ export default {
   '还差一个 API Key': 'One API key to go',
   '填一次，AI 规划 / 对话点评 / 学习 App 识别才能用': 'Fill it in once to unlock AI planning, chat reviews and study-app detection',
   '还没填 API Key，和 AI 聊不下去。点这里填，一分钟的事。': "No API key yet, so there's no talking to AI. Tap here — takes a minute.",
+  'AI 还没配置：填一个 API Key 就能在这儿说话了。': 'AI is not configured yet: add an API key and you can talk to it right here.',
   '打不开填写页，去「我的 › 设置 › AI 服务」': "Couldn't open the page — go to Me › Settings › AI service",
   '最上面那项是 AI 密钥：不填也能用，只是规划、对话、点评这几处会停。再往下是 Android 要你点头才给的能力，缺一件对应的功能就会「看着像坏了」；最后几个开关决定你要不要被管着。全都能跳过，也都能在设置里改回来。':
     'The first item is the AI key: the app works without it, but planning, chat and reviews stop. Below that are the permissions Android has to grant, and missing one makes the matching feature look broken. The last few switches decide how strictly you want to be managed. All skippable, all reversible in Settings.',
