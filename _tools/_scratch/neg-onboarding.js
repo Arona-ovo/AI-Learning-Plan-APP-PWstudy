@@ -187,13 +187,13 @@ shouldCatch('删掉指示箭头', (c) => {
   swap(c, MASK, 'class="gd-arrow"', 'class="gd-arrow-x"');
 }, '指示箭头');
 
-// 17. 目标滚出视口不滚回来 —— 那一步被整步吞掉
-//     现在滚动走 _scrollTo()，滚完靠 measureStep(true) 重测；删掉重测就等于没滚
-shouldCatch('目标不在视口时不滚进视口', (c) => {
+// 17. 目标不在位不挪过去 —— 那一步要么整步被吞，要么洞落在错的地方
+//     现在滚动走 _solve()，一轮挪不准还会继续收敛
+shouldCatch('目标不在位时不滚动', (c) => {
   swap(c, HOME,
-    "this._scrollTo(rect, scrollTop, sel, () => { if (this.gdOn) this.measureStep(true) })",
-    "this.guideShow(step, rect)");
-}, '重测只做一次');
+    "try { uni.pageScrollTo({ scrollTop: want, duration: 180 }) } catch (e) {}",
+    "void want");
+}, '先滚过去');
 
 // 18. 转屏后页面不重测
 shouldCatch('resize 后不重新量目标', (c) => {
@@ -234,6 +234,11 @@ shouldCatch('_inView 又要求整块可见', (c) => {
     "return seen >= Math.min(rect.height, 88) && seen / rect.height >= 0.6",
     "return rect.top >= 8 && rect.top + rect.height <= vh - 8");
 }, '纯文字');
+
+// 25. 落位线不躲悬浮顶栏 —— 洞挖到顶栏底下，用户透过洞看到的还是顶栏
+shouldCatch('落位线不躲悬浮顶栏', (c) => {
+  swap(c, HOME, "return Math.min(Math.max(this._navBottom() + 24, 96), cap)", "return 96");
+}, '顶栏');
 
 console.log('');
 console.log(fail === 0 ? '反向测试全部通过（护栏真的会红）' : '失败 ' + fail + ' 项 ✗');

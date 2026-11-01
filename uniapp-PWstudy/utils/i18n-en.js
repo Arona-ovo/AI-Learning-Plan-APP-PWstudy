@@ -1355,6 +1355,35 @@ export default {
   '还没选休闲 App，先去「选择休闲 App」挑几个，否则不会提醒。':
     "You haven't picked any leisure apps yet — choose some first, otherwise nothing will be nudged.",
 
+  /* ---------- 休闲 App 的 AI 推荐 / 自动补全（pkgPlan/pages/apps） ---------- */
+  '休闲': 'Leisure',
+  '不用管': 'Ignore',
+  '去处理': 'Review',
+  '看看': 'See',
+  '自动补全': 'Auto-fill',
+  '自动补全：把没登记的常用 App 找出来': 'Auto-fill: find the apps you use but never added',
+  '发现 {n} 个常用的 App 还没归类': '{n} apps you use often are still unclassified',
+  '看今天的真实用时，AI 判断学习还是休闲，一次加完':
+    "Based on today's real usage; AI decides study or leisure, added in one go",
+  '不知道选哪个？让 AI 挑几个最容易沉迷的': 'Not sure what to pick? Let AI find the ones that eat your time',
+  'AI 正在挑休闲 App…': 'AI is picking leisure apps…',
+  '按你的用时推荐': 'Based on your usage',
+  '这些 App 今天用过，但没进任何清单。确认归类后一次加进去，之后就能统计和提醒。':
+    'These apps were used today but are in neither list. Confirm how to file them and they get tracked and nudged from now on.',
+  'AI 正在分类…': 'AI is classifying…',
+  '没有发现没归类的 App（可能还没开使用情况访问）':
+    'No unclassified apps found (usage access may be off)',
+  '今天 {n} 分钟': '{n} min today',
+  '全部按建议添加': 'Add all as suggested',
+  '以后自动补全，不再问我': 'Auto-fill from now on, no asking',
+  '按 AI 的分类直接加进来': 'Add them straight away using AI’s classification',
+  '需要先填 API，否则分不清学习还是休闲':
+    'Needs an API key first — otherwise study and leisure cannot be told apart',
+  '已收录 {n} 个 App': 'Added {n} apps',
+  '自动补全需要 AI 分类，先去填 API': 'Auto-fill needs AI classification — add your API key first',
+  '以后自动补全已开启': 'Auto-fill is on',
+  '已关闭自动补全': 'Auto-fill is off',
+
   /* ---------- 填 API（ai-setup 专页 / 首页提醒卡 / 开始前几件事）---------- */
   '填写 API': 'Add API key',
   'AI 密钥': 'AI key',

@@ -96,6 +96,7 @@
              聚焦时再给卡片底部补一段空白（.kb-open），保证页面有富余能滚上去。 -->
         <input
           class="search"
+          :class="{ 'search-on': searchFocus }"
           :value="kw"
           placeholder="搜索应用名"
           placeholder-style="color:#a8b0ab;font-size:26rpx"
@@ -179,15 +180,29 @@
         <text class="card-more" @tap="tapLeisureToggle">{{ addingLeisure ? $t('收起') : $t('选择休闲 App') }}</text>
       </view>
       <view class="pc-txt">{{ $t('后台静默统计休闲 App 使用时间，刷太久或一整天没专注时主动提醒你回来学习') }}</view>
+      <!-- 图标与「我的学习 App」同一套：从搜索里挑进来的 App 原来只显示首字母，
+           看着像没加载完（2026-11-01 反馈）。这里走 iconMap，取不到才退回字母。 -->
       <view v-for="a in leisurePkgs" :key="a.pkg" class="dock-row" @tap="noop">
-        <view class="dr-icon dr-leisure">{{ initialOf(a) }}</view>
+        <image v-if="iconMap[a.pkg]" class="dr-icon-img" :src="iconMap[a.pkg]" mode="aspectFit" />
+        <view v-else class="dr-icon dr-leisure">{{ initialOf(a) }}</view>
         <view class="dr-main">
           <view class="dr-name">{{ a.name }}</view>
           <view class="dr-pkg">{{ a.pkg }}</view>
         </view>
         <text class="dr-del" @tap.stop="removeLeisure(a)">{{ $t('移除') }}</text>
       </view>
+
+      <!-- 自动补全：整机能读到的用时不止清单里那几个 —— 没登记的 App 数据白读、
+           提醒也永远不会来。这里按今天的真实用时把漏掉的挑出来（见 utils/autoapps.js）。 -->
+      <view v-if="permitted" class="auto-row" @tap="openAuto">
+        <view class="auto-main">
+          <text class="auto-title">{{ autoCount > 0 ? $t('发现 {n} 个常用的 App 还没归类', { n: autoCount }) : $t('自动补全：把没登记的常用 App 找出来') }}</text>
+          <text class="auto-sub">{{ $t('看今天的真实用时，AI 判断学习还是休闲，一次加完') }}</text>
+        </view>
+        <text class="auto-go">{{ autoCount > 0 ? $t('去处理') : $t('看看') }} ›</text>
+      </view>
     </view>
+
 
     <!-- 休闲 App 选择面板：复用已装应用列表，与学习 App 同一份数据，只是写进 settings().leisure.pkgs -->
     <view class="card add-card lr-card" v-if="isAndroid && addingLeisure" :class="{ 'kb-open': lrFocus }">
@@ -198,8 +213,34 @@
         </view>
         <text class="card-more" @tap="addingLeisure = false">{{ $t('收起') }}</text>
       </view>
+      <!-- AI 推荐（休闲）：从已装列表里挑最容易把注意力拖走的。
+           学习 App 那边早就有这个入口，休闲这边原来只能自己在几百个应用里翻。 -->
+      <view v-if="aiEnabled && !aiLei.items.length && !aiLei.loading" class="ai-rec-entry">
+        <text class="ai-rec-tip">{{ aiLei.err ? $t('AI 没推荐出来') : $t('不知道选哪个？让 AI 挑几个最容易沉迷的') }}</text>
+        <text class="ai-rec-btn" @tap="aiRecommendLeisure">{{ aiLei.err ? $t('再试一次') : $t('让 AI 推荐') }}</text>
+      </view>
+      <view v-if="aiLei.loading" class="ai-rec-tip ai-rec-wait">{{ $t('AI 正在挑休闲 App…') }}</view>
+      <view v-if="aiLei.items.length" class="rec-list">
+        <view class="rec-head">{{ $t('按你的用时推荐') }}</view>
+        <view
+          v-for="r in aiLei.items"
+          :key="r.pkg"
+          class="cand"
+          :class="{ 'cand-added': lrSel(r) }"
+          @tap="toggleLeisure(candOf(r) || r)"
+        >
+          <image v-if="iconMap[r.pkg]" class="dr-icon-img" :src="iconMap[r.pkg]" mode="aspectFit" />
+          <view v-else class="dr-icon dr-leisure">{{ (r.name || '?').slice(0, 1).toUpperCase() }}</view>
+          <view class="dr-main">
+            <view class="dr-name">{{ r.name }}</view>
+            <view class="dr-pkg">{{ r.pkg }}</view>
+          </view>
+          <text class="cand-add">{{ lrSel(r) ? $t('已选') : $t('选') }}</text>
+        </view>
+      </view>
       <input
         class="search"
+        :class="{ 'search-on': lrFocus }"
         :value="kw"
         :placeholder="$t('搜索应用名')"
         placeholder-style="color:#a8b0ab;font-size:26rpx"
@@ -241,6 +282,42 @@
           </view>
         </scroll-view>
       </template>
+    </view>
+
+    <!-- 自动补全面板：候选来自 UsageStats 的真实用时，归类由 AI 给（每行还能手点改）。
+         ⚠️ 不静默写库：AI 一律可能判错（把学而思当娱乐），落库前让用户看一眼；
+            开了「以后自动补全」才会在进页面时自己加（见 autoFill）。 -->
+    <view class="card add-card au-card" v-if="isAndroid && autoOpen">
+      <view class="card-head">
+        <view class="ch-l">
+          <view v-if="autoLoading" class="al-spin al-spin-sm"></view>
+          <text class="card-title">{{ $t('自动补全') }}</text>
+        </view>
+        <text class="card-more" @tap="closeAuto">{{ $t('收起') }}</text>
+      </view>
+      <view class="pc-txt">{{ $t('这些 App 今天用过，但没进任何清单。确认归类后一次加进去，之后就能统计和提醒。') }}</view>
+      <view v-if="autoLoading" class="ai-rec-tip ai-rec-wait">{{ $t('AI 正在分类…') }}</view>
+      <view v-else-if="!autoItems.length" class="pc-txt">{{ $t('没有发现没归类的 App（可能还没开使用情况访问）') }}</view>
+      <view v-for="c in autoItems" :key="c.pkg" class="cand" @tap="cycleAuto(c)">
+        <image v-if="iconMap[c.pkg]" class="dr-icon-img" :src="iconMap[c.pkg]" mode="aspectFit" />
+        <view v-else class="dr-icon">{{ (c.name || '?').slice(0, 1).toUpperCase() }}</view>
+        <view class="dr-main">
+          <view class="dr-name">{{ c.name }}</view>
+          <view class="dr-pkg">{{ $t('今天 {n} 分钟', { n: c.min }) }}<text v-if="c.task"> · {{ c.task }}</text></view>
+        </view>
+        <text class="au-tag" :class="'au-tag-' + c.kind">{{ autoKindText(c.kind) }}</text>
+      </view>
+      <view v-if="autoItems.length" class="edit-btns">
+        <view class="edit-btn ghost" @tap="closeAuto">{{ $t('取消') }}</view>
+        <view class="edit-btn primary" @tap="applyAuto(false)">{{ $t('全部按建议添加') }}</view>
+      </view>
+      <view class="au-switch" @tap="toggleAutoOn">
+        <view class="au-switch-col">
+          <text class="au-switch-t">{{ $t('以后自动补全，不再问我') }}</text>
+          <text class="au-switch-s">{{ aiEnabled ? $t('按 AI 的分类直接加进来') : $t('需要先填 API，否则分不清学习还是休闲') }}</text>
+        </view>
+        <view class="au-sw" :class="{ on: autoOn }"><view class="au-knob"></view></view>
+      </view>
     </view>
 
     <view style="height: 40rpx"></view>
@@ -314,6 +391,8 @@
 <script>
 import * as pw from '../../../utils/pwstore.js'
 import * as apptime from '../../../utils/apptime.js'
+import * as autoapps from '../../../utils/autoapps.js'
+import * as leisure from '../../../utils/leisure.js'
 import * as focusMod from '../../../utils/focus.js'
 import { holdScroll, releaseScroll } from '../../../utils/scroll-lock.js';
 import * as settings from '../../../utils/settings.js'
@@ -365,7 +444,17 @@ export default {
       addingLeisure: false,
       lrFocus: false,
       _lrAnchor: false,
-      _lrAutoOpened: false
+      _lrAutoOpened: false,
+      // 休闲 AI 推荐（按真实用时挑最容易沉迷的）
+      aiLei: { loading: false, err: '', items: [] },
+      // 自动补全（utils/autoapps.js）：按今天的真实用时找出没归类的 App
+      autoOpen: false,
+      autoLoading: false,
+      autoItems: [],
+      autoCount: 0,
+      autoOn: false,          // 设置里的「以后自动补全」
+      autoSkipped: [],        // 用户点过「不用管」的包
+      _autoDoneAt: 0          // 自动补全的节流（别每次 onShow 都跑一遍 AI）
     }
   },
   computed: {
@@ -394,6 +483,8 @@ export default {
   },
   onShow() {
     this.refresh()
+    // 开了「以后自动补全」的话，进页面自己把漏掉的收进来（AI 分类 → 落库）
+    this.autoFill()
     // 从设置页「选择休闲 App」跳过来时（?leisure=1），自动展开休闲选择面板并滚到位
     if (this._lrAnchor && !this._lrAutoOpened) {
       this._lrAutoOpened = true
@@ -420,7 +511,10 @@ export default {
       })
       if (st.dock.length !== before) pw.touch()
       this.dock = st.dock
-      this.leisurePkgs = (settings.get().leisure && settings.get().leisure.pkgs) || []
+      const lc = settings.get().leisure || {}
+      this.leisurePkgs = (lc.pkgs || []).slice()
+      this.autoOn = !!lc.autoOn
+      this.autoSkipped = Array.isArray(lc.autoSkipped) ? lc.autoSkipped.slice() : []
       this.isAndroid = apptime.supported()
       this.aiEnabled = isAIEnabled()
       this.permitted = this.isAndroid && apptime.hasUsagePermission()
@@ -432,6 +526,10 @@ export default {
         if (this.editor.show) this.editor.show = false
       }
       this.dock.forEach(a => this.ensureIcon(a.pkg))
+      // 休闲清单也要图标：挑进来的 App 原来只显示首字母（2026-11-01 反馈）
+      this.leisurePkgs.forEach(a => this.ensureIcon(a.pkg))
+      // 「发现 N 个…」那句的数字：只算数量，不建列表（读一次 UsageStats 就够）
+      this.refreshAutoCount()
     },
     /** 添加面板开合的统一入口：专注期间只摇头不开门 */
     tapAddToggle() {
@@ -723,6 +821,7 @@ export default {
     toggleLeisure(c) {
       if (this.lrSel(c)) this.leisurePkgs = this.leisurePkgs.filter(s => s.pkg !== c.pkg)
       else this.leisurePkgs.push({ pkg: c.pkg, name: c.name })
+      this.ensureIcon(c.pkg)
       this.persistLeisure()
     },
     removeLeisure(a) {
@@ -731,7 +830,184 @@ export default {
     },
     persistLeisure() {
       const cur = settings.get().leisure || {}
-      settings.set({ leisure: Object.assign({}, cur, { pkgs: this.leisurePkgs.slice() }) })
+      settings.set({ leisure: Object.assign({}, cur, {
+        pkgs: this.leisurePkgs.slice(),
+        autoOn: !!this.autoOn,
+        autoSkipped: (this.autoSkipped || []).slice()
+      }) })
+      // 清单变了，原生那条「后台检测」的包名表也得跟着换 —— 否则新加的 App 要等
+      // 下一次 App 前台才生效（App.vue 那一处），中间这段时间等于没盯
+      try { leisure.armGuard() } catch (e) {}
+      this.refreshAutoCount()
+    },
+
+    // ---------- 休闲 AI 推荐 ----------
+    /**
+     * 从已装列表里挑"最容易把注意力拖走的"。
+     * 喂给 AI 的名单优先放今天用过的（按分钟排），这样推荐贴着真实习惯，
+     * 而不是让它从几百个应用里瞎猜。
+     */
+    async aiRecommendLeisure() {
+      if (this.focusLock) { this.lockToast(); return }
+      if (this.aiLei.loading) return
+      this.aiLei.loading = true
+      this.aiLei.err = ''
+      try {
+        if (!this.all.length) {
+          this.loadApps()
+          for (let i = 0; i < 40 && !this.all.length; i++) {
+            await new Promise(r => setTimeout(r, 100))
+          }
+        }
+        const inDock = {}
+        this.dock.forEach(a => { inDock[a.pkg] = true })
+        const inLei = {}
+        this.leisurePkgs.forEach(a => { inLei[a.pkg] = true })
+        // 今天用过的排前面（读不到用量就按列表原序）
+        let used = {}
+        try {
+          const d = new Date()
+          const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+          used = apptime.usageByPackage(start, Date.now()) || {}
+        } catch (e) { used = {} }
+        const pool = this.all
+          .filter(a => !inDock[a.pkg] && !inLei[a.pkg])
+          .slice()
+          .sort((a, b) => (Number(used[b.pkg]) || 0) - (Number(used[a.pkg]) || 0))
+          .slice(0, 80)
+        if (!pool.length) { this.aiLei.err = this.$t('AI 没推荐出来'); this.aiLei.loading = false; return }
+        const r = await aiGuess.classifyApps(pool, { hint: '请挑出最容易让人刷太久的消遣类 App' })
+        const byPkg = {}
+        this.all.forEach(a => { byPkg[a.pkg] = a })
+        const picks = (r.items || []).filter(x => x.kind === 'leisure' && byPkg[x.pkg])
+        this.aiLei.items = picks.slice(0, 8).map(x => Object.assign({}, byPkg[x.pkg]))
+        this.aiLei.items.forEach(x => this.ensureIcon(x.pkg))
+        if (!this.aiLei.items.length) this.aiLei.err = this.$t('AI 没推荐出来')
+      } catch (e) {
+        this.aiLei.items = []
+        this.aiLei.err = (e && e.message) ? e.message : this.$t('AI 没推荐出来')
+        if (e && e.notConfigured) this.aiLei.err = this.$t('AI 服务未启用')
+      }
+      this.aiLei.loading = false
+    },
+
+    // ---------- 自动补全（utils/autoapps.js） ----------
+    /** 今天用过、但两份清单里都没有的 App（读不到用量就是空数组） */
+    detectUnlisted() {
+      try {
+        return autoapps.detect({
+          dock: this.dock,
+          leisure: this.leisurePkgs,
+          skipped: this.autoSkipped,
+          minMin: 5,
+          limit: 12
+        })
+      } catch (e) { return [] }
+    },
+    /** 卡片上那句「发现 N 个…」的数字 */
+    refreshAutoCount() {
+      this.autoCount = this.isAndroid ? this.detectUnlisted().length : 0
+    },
+    openAuto() {
+      if (this.focusLock) { this.lockToast(); return }
+      this.autoOpen = true
+      this.autoItems = this.detectUnlisted().map(c => Object.assign({ kind: 'leisure', task: '' }, c))
+      this.autoItems.forEach(c => this.ensureIcon(c.pkg))
+      this.$nextTick(() => {
+        setTimeout(() => {
+          try { uni.pageScrollTo({ selector: '.au-card', duration: 220 }) } catch (e) {}
+        }, 80)
+      })
+      // AI 可用就分一次类；不可用时默认「休闲」，用户自己点着改
+      if (this.aiEnabled && this.autoItems.length) this.classifyAuto()
+    },
+    closeAuto() {
+      this.autoOpen = false
+      this.autoItems = []
+    },
+    /** 让 AI 把候选分成 学习 / 休闲 / 不用管（失败就保持默认，别打断用户） */
+    async classifyAuto() {
+      if (this.autoLoading || !this.autoItems.length) return
+      this.autoLoading = true
+      try {
+        const r = await aiGuess.classifyApps(this.autoItems, { hint: '这些是他今天用过、但还没登记进任何清单的 App' })
+        const by = {}
+        ;(r.items || []).forEach(x => { by[x.pkg] = x })
+        this.autoItems = this.autoItems.map(c => {
+          const hit = by[c.pkg]
+          return hit ? Object.assign({}, c, { kind: hit.kind, task: hit.task || '' }) : c
+        })
+      } catch (e) { /* 保持默认归类，用户还能手点 */ }
+      this.autoLoading = false
+    },
+    autoKindText(k) {
+      if (k === 'study') return this.$t('学习')
+      if (k === 'skip') return this.$t('不用管')
+      return this.$t('休闲')
+    },
+    /** 点一行切换归类：休闲 → 学习 → 不用管 → 休闲 */
+    cycleAuto(c) {
+      c.kind = c.kind === 'leisure' ? 'study' : (c.kind === 'study' ? 'skip' : 'leisure')
+    },
+    /**
+     * 一键落库：学习 → 学习 App 白名单，休闲 → 休闲清单，不用管 → 记进跳过名单。
+     * @param {boolean} silent 自动补全那条路（不弹"已添加"、不改面板状态）
+     */
+    applyAuto(silent) {
+      const items = Array.isArray(this.autoItems) ? this.autoItems : []
+      if (!items.length) { if (!silent) this.closeAuto(); return }
+      let nStudy = 0, nLeisure = 0
+      items.forEach(c => {
+        if (!c || !c.pkg) return
+        if (c.kind === 'study') {
+          if (!this.dock.some(a => a.pkg === c.pkg)) {
+            pw.dockAdd(c.pkg, c.name || c.pkg, 'study', c.task || '')
+            nStudy++
+          }
+        } else if (c.kind === 'leisure') {
+          if (!this.leisurePkgs.some(a => a.pkg === c.pkg)) {
+            this.leisurePkgs.push({ pkg: c.pkg, name: c.name || c.pkg })
+            nLeisure++
+          }
+        } else if (this.autoSkipped.indexOf(c.pkg) < 0) {
+          this.autoSkipped.push(c.pkg)
+        }
+      })
+      this.persistLeisure()
+      this.refresh()
+      if (!silent) this.closeAuto()
+      const n = nStudy + nLeisure
+      if (n > 0) {
+        uni.showToast({
+          title: this.$t('已收录 {n} 个 App', { n: n }),
+          icon: 'none'
+        })
+      }
+    },
+    toggleAutoOn() {
+      if (!this.aiEnabled) {
+        uni.showToast({ title: this.$t('自动补全需要 AI 分类，先去填 API'), icon: 'none' })
+        return
+      }
+      this.autoOn = !this.autoOn
+      this.persistLeisure()
+      uni.showToast({ title: this.autoOn ? this.$t('以后自动补全已开启') : this.$t('已关闭自动补全'), icon: 'none' })
+    },
+    /**
+     * 自动补全：进页面时把漏掉的自己收进来。
+     * 只跑一次 / 10 分钟一次（AI 调用不便宜，每次 onShow 都跑会被限流）。
+     */
+    async autoFill() {
+      if (!this.autoOn || !this.aiEnabled || !this.permitted) return
+      if (Date.now() - this._autoDoneAt < 10 * 60 * 1000) return
+      this._autoDoneAt = Date.now()
+      const cands = this.detectUnlisted()
+      if (!cands.length) return
+      this.autoItems = cands.map(c => Object.assign({ kind: 'leisure', task: '' }, c))
+      try {
+        await this.classifyAuto()
+        this.applyAuto(true)
+      } catch (e) { /* 失败就等用户自己点「自动补全」 */ }
     }
   }
 }
@@ -904,18 +1180,69 @@ export default {
    （cursor-spacing 负责"抬高多少"，这里负责"有地方可抬"） */
 .add-card.kb-open { padding-bottom: 220rpx; }
 
+/* 搜索框：圆角长条 + 可见描边。
+   原来是一块圆角很小的浅底，跟卡片底几乎同色，用户反映"看不出这是输入框"
+   （2026-11-01 真机）。描边用中性色而不是纯白：白描边压在浅底上等于没有。 */
 .search {
-  background: rgba(255, 255, 255, 0.7);
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.7);
-  border: 2rpx solid rgba(255, 255, 255, 0.8);
-  border: 2rpx solid var(--hairline, rgba(var(--surface-rgb, 255, 255, 255), 0.8));
-  border-radius: 16rpx;
-  padding: 16rpx 22rpx;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.92);
+  border: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.16);
+  border-radius: 999rpx;
+  padding: 18rpx 30rpx;
   font-size: 26rpx;
   color: #17201a;
   color: var(--ink-1, #17201a);
-  margin-bottom: 12rpx;
+  margin: 4rpx 0 16rpx;
 }
+/* 聚焦：描边转品牌色 —— 不用看光标也知道正在输入 */
+.search-on {
+  border-color: rgba(var(--brand-rgb, 228, 23, 61), 0.5);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 1);
+}
+
+/* ===== 自动补全（按真实用时找没归类的 App） ===== */
+.auto-row {
+  display: flex; align-items: center;
+  margin-top: 18rpx; padding: 18rpx 22rpx;
+  border-radius: 16rpx;
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.06);
+  border: 2rpx dashed rgba(var(--brand-rgb, 228, 23, 61), 0.28);
+}
+.auto-main { flex: 1; min-width: 0; }
+.auto-title { display: block; font-size: 25rpx; font-weight: 600; color: var(--brand-strong, #bb1332); }
+.auto-sub { display: block; margin-top: 6rpx; font-size: 22rpx; line-height: 1.6; color: var(--ink-2, #5a6560); }
+.auto-go { flex-shrink: 0; margin-left: 16rpx; font-size: 24rpx; font-weight: 600; color: var(--brand-strong, #bb1332); }
+
+/* 归类标签：学习 / 休闲 / 不用管 三档颜色分开，一眼看出 AI 判成了什么 */
+.au-tag { flex-shrink: 0; font-size: 22rpx; padding: 6rpx 18rpx; border-radius: 999rpx; }
+.au-tag-leisure { background: rgba(247, 144, 9, 0.14); color: #b26b00; }
+.au-tag-study { background: rgba(var(--brand-rgb, 228, 23, 61), 0.12); color: var(--brand-strong, #bb1332); }
+.au-tag-skip { background: rgba(var(--neutral-rgb, 23, 32, 26), 0.08); color: var(--ink-3, #98a19b); }
+
+.au-switch {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 20rpx; padding-top: 18rpx;
+  border-top: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.07);
+}
+.au-switch-col { flex: 1; min-width: 0; margin-right: 16rpx; }
+.au-switch-t { display: block; font-size: 25rpx; color: var(--ink-1, #17201a); }
+.au-switch-s { display: block; margin-top: 6rpx; font-size: 21rpx; line-height: 1.6; color: var(--ink-3, #98a19b); }
+.au-sw {
+  width: 78rpx; height: 44rpx; border-radius: 999rpx;
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.16);
+  position: relative; flex-shrink: 0;
+  transition: background 160ms ease;
+}
+/* 开关属于"选中态"，按设计令牌允许用实心品牌色 */
+.au-sw.on { background: var(--brand, #e4173d); }
+.au-knob {
+  position: absolute; top: 4rpx; left: 4rpx;
+  width: 36rpx; height: 36rpx; border-radius: 18rpx;
+  background: #ffffff;
+  box-shadow: 0 2rpx 6rpx rgba(23, 32, 26, 0.18);
+  transition: transform 160ms ease;
+}
+.au-sw.on .au-knob { transform: translateX(34rpx); }
+
 .app-scroll { max-height: 640rpx; }
 .cand { display: flex; align-items: center; padding: 12rpx 0; }
 .cand-added { opacity: 0.45; }

@@ -2205,15 +2205,14 @@ export default {
     /**
      * 量当前步的目标矩形，量到了就挖洞高亮。
      *
-     * 目标可能量不到（卡片被收纳 / 被点了 × / 结构改了）或不在视口里，三级处理，
-     * 顺序就是"信息量从高到低"：
-     *   1) 不在视口 → 滚进去再量一次（只滚一次，防来回滚）
+     * 目标可能量不到（卡片被收纳 / 被点了 × / 结构改了）或不在位（滚动了 / 被顶栏压着），
+     * 按"信息量从高到低"三档处理：
+     *   1) 不在位 → 挪到位再量（见 _solve：首屏是视差层，一次滚不准，要收敛）
      *   2) 量不到 → 退到 step.fallback（同一处的兜底锚点，比如收工键 → 整张任务卡）
      *   3) 还是没有 → 居中讲（步骤带 art 就带示意图）；连图都没有才跳过这一步
      * 每条路都有出口，绝不把用户卡在一个空遮罩里。
-     * @param {boolean} retried 已经为这一步滚过一次了（防止来回滚不停）
      */
-    measureStep(retried) {
+    measureStep() {
       const step = onboarding.stepAt(this.gdIndex, this.guideOpts())
       if (!step) { this.endGuide(); return }
       const t = step.target
@@ -2231,26 +2230,83 @@ export default {
       // 主锚点 + 兜底锚点按顺序试，第一个量得到的就是它
       const sels = [t.sel]
       if (step.fallback && step.fallback !== t.sel) sels.push(step.fallback)
-      this._measureFirst(sels, 0, step, !retried)
+      this._solve(sels, 0, step, 0)
     },
 
-    /** 依次量候选锚点：量到 → 高亮；看不全 → 滚进去重来一次；全量不到 → guideMiss() */
-    _measureFirst(sels, i, step, canScroll) {
+    /** 视口高（px）：量不到系统信息时按 667 兜底，别让 NaN 污染后面的算术 */
+    _viewH() {
+      try { return uni.getSystemInfoSync().windowHeight || 667 } catch (e) { return 667 }
+    },
+
+    /**
+     * 顶栏底边（px）：优先用 measureChromes 的实测值。
+     *
+     * ★ 为什么需要它：首页顶部是**悬浮顶栏**（position: fixed，z 低于遮罩），
+     *   它压在页面内容上面。目标滚到它底下时，挖出来的洞是透明的 —— 用户透过洞
+     *   看到的还是顶栏，等于"框了个寂寞"（2026-11-01 真机第 4 步就长这样）。
+     *   所以判"看得见 / 已就位"时必须把这条带子算成不可用。
+     */
+    _navBottom() {
+      let bars = 0
+      try { bars = (insets.statusBar() || 0) + 44 } catch (e) { bars = 0 }
+      return Math.max(Number(this.navBottomPx) || 0, bars)
+    },
+
+    /** 底栏顶边（px）：实测不到就按"视口高 - 72"（悬浮 tabBar + 安全区）估 */
+    _tabTop(vh) {
+      const t = Number(this.tabTopPx) || 0
+      return t > 0 ? t : ((vh || this._viewH()) - 72)
+    },
+
+    /** 目标该停在哪一行：躲开顶栏，也别贴到屏幕最上沿 */
+    gdParkY() {
+      const vh = Number(this.winH) || this._viewH()
+      const cap = Math.max(Math.round(vh * 0.34), 96)
+      return Math.min(Math.max(this._navBottom() + 24, 96), cap)
+    },
+
+    /** 已经完全就位：整块躲开顶栏与底栏，不用再挪 */
+    _clear(rect) {
+      if (!rect) return false
+      const vh = this._viewH()
+      return rect.top >= this._navBottom() - 2
+        && (rect.top + rect.height) <= this._tabTop(vh) - 2
+    },
+
+    /** 被顶栏压着（洞挖在这儿等于没挖） */
+    _underBar(rect) {
+      return !!rect && rect.top < this._navBottom() - 2
+    },
+
+    /**
+     * 把目标"收敛"到落位线附近，最多 3 轮。
+     *
+     * ★ 为什么不能一次滚准：`.home-hero` 是视差层（heroCardStyle 带 translateY + scale，
+     *   跟着滚动 progress 走），页面滚 Δ 它实际挪的不止 Δ —— 一次按 rect.top 算出来的
+     *   scrollTop 会滚过头，于是洞停在半空、底下已经换成别的内容了（真机第 4 步的 bug）。
+     *   每轮重新量、按新的差值再滚一次，3 轮足够收敛；到顶就用最后一轮的位置收尾。
+     *
+     * @param {string[]} sels 候选锚点（主 → 兜底）
+     * @param {number} i 当前用第几个候选
+     * @param {Object} step 当前步骤
+     * @param {number} round 已经挪过几轮
+     */
+    _solve(sels, i, step, round) {
       if (i >= sels.length) { this.guideMiss(step); return }
       const sel = sels[i]
       this._measure(sel, (rect, scrollTop) => {
-        if (!rect || !rect.width || !rect.height) {
-          this._measureFirst(sels, i + 1, step, canScroll)
+        if (!rect || !rect.width || !rect.height) { this._solve(sels, i + 1, step, round); return }
+        if (this._clear(rect)) { this.guideShow(step, rect); return }
+        if (round >= 3) {
+          // 到底了（页面滚不动 / 目标比屏幕还高）：能看清就挖 ——
+          // 遮罩会把洞夹回视口；被顶栏压住的不算，那等于没挖
+          if (this._inView(rect) && !this._underBar(rect)) this.guideShow(step, rect)
+          else this.guideMiss(step)
           return
         }
-        if (this._inView(rect)) { this.guideShow(step, rect); return }
-        if (canScroll) {
-          this._scrollTo(rect, scrollTop, sel, () => { if (this.gdOn) this.measureStep(true) })
-          return
-        }
-        // 滚过一次还是看不全（横屏 / 目标比屏幕还高）：照样把矩形交出去，
-        // 遮罩会把挖洞夹回视口 —— 总比这一步退成纯文字强
-        this.guideShow(step, rect)
+        const want = Math.max(0, (scrollTop || 0) + (rect.top || 0) - this.gdParkY())
+        try { uni.pageScrollTo({ scrollTop: want, duration: 180 }) } catch (e) {}
+        setTimeout(() => { if (this.gdOn) this._solve(sels, i, step, round + 1) }, 260)
       })
     },
 
@@ -2266,27 +2322,6 @@ export default {
             cb(r || null, (s && s.scrollTop) || 0)
           })
       } catch (e) { cb(null, 0) }
-    },
-
-    /**
-     * 把目标滚到视口偏上：上面留 96px 躲开悬浮顶栏，下面留出气泡的位置。
-     *
-     * ⚠️ 不能只丢一个 selector 给 pageScrollTo 就完事：App 端不保证认 selector，
-     *   滚不动时这一步就永远"看不见"，直接退成纯文字（收工键踩过这个）。
-     *   所以自己算 scrollTop（当前滚动位置 + 元素相对视口的 top - 留白），
-     *   selector 只作为算不出来时的兜底。
-     */
-    _scrollTo(rect, scrollTop, sel, done) {
-      const want = Math.max(0, (scrollTop || 0) + (rect.top || 0) - 96)
-      let asked = false
-      try {
-        uni.pageScrollTo({ scrollTop: want, duration: 200 })
-        asked = true
-      } catch (e) { asked = false }
-      if (!asked) {
-        try { uni.pageScrollTo({ selector: sel, duration: 200 }) } catch (e) { /* 滚不动就按原位摆 */ }
-      }
-      setTimeout(done, 320)
     },
 
     /** 显示某一步：rect 有值 → 挖洞高亮；null → 居中（步骤带 art 时遮罩会画示意图） */
@@ -2312,14 +2347,13 @@ export default {
      *
      * ⚠️ 别要求整块完整落在视口里：收工键长在任务卡最底下，真机上常被悬浮底栏压住
      *   一截 —— 那么严的判定直接判负，那一步就退成纯文字（用户反馈"只有文字提示"）。
-     *   现在：留出底栏高度，可见部分 ≥ 60% 且至少 88px 就算看得见。
+     *   现在：上下都按悬浮条裁一遍，可见部分 ≥ 60% 且至少 88px 就算看得见。
      */
     _inView(rect) {
       if (!rect || !rect.height) return false
-      let vh = 667
-      try { vh = uni.getSystemInfoSync().windowHeight || 667 } catch (e) {}
-      const top = Math.max(rect.top, 8)
-      const bottom = Math.min(rect.top + rect.height, vh - 72)  // 72px ≈ 悬浮底栏 + 安全区
+      const vh = this._viewH()
+      const top = Math.max(rect.top, this._navBottom())
+      const bottom = Math.min(rect.top + rect.height, this._tabTop(vh))
       const seen = bottom - top
       if (seen <= 0) return false
       return seen >= Math.min(rect.height, 88) && seen / rect.height >= 0.6

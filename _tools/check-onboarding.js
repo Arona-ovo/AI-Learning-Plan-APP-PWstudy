@@ -254,17 +254,26 @@ assert(/@resize="guideResize"/.test(homeSrc), '首页接了 resize 并重测当�
 const gResize = fnBody(homeSrc, 'guideResize');
 assert(gResize.length > 0 && /measureStep\(\)/.test(gResize), 'guideResize() 真的会重新量目标矩形');
 
-// 目标滚出视口：算 scrollTop 滚进去再量一次，别整步吞掉
-const mFirst = fnBody(homeSrc, '_measureFirst');
-assert(mFirst.length > 0, '能切到 _measureFirst()（依次量主锚点 / 兜底锚点）');
-assert(/measureStep\(true\)/.test(mFirst), '重测只做一次（retried 防来回滚死循环）');
-assert(/sels/.test(mFirst) && /i \+ 1/.test(mFirst), '主锚点量不到会换下一个候选（兜底锚点）');
-const mScroll = fnBody(homeSrc, '_scrollTo');
-assert(/pageScrollTo/.test(mScroll), '目标不在视口里会先滚进视口再量');
-assert(/scrollTop/.test(mScroll), '自己算 scrollTop（只丢 selector 给 App 端不一定认）');
+// 目标不在位：算 scrollTop 挪过去，并且**多轮收敛**（首屏是视差层，一次滚不准）
+const mSolve = fnBody(homeSrc, '_solve');
+assert(mSolve.length > 0, '能切到 _solve()（把目标收敛到落位线）');
+assert(/sels/.test(mSolve) && /i \+ 1/.test(mSolve), '主锚点量不到会换下一个候选（兜底锚点）');
+assert(/pageScrollTo/.test(mSolve), '目标不在位会先滚过去再量');
+assert(/scrollTop/.test(mSolve), '自己算 scrollTop（只丢 selector 给 App 端不一定认）');
+assert(/round \+ 1/.test(mSolve), '滚完重新量，下一轮继续收敛（视差层一次滚不准）');
+assert(/round >= 3/.test(mSolve), '收敛有上限（3 轮），不会来回滚到死');
+assert(/gdParkY\(\)/.test(mSolve), '落位线走 gdParkY()（躲开悬浮顶栏）');
+const mPark = fnBody(homeSrc, 'gdParkY');
+assert(mPark.length > 0, '能切到 gdParkY() 的函数体');
+assert(/_navBottom\(\)/.test(mPark), '落位线按顶栏底边往下让（别把洞挖到顶栏底下）');
+const mNavB = fnBody(homeSrc, '_navBottom');
+assert(mNavB.length > 0, '能切到 _navBottom() 的函数体');
+assert(/navBottomPx/.test(mNavB), '顶栏底边优先用 measureChromes 的实测值');
+assert(/statusBar/.test(mNavB), '量不到顶栏时按状态栏兜底');
 const mInView = fnBody(homeSrc, '_inView');
 assert(/0\.6/.test(mInView), '判"看得见"允许被压住一截（太严会把底部那步退成纯文字）');
-assert(/vh - 72|vh-72/.test(mInView), '判"看得见"给悬浮底栏留出位置');
+assert(/_navBottom/.test(mInView) && /_tabTop/.test(mInView),
+  '判"看得见"上下都按悬浮条裁（洞挖在顶栏底下等于没挖）');
 // 指示箭头
 assert(/class="gd-arrow"/.test(maskCode), '气泡带指示箭头（指向高亮）');
 assert(/gd-arrow-below/.test(maskCode) && /gd-arrow-above/.test(maskCode),
