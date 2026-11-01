@@ -65,5 +65,14 @@ assert(badRefs.length === 0,
 group('5. secHint');
 assert(/return this\.cacheHint/.test(methodsBlock), "secHint('cache') 走 computed（返回字符串而不是函数）");
 
+// ---------- 6. 悬浮胶囊分组（2026-11-01 用户"没找到胶囊形态配置"——原来藏在首页专注设置弹层里） ----------
+group('6. 悬浮胶囊分组');
+assert(tpl.indexOf('悬浮胶囊') > 0, '模板有「悬浮胶囊」分组标题');
+assert(/cap-opts/.test(tpl) && /cap-opt/.test(tpl), '模板有形态三选一（cap-opts/cap-opt）');
+assert(/setCapsule\('style'/.test(tpl), '点形态走 setCapsule("style", ...) 写设置并推原生');
+assert(/setCapsule\('on'/.test(tpl), '灵动岛开关走 setCapsule("on", ...)');
+assert(/k === 'capsule'/.test(methodsBlock), 'secHint 处理 capsule 分支（收起时显示当前形态）');
+assert(/capsuleStyle\s*=/.test(script) && /capsuleSetStyle/.test(script), '设置页读 capsuleStyle 并接 fgsvc.capsuleSetStyle 推原生');
+
 console.log('\n' + (fail === 0 ? '全部通过 ✓' : '失败 ' + fail + ' 项 ✗'));
 process.exit(fail === 0 ? 0 : 1);

@@ -695,6 +695,44 @@
       </view>
     </view>
 
+    <!-- ===== 悬浮胶囊：退后台的专注倒计时，形态三选一（胶囊/小球/圆环） ===== -->
+    <view class="sec" :class="{ open: openSec === 'capsule' }">
+      <view class="sec-head" data-k="capsule" @tap="toggleSec">
+        <text class="sec-name">{{ $t('悬浮胶囊') }}</text>
+        <text v-if="openSec !== 'capsule'" class="sec-hint">{{ secHint('capsule') }}</text>
+        <text class="sec-arrow">›</text>
+      </view>
+      <view class="sec-body" v-if="openSec === 'capsule'">
+        <view class="row">
+          <view class="row-main">
+            <text class="row-title">{{ $t('灵动岛倒计时') }}</text>
+            <text class="row-desc">{{ $t('退到别的 App 时，屏幕上方悬浮专注倒计时，点一下回到 PWstudy') }}</text>
+          </view>
+          <switch :checked="capsuleOn" :color="brandMain" @change="e => setCapsule('on', e.detail.value)" />
+        </view>
+        <view class="cap-block" v-if="capsuleOn">
+          <text class="cap-label">{{ $t('悬浮形态') }}</text>
+          <view class="cap-opts">
+            <view class="cap-opt" :class="{ 'cap-on': capsuleStyle === 'pill' }" @tap="setCapsule('style', 'pill')">
+              <view class="cap-shape cap-pill"></view>
+              <text class="cap-name">{{ $t('胶囊') }}</text>
+              <text class="cap-desc">{{ $t('顶部小药丸') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsuleStyle === 'ball' }" @tap="setCapsule('style', 'ball')">
+              <view class="cap-shape cap-ball"></view>
+              <text class="cap-name">{{ $t('小球') }}</text>
+              <text class="cap-desc">{{ $t('可拖动，点一下回来') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsuleStyle === 'ring' }" @tap="setCapsule('style', 'ring')">
+              <view class="cap-shape cap-ring"></view>
+              <text class="cap-name">{{ $t('圆环') }}</text>
+              <text class="cap-desc">{{ $t('环形进度，可拖动') }}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <!-- ===== 触感反馈（震动） ===== -->
     <view class="sec" :class="{ open: openSec === 'haptic' }">
       <view class="sec-head" data-k="haptic" @tap="toggleSec">
@@ -1054,6 +1092,7 @@ import * as setup from '../../../utils/setup.js'
 import { QUALITY, glassText, motionText, shadowText } from '../../../utils/perf.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
+import * as fgsvc from '../../../utils/fgsvc.js'
 
 const TRY_TEXT = {
   zh: t('这个词的意思是不可避免的，中文发音应该更自然一些。'),
@@ -1123,6 +1162,9 @@ export default {
       hsl: hexToHsl(DEFAULT_CUSTOM),
       // 大胶囊分组：一次只展开一个（'' 表示全部收起）
       openSec: '',
+      // 悬浮胶囊：退后台的专注倒计时，形态三选一（pill 药丸 / ball 小球 / ring 圆环）
+      capsuleOn: false,
+      capsuleStyle: 'pill',
       darkOn: false,
       followSystem: false,
       systemDark: false,
@@ -1393,6 +1435,12 @@ export default {
     this.version = this.readVersion()
     // 从「开始前的几件事」退回来要重数一次（可能刚在那边开了权限）
     try { this.startPending = setup.pending().length } catch (e) { this.startPending = 0 }
+    // 悬浮胶囊：形态/开关读 focus 配置（与首页专注设置同一份）
+    try {
+      const f = settings.get().focus || {}
+      this.capsuleOn = !!f.capsule
+      this.capsuleStyle = f.capsuleStyle || 'pill'
+    } catch (e) {}
   },
   methods: {
     // 背景色块：深色模式下显示压暗变体，与实际背景一致、各预设之间也能区分开
@@ -1408,6 +1456,22 @@ export default {
     toggleSec(e) {
       const k = e.currentTarget.dataset.k
       this.openSec = this.openSec === k ? '' : k
+    },
+
+    // 悬浮胶囊：开关 / 形态。写 settings（与首页同一份 focus 配置）并即时推原生
+    setCapsule(key, val) {
+      try {
+        const st = settings.get()
+        st.focus = Object.assign({}, st.focus || {}, { [key === 'on' ? 'capsule' : 'capsuleStyle']: val })
+        settings.save()
+      } catch (e) {}
+      if (key === 'on') {
+        this.capsuleOn = !!val
+        if (!val) { try { fgsvc.capsuleHide() } catch (e) {} }
+      } else {
+        this.capsuleStyle = val
+        try { fgsvc.capsuleSetStyle(val) } catch (e) {}
+      }
     },
 
     // 打赏页（设置 → 关于 → 支持 PWstudy）
@@ -1442,6 +1506,10 @@ export default {
         if (!this.leisure.on) return t('已关闭')
         const n = (this.leisure.pkgs || []).length
         return n ? t('已选 {n} 个 App', { n }) : t('未选 App')
+      }
+      if (k === 'capsule') {
+        if (!this.capsuleOn) return t('已关闭')
+        return ({ pill: t('胶囊'), ball: t('小球'), ring: t('圆环') })[this.capsuleStyle] || t('胶囊')
       }
       if (k === 'haptic') return this.hapticOn ? t('已开启') : t('已关闭')
       if (k === 'about') return 'v' + this.version
@@ -2667,6 +2735,74 @@ export default {
 }
 
 .field:last-child { border-bottom: none; }
+
+/* ===== 悬浮胶囊形态三选一：竖排 label + 横排三个可点卡片 ===== */
+.cap-block {
+  padding: 22rpx 0;
+  border-bottom: 2rpx solid rgba(23, 32, 26, 0.07);
+  border-bottom: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.07);
+}
+.cap-label {
+  display: block;
+  font-size: 26rpx;
+  color: #5a6560;
+  color: var(--ink-2, #5a6560);
+  margin-bottom: 18rpx;
+}
+.cap-opts { display: flex; gap: 16rpx; }
+.cap-opt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22rpx 8rpx 20rpx;
+  border-radius: 20rpx;
+  border: 2rpx solid rgba(23, 32, 26, 0.08);
+  border: 2rpx solid rgba(var(--neutral-rgb, 23, 32, 26), 0.08);
+  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.5);
+}
+.cap-opt.cap-on {
+  border-color: #e4173d;
+  border-color: var(--brand, #e4173d);
+  background: rgba(228, 23, 61, 0.06);
+}
+.cap-shape { width: 56rpx; height: 56rpx; margin-bottom: 14rpx; }
+.cap-pill {
+  height: 32rpx;
+  margin-top: 12rpx;
+  border-radius: 999rpx;
+  background: #17201a;
+  background: var(--ink-1, #17201a);
+}
+.cap-ball {
+  border-radius: 50%;
+  background: #17201a;
+  background: var(--ink-1, #17201a);
+}
+.cap-ring {
+  border-radius: 50%;
+  border: 8rpx solid #17201a;
+  border: 8rpx solid var(--ink-1, #17201a);
+  box-sizing: border-box;
+}
+.cap-opt.cap-on .cap-pill,
+.cap-opt.cap-on .cap-ball { background: #e4173d; background: var(--brand, #e4173d); }
+.cap-opt.cap-on .cap-ring { border-color: #e4173d; border-color: var(--brand, #e4173d); }
+.cap-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #17201a;
+  color: var(--ink-1, #17201a);
+  margin-bottom: 6rpx;
+}
+.cap-desc {
+  font-size: 20rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+  text-align: center;
+  line-height: 1.4;
+}
 
 .field-note {
   font-size: 22rpx;
