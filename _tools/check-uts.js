@@ -629,8 +629,24 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   else bad('capsuleLayout 又用 measureText 动态量宽 —— 真机复现会占满整屏，改固定 dp');
   //      12.14 自绘必须按目标尺寸画，不许信画布尺寸（2026-11-02 用户截图：画布被 ROM 撑成全屏，
   //      按 canvas 中心画圆 = 占半个桌面的半透明大盘子）。这条钉住 drawCapsule 的存在与锚点。
-  if (/private drawCapsule\(canvas: Canvas\)/.test(utsSrc) && /this\.diaW\.toFloat\(\)/.test(utsSrc) && /new RectF\(0\.0\.toFloat\(\), 0\.0\.toFloat\(\), w, h\)/.test(utsSrc)) ok('胶囊自绘按 diaW×diaH 从画布左上角画（不信画布尺寸 → 窗口被撑成全屏也不会变大盘子）');
+  if (/private drawCapsule\(canvas: Canvas\)/.test(utsSrc) && /capsuleWidthPx\(this\.mode\)/.test(utsSrc) && /new RectF\(0\.0\.toFloat\(\), 0\.0\.toFloat\(\), w, h\)/.test(utsSrc)) ok('胶囊自绘按目标尺寸从画布左上角画（不信画布尺寸 → 窗口被撑成全屏也不会变大盘子）');
   else bad('胶囊绘制又在用画布尺寸定位 —— ROM 把悬浮窗撑成全屏时会画成一个盖住桌面的大圆盘');
+  //      12.15 闲置收起（2026-11-02 用户口径）：长时间不动 → 小圆、只留进度环、不显示时间；
+  //      点一下才展开看时间，再点才回 App。这条钉住"迷你态一定 return 在画文字之前"。
+  const miniBlock = (utsSrc.match(/if \(this\.mode != 'pill' && !capsuleExpanded\) \{[\s\S]*?\n    \}/) || [''])[0];
+  if (miniBlock.length > 0 && /return/.test(miniBlock) && !/drawText/.test(miniBlock)) ok('迷你态只画进度环、不画时间（闲置 15 秒自动收起）');
+  else bad('迷你态丢了：闲置收起后必须只画环、不画时间（drawCapsule 的 !capsuleExpanded 分支要以 return 收尾）');
+  //      12.16 休息阶段绿色：进度弧颜色必须按 capsulePhase 分叉（专注红 / 休息绿）。
+  if (/function capsuleAccent\(\): Int \{[\s\S]*?capsulePhase == 'rest'[\s\S]*?\n\}/.test(utsSrc)) ok('进度弧按阶段换色（专注红 #e4173d / 休息绿 #2FA36B）');
+  else bad('进度弧没按阶段换色 —— 休息时必须是绿色（见 capsuleAccent）');
+  //      12.17 拖动必须走绘制偏移（真机实测：全屏窗口改 lp.x/y 位置纹丝不动 → "拖不动"）。
+  const moveFn = (utsSrc.match(/moveTo\(x: Int, y: Int\) \{[\s\S]*?\n  \}/) || [''])[0];
+  if (/clampCapsulePos\(/.test(moveFn) && /invalidateCapsule/.test(moveFn) && !/updateViewLayout/.test(moveFn)) ok('拖动只改绘制偏移 + 重画（窗口全屏时改 lp.x/y 不生效）');
+  else bad('拖动又去改窗口 x/y —— 全屏窗口下真机拖不动，必须改绘制偏移（clampCapsulePos + invalidate）');
+  //      12.18 全屏窗口必须声明"只让胶囊那块可触摸"，否则整块屏幕的点击都会被吞掉
+  //      （2026-11-02 用户反馈："悬浮球存在时，球以外的整个页面都无法点击"）。
+  if (/addOnComputeInternalInsetsListener\(new CapsuleTouchRegion\(\)\)/.test(utsSrc) && /setTouchableInsets\(3\)/.test(utsSrc)) ok('声明了触摸区（TOUCHABLE_INSETS_REGION）—— 全屏窗口不吞别处的点击');
+  else bad('没有声明 TOUCHABLE_INSETS_REGION —— 全屏悬浮窗会把整屏点击全吃掉（用户实测）');
   // 12.12 胶囊形态三选一（2026-11-01 用户提"系统胶囊调不了，做成圈/小球可选"）：
   //      setCapsuleStyle 必须在 interface/index 都声明（不声明 = JS 调不到，形态永远退成 pill）
   if (/export function setCapsuleStyle\s*\(/.test(iface) && /export function setCapsuleStyle\s*\(/.test(uts)) ok('setCapsuleStyle 在 interface/index 都声明（形态可选）');

@@ -262,7 +262,6 @@ export function syncCapsule() {
     try { fgsvc.setCapsulePhase(state ? state.phase : 'focus'); } catch (e) {}
     want = (!!c.capsule || !!c.forced)
       && !!state
-      && state.phase === 'focus'   // ★ 休息阶段不挂胶囊（休息中退出不拦截）
       && !apptime.isAppForeground()
       && fgsvc.capsuleGranted();
   } catch (e) { want = false; }

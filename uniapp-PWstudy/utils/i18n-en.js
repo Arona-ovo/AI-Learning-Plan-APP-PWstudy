@@ -1228,7 +1228,7 @@ export default {
   '右上': 'Top-right',
   '左下': 'Bottom-left',
   '右下': 'Bottom-right',
-  '退到别的 App 时，屏幕上方悬浮专注倒计时，点一下回到 PWstudy': 'Show a floating focus countdown at the top of the screen when you switch to another app — tap it to return',
+  '退到别的 App 时悬浮倒计时；放着不动会缩成小进度环，点一下看时间、再点回 PWstudy': 'Floating countdown when you leave the app. Left alone it shrinks to a small progress ring — tap once for the time, again to return',
   '顶部小药丸': 'Top pill',
   '可拖动，点一下回来': 'Draggable, tap to return',
   '环形进度，可拖动': 'Ring progress, draggable',

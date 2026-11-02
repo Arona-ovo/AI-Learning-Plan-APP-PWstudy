@@ -26,6 +26,7 @@ import ActivityOptions from 'android.app.ActivityOptions';
 import Intent from 'android.content.Intent';
 import IBinder from 'android.os.IBinder';
 import Build from 'android.os.Build';
+import ViewTreeObserver from 'android.view.ViewTreeObserver';
 import System from 'java.lang.System';
 import Thread from 'java.lang.Thread';
 import Runnable from 'java.lang.Runnable';
@@ -964,21 +965,26 @@ let capsuleLP: WindowManager.LayoutParams | null = null;  // 当前窗口参数�
 let capsuleX: Int = 0;               // 小球/圆环当前绝对 x（px）
 let capsuleY: Int = 0;               // 小球/圆环当前绝对 y（px）
 
+/* ---- 闲置收起（迷你态）----
+ * 用户口径（2026-11-02）：**长时间不动就缩成更小的圆，中间的时间干脆不显示，只留圆形进度条**，
+ * 想看时间得自己点一下；点开之后再点才回 App（避免"想瞄一眼"被直接拉走）。
+ * 所以圆 → 双态：expanded（正常大小 + mm:ss）/ mini（38dp，只有环）。
+ * pill 不参与（顶部药丸本来就贴着状态栏，不存在"挡桌面"的问题）。 */
+const CAPSULE_IDLE_MS = 15000;       // 15 秒没碰就收起
+let capsuleExpanded: Boolean = true; // false = 迷你态（小圆 + 只画进度环）
+let capsuleIdleAt: number = 0;       // 最后一次交互（触摸 / 展开）的时间戳（ms）
+
 class CapsuleView extends TextView {
   private mode: string;
-  private diaW: Int;      // 目标绘制宽（px）：窗口被 ROM 撑大时仍按这个尺寸画
-  private diaH: Int;      // 目标绘制高（px）
   private downRawX: Float = 0.0.toFloat();
   private downRawY: Float = 0.0.toFloat();
   private downLPX: Int = 0;
   private downLPY: Int = 0;
   private dragging: Boolean = false;
 
-  constructor(ctx: Context, mode: string, w: Int, h: Int) {
+  constructor(ctx: Context, mode: string) {
     super(ctx);
     this.mode = mode;
-    this.diaW = w;
-    this.diaH = h;
   }
 
   override onTouchEvent(event: MotionEvent): boolean {
@@ -989,13 +995,17 @@ class CapsuleView extends TextView {
       }
       return true;
     }
-    // ball / ring：拖动 + 点击拉回。位移小 = 点击（回前台），位移大 = 拖动（挪位置）。
+    // ball / ring：拖动 + **两段式点击**
+    //   迷你态（只有环、没有时间）点一下 → 展开显示时间（顺带续命 15 秒）；
+    //   展开态再点 → 回 App。用户口径："点第二次再展开以后的圆形点击才会跳转 app"，
+    //   所以不能一点就走 —— 想瞄一眼时间的人会被直接拉回前台。
     if (event.getAction() == MotionEvent.ACTION_DOWN) {
       this.downRawX = event.getRawX();
       this.downRawY = event.getRawY();
       this.downLPX = capsuleX;
       this.downLPY = capsuleY;
       this.dragging = false;
+      capsuleIdleAt = System.currentTimeMillis();   // 碰一下就续命
       return true;
     }
     if (event.getAction() == MotionEvent.ACTION_MOVE) {
@@ -1003,37 +1013,54 @@ class CapsuleView extends TextView {
       let dy = event.getRawY() - this.downRawY;
       if (Math.abs(dx) > 8.0.toFloat() || Math.abs(dy) > 8.0.toFloat()) this.dragging = true;
       if (this.dragging) {
-        capsuleX = this.downLPX + dx.toInt();
-        capsuleY = this.downLPY + dy.toInt();
-        this.moveTo(capsuleX, capsuleY);
+        this.moveTo(this.downLPX + dx.toInt(), this.downLPY + dy.toInt());
+        capsuleIdleAt = System.currentTimeMillis();
       }
       return true;
     }
     if (event.getAction() == MotionEvent.ACTION_UP) {
+      capsuleIdleAt = System.currentTimeMillis();
       if (this.dragging) {
         saveCapsulePos(capsuleX, capsuleY);   // 拖完记住位置，下次挂起还在那
+      } else if (!capsuleExpanded) {
+        // 第一下：从迷你态展开看时间（tick 里 15 秒没人碰会再收回去）
+        capsuleExpanded = true;
+        uiPost(new CapsuleFrameTask());
       } else {
-        uiPost(new PullNowTask());            // 没拖 = 点击 = 回前台
+        uiPost(new PullNowTask());            // 展开态点击 = 回前台
       }
       return true;
     }
     return super.onTouchEvent(event);
   }
 
-  // 拖动时把窗口就地挪到新位置（updateViewLayout 重排，不重建窗口）
+  /**
+   * 拖动：把胶囊挪到屏幕坐标 (x, y)。
+   *
+   * ★ 2026-11-02 用户报"球出来了，但是无法拖动，点击可以用"：
+   *   根因和"整屏点不动"是同一个 —— 悬浮窗被 ROM 撑成全屏，**全屏窗口改 lp.x/y 不改变可视位置**。
+   *   所以位置不再交给窗口，改由绘制偏移 capsuleX/capsuleY 决定（见 onDraw 的 translate）。
+   *   位置钳在屏内、留 20dp 边：真机 GestureNavLeft 宽 16dp（dumpsys 实测 52px @ 3.25），
+   *   贴着手势热区时一按下就被系统返回手势抢走，表现同样像"拖不动"。
+   */
   moveTo(x: Int, y: Int) {
-    try {
-      if (capsuleWM != null && capsuleLP != null) {
-        capsuleLP!.x = x;
-        capsuleLP!.y = y;
-        capsuleWM!.updateViewLayout(this, capsuleLP!);
-      }
-    } catch (e) {}
+    // ★ 只改绘制偏移 + 重画，**不动窗口**：窗口是全屏的，改它的 x/y 真机不生效（这也是
+    //   用户报"拖不动"的根因）。位置真相在 capsuleX/capsuleY（见 capsuleDrawX/Y）。
+    let ox = capsuleX
+    let oy = capsuleY
+    clampCapsulePos(x, y)
+    if (capsuleX == ox && capsuleY == oy) return
+    invalidateCapsuleAt(ox, oy)   // 旧位置擦掉
+    invalidateCapsule()           // 新位置画上
   }
 
   // 背景 + 倒计时文字全部自绘（不调 super.onDraw，也不用 View 的 background）
   override onDraw(canvas: Canvas): void {
-    try { this.drawCapsule(canvas) } catch (e) {}
+    try {
+      // 窗口全屏、画布原点 = 屏幕原点 → 平移到胶囊该在的位置再画
+      canvas.translate(capsuleDrawX().toFloat(), capsuleDrawY().toFloat())
+      this.drawCapsule(canvas)
+    } catch (e) {}
   }
 
   /**
@@ -1042,18 +1069,44 @@ class CapsuleView extends TextView {
    * ★ 2026-11-02 真机实测（用户截图）：**悬浮窗请求的 width/height 会被 ROM 忽略，
    *   实际画布是全屏大小** —— 于是"按画布中心画圆"变成一个盖住半个桌面的半透明大圆盘
    *   （300dp+ 的盘子，用户原话"这么大一个"）。固定 dp 只是让 lp 值确定，管不住画布。
-   *   所以这里**完全不信画布尺寸**：一律按 diaW×diaH（dp × 密度 × 档位，确定性像素）
+   *   所以这里**完全不信画布尺寸**：一律按目标尺寸（dp × 密度 × 档位，确定性像素）
    *   从画布左上角 (0,0) 画。
-   *   · 窗口尺寸被正常尊重时：画布恰好 = diaW×diaH，等同于铺满，观感不变；
-   *   · 窗口被撑成全屏时：胶囊仍只占自己那一小块，位置由窗口的 x/y 决定。
+   *   · 窗口尺寸被正常尊重时：画布恰好等于目标尺寸，等同于铺满，观感不变；
+   *   · 窗口是全屏时（华为 ROM 的常态）：胶囊仍只占自己那一小块，位置由绘制偏移
+   *     capsuleX/capsuleY 决定（见 onDraw 的 canvas.translate）。
    */
   private drawCapsule(canvas: Canvas): void {
-    let w = this.diaW.toFloat()
-    let h = this.diaH.toFloat()
+    // ★ 尺寸每帧按当前状态算（展开/收起共用同一个 View，不做重建）：
+    //   仍然**不信画布尺寸** —— 只用 dp 推出的目标像素。
+    let w = capsuleWidthPx(this.mode).toFloat()
+    let h = (this.mode == 'pill' ? capsuleHeightPx('pill') : capsuleWidthPx(this.mode)).toFloat()
     if (w <= 0.0.toFloat() || h <= 0.0.toFloat()) return
     let cx = w / 2.0.toFloat()
     let cy = h / 2.0.toFloat()
     let r = (Math.min(w, h) / 2.0.toFloat() - 1.0.toFloat()).toFloat()
+
+    // 迷你态：只有一圈进度，中间不写时间 —— 用户口径"中间的时间都干脆不显示，只显示圆形的进度条"
+    if (this.mode != 'pill' && !capsuleExpanded) {
+      let msw = capsuleRingStroke() * 1.25.toFloat()
+      let mir = r - msw / 2.0.toFloat()
+      let track = new Paint()
+      track.setStyle(Paint.Style.STROKE)
+      track.setStrokeWidth(msw)
+      track.setColor(capsuleRingBgCol())
+      track.setAntiAlias(true)
+      canvas.drawCircle(cx, cy, mir, track)
+      let msweep = capsuleSweep()
+      if (msweep < 0.0.toFloat()) {
+        let mfg = new Paint()
+        mfg.setStyle(Paint.Style.STROKE)
+        mfg.setStrokeWidth(msw)
+        mfg.setColor(capsuleAccent())
+        mfg.setStrokeCap(Paint.Cap.ROUND)
+        mfg.setAntiAlias(true)
+        canvas.drawArc(new RectF(cx - mir, cy - mir, cx + mir, cy + mir), -90.0.toFloat(), msweep, false, mfg)
+      }
+      return
+    }
 
     if (this.mode == 'pill') {
       let bg = new Paint()
@@ -1095,7 +1148,7 @@ class CapsuleView extends TextView {
         let fg = new Paint()
         fg.setStyle(Paint.Style.STROKE)
         fg.setStrokeWidth(sw)
-        fg.setColor(Color.argb(255, 228, 23, 61))    // 品牌红 #e4173d
+        fg.setColor(capsuleAccent())            // 专注=品牌红 / 休息=绿（见 capsuleAccent）
         fg.setStrokeCap(Paint.Cap.ROUND)
         fg.setAntiAlias(true)
         canvas.drawArc(new RectF(cx - ir, cy - ir, cx + ir, cy + ir), -90.0.toFloat(), sweep, false, fg)
@@ -1130,6 +1183,21 @@ function capsuleRingBgCol(): Int {
   return capsuleDark ? Color.argb(90, 255, 255, 255) : Color.argb(95, 70, 82, 96)
 }
 
+/** 进度弧角度（负 = 从顶部顺时针消耗）；>= 0 表示不画（总数未知 / 正计时 / 暂停） */
+function capsuleSweep(): Float {
+  let total = capsuleTotalSec
+  if (total <= 0) return 0.0.toFloat()
+  let remain = capsuleRemain
+  if (remain < 0) remain = 0
+  if (remain > total) remain = total
+  return (-360.0 * (1.0.toFloat() - remain / total)).toFloat()
+}
+
+/** 进度弧颜色：专注 = 品牌红 #e4173d，休息 = 绿 #2FA36B（用户要求"休息的时候变成绿色"） */
+function capsuleAccent(): Int {
+  return capsulePhase == 'rest' ? Color.argb(255, 47, 163, 107) : Color.argb(255, 228, 23, 61)
+}
+
 /** 圆环形态的进度环已并入 CapsuleView.drawCapsule（自绘，按目标尺寸而不是画布尺寸） */
 
 // 原生每秒自转一次：App 在后台时 WebView 的 JS 计时器被系统挂起，胶囊倒计时会冻住；
@@ -1137,16 +1205,23 @@ function capsuleRingBgCol(): Int {
 class CapsuleTickTask implements Runnable {
   override run(): void {
     if (!capsuleWanted || capsuleView == null) return;
+    // 闲置收起：圆形胶囊 15 秒没被碰过 → 缩成小圆、只留进度环（时间藏起来，要看得自己点）
+    if (capsuleStyle != 'pill' && capsuleExpanded && capsuleIdleAt > 0
+        && System.currentTimeMillis() - capsuleIdleAt > CAPSULE_IDLE_MS) {
+      capsuleExpanded = false;
+      syncCapsuleFrame();
+    }
     if (capsuleEndAt > 0) {
       let remain = Math.floor((capsuleEndAt - System.currentTimeMillis()) / 1000);
       if (remain < 0) remain = 0;
       capsuleRemain = remain;
       try {
-        // 圆环 / 小球：中央只放 mm:ss（"专注中 " 前缀太长，小球装不下会溢出被裁），药丸照常带前缀
-        let txt = capsuleStyle == 'pill' ? (capsuleLabel + capsuleMmss(remain)) : capsuleMmss(remain);
+        // 三种形态一律只写 mm:ss —— 用户口径："不需要专注中+显示时间和单独的时间切换，
+        // 圆圈里面就直接显示时间就行了"。"专注中 " 前缀（capsuleLabel）不再拼接。
+        let txt = capsuleMmss(remain);
         capsuleText = txt;              // 自绘读的是这个字段（见 drawCapsule）
         capsuleView!.setText(txt);
-        capsuleView!.invalidate();      // 三种形态都是自绘，每秒都要重画
+        invalidateCapsule();            // 三种形态都是自绘，每秒局部重画（全屏 View 全量重绘太费电）
       } catch (e) {}
     }
     if (capsuleWanted) mainHandler!.postDelayed(new CapsuleTickTask(), 1000);
@@ -1211,6 +1286,8 @@ function capsuleRingStroke(): Float {
 /** 胶囊目标宽/高（px）：pill 200×46、ball 56、ring 72，再乘尺寸档 */
 function capsuleWidthPx(style: string): Int {
   if (style == 'pill') return capsuleDp(200)
+  // ★ 迷你态（闲置自动收起）：ball/ring 都缩成 38dp 小圆，只画进度环、不画时间
+  if (!capsuleExpanded) return capsuleDp(38)
   return capsuleDp(style == 'ring' ? 72 : 56)
 }
 function capsuleHeightPx(style: string): Int {
@@ -1218,45 +1295,152 @@ function capsuleHeightPx(style: string): Int {
   return capsuleWidthPx(style)
 }
 
+/**
+ * 只重画胶囊那一小块。
+ * 窗口是全屏的，`invalidate()` 不带参数 = 整个 View 脏 = **整屏重绘**，
+ * 每秒一次太费电；这里按屏幕坐标给出脏矩形。
+ */
+function invalidateCapsule() {
+  let v = capsuleView
+  if (v == null) return
+  try {
+    let ox = capsuleDrawX()
+    let oy = capsuleDrawY()
+    v!.invalidate(ox, oy, ox + capsuleWidthPx(capsuleStyle), oy + capsuleHeightPx(capsuleStyle))
+  } catch (e) {}
+}
+
+/** 拖完/换位时新旧两块都要重画（否则旧位置会留一个球影） */
+function invalidateCapsuleAt(x: Int, y: Int) {
+  let v = capsuleView
+  if (v == null) return
+  try {
+    let dia = capsuleWidthPx(capsuleStyle)
+    v!.invalidate(x, y, x + dia, y + dia)
+  } catch (e) {}
+}
+
+/** 圆形胶囊在屏幕上的落点（px）—— 全屏窗口 + 绘制偏移架构下，这个就是唯一的位置真相 */
+function clampCapsulePos(x: Int, y: Int) {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) { capsuleX = x; capsuleY = y; return }
+  let dm = ctx!.getResources().getDisplayMetrics()
+  let dia = capsuleWidthPx(capsuleStyle)
+  // 20dp 边：真机 GestureNavLeft/Right 宽 16dp（dumpsys 实测 52px @ 3.25），
+  // 贴着手势热区时按下会被系统返回手势抢走，表现也是"拖不动"
+  let m = ((20 * dm.density) as Number).toInt()
+  let nx = x
+  let ny = y
+  if (nx < m) nx = m
+  if (ny < m) ny = m
+  let maxX = dm.widthPixels - dia - m
+  let maxY = dm.heightPixels - dia - m
+  if (maxX < m) maxX = m
+  if (maxY < m) maxY = m
+  if (nx > maxX) nx = maxX
+  if (ny > maxY) ny = maxY
+  capsuleX = nx
+  capsuleY = ny
+}
+
+/** 胶囊绘制原点 X（屏幕坐标）：圆 = 记下的位置；药丸 = 顶部居中 */
+function capsuleDrawX(): Int {
+  if (capsuleStyle != 'pill') return capsuleX
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return 0
+  let dm = ctx!.getResources().getDisplayMetrics()
+  return (dm.widthPixels - capsuleWidthPx('pill')) / 2
+}
+
+/** 胶囊绘制原点 Y（屏幕坐标）：圆 = 记下的位置；药丸 = 顶栏下方 40dp */
+function capsuleDrawY(): Int {
+  if (capsuleStyle != 'pill') return capsuleY
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return 0
+  let dm = ctx!.getResources().getDisplayMetrics()
+  return ((40 * dm.density) as Number).toInt()
+}
+
+/**
+ * 展开 / 收起只是"画多大"（窗口是全屏的，不用动窗口）：
+ * 唯一要补的是缩放后别把自己顶出屏幕。
+ */
+function syncCapsuleFrame() {
+  let v = capsuleView
+  if (v == null) return
+  if (capsuleStyle != 'pill') clampCapsulePos(capsuleX, capsuleY)
+  invalidateCapsule()
+}
+
+class CapsuleFrameTask implements Runnable {
+  override run(): void {
+    syncCapsuleFrame()
+  }
+}
+
 function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams {
   let dm = ctx.getResources().getDisplayMetrics()
-  // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）—— 三种形态都要
-  let baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-
-  if (style == 'ball' || style == 'ring') {
-    // 圆形：ball 56dp、ring 72dp（圆环要更大环面才看得清），再乘尺寸档系数
-    let dia = capsuleWidthPx(style)
-    // 位置：优先记忆位置（拖过）；没有再按 capsulePos 选默认角（避开状态栏/底栏）
-    if (capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
-      let m = ((16 * dm.density) as Number).toInt()
-      let topY = ((84 * dm.density) as Number).toInt()
-      let botY = dm.heightPixels - dia - ((84 * dm.density) as Number).toInt()
-      if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
-      else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - dia - m; capsuleY = topY }
-      else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
-      else { capsuleX = dm.widthPixels - dia - m; capsuleY = botY }
-    }
-    let lp = new WindowManager.LayoutParams(dia, dia)
-    lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
-    lp.format = PixelFormat.TRANSLUCENT
-    lp.gravity = Gravity.TOP | Gravity.START
-    lp.x = capsuleX
-    lp.y = capsuleY
-    lp.flags = baseFlags
-    return lp
-  }
-
-  // pill：顶部居中固定宽药丸（200dp×46dp × 尺寸档），文字单行居中（自绘）。
-  let w = capsuleWidthPx('pill')
-  let h = capsuleHeightPx('pill')
-  let lp = new WindowManager.LayoutParams(w, h)
+  // ★ 2026-11-02 架构调整：**主动要全屏窗口**。
+  //   真机（Mate 50 Pro / Android 12）实测：TYPE_APPLICATION_OVERLAY 的 width/height 被忽略，
+  //   窗口照样铺满整屏 —— 表现为"球以外整块屏幕都点不动"（用户反馈），
+  //   "拖不动"也是同一根因（全屏窗口改 x/y 不改变可视位置）。
+  //   与其继续跟 ROM 争"窗口能多小"，不如承认它全屏，把位置搬到**绘制偏移**上：
+  //     · 窗口 = 全屏 / 透明 / 不抢焦点；
+  //     · 胶囊画在 (capsuleX, capsuleY)；
+  //     · 触摸区用 InternalInsetsInfo 只声明胶囊那一小块（见 CapsuleTouchRegion），
+  //       其余触摸原样透传给下面的 App。
+  //   位置、拖动、展开收起从此全部由自己算，不再依赖窗口几何。
+  let lp = new WindowManager.LayoutParams(
+    ViewGroup.LayoutParams.MATCH_PARENT,
+    ViewGroup.LayoutParams.MATCH_PARENT
+  )
   lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
   lp.format = PixelFormat.TRANSLUCENT
-  lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
-  // 顶栏下方一点（40dp），避开状态栏
-  lp.y = ((40 * dm.density) as Number).toInt()
-  lp.flags = baseFlags
+  lp.gravity = Gravity.TOP | Gravity.START
+  lp.x = 0
+  lp.y = 0
+  // FLAG_LAYOUT_IN_SCREEN：画布原点对齐屏幕左上角（含状态栏区），
+  // 这样 capsuleX/capsuleY 就是纯屏幕坐标，不用再补状态栏高度
+  lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+
+  // 圆形形态首次挂起：算默认停靠位（屏幕坐标；拖过则优先用记忆位置）
+  if (style != 'pill' && capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
+    let dia = capsuleWidthPx(style)
+    let m = ((20 * dm.density) as Number).toInt()
+    let topY = ((84 * dm.density) as Number).toInt()
+    let botY = dm.heightPixels - dia - ((84 * dm.density) as Number).toInt()
+    if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
+    else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - dia - m; capsuleY = topY }
+    else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
+    else { capsuleX = dm.widthPixels - dia - m; capsuleY = botY }
+  }
   return lp
+}
+
+/**
+ * 全屏悬浮窗的**触摸区声明**：只有胶囊那一小块接收触摸，别处一律透传给下层 App。
+ *
+ * 这就是"球以外的整个屏幕都点不动"的正解：窗口铺满全屏后 FLAG_NOT_TOUCH_MODAL 失效
+ * （不存在"窗口外"），只剩系统给这类场景留的口子 ——
+ * InternalInsetsInfo.setTouchableInsets(TOUCHABLE_INSETS_REGION)。
+ */
+class CapsuleTouchRegion implements ViewTreeObserver.OnComputeInternalInsetsListener {
+  override onComputeInternalInsets(info: ViewTreeObserver.InternalInsetsInfo): void {
+    try {
+      info.setTouchableInsets(3)   // TOUCHABLE_INSETS_REGION（常量在 UTS 里没导出，写字面量）
+      let v = capsuleView
+      // 胶囊被藏起来（强制模式判定跑偏时 setCapsuleShown(false)）→ 空区域，别偷偷吞掉那块触摸
+      if (v == null || v!.getVisibility() != 0) {
+        info.touchableRegion.setEmpty()
+        return
+      }
+      let ox = capsuleDrawX()
+      let oy = capsuleDrawY()
+      info.touchableRegion.set(ox, oy, ox + capsuleWidthPx(capsuleStyle), oy + capsuleHeightPx(capsuleStyle))
+    } catch (e) {}
+  }
 }
 
 function applyCapsule(ctx: Context | null) {
@@ -1267,11 +1451,16 @@ function applyCapsule(ctx: Context | null) {
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
       // 背景/文字全部自绘（见 CapsuleView.drawCapsule）：
       // ★ 不能再给 view 设 background —— ROM 把窗口撑成全屏时，drawable 会铺满整个屏幕。
-      let v = new CapsuleView(ctx!, capsuleStyle, capsuleWidthPx(capsuleStyle), capsuleHeightPx(capsuleStyle))
+      let v = new CapsuleView(ctx!, capsuleStyle)
       v.setText(capsuleText)
       // ★ 固定像素尺寸（见 capsuleLayout 注释）：悬浮窗上 WRAP_CONTENT 会被当成 MATCH_PARENT
       let lp = capsuleLayout(ctx!, capsuleStyle)
       wm.addView(v, lp)
+      // ★ 关键：把"可触摸区"声明成胶囊那一小块，其余触摸透传给下层 App。
+      //   少了这一句，全屏窗口会把整块屏幕的点击全吃掉（用户 2026-11-02 反馈的现象）。
+      try {
+        v.getViewTreeObserver().addOnComputeInternalInsetsListener(new CapsuleTouchRegion())
+      } catch (e) {}
       capsuleView = v
       capsuleWM = wm
       capsuleLP = lp
@@ -1293,14 +1482,10 @@ function applyCapsule(ctx: Context | null) {
     capsuleWM = null
     capsuleLP = null
   } else if (capsuleWanted && capsuleView != null) {
-    // 刷新文案 + 重排窗口（形态/尺寸/配色变了会先 reapply 重建，这里只处理位置与文案）
+    // 刷新文案即可：窗口不用动（全屏 + 绘制偏移），位置/尺寸都在自绘里
     try {
       capsuleView!.setText(capsuleText)
-      capsuleView!.invalidate()
-      let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-      let lp = capsuleLayout(ctx!, capsuleStyle)
-      capsuleLP = lp
-      wm.updateViewLayout(capsuleView!, lp)
+      invalidateCapsule()
     } catch (e) {}
   }
 }
@@ -1360,6 +1545,7 @@ function restoreCapsulePos(): boolean {
 }
 
 function postCapsule(want: boolean, text: string, endAt: number, label: string, totalSec: number) {
+  let wasWanted = capsuleWanted
   capsuleText = text
   capsuleEndAt = endAt
   capsuleLabel = label
@@ -1371,6 +1557,12 @@ function postCapsule(want: boolean, text: string, endAt: number, label: string, 
     capsuleRemain = 0;
   }
   capsuleWanted = want
+  // ★ 只有"从无到有"时才回到展开态：updateCapsule 每拍都会进来，
+  //   若无条件展开，用户刚点开又会被下一次刷新重置成迷你态/展开态，状态机就乱了。
+  if (want && !wasWanted) {
+    capsuleExpanded = true
+    capsuleIdleAt = System.currentTimeMillis()
+  }
   uiPost(new CapsuleApplyTask())
 }
 
@@ -1394,7 +1586,13 @@ export function hideCapsule(): boolean {
 
 /** 同步当前阶段给原生（JS 每拍都推，无视胶囊是否显示）：seen() 据此在休息阶段跳过拦截 */
 export function setCapsulePhase(phase: string): boolean {
+  let wasRest = capsulePhase == 'rest'
   capsulePhase = (phase == 'rest') ? 'rest' : 'focus'
+  // 专注红 ↔ 休息绿：阶段一变立刻重画，不用等下一秒 tick
+  if ((capsulePhase == 'rest') != wasRest) {
+    let v = capsuleView
+    if (v != null) { invalidateCapsule() }
+  }
   return true
 }
 
