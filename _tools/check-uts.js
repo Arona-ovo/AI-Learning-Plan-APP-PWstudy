@@ -639,21 +639,25 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   //      12.16 休息阶段绿色：进度弧颜色必须按 capsulePhase 分叉（专注红 / 休息绿）。
   if (/function capsuleAccent\(\): Int \{[\s\S]*?capsulePhase == 'rest'[\s\S]*?\n\}/.test(utsSrc)) ok('进度弧按阶段换色（专注红 #e4173d / 休息绿 #2FA36B）');
   else bad('进度弧没按阶段换色 —— 休息时必须是绿色（见 capsuleAccent）');
-  //      12.17 拖动必须走绘制偏移（真机实测：全屏窗口改 lp.x/y 位置纹丝不动 → "拖不动"）。
+  //      12.17 拖动必须真的挪窗口（小窗口模式下 updateViewLayout 才是最跟手的做法）。
   const moveFn = (utsSrc.match(/moveTo\(x: Int, y: Int\) \{[\s\S]*?\n  \}/) || [''])[0];
-  if (/clampCapsulePos\(/.test(moveFn) && /invalidateCapsule/.test(moveFn) && !/updateViewLayout/.test(moveFn)) ok('拖动只改绘制偏移 + 重画（窗口全屏时改 lp.x/y 不生效）');
-  else bad('拖动又去改窗口 x/y —— 全屏窗口下真机拖不动，必须改绘制偏移（clampCapsulePos + invalidate）');
-  //      12.18 全屏窗口必须声明"只让胶囊那块可触摸"，否则整块屏幕的点击都会被吞掉
-  //      （2026-11-02 用户反馈："悬浮球存在时，球以外的整个页面都无法点击"）。
-  if (/addOnComputeInternalInsetsListener\(new CapsuleTouchRegion\(\)\)/.test(utsSrc) && /setTouchableInsets\(3\)/.test(utsSrc)) ok('声明了触摸区（TOUCHABLE_INSETS_REGION）—— 全屏窗口不吞别处的点击');
-  else bad('没有声明 TOUCHABLE_INSETS_REGION —— 全屏悬浮窗会把整屏点击全吃掉（用户实测）');
-  //      12.19 拖动期间必须把可触摸区放到全屏：手指一离开球那一小块，部分 ROM 会把
-  //      手势判成"移出可触摸区"而 cancel —— 表现正是"能点、一拖就断"。
-  if (/if \(capsuleDragging\)[\s\S]{0,600}?touchableRegion\.set\(0, 0, dm\.widthPixels, dm\.heightPixels\)/.test(utsSrc)) ok('拖动期间可触摸区放到全屏（避免"一拖就断"）');
-  else bad('拖动时没有把可触摸区放到全屏 —— 手指离开球那块区域会被判移出，表现是"能点不能拖"');
-  //      12.20 region 机制不生效的机器必须自动降级成"只显示"：全屏窗口 + region 失效 = 整台手机点不动。
-  if (/class CapsuleInsetsCheckTask implements Runnable/.test(utsSrc) && /FLAG_NOT_TOUCHABLE/.test(utsSrc) && /degradeCapsuleTouch\(\)/.test(utsSrc)) ok('触摸区自检 + 失效降级（region 不生效时绝不锁死整屏）');
-  else bad('缺触摸区自检降级 —— 万一 ROM 无视 touchableRegion，全屏窗口会把整台手机锁死');
+  if (/clampCapsulePos\(/.test(moveFn) && /moveCapsuleWindow\(/.test(moveFn)) ok('拖动走 moveCapsuleWindow（挪窗口）+ 屏内钳位');
+  else bad('拖动没挪窗口 —— 小窗口模式下必须 updateViewLayout 改 x/y，否则球不动');
+  //      12.18 ★ 编译杀手：UTS 不支持 ViewTreeObserver 的嵌套接口。
+  //      2026-11-02 用户贴的日志：OnComputeInternalInsetsListener / InternalInsetsInfo 全部
+  //      "找不到名称"，1.4.8、1.4.9 的包根本没生成，他手机上一直装着 1.4.6。
+  if (/OnComputeInternalInsetsListener|InternalInsetsInfo/.test(utsSrc)) bad('又用了 ViewTreeObserver 的嵌套接口 —— UTS 编译不过（kotlin: 找不到名称），包会打不出来');
+  else ok('没有用 ViewTreeObserver 嵌套接口（UTS 编译不了，会直接打不出包）');
+  //      12.19 窗口必须是"胶囊那么大"的小窗口：窗口外触摸靠 FLAG_NOT_TOUCH_MODAL 自动透传，
+  //      这是 Android 唯一不依赖 insets 声明的做法。
+  const capLayoutFn = (utsSrc.match(/function capsuleLayout\([^)]*\)[\s\S]*?\n\}/) || [''])[0];
+  if (/new WindowManager\.LayoutParams\(w, h\)/.test(capLayoutFn)
+      && /FLAG_NOT_TOUCH_MODAL/.test(capLayoutFn) && !/MATCH_PARENT/.test(capLayoutFn)) ok('窗口按胶囊尺寸申请 + FLAG_NOT_TOUCH_MODAL（窗口外触摸自动透传）');
+  else bad('窗口又不是"胶囊那么大"了 —— 全屏窗口 + UTS 无法声明触摸区 = 整屏点不动');
+  //      12.20 ROM 硬把窗口撑成全屏时必须降级：onSizeChanged 判定 + FLAG_NOT_TOUCHABLE，绝不锁死整屏。
+  if (/let full = \(cw > tw \* 2 && cw > halfW\)/.test(utsSrc) && /CapsuleTouchOffTask/.test(utsSrc) && /disableCapsuleTouch\(\)/.test(utsSrc)
+      && /FLAG_NOT_TOUCHABLE/.test(utsSrc)) ok('画布自检 + 被撑全屏时降级为不可触摸（绝不锁死整屏）');
+  else bad('缺画布自检降级 —— 万一 ROM 把窗口撑全屏，整块屏幕的点击都会被吞掉');
   // 12.12 胶囊形态三选一（2026-11-01 用户提"系统胶囊调不了，做成圈/小球可选"）：
   //      setCapsuleStyle 必须在 interface/index 都声明（不声明 = JS 调不到，形态永远退成 pill）
   if (/export function setCapsuleStyle\s*\(/.test(iface) && /export function setCapsuleStyle\s*\(/.test(uts)) ok('setCapsuleStyle 在 interface/index 都声明（形态可选）');

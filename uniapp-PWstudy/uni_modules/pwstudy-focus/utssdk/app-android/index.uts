@@ -26,7 +26,6 @@ import ActivityOptions from 'android.app.ActivityOptions';
 import Intent from 'android.content.Intent';
 import IBinder from 'android.os.IBinder';
 import Build from 'android.os.Build';
-import ViewTreeObserver from 'android.view.ViewTreeObserver';
 import System from 'java.lang.System';
 import Thread from 'java.lang.Thread';
 import Runnable from 'java.lang.Runnable';
@@ -974,17 +973,12 @@ const CAPSULE_IDLE_MS = 15000;       // 15 秒没碰就收起
 let capsuleExpanded: Boolean = true; // false = 迷你态（小圆 + 只画进度环）
 let capsuleIdleAt: number = 0;       // 最后一次交互（触摸 / 展开）的时间戳（ms）
 
-/* ---- 触摸区（2026-11-02）----
- * 窗口是全屏的，只有 touchableRegion 声明的那一小块接收触摸，其余透传给下层 App。
- * 两个必须兜住的现实问题：
- *   ① 手指一离开那块区域，部分 ROM 会把手势判成"移出"而 cancel → 表现是"能点不能拖"。
- *      所以**拖动期间把 region 临时放到全屏**（此时手指正按着，不担心吞别处的点击）。
- *   ② 有的 ROM 干脆无视 touchableRegion → 全屏窗口照样吃掉整屏点击（手机像死了一样）。
- *      所以加一道自检：窗口挂上后 600ms 内一次回调都没来，就把窗口降级成 FLAG_NOT_TOUCHABLE
- *      —— 胶囊退化成"只显示、点不了"，总比把整台手机锁死强；回调后来才到的会立刻恢复。 */
-let capsuleDragging: Boolean = false;   // 正在拖动（region 临时全屏）
-let capsuleInsetsOk: Boolean = false;   // onComputeInternalInsets 至少回调过一次
-let capsuleDegraded: Boolean = false;   // 触摸区机制不生效 → 窗口已降级为不可触摸
+/* ---- 画布尺寸自检（2026-11-02）----
+ * 窗口按"胶囊那么大"申请（见 capsuleLayout），但个别 ROM 会把悬浮窗撑成全屏。
+ * 那样一来：① 画布变大 → 绘制位置得靠 translate 补；② 整块屏幕的点击会被吞掉 → 必须降级。
+ * 两者都由 CapsuleView.onSizeChanged 在运行时判定，不猜。 */
+let capsuleCanvasFull: Boolean = false;  // 画布被 ROM 撑成了全屏（不是我们申请的尺寸）
+let capsuleTouchOff: Boolean = false;    // 已降级为不可触摸（只显示，防锁屏）
 
 class CapsuleView extends TextView {
   private mode: string;
@@ -1031,11 +1025,6 @@ class CapsuleView extends TextView {
       if (!this.dragging && (Math.abs(dx) > 4.0.toFloat() * capsuleDensity()
           || Math.abs(dy) > 4.0.toFloat() * capsuleDensity())) this.dragging = true;
       if (this.dragging) {
-        if (!capsuleDragging) {
-          // 进入拖动：可触摸区临时放到全屏，免得手指一离开球那一小块就被 ROM 判成"移出"而断掉
-          capsuleDragging = true;
-          try { this.requestLayout() } catch (e) {}
-        }
         this.moveTo(this.downLPX + dx.toInt(), this.downLPY + dy.toInt());
         capsuleIdleAt = System.currentTimeMillis();
       }
@@ -1045,7 +1034,6 @@ class CapsuleView extends TextView {
       capsuleIdleAt = System.currentTimeMillis();
       let wasDrag = this.dragging
       this.dragging = false
-      this.endDrag()
       if (act == MotionEvent.ACTION_CANCEL) {
         if (wasDrag) saveCapsulePos(capsuleX, capsuleY)   // 拖一半被系统抢走，位置也得记住
         return true
@@ -1064,38 +1052,66 @@ class CapsuleView extends TextView {
     return true;   // ★ 不再落到 super：TextView 默认不消费，会让后续 MOVE/UP 全部断掉
   }
 
-  /** 结束拖动：可触摸区恢复成球那一小块 */
-  endDrag() {
-    if (!capsuleDragging) return
-    capsuleDragging = false
-    try { this.requestLayout() } catch (e) {}
-  }
-
   /**
    * 拖动：把胶囊挪到屏幕坐标 (x, y)。
    *
-   * ★ 2026-11-02 用户报"球出来了，但是无法拖动，点击可以用"：
-   *   根因和"整屏点不动"是同一个 —— 悬浮窗被 ROM 撑成全屏，**全屏窗口改 lp.x/y 不改变可视位置**。
-   *   所以位置不再交给窗口，改由绘制偏移 capsuleX/capsuleY 决定（见 onDraw 的 translate）。
-   *   位置钳在屏内、留 20dp 边：真机 GestureNavLeft 宽 16dp（dumpsys 实测 52px @ 3.25），
-   *   贴着手势热区时一按下就被系统返回手势抢走，表现同样像"拖不动"。
+   * 正常情况（小窗口）位置就是窗口的 x/y —— `updateViewLayout` 是 Android 标准做法，跟手、不留残影。
+   * 只有 ROM 把窗口撑成全屏（capsuleCanvasFull）时才退化成"改绘制偏移 + 局部重绘"，
+   * 因为全屏窗口改 lp.x/y 不改变可视位置。
+   * 位置钳在屏内、留 20dp 边：真机 GestureNavLeft/Right 宽 16dp（dumpsys 实测 52px @ 3.25），
+   * 贴着手势热区按下会被系统的返回手势抢走，表现同样像"拖不动"。
    */
   moveTo(x: Int, y: Int) {
-    // ★ 只改绘制偏移 + 重画，**不动窗口**：窗口是全屏的，改它的 x/y 真机不生效（这也是
-    //   用户报"拖不动"的根因）。位置真相在 capsuleX/capsuleY（见 capsuleDrawX/Y）。
     let ox = capsuleX
     let oy = capsuleY
     clampCapsulePos(x, y)
     if (capsuleX == ox && capsuleY == oy) return
-    invalidateCapsuleAt(ox, oy)   // 旧位置擦掉
-    invalidateCapsule()           // 新位置画上
+    if (capsuleCanvasFull) {
+      invalidateCapsuleAt(ox, oy)   // 旧位置擦掉
+      invalidateCapsule()           // 新位置画上
+      return
+    }
+    if (this.mode == 'pill') return
+    moveCapsuleWindow(capsuleX, capsuleY)
   }
 
-  // 背景 + 倒计时文字全部自绘（不调 super.onDraw，也不用 View 的 background）
+  /**
+   * 背景 + 倒计时文字全部自绘（不调 super.onDraw，也不用 View 的 background）。
+   *
+   * 顺便在这里做**画布自检**：ROM 若把悬浮窗撑成全屏，`getWidth/getHeight` 一眼就能看出来
+   * （比 override onSizeChanged 稳 —— UTS 对 View 那几个回调的参数类型很挑，
+   * 写成 Int 还是 number 出错就是 "overrides nothing"，整包编译失败，这个亏已经吃过一次）。
+   * 两种后果分别处理：
+   *   · 绘制照旧：drawCapsule 从来不看画布尺寸，只按目标 dp 从左上角画 → 不会再变"大圆盘"；
+   *   · 触摸降级：全屏窗口会吞掉整屏点击，而 UTS 又不支持声明触摸区，
+   *     只能把窗口设成不可触摸（只显示），绝不能让手机变成"点哪儿都没反应"。
+   */
   override onDraw(canvas: Canvas): void {
     try {
-      // 窗口全屏、画布原点 = 屏幕原点 → 平移到胶囊该在的位置再画
-      canvas.translate(capsuleDrawX().toFloat(), capsuleDrawY().toFloat())
+      let cw = this.getWidth()
+      let ch = this.getHeight()
+      let tw = capsuleWidthPx(this.mode)
+      let th = capsuleHeightPx(this.mode)
+      // 判定要两条件同时成立，否则展开/收起的过渡帧会误判：
+      //   "比目标大 2 倍以上" 挡不住 large 档（ring 92dp ↔ mini 49dp 差 1.9 倍），
+      //   再叠一个"超过屏幕一半"就稳了 —— 胶囊最大也就 92dp，永远到不了半屏。
+      let ctx0 = UTSAndroid.getAppContext()
+      let halfW = 1080 / 2
+      let halfH = 1920 / 2
+      if (ctx0 != null) {
+        let dm0 = ctx0!.getResources().getDisplayMetrics()
+        halfW = dm0.widthPixels / 2
+        halfH = dm0.heightPixels / 2
+      }
+      let full = (cw > tw * 2 && cw > halfW) || (ch > th * 2 && ch > halfH)
+      if (full != capsuleCanvasFull) {
+        capsuleCanvasFull = full
+        console.log('[capsule] 画布 ' + cw + 'x' + ch + ' / 目标 ' + tw + 'x' + th
+          + (full ? ' → 被撑大：走偏移绘制 + 关触摸' : ' → 正常'))
+        if (full) uiPost(new CapsuleTouchOffTask())
+      }
+      // 窗口正常时画布就是胶囊本身（原点 0,0）；被撑成全屏时画布原点在屏幕左上角，得平移
+      if (capsuleCanvasFull) canvas.translate(capsuleDrawX().toFloat(), capsuleDrawY().toFloat())
       this.drawCapsule(canvas)
     } catch (e) {}
   }
@@ -1108,8 +1124,8 @@ class CapsuleView extends TextView {
    *   （300dp+ 的盘子，用户原话"这么大一个"）。固定 dp 只是让 lp 值确定，管不住画布。
    *   所以这里**完全不信画布尺寸**：一律按目标尺寸（dp × 密度 × 档位，确定性像素）
    *   从画布左上角 (0,0) 画。
-   *   · 窗口尺寸被正常尊重时：画布恰好等于目标尺寸，等同于铺满，观感不变；
-   *   · 窗口是全屏时（华为 ROM 的常态）：胶囊仍只占自己那一小块，位置由绘制偏移
+   *   · 窗口尺寸被正常尊重时（现在默认就是小窗口）：画布恰好等于目标尺寸，等同于铺满；
+   *   · 万一被 ROM 撑成全屏：胶囊仍只占自己那一小块，位置由绘制偏移
    *     capsuleX/capsuleY 决定（见 onDraw 的 canvas.translate）。
    */
   private drawCapsule(canvas: Canvas): void {
@@ -1404,9 +1420,27 @@ function capsuleDrawY(): Int {
  */
 function syncCapsuleFrame() {
   let v = capsuleView
-  if (v == null) return
+  let wm = capsuleWM
+  if (v == null || wm == null) return
+  let ctx = UTSAndroid.getAppContext()
   if (capsuleStyle != 'pill') clampCapsulePos(capsuleX, capsuleY)
+  // ★ 展开/收起改的是**目标直径**（56dp ↔ 38dp）。小窗口模式下窗口尺寸 = 胶囊尺寸，
+  //   所以必须重排窗口，否则收起后画布还是大的、球会贴在左上角。
+  if (ctx != null && !capsuleCanvasFull) {
+    try {
+      let lp = capsuleLayout(ctx!, capsuleStyle)
+      capsuleLP = lp
+      wm!.updateViewLayout(v!, lp)
+    } catch (e) {}
+  }
   invalidateCapsule()
+}
+
+/** 画布被撑全屏 → 关掉窗口触摸（放到下一拍执行，别在 onDraw 里改窗口参数） */
+class CapsuleTouchOffTask implements Runnable {
+  override run(): void {
+    disableCapsuleTouch()
+  }
 }
 
 class CapsuleFrameTask implements Runnable {
@@ -1415,125 +1449,94 @@ class CapsuleFrameTask implements Runnable {
   }
 }
 
+/**
+ * 胶囊的窗口参数 —— **小窗口**（不是全屏）。
+ *
+ * ★ 2026-11-02 用户贴的编译日志把上一版判死了：
+ *   `ViewTreeObserver.OnComputeInternalInsetsListener` 在 UTS 里编译不过
+ *   （kotlin: 找不到名称 "OnComputeInternalInsetsListener" / "InternalInsetsInfo"），
+ *   1.4.8、1.4.9 的包**根本没生成**，用户手机上一直是 1.4.6 —— 所以他怎么测都是旧行为。
+ *   结论：UTS 不支持这个嵌套接口，"全屏窗口 + 声明触摸区"这条路走不通，只能回到小窗口。
+ *
+ * 小窗口是 Android 唯一标准做法：窗口只有胶囊那么大时，窗口外的一切触摸系统自动
+ * 透传给下层 App，不需要任何 insets 声明（FLAG_NOT_TOUCH_MODAL 本身就够了）。
+ *
+ * 万一某台 ROM 仍把窗口撑成全屏（1.4.6 的"大圆盘"现象），由 CapsuleView.onSizeChanged
+ * 在运行时发现，并调 disableCapsuleTouch() 把窗口降级成"不可触摸、只显示"，
+ * 绝不重演"整块屏幕点不动"。
+ */
 function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams {
   let dm = ctx.getResources().getDisplayMetrics()
-  // ★ 2026-11-02 架构调整：**主动要全屏窗口**。
-  //   真机（Mate 50 Pro / Android 12）实测：TYPE_APPLICATION_OVERLAY 的 width/height 被忽略，
-  //   窗口照样铺满整屏 —— 表现为"球以外整块屏幕都点不动"（用户反馈），
-  //   "拖不动"也是同一根因（全屏窗口改 x/y 不改变可视位置）。
-  //   与其继续跟 ROM 争"窗口能多小"，不如承认它全屏，把位置搬到**绘制偏移**上：
-  //     · 窗口 = 全屏 / 透明 / 不抢焦点；
-  //     · 胶囊画在 (capsuleX, capsuleY)；
-  //     · 触摸区用 InternalInsetsInfo 只声明胶囊那一小块（见 CapsuleTouchRegion），
-  //       其余触摸原样透传给下面的 App。
-  //   位置、拖动、展开收起从此全部由自己算，不再依赖窗口几何。
-  let lp = new WindowManager.LayoutParams(
-    ViewGroup.LayoutParams.MATCH_PARENT,
-    ViewGroup.LayoutParams.MATCH_PARENT
-  )
+  // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）—— 三种形态都要
+  let baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+  let w = capsuleWidthPx(style)
+  let h = capsuleHeightPx(style)
+
+  if (style == 'pill') {
+    // pill：顶部居中固定宽药丸，文字居中单行（避开状态栏 40dp）
+    let lpP = new WindowManager.LayoutParams(w, h)
+    lpP.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
+    lpP.format = PixelFormat.TRANSLUCENT
+    lpP.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
+    lpP.y = ((40 * dm.density) as Number).toInt()
+    lpP.flags = baseFlags
+    return lpP
+  }
+
+  // 圆形：首次挂起先算默认停靠位（拖过就优先用记忆位置），再钳进屏内
+  if (capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
+    let m = ((20 * dm.density) as Number).toInt()
+    let topY = ((84 * dm.density) as Number).toInt()
+    let botY = dm.heightPixels - h - ((84 * dm.density) as Number).toInt()
+    if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
+    else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - w - m; capsuleY = topY }
+    else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
+    else { capsuleX = dm.widthPixels - w - m; capsuleY = botY }
+  }
+  clampCapsulePos(capsuleX, capsuleY)
+
+  let lp = new WindowManager.LayoutParams(w, h)
   lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
   lp.format = PixelFormat.TRANSLUCENT
   lp.gravity = Gravity.TOP | Gravity.START
-  lp.x = 0
-  lp.y = 0
-  // FLAG_LAYOUT_IN_SCREEN：画布原点对齐屏幕左上角（含状态栏区），
-  // 这样 capsuleX/capsuleY 就是纯屏幕坐标，不用再补状态栏高度
-  lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-    | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-
-  // 圆形形态首次挂起：算默认停靠位（屏幕坐标；拖过则优先用记忆位置）
-  if (style != 'pill' && capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
-    let dia = capsuleWidthPx(style)
-    let m = ((20 * dm.density) as Number).toInt()
-    let topY = ((84 * dm.density) as Number).toInt()
-    let botY = dm.heightPixels - dia - ((84 * dm.density) as Number).toInt()
-    if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
-    else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - dia - m; capsuleY = topY }
-    else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
-    else { capsuleX = dm.widthPixels - dia - m; capsuleY = botY }
-  }
+  lp.x = capsuleX
+  lp.y = capsuleY
+  lp.flags = baseFlags
   return lp
 }
 
-/**
- * 全屏悬浮窗的**触摸区声明**：只有胶囊那一小块接收触摸，别处一律透传给下层 App。
- *
- * 这就是"球以外的整个屏幕都点不动"的正解：窗口铺满全屏后 FLAG_NOT_TOUCH_MODAL 失效
- * （不存在"窗口外"），只剩系统给这类场景留的口子 ——
- * InternalInsetsInfo.setTouchableInsets(TOUCHABLE_INSETS_REGION)。
- */
-class CapsuleTouchRegion implements ViewTreeObserver.OnComputeInternalInsetsListener {
-  override onComputeInternalInsets(info: ViewTreeObserver.InternalInsetsInfo): void {
-    try {
-      info.setTouchableInsets(3)   // TOUCHABLE_INSETS_REGION（常量在 UTS 里没导出，写字面量）
-      // 回调来了 = 这台机器认这套机制；万一之前因为"迟迟没回调"降级过，这里立刻恢复交互
-      capsuleInsetsOk = true
-      if (capsuleDegraded) restoreCapsuleTouch()
-      let v = capsuleView
-      // 胶囊被藏起来（强制模式判定跑偏时 setCapsuleShown(false)）→ 空区域，别偷偷吞掉那块触摸
-      if (v == null || v!.getVisibility() != 0) {
-        info.touchableRegion.setEmpty()
-        return
-      }
-      // 拖动中：整屏归这个窗口。手指已经按下，不存在"误伤别处点击"；
-      // 换来的是一旦离开球那块区域也不会被 ROM 判成移出而 cancel（"能点不能拖"的另一个来源）。
-      if (capsuleDragging) {
-        let ctx = UTSAndroid.getAppContext()
-        if (ctx != null) {
-          let dm = ctx!.getResources().getDisplayMetrics()
-          info.touchableRegion.set(0, 0, dm.widthPixels, dm.heightPixels)
-          return
-        }
-      }
-      let ox = capsuleDrawX()
-      let oy = capsuleDrawY()
-      info.touchableRegion.set(ox, oy, ox + capsuleWidthPx(capsuleStyle), oy + capsuleHeightPx(capsuleStyle))
-    } catch (e) {}
-  }
-}
-
-/**
- * 触摸区机制自检：窗口挂上 600ms 内一次回调都没来 → 判定这台机器不认 touchableRegion。
- *
- * 为什么必须兜：窗口是全屏的，region 不生效就等于整块屏幕的点击都被胶囊吃掉
- * （用户原话"只要悬浮球存在，整个页面就无法控制"）。宁可选「胶囊只显示、点不动」，
- * 也不能把用户的手机锁死。降级只加 FLAG_NOT_TOUCHABLE，不撤窗口，倒计时照常看。
- */
-class CapsuleInsetsCheckTask implements Runnable {
-  override run(): void {
-    if (!capsuleWanted || capsuleView == null) return
-    if (capsuleInsetsOk) return
-    degradeCapsuleTouch()
-  }
-}
-
-function degradeCapsuleTouch() {
-  if (capsuleDegraded) return
+/** 把窗口挪到 (x, y)：小窗口模式下这就是真实的屏幕位置，拖动全靠它 */
+function moveCapsuleWindow(x: Int, y: Int) {
   let v = capsuleView
   let wm = capsuleWM
   let lp = capsuleLP
   if (v == null || wm == null || lp == null) return
-  capsuleDegraded = true
   try {
-    lp!.flags = lp!.flags | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+    lp!.x = x
+    lp!.y = y
     wm!.updateViewLayout(v!, lp!)
   } catch (e) {}
 }
 
-function restoreCapsuleTouch() {
-  if (!capsuleDegraded) return
+/**
+ * 兜底：某些 ROM 会把悬浮窗撑成全屏（2026-10-31 用户实测的"盖住半个桌面的大圆盘"就是它）。
+ * 全屏窗口 = 整块屏幕的点击都被它吞掉，手机会像死了一样；而 UTS 又不支持声明触摸区。
+ * 所以运行时认输：把窗口设成不可触摸，胶囊退化成"只显示倒计时"，至少手机还能正常用。
+ * （正常 ROM 上永远走不到这里 —— onSizeChanged 只在画布远大于目标尺寸时才调。）
+ */
+function disableCapsuleTouch() {
+  if (capsuleTouchOff) return
   let v = capsuleView
   let wm = capsuleWM
   let lp = capsuleLP
   if (v == null || wm == null || lp == null) return
-  capsuleDegraded = false
+  capsuleTouchOff = true
   try {
-    // 直接重算一份干净 flags（比清 bit 可靠：UTS 的按位清位在不同编译目标下表现不一致）
     lp!.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
       | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-      | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+      | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
     wm!.updateViewLayout(v!, lp!)
+    console.log('[capsule] 画布被 ROM 撑成全屏 → 降级为不可触摸（只显示），避免锁死整屏')
   } catch (e) {}
 }
 
@@ -1549,19 +1552,16 @@ function applyCapsule(ctx: Context | null) {
       v.setText(capsuleText)
       // ★ 固定像素尺寸（见 capsuleLayout 注释）：悬浮窗上 WRAP_CONTENT 会被当成 MATCH_PARENT
       let lp = capsuleLayout(ctx!, capsuleStyle)
-      wm.addView(v, lp)
-      // ★ 关键：把"可触摸区"声明成胶囊那一小块，其余触摸透传给下层 App。
-      //   少了这一句，全屏窗口会把整块屏幕的点击全吃掉（用户 2026-11-02 反馈的现象）。
-      try {
-        v.getViewTreeObserver().addOnComputeInternalInsetsListener(new CapsuleTouchRegion())
-      } catch (e) {}
+      // ★ 先挂全局再 addView：addView 可能同步触发 onSizeChanged，
+      //   那里的降级（disableCapsuleTouch）要用到 capsuleWM / capsuleLP，晚一步就白降了。
       capsuleView = v
       capsuleWM = wm
       capsuleLP = lp
-      // 新窗口：自检状态归零，600ms 后确认 region 机制有没有真的跑起来（见 CapsuleInsetsCheckTask）
-      capsuleInsetsOk = false
-      capsuleDegraded = false
-      mainHandler!.postDelayed(new CapsuleInsetsCheckTask(), 600)
+      capsuleCanvasFull = false
+      capsuleTouchOff = false
+      wm.addView(v, lp)
+      console.log('[capsule] addView 请求 ' + capsuleWidthPx(capsuleStyle) + 'x'
+        + capsuleHeightPx(capsuleStyle) + ' @ ' + capsuleX + ',' + capsuleY + ' style=' + capsuleStyle)
       // 新建即显示：强制模式逃生现在也是"显示胶囊"而非盖全屏遮罩，所以始终可见
       // （见 seen() 的 2026-11-01 改造）。胶囊点击返回走 pullBackSoft，不弹全屏页。
       setCapsuleShown(true)
