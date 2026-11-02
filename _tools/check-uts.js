@@ -639,6 +639,12 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   //      12.16 休息阶段绿色：进度弧颜色必须按 capsulePhase 分叉（专注红 / 休息绿）。
   if (/function capsuleAccent\(\): Int \{[\s\S]*?capsulePhase == 'rest'[\s\S]*?\n\}/.test(utsSrc)) ok('进度弧按阶段换色（专注红 #e4173d / 休息绿 #2FA36B）');
   else bad('进度弧没按阶段换色 —— 休息时必须是绿色（见 capsuleAccent）');
+  //      12.21 文案同构（2026-11-02 用户报"闪来闪去、频率太快"的根因）：
+  //      原生 tick 必须用 label + ' ' + mm:ss 重建整串，和 JS 推来的格式一字不差；
+  //      任一侧只写 mm:ss，两个 setText 就会每秒交替 → 视觉上闪烁。
+  const tickFn = (utsSrc.match(/class CapsuleTickTask[\s\S]*?\n\}/) || [''])[0];
+  if (/capsuleLabel \+ ' ' \+ t/.test(tickFn) && !/capsuleText = t;/.test(tickFn)) ok('原生 tick 与 JS 文案同构（label + 时间，不再每秒闪）');
+  else bad('原生 tick 又只写 mm:ss —— 会和 JS 推来的"专注中 12:34"每秒交替，用户看到闪烁');
   //      12.17 拖动必须真的挪窗口（小窗口模式下 updateViewLayout 才是最跟手的做法）。
   const moveFn = (utsSrc.match(/moveTo\(x: Int, y: Int\) \{[\s\S]*?\n  \}/) || [''])[0];
   if (/clampCapsulePos\(/.test(moveFn) && /moveCapsuleWindow\(/.test(moveFn)) ok('拖动走 moveCapsuleWindow（挪窗口）+ 屏内钳位');
@@ -655,7 +661,7 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
       && /FLAG_NOT_TOUCH_MODAL/.test(capLayoutFn) && !/MATCH_PARENT/.test(capLayoutFn)) ok('窗口按胶囊尺寸申请 + FLAG_NOT_TOUCH_MODAL（窗口外触摸自动透传）');
   else bad('窗口又不是"胶囊那么大"了 —— 全屏窗口 + UTS 无法声明触摸区 = 整屏点不动');
   //      12.20 ROM 硬把窗口撑成全屏时必须降级：onSizeChanged 判定 + FLAG_NOT_TOUCHABLE，绝不锁死整屏。
-  if (/let full = \(cw > tw \* 2 && cw > halfW\)/.test(utsSrc) && /CapsuleTouchOffTask/.test(utsSrc) && /disableCapsuleTouch\(\)/.test(utsSrc)
+  if (/if \(cw >= dm0\.widthPixels - 16 \|\| ch >= dm0\.heightPixels - 16\) full = true/.test(utsSrc) && /CapsuleTouchOffTask/.test(utsSrc) && /disableCapsuleTouch\(\)/.test(utsSrc)
       && /FLAG_NOT_TOUCHABLE/.test(utsSrc)) ok('画布自检 + 被撑全屏时降级为不可触摸（绝不锁死整屏）');
   else bad('缺画布自检降级 —— 万一 ROM 把窗口撑全屏，整块屏幕的点击都会被吞掉');
   // 12.12 胶囊形态三选一（2026-11-01 用户提"系统胶囊调不了，做成圈/小球可选"）：

@@ -949,7 +949,8 @@ function postOverlay(want: boolean) {
  */
 let capsuleView: TextView | null = null;
 let capsuleWanted = false;
-let capsuleText = '';
+let capsuleText = '';   // 完整文案（"专注中 12:34"）：药丸一行、展开态由它拼出来
+let capsuleTime = '';   // 纯时间（"12:34"）：展开态圆形分两行时下面那行
 let capsuleEndAt = 0;   // 倒计时终点（ms）；0 = 不自转（暂停 / 正计时由 JS 静态显示）
 let capsuleLabel = '';  // 阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
 let capsulePhase = 'focus';  // 'focus' | 'rest'：休息阶段 seen() 据此跳过拦截（见 seen）
@@ -1041,9 +1042,8 @@ class CapsuleView extends TextView {
       if (wasDrag) {
         saveCapsulePos(capsuleX, capsuleY);   // 拖完记住位置，下次挂起还在那
       } else if (!capsuleExpanded) {
-        // 第一下：从迷你态展开看时间（tick 里 15 秒没人碰会再收回去）
-        capsuleExpanded = true;
-        uiPost(new CapsuleFrameTask());
+        // 第一下：从迷你态展开看文案（tick 里 15 秒没人碰会再收回去）
+        uiPost(new CapsuleExpandTask());
       } else {
         uiPost(new PullNowTask());            // 展开态点击 = 回前台
       }
@@ -1092,18 +1092,16 @@ class CapsuleView extends TextView {
       let ch = this.getHeight()
       let tw = capsuleWidthPx(this.mode)
       let th = capsuleHeightPx(this.mode)
-      // 判定要两条件同时成立，否则展开/收起的过渡帧会误判：
-      //   "比目标大 2 倍以上" 挡不住 large 档（ring 92dp ↔ mini 49dp 差 1.9 倍），
-      //   再叠一个"超过屏幕一半"就稳了 —— 胶囊最大也就 92dp，永远到不了半屏。
+      // 全屏 = 画布几乎等于屏幕。胶囊最大也就 92dp（≈300px），屏幕宽 1236px，
+      // 差 16px 以内只可能是"窗口被撑成全屏"。
+      // ★ 只用 Int 比较：UTS 把整数字面量推成 Number，`Int > Number` 在 Kotlin 里编译不过
+      //   （之前写 `cw > tw * 2 && cw > halfW`，halfW 被推成 Number，就是颗编译地雷）。
       let ctx0 = UTSAndroid.getAppContext()
-      let halfW = 1080 / 2
-      let halfH = 1920 / 2
+      let full = false
       if (ctx0 != null) {
         let dm0 = ctx0!.getResources().getDisplayMetrics()
-        halfW = dm0.widthPixels / 2
-        halfH = dm0.heightPixels / 2
+        if (cw >= dm0.widthPixels - 16 || ch >= dm0.heightPixels - 16) full = true
       }
-      let full = (cw > tw * 2 && cw > halfW) || (ch > th * 2 && ch > halfH)
       if (full != capsuleCanvasFull) {
         capsuleCanvasFull = full
         console.log('[capsule] 画布 ' + cw + 'x' + ch + ' / 目标 ' + tw + 'x' + th
@@ -1208,17 +1206,30 @@ class CapsuleView extends TextView {
       }
     }
 
-    // 中央文字：按可用宽度自动缩字（长前缀"已暂停 · 专注中 12:34"不许溢出被裁）
-    let p = new Paint()
-    p.setAntiAlias(true)
-    p.setColor(capsuleTextCol())
-    let want = capsuleTextPx()
-    p.setTextSize(want)
-    let maxW = w - 10.0.toFloat() * capsuleDensity()
-    let tw = p.measureText(capsuleText)
-    if (tw > maxW && tw > 0.0.toFloat()) p.setTextSize(want * maxW / tw)
-    let baseY = cy - (p.ascent() + p.descent()) / 2.0.toFloat()
-    canvas.drawText(capsuleText, cx - p.measureText(capsuleText) / 2.0.toFloat(), baseY, p)
+    // ---- 中央文字 ----
+    // 用户口径（2026-11-02）：「专注中 / 休息中 / 已暂停 / 超时」**可以显示，但只在展开态**；
+    // 迷你态一个字都不画（上面已经 return）。展开态圆形分两行（上阶段、下时间），药丸一行。
+    // ★ 文案只有一个来源：JS 反来的 capsuleText，原生 tick 按同一格式重建（见 CapsuleTickTask）。
+    let maxTextW = w - 8.0.toFloat() * capsuleDensity()
+    if (this.mode == 'pill') {
+      drawCapsuleLine(canvas, capsuleText, cx, cy, capsuleTextPx(), capsuleTextCol(), maxTextW)
+    } else {
+      let labelTxt = capsuleLabel
+      if (labelTxt.length == 0) {
+        drawCapsuleLine(canvas, capsuleTime, cx, cy, capsuleTextPx(), capsuleTextCol(), maxTextW)
+      } else {
+        let ts = capsuleTextPx()
+        let ls = ts * 0.54.toFloat()
+        let gap = 3.0.toFloat() * capsuleDensity()
+        let lh = ls * 1.35.toFloat()
+        let th = ts * 1.35.toFloat()
+        let total = lh + gap + th
+        drawCapsuleLine(canvas, labelTxt, cx, cy - total / 2.0.toFloat() + lh / 2.0.toFloat(),
+          ls, capsuleLabelCol(), maxTextW)
+        drawCapsuleLine(canvas, capsuleTime, cx, cy + total / 2.0.toFloat() - th / 2.0.toFloat(),
+          ts, capsuleTextCol(), maxTextW)
+      }
+    }
   }
 }
 
@@ -1234,6 +1245,29 @@ function capsuleRingFillCol(): Int {
 }
 function capsuleRingBgCol(): Int {
   return capsuleDark ? Color.argb(90, 255, 255, 255) : Color.argb(95, 70, 82, 96)
+}
+
+/** 阶段小字：比正文淡一档，视觉上不抢时间 */
+function capsuleLabelCol(): Int {
+  return capsuleDark ? Color.argb(212, 255, 255, 255) : Color.argb(212, 62, 74, 84)
+}
+
+/** 画一行居中的胶囊文字（超宽自动缩字）。centerY 是这一行的视觉中心，不是基线。 */
+function drawCapsuleLine(canvas: Canvas, txt: string, cx: Float, centerY: Float, size: Float, color: Int, maxW: Float) {
+  if (txt.length == 0) return
+  try {
+    let p = new Paint()
+    p.setAntiAlias(true)
+    p.setColor(color)
+    p.setTextSize(size)
+    let tw = p.measureText(txt)
+    if (tw > maxW && tw > 0.0.toFloat()) {
+      p.setTextSize(size * maxW / tw)
+      tw = p.measureText(txt)
+    }
+    let baseY = centerY - (p.ascent() + p.descent()) / 2.0.toFloat()
+    canvas.drawText(txt, cx - tw / 2.0.toFloat(), baseY, p)
+  } catch (e) {}
 }
 
 /** 进度弧角度（负 = 从顶部顺时针消耗）；>= 0 表示不画（总数未知 / 正计时 / 暂停） */
@@ -1261,20 +1295,21 @@ class CapsuleTickTask implements Runnable {
     // 闲置收起：圆形胶囊 15 秒没被碰过 → 缩成小圆、只留进度环（时间藏起来，要看得自己点）
     if (capsuleStyle != 'pill' && capsuleExpanded && capsuleIdleAt > 0
         && System.currentTimeMillis() - capsuleIdleAt > CAPSULE_IDLE_MS) {
-      capsuleExpanded = false;
-      syncCapsuleFrame();
+      setCapsuleExpanded(false);   // 闲置 → 缩成小圆、只留进度环
     }
     if (capsuleEndAt > 0) {
       let remain = Math.floor((capsuleEndAt - System.currentTimeMillis()) / 1000);
       if (remain < 0) remain = 0;
       capsuleRemain = remain;
       try {
-        // 三种形态一律只写 mm:ss —— 用户口径："不需要专注中+显示时间和单独的时间切换，
-        // 圆圈里面就直接显示时间就行了"。"专注中 " 前缀（capsuleLabel）不再拼接。
-        let txt = capsuleMmss(remain);
-        capsuleText = txt;              // 自绘读的是这个字段（见 drawCapsule）
-        capsuleView!.setText(txt);
-        invalidateCapsule();            // 三种形态都是自绘，每秒局部重画（全屏 View 全量重绘太费电）
+        // ★ 必须和 JS 推来的文案**完全同构**（= label + 时间）。
+        //   历史 bug：原生每秒写 "12:34"、JS 每秒推 "专注中 12:34"，
+        //   两个 setText 交替 → 用户看到"闪来闪去，频率太快"。
+        let t = capsuleMmss(remain);
+        capsuleTime = t;
+        capsuleText = capsuleLabel + ' ' + t;
+        capsuleView!.setText(capsuleText);
+        invalidateCapsule();            // 自绘，每秒局部重画（全屏 View 全量重绘太费电）
       } catch (e) {}
     }
     if (capsuleWanted) mainHandler!.postDelayed(new CapsuleTickTask(), 1000);
@@ -1418,6 +1453,31 @@ function capsuleDrawY(): Int {
  * 展开 / 收起只是"画多大"（窗口是全屏的，不用动窗口）：
  * 唯一要补的是缩放后别把自己顶出屏幕。
  */
+/**
+ * 展开 / 收起。用户口径（2026-11-02）：
+ *   · 展开 = 看得到「专注中 12:34」这类文案（点一下才展开）；
+ *   · 迷你 = 只留一圈进度，一个字都不画。
+ * 切换时**保住圆心**：直径从 56→38 若只改左上角，球会往右下"缩走"，看着像自己乱跑。
+ */
+function setCapsuleExpanded(e: Boolean) {
+  if (capsuleExpanded == e) return
+  let oldDia = capsuleWidthPx(capsuleStyle)
+  capsuleExpanded = e
+  let newDia = capsuleWidthPx(capsuleStyle)
+  if (capsuleStyle != 'pill' && oldDia != newDia) {
+    capsuleX = capsuleX + (oldDia - newDia) / 2
+    capsuleY = capsuleY + (oldDia - newDia) / 2
+  }
+  capsuleIdleAt = System.currentTimeMillis()
+  syncCapsuleFrame()
+}
+
+class CapsuleExpandTask implements Runnable {
+  override run(): void {
+    setCapsuleExpanded(true)
+  }
+}
+
 function syncCapsuleFrame() {
   let v = capsuleView
   let wm = capsuleWM
@@ -1475,6 +1535,10 @@ function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams 
   if (style == 'pill') {
     // pill：顶部居中固定宽药丸，文字居中单行（避开状态栏 40dp）
     let lpP = new WindowManager.LayoutParams(w, h)
+    // ★ 双保险：万一 UTS 把双参构造解析成单参 LayoutParams(type)，宽高会回落到 MATCH_PARENT，
+    //   窗口就变成整屏（"整块屏幕点不动 + 拖不动"的现场）。字段赋值一定生效。
+    lpP.width = w
+    lpP.height = h
     lpP.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
     lpP.format = PixelFormat.TRANSLUCENT
     lpP.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
@@ -1496,6 +1560,9 @@ function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams 
   clampCapsulePos(capsuleX, capsuleY)
 
   let lp = new WindowManager.LayoutParams(w, h)
+  // ★ 双保险（同上）：显式写死宽高，绝不依赖构造参数被正确解析
+  lp.width = w
+  lp.height = h
   lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
   lp.format = PixelFormat.TRANSLUCENT
   lp.gravity = Gravity.TOP | Gravity.START
@@ -1560,8 +1627,8 @@ function applyCapsule(ctx: Context | null) {
       capsuleCanvasFull = false
       capsuleTouchOff = false
       wm.addView(v, lp)
-      console.log('[capsule] addView 请求 ' + capsuleWidthPx(capsuleStyle) + 'x'
-        + capsuleHeightPx(capsuleStyle) + ' @ ' + capsuleX + ',' + capsuleY + ' style=' + capsuleStyle)
+      console.log('[capsule] addView ' + lp.width + 'x' + lp.height + ' @ ' + capsuleX + ',' + capsuleY
+        + ' style=' + capsuleStyle + ' expanded=' + capsuleExpanded)
       // 新建即显示：强制模式逃生现在也是"显示胶囊"而非盖全屏遮罩，所以始终可见
       // （见 seen() 的 2026-11-01 改造）。胶囊点击返回走 pullBackSoft，不弹全屏页。
       setCapsuleShown(true)
@@ -1647,6 +1714,9 @@ function postCapsule(want: boolean, text: string, endAt: number, label: string, 
   capsuleText = text
   capsuleEndAt = endAt
   capsuleLabel = label
+  // 纯时间 = 完整文案剥掉「前缀 + 一个空格」（展开态圆形分两行画：上阶段、下时间）
+  capsuleTime = text
+  if (label.length > 0 && text.length > label.length + 1) capsuleTime = text.substring(label.length + 1)
   capsuleTotalSec = totalSec
   // 给圆环一个正确的首帧剩余：endAt>0 按差值算，否则 0（暂停/正计时 = 环画满）
   if (endAt > 0) {

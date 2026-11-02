@@ -207,13 +207,15 @@ function capsuleContent() {
     endAt = state.endAt;                 // 正常倒计时：交给原生自己数秒
     timeStr = mmss(Math.max(0, Math.round((state.endAt - Date.now()) / 1000)));
   }
-  const overSuffix = state.overrun ? (' · ' + overWord) : '';
-  const head = state.paused ? (pauseWord + ' · ' + phaseWord + ' ') : (phaseWord + ' ');
-  // ★ 2026-11-02 用户口径：胶囊里**只显示 xx:xx**。
-  //   不拼"专注中 / 休息中 / 已暂停"前缀，也不带"· 超时"后缀；
-  //   阶段改由进度弧颜色区分（专注红 #e4173d / 休息绿 #2FA36B，见原生 capsuleAccent）。
-  //   （label / overSuffix 仍算出来给通知与圆盘用，胶囊不再消费。）
-  return { txt: timeStr, label: head, endAt, totalSec: Number(state.totalSec) || 0 };
+  // ★ 2026-11-02 用户口径（定稿）：前缀**可以显示，但只在展开态**。
+  //   展开 = 「专注中 12:34」/「休息中 05:00」/「已暂停 12:34」/「超时 00:12」；
+  //   迷你 = 一个字都不画，只留进度环（原生按 capsuleExpanded 决定画不画）。
+  //   前缀优先级：超时 > 暂停 > 阶段 —— 否则"已暂停 · 专注中"这种组合在小球里放不下。
+  //   ★ 原生每秒自转时会用 label + mm:ss 重建同一串（见 CapsuleTickTask），
+  //     两边格式必须一模一样，否则每秒在两种文案之间闪一次。
+  //   label **不带尾随空格**（原生要单独画这一行，带空格会偏左）；拼接时显式补一个空格。
+  const label = state.overrun ? overWord : (state.paused ? pauseWord : phaseWord);
+  return { txt: label + ' ' + timeStr, label, endAt, totalSec: Number(state.totalSec) || 0 };
 }
 
 /**
