@@ -2,7 +2,7 @@
 
 <img src="uniapp-PWstudy/static/mascot.jpg" alt="PWstudy" width="120" style="border-radius:24px" />
 
-# 🍅 PWstudy · AI 学习规划 & 专注计时
+#  PWstudy · AI 学习规划 & 专注计时
 
 **输入一个远景目标，AI 帮你拆成每天该做什么；专注计时管当下，真实进度反过来修正后面的日程。**
 
