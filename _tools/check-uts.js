@@ -580,8 +580,10 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
     else bad('index.uts 没实现 ' + fn + '()');
   });
   // 12.2 胶囊复用拉回链路：点一下 = PullNowTask（回前台）。
-  //   形态多了拖动分支后类体变长，距离放宽到 2000（意图不变：CapsuleView 里必须接到拉回链路）
-  if (/class CapsuleView extends TextView/.test(uts) && /CapsuleView[\s\S]{0,2000}new PullNowTask\(\)/.test(uts)) ok('胶囊点击复用 PullNowTask 拉回链路（点一下回前台）');
+  //   形态多了拖动分支后类体变长，**不再用字符距离**（原来卡 2000，加一段注释就假红）：
+  //   直接截出 CapsuleView 类体来判断，意图不变 —— 拉回调用必须在这个类里。
+  const capsuleCls = (uts.match(/class CapsuleView extends TextView[\s\S]*?\n\}\n/) || [''])[0];
+  if (capsuleCls.length > 0 && /new PullNowTask\(\)/.test(capsuleCls)) ok('胶囊点击复用 PullNowTask 拉回链路（点一下回前台）');
   else bad('胶囊没接到 PullNowTask 拉回链路');
   // 12.3 非阻塞：要 FLAG_NOT_FOCUSABLE + FLAG_NOT_TOUCH_MODAL，否则会吞掉别家 App 的操作
   if (/FLAG_NOT_FOCUSABLE/.test(uts) && /FLAG_NOT_TOUCH_MODAL/.test(uts)) ok('胶囊是 FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCH_MODAL（非阻塞，不吞别家操作）');
@@ -617,8 +619,9 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   //      ROM（Mate 50 Pro / Android 12）当成 MATCH_PARENT，胶囊占满整屏；改 Paint.measureText
   //      动态量宽，真机仍被算成全屏。最终方案：pill 固定 dp、ball/ring 固定直径，
   //      完全不依赖系统对尺寸的任何推断 —— 那是"编译能过、真机才炸"的静默坑。
-  if (/function capsuleLayout\(/.test(utsSrc) && /capsuleDp\(200\)/.test(utsSrc) && /capsuleDp\(46\)/.test(utsSrc)) ok('胶囊尺寸走 capsuleLayout + capsuleDp 固定像素（200×46 药丸 + 固定直径球/环，×尺寸档系数）');
-  else bad('胶囊没走 capsuleLayout/capsuleDp 固定像素 —— WRAP_CONTENT / measureText 动态量宽都会在真机被 ROM 算成全屏');
+  //      ⚠️ 2026-11-02 药丸从 200×46 收到 128×36（用户截图："尺寸太大 + 里面没有有效内容"）。
+  if (/function capsuleLayout\(/.test(utsSrc) && /capsuleDp\(128\)/.test(utsSrc) && /capsuleDp\(36\)/.test(utsSrc)) ok('胶囊尺寸走 capsuleLayout + capsuleDp 固定像素（128×36 药丸 + 固定直径球/环，×尺寸档系数）');
+  else bad('胶囊没走 capsuleLayout/capsuleDp 固定像素（药丸应为 128×36）+ 固定直径球/环 —— WRAP_CONTENT / measureText 动态量宽都会在真机被 ROM 算成全屏');
   if (!/ViewGroup\.LayoutParams\.WRAP_CONTENT/.test(utsSrc)) ok('全文件没有 ViewGroup.LayoutParams.WRAP_CONTENT（悬浮窗上不可靠，一律显式尺寸）');
   else bad('又出现 ViewGroup.LayoutParams.WRAP_CONTENT —— 悬浮窗上会被 ROM 当成 MATCH_PARENT，胶囊占满整屏');
   //      12.13 布局侧不许用 measureText 量宽（真机复现：动态量宽仍被 ROM 算成全屏）。
@@ -649,6 +652,18 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   const moveFn = (utsSrc.match(/moveTo\(x: Int, y: Int\) \{[\s\S]*?\n  \}/) || [''])[0];
   if (/clampCapsulePos\(/.test(moveFn) && /moveCapsuleWindow\(/.test(moveFn)) ok('拖动走 moveCapsuleWindow（挪窗口）+ 屏内钳位');
   else bad('拖动没挪窗口 —— 小窗口模式下必须 updateViewLayout 改 x/y，否则球不动');
+  //      12.22 药丸必须也能拖（2026-11-02 用户报："三种形态里就只有胶囊拖不动"）。
+  //      根因两处：① onTouchEvent 对 pill 直接 return true（只有 UP 拉回，MOVE 全丢）；
+  //      ② capsuleLayout 给药丸写死 gravity=TOP|CENTER_HORIZONTAL + 只给 y ——
+  //      位置根本不在 lp.x/lp.y 里，updateViewLayout 改 x/y 等于没改。
+  if (/this\.mode != 'pill' && !capsuleExpanded/.test(utsSrc)
+      && !/if \(this\.mode == 'pill'\) return/.test(utsSrc)
+      && !/CENTER_HORIZONTAL/.test(utsSrc)) ok('药丸与球/环同一套拖动（位置走 lp.x/lp.y，单击才拉回 App）');
+  else bad('药丸又拖不动了 —— 不能对 pill 单独 return，也不能靠 CENTER_HORIZONTAL 定位（位置必须在 lp.x/lp.y 里）');
+  //      12.23 每秒重绘的脏矩形必须按当前坐标系：小窗口 = View 本地坐标 (0,0,w,h)，
+  //      全屏 = 屏幕坐标。混用会让 invalidate 裁到 View 外 → 只重画边角，看上去"数字不动"。
+  if (/invalidate\(0, 0, w, h\)/.test(utsSrc)) ok('每秒重绘脏矩形走小窗口本地坐标（数字/进度环真的会更新）');
+  else bad('invalidateCapsule 又把屏幕坐标当 View 坐标 —— 小窗口下每秒只重画边角，胶囊看着像冻住了');
   //      12.18 ★ 编译杀手：UTS 不支持 ViewTreeObserver 的嵌套接口。
   //      2026-11-02 用户贴的日志：OnComputeInternalInsetsListener / InternalInsetsInfo 全部
   //      "找不到名称"，1.4.8、1.4.9 的包根本没生成，他手机上一直装着 1.4.6。

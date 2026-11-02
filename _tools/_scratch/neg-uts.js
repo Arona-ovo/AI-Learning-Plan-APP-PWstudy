@@ -67,7 +67,15 @@ const cases = [
   ['小球/圆环位置不落盘（拖到哪下次都回到默认位）',
     (s) => s.replace('function saveCapsulePos(x: Int, y: Int) {', 'function saveCapsulePosX(x: Int, y: Int) {')],
   ['胶囊形态 setCapsuleStyle 被改名（JS 调不到，形态永远退成 pill）',
-    (s) => s.replace('export function setCapsuleStyle(style: string): boolean {', 'export function setCapsuleStyleX(style: string): boolean {')]
+    (s) => s.replace('export function setCapsuleStyle(style: string): boolean {', 'export function setCapsuleStyleX(style: string): boolean {')],
+
+  // ---- 第 12.22 / 12.23 节：药丸可拖动 + 脏矩形坐标系（2026-11-02）----
+  ['药丸又变回"拖不动"（moveTo 对 pill 直接 return）',
+    (s) => s.replace('    // 三种形态一视同仁：小窗口模式下位置就是窗口的 x/y（药丸以前在这里被 return 掉，所以拖不动）\n    moveCapsuleWindow(capsuleX, capsuleY)',
+      "    if (this.mode == 'pill') return\n    moveCapsuleWindow(capsuleX, capsuleY)")],
+  ['每秒重绘又拿屏幕坐标当 View 坐标（数字/环看着像冻住）',
+    (s) => s.replace('      v!.invalidate(0, 0, w, h)   // 小窗口：整块就是胶囊本身，脏矩形从原点起',
+      '      v!.invalidate(capsuleX, capsuleY, capsuleX + w, capsuleY + h)')]
 ];
 
 const base = runCheck();

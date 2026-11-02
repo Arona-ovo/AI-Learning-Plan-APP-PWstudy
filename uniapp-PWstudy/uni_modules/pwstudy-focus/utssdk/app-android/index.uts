@@ -999,17 +999,10 @@ class CapsuleView extends TextView {
     //   历史上"按下没反应 / 抬手不触发"多半是这里踩的。
     let act = event.getActionMasked()
 
-    // pill：只点击拉回，不拖动（顶部药丸本来就不该被拖得到处跑）
-    if (this.mode == 'pill') {
-      if (act == MotionEvent.ACTION_UP) {
-        uiPost(new PullNowTask());
-      }
-      return true;
-    }
-    // ball / ring：拖动 + **两段式点击**
-    //   迷你态（只有环、没有时间）点一下 → 展开显示时间（顺带续命 15 秒）；
-    //   展开态再点 → 回 App。用户口径："点第二次再展开以后的圆形点击才会跳转 app"，
-    //   所以不能一点就走 —— 想瞄一眼时间的人会被直接拉回前台。
+    // ★ 药丸也走同一套拖动（2026-11-02 用户报"就只有这一个胶囊形状的拖不动"）：
+    //   以前这里对 pill 直接 return true，只有 ACTION_UP 拉回 —— 等于把拖动焊死了。
+    //   药丸窗口现在是"固定宽高 + TOP|START + lp.x/y"，跟小球一样挪窗口就行。
+    // 三种形态统一：DOWN 记起点 → MOVE 超阈值拖动 → UP 判定拖动/点击
     if (act == MotionEvent.ACTION_DOWN) {
       this.downRawX = event.getRawX();
       this.downRawY = event.getRawY();
@@ -1041,8 +1034,9 @@ class CapsuleView extends TextView {
       }
       if (wasDrag) {
         saveCapsulePos(capsuleX, capsuleY);   // 拖完记住位置，下次挂起还在那
-      } else if (!capsuleExpanded) {
+      } else if (this.mode != 'pill' && !capsuleExpanded) {
         // 第一下：从迷你态展开看文案（tick 里 15 秒没人碰会再收回去）
+        // ★ 药丸没有迷你态（一直显示文案），所以它的单击直接拉回 App，不做两段式
         uiPost(new CapsuleExpandTask());
       } else {
         uiPost(new PullNowTask());            // 展开态点击 = 回前台
@@ -1071,7 +1065,7 @@ class CapsuleView extends TextView {
       invalidateCapsule()           // 新位置画上
       return
     }
-    if (this.mode == 'pill') return
+    // 三种形态一视同仁：小窗口模式下位置就是窗口的 x/y（药丸以前在这里被 return 掉，所以拖不动）
     moveCapsuleWindow(capsuleX, capsuleY)
   }
 
@@ -1166,6 +1160,26 @@ class CapsuleView extends TextView {
       bg.setAntiAlias(true)
       let rad = h / 2.0.toFloat()
       canvas.drawRoundRect(new RectF(0.0.toFloat(), 0.0.toFloat(), w, h), rad, rad, bg)
+
+      // 底部一条 2dp 进度线 —— 用户口径（2026-11-02）："这么大的胶囊，里面没有有效内容"。
+      // 光有数字太空，缩到 128dp 后加一条进度，扫一眼就知道还剩多少，不用读秒。
+      // 位置钳在圆角内侧（inset 14dp > 底部两角的收敛量），否则线头会戳到药丸外面。
+      let pSweep = -capsuleSweep()          // capsuleSweep 是负角度（消耗），取正就是已过比例×360
+      if (pSweep > 0.0.toFloat()) {
+        let pad = 14.0.toFloat() * capsuleDensity()
+        let lh = 2.0.toFloat() * capsuleDensity()
+        let ly = h - 4.0.toFloat() * capsuleDensity() - lh
+        let full = w - pad * 2.0.toFloat()
+        let lw = full * pSweep / 360.0.toFloat()
+        if (lw > lh) {   // 太短就画成一个小圆点，反而像脏东西
+          let fg = new Paint()
+          fg.setStyle(Paint.Style.FILL)
+          fg.setColor(capsuleAccent())
+          fg.setAntiAlias(true)
+          let rr = lh / 2.0.toFloat()
+          canvas.drawRoundRect(new RectF(pad, ly, pad + lw, ly + lh), rr, rr, fg)
+        }
+      }
     } else if (this.mode == 'ball') {
       let bg = new Paint()
       bg.setStyle(Paint.Style.FILL)
@@ -1371,34 +1385,51 @@ function capsuleRingStroke(): Float {
   return 2.0.toFloat() * capsuleDensity()
 }
 
-/** 胶囊目标宽/高（px）：pill 200×46、ball 56、ring 72，再乘尺寸档 */
+/**
+ * 胶囊目标宽/高（px）：pill **128×36**、ball 56、ring 72，再乘尺寸档。
+ *
+ * ★ 2026-11-02 药丸从 200×46 收到 128×36（用户截图原话："这个胶囊的尺寸太大了，
+ *   里面还没有显示有效内容"）。200dp 在 3 倍屏上是 600px ≈ 半屏宽，字只占中间 90dp，
+ *   左右各空出 55dp —— 看着就是一条"里面啥也没有"的横杠。
+ *   128dp 刚好装下「专注中 14:39」（≈92dp）+ 两侧各 18dp 内边距，'large' 档 164dp 也够。
+ */
 function capsuleWidthPx(style: string): Int {
-  if (style == 'pill') return capsuleDp(200)
+  if (style == 'pill') return capsuleDp(128)
   // ★ 迷你态（闲置自动收起）：ball/ring 都缩成 38dp 小圆，只画进度环、不画时间
   if (!capsuleExpanded) return capsuleDp(38)
   return capsuleDp(style == 'ring' ? 72 : 56)
 }
 function capsuleHeightPx(style: string): Int {
-  if (style == 'pill') return capsuleDp(46)
+  if (style == 'pill') return capsuleDp(36)
   return capsuleWidthPx(style)
 }
 
 /**
- * 只重画胶囊那一小块。
- * 窗口是全屏的，`invalidate()` 不带参数 = 整个 View 脏 = **整屏重绘**，
- * 每秒一次太费电；这里按屏幕坐标给出脏矩形。
+ * 只重画胶囊那一小块（每秒 tick 调它）。
+ *
+ * ★ 2026-11-02 修正坐标系：现在是**小窗口**架构，View 坐标原点 = 窗口左上角（0,0），
+ *   但这里一直传的是**屏幕坐标**（capsuleX/capsuleY）。窗口只有 128×36dp 时，
+ *   那个矩形大半落在 View 外面，`invalidate` 裁完只剩右下角几个像素 —— 每秒只重画边角，
+ *   中间的数字/环看不到变化（用户："里面没有显示有效内容"）。
+ *   全屏画布（ROM 把窗口撑大）时才用屏幕坐标。
  */
 function invalidateCapsule() {
   let v = capsuleView
   if (v == null) return
   try {
-    let ox = capsuleDrawX()
-    let oy = capsuleDrawY()
-    v!.invalidate(ox, oy, ox + capsuleWidthPx(capsuleStyle), oy + capsuleHeightPx(capsuleStyle))
+    let w = capsuleWidthPx(capsuleStyle)
+    let h = capsuleHeightPx(capsuleStyle)
+    if (capsuleCanvasFull) {
+      let ox = capsuleDrawX()
+      let oy = capsuleDrawY()
+      v!.invalidate(ox, oy, ox + w, oy + h)
+    } else {
+      v!.invalidate(0, 0, w, h)   // 小窗口：整块就是胶囊本身，脏矩形从原点起
+    }
   } catch (e) {}
 }
 
-/** 拖完/换位时新旧两块都要重画（否则旧位置会留一个球影） */
+/** 拖完/换位时新旧两块都要重画（否则旧位置会留一个球影）—— 只给全屏画布用，坐标是屏幕坐标 */
 function invalidateCapsuleAt(x: Int, y: Int) {
   let v = capsuleView
   if (v == null) return
@@ -1413,7 +1444,9 @@ function clampCapsulePos(x: Int, y: Int) {
   let ctx = UTSAndroid.getAppContext()
   if (ctx == null) { capsuleX = x; capsuleY = y; return }
   let dm = ctx!.getResources().getDisplayMetrics()
-  let dia = capsuleWidthPx(capsuleStyle)
+  // ★ 宽高分开算：药丸是 128×36 的横条，拿宽当高去钳会把它的下边界算错（拖到屏幕底部时能拖掉半截）
+  let w = capsuleWidthPx(capsuleStyle)
+  let h = capsuleHeightPx(capsuleStyle)
   // 20dp 边：真机 GestureNavLeft/Right 宽 16dp（dumpsys 实测 52px @ 3.25），
   // 贴着手势热区时按下会被系统返回手势抢走，表现也是"拖不动"
   let m = ((20 * dm.density) as Number).toInt()
@@ -1421,8 +1454,8 @@ function clampCapsulePos(x: Int, y: Int) {
   let ny = y
   if (nx < m) nx = m
   if (ny < m) ny = m
-  let maxX = dm.widthPixels - dia - m
-  let maxY = dm.heightPixels - dia - m
+  let maxX = dm.widthPixels - w - m
+  let maxY = dm.heightPixels - h - m
   if (maxX < m) maxX = m
   if (maxY < m) maxY = m
   if (nx > maxX) nx = maxX
@@ -1431,22 +1464,14 @@ function clampCapsulePos(x: Int, y: Int) {
   capsuleY = ny
 }
 
-/** 胶囊绘制原点 X（屏幕坐标）：圆 = 记下的位置；药丸 = 顶部居中 */
+/** 胶囊绘制原点 X（屏幕坐标）：三种形态都只认记住的位置；全屏画布时靠它做 translate */
 function capsuleDrawX(): Int {
-  if (capsuleStyle != 'pill') return capsuleX
-  let ctx = UTSAndroid.getAppContext()
-  if (ctx == null) return 0
-  let dm = ctx!.getResources().getDisplayMetrics()
-  return (dm.widthPixels - capsuleWidthPx('pill')) / 2
+  return capsuleX
 }
 
-/** 胶囊绘制原点 Y（屏幕坐标）：圆 = 记下的位置；药丸 = 顶栏下方 40dp */
+/** 胶囊绘制原点 Y（屏幕坐标）：同上（药丸过去写死"顶部居中 40dp"，现在跟着拖动走） */
 function capsuleDrawY(): Int {
-  if (capsuleStyle != 'pill') return capsuleY
-  let ctx = UTSAndroid.getAppContext()
-  if (ctx == null) return 0
-  let dm = ctx!.getResources().getDisplayMetrics()
-  return ((40 * dm.density) as Number).toInt()
+  return capsuleY
 }
 
 /**
@@ -1483,7 +1508,7 @@ function syncCapsuleFrame() {
   let wm = capsuleWM
   if (v == null || wm == null) return
   let ctx = UTSAndroid.getAppContext()
-  if (capsuleStyle != 'pill') clampCapsulePos(capsuleX, capsuleY)
+  clampCapsulePos(capsuleX, capsuleY)
   // ★ 展开/收起改的是**目标直径**（56dp ↔ 38dp）。小窗口模式下窗口尺寸 = 胶囊尺寸，
   //   所以必须重排窗口，否则收起后画布还是大的、球会贴在左上角。
   if (ctx != null && !capsuleCanvasFull) {
@@ -1532,35 +1557,30 @@ function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams 
   let w = capsuleWidthPx(style)
   let h = capsuleHeightPx(style)
 
-  if (style == 'pill') {
-    // pill：顶部居中固定宽药丸，文字居中单行（避开状态栏 40dp）
-    let lpP = new WindowManager.LayoutParams(w, h)
-    // ★ 双保险：万一 UTS 把双参构造解析成单参 LayoutParams(type)，宽高会回落到 MATCH_PARENT，
-    //   窗口就变成整屏（"整块屏幕点不动 + 拖不动"的现场）。字段赋值一定生效。
-    lpP.width = w
-    lpP.height = h
-    lpP.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
-    lpP.format = PixelFormat.TRANSLUCENT
-    lpP.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL
-    lpP.y = ((40 * dm.density) as Number).toInt()
-    lpP.flags = baseFlags
-    return lpP
-  }
-
-  // 圆形：首次挂起先算默认停靠位（拖过就优先用记忆位置），再钳进屏内
+  // ★ 三种形态共用一条定位路径（2026-11-02）：以前药丸单独写死
+  //   `gravity=TOP|CENTER_HORIZONTAL + y=40dp`，也就是说它的位置**根本不在 lp.x/lp.y 里**，
+  //   拖动改 x/y 毫无效果 —— 用户报的"只有胶囊形状的拖不动"就是这段造成的。
+  //   现在一律 TOP|START + 显式 lp.x/lp.y，药丸的"默认顶部居中"只是初始值。
   if (capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
     let m = ((20 * dm.density) as Number).toInt()
-    let topY = ((84 * dm.density) as Number).toInt()
-    let botY = dm.heightPixels - h - ((84 * dm.density) as Number).toInt()
-    if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
-    else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - w - m; capsuleY = topY }
-    else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
-    else { capsuleX = dm.widthPixels - w - m; capsuleY = botY }
+    if (style == 'pill') {
+      // 药丸默认：水平居中、顶栏下方 40dp（避开状态栏）
+      capsuleX = (dm.widthPixels - w) / 2
+      capsuleY = ((40 * dm.density) as Number).toInt()
+    } else {
+      let topY = ((84 * dm.density) as Number).toInt()
+      let botY = dm.heightPixels - h - ((84 * dm.density) as Number).toInt()
+      if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
+      else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - w - m; capsuleY = topY }
+      else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
+      else { capsuleX = dm.widthPixels - w - m; capsuleY = botY }
+    }
   }
   clampCapsulePos(capsuleX, capsuleY)
 
   let lp = new WindowManager.LayoutParams(w, h)
-  // ★ 双保险（同上）：显式写死宽高，绝不依赖构造参数被正确解析
+  // ★ 双保险：万一 UTS 把双参构造解析成单参 LayoutParams(type)，宽高会回落到 MATCH_PARENT，
+  //   窗口就变成整屏（"整块屏幕点不动 + 拖不动"的现场）。字段赋值一定生效。
   lp.width = w
   lp.height = h
   lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
