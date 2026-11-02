@@ -1444,6 +1444,12 @@ function clampCapsulePos(x: Int, y: Int) {
   let ctx = UTSAndroid.getAppContext()
   if (ctx == null) { capsuleX = x; capsuleY = y; return }
   let dm = ctx!.getResources().getDisplayMetrics()
+  let sw = dm.widthPixels
+  let sh = dm.heightPixels
+  // ★ 拿不到屏幕尺寸就**别钳**：metrics 返回 0×0 时，maxX/maxY 会小于 20dp 边，
+  //   于是 x/y 双双被压到 20dp —— 真机日志 `addView 416x117 @ 65,65` 就是这么来的（药丸贴左上角）。
+  //   宁可让窗口待在算出来的位置上，也不要把它钉死在角落。
+  if (sw <= 0 || sh <= 0) { capsuleX = x; capsuleY = y; return }
   // ★ 宽高分开算：药丸是 128×36 的横条，拿宽当高去钳会把它的下边界算错（拖到屏幕底部时能拖掉半截）
   let w = capsuleWidthPx(capsuleStyle)
   let h = capsuleHeightPx(capsuleStyle)
@@ -1454,8 +1460,8 @@ function clampCapsulePos(x: Int, y: Int) {
   let ny = y
   if (nx < m) nx = m
   if (ny < m) ny = m
-  let maxX = dm.widthPixels - w - m
-  let maxY = dm.heightPixels - h - m
+  let maxX = sw - w - m
+  let maxY = sh - h - m
   if (maxX < m) maxX = m
   if (maxY < m) maxY = m
   if (nx > maxX) nx = maxX
@@ -1647,7 +1653,9 @@ function applyCapsule(ctx: Context | null) {
       capsuleCanvasFull = false
       capsuleTouchOff = false
       wm.addView(v, lp)
+      let dmp = ctx!.getResources().getDisplayMetrics()
       console.log('[capsule] addView ' + lp.width + 'x' + lp.height + ' @ ' + capsuleX + ',' + capsuleY
+        + ' 屏 ' + dmp.widthPixels + 'x' + dmp.heightPixels
         + ' style=' + capsuleStyle + ' expanded=' + capsuleExpanded)
       // 新建即显示：强制模式逃生现在也是"显示胶囊"而非盖全屏遮罩，所以始终可见
       // （见 seen() 的 2026-11-01 改造）。胶囊点击返回走 pullBackSoft，不弹全屏页。
@@ -1702,19 +1710,28 @@ function capsuleSp(): SharedPreferences | null {
   }
 }
 
-/** 拖动结束：把小球/圆环的位置落盘，下次挂起还在那 */
+/** 拖动结束：把当前形态的位置落盘，下次挂起还在那（**按形态分开记**，见 restore） */
 function saveCapsulePos(x: Int, y: Int) {
   try {
     let p = capsuleSp();
-    if (p != null) p.edit().putInt('x', x).putInt('y', y).apply();
+    if (p != null) p.edit().putInt('x', x).putInt('y', y).putString('pos_style', capsuleStyle).apply();
   } catch (e) {}
 }
 
-/** 挂球/环前：先看有没有记忆位置。读到有效坐标就填进 capsuleX/Y 并返回 true */
+/**
+ * 挂胶囊前：先看有没有记忆位置。读到**本形态**的有效坐标就填进 capsuleX/Y 并返回 true。
+ *
+ * ★ 2026-11-02 真机日志实锤：`[capsule] addView 416x117 @ 65,65 style=pill` —— 药丸第一次挂出来
+ *   就贴在左上角（65 = 20dp 钳位边）。原因是位置只有一对 x/y，**不分形态**：
+ *   用户把小球拖到左上角时钳位存下的正好是 (65,65)，切成药丸后直接沿用了这个角。
+ *   现在存的时候带上 `pos_style`，形态不一致就当没记过（药丸回到"顶部居中 40dp"）。
+ */
 function restoreCapsulePos(): boolean {
   try {
     let p = capsuleSp();
     if (p == null) return false;
+    // 旧版本没写 pos_style（空串）→ 当无效，别把小球/全屏时代的旧坐标喂给药丸
+    if (p.getString('pos_style', '') != capsuleStyle) return false;
     let x = p.getInt('x', -1);
     let y = p.getInt('y', -1);
     // ★ 2026-11-02：(0,0) 当无效 —— 贴死屏幕左上角没有边距，观感很差；

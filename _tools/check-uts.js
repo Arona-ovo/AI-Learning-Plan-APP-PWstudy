@@ -615,6 +615,16 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   const focusSrc = read(path.join(ROOT, 'utils', 'focus.js'));
   if (/\(!!c\.capsule\s*\|\|\s*!!c\.forced\)/.test(focusSrc)) ok('syncCapsule 在强制模式下无视胶囊开关');
   else bad('syncCapsule 只看 capsule 开关 —— 老用户存了 false 就再也不会看到胶囊');
+  //      12.24 fgsvc 桥必须齐全：focus.js 里 `fgsvc.xxx()` 用到的每个名字都得在 fgsvc.js 里 export。
+  //      ★ 2026-11-02 真机日志实锤：`"setCapsulePhase" is not exported by utils/fgsvc.js`
+  //      （rollup 只警告不报错）→ 调用被 try/catch 吞掉 → 原生 capsulePhase 永远 'focus'
+  //      → 用户报过的"休息时胶囊不变绿"一直没修好。漏一个桥＝一条功能静默死掉。
+  const fgSrc = read(path.join(ROOT, 'utils', 'fgsvc.js'));
+  const fgExp = new Set((fgSrc.match(/export function (\w+)\s*\(/g) || []).map((s) => s.replace(/export function (\w+)\s*\(/, '$1')));
+  const fgUsed = [...new Set((focusSrc.match(/fgsvc\.(\w+)\s*\(/g) || []).map((s) => s.replace(/fgsvc\.(\w+)\s*\(/, '$1')))];
+  const fgMissing = fgUsed.filter((n) => !fgExp.has(n));
+  if (fgUsed.length > 0 && !fgMissing.length) ok('focus.js 用到的 ' + fgUsed.length + ' 个 fgsvc 桥都在 fgsvc.js 里导出（含 setCapsulePhase）');
+  else bad('fgsvc.js 少了这些桥（focus.js 的调用会被 try/catch 吞掉，功能静默失效）：' + (fgMissing.join(' / ') || '没扫到 fgsvc 调用，检查 a11y 提取正则'));
   // 12.11 胶囊尺寸必须固定像素（2026-11-01 真机复现两轮）：悬浮窗上写 WRAP_CONTENT 会被
   //      ROM（Mate 50 Pro / Android 12）当成 MATCH_PARENT，胶囊占满整屏；改 Paint.measureText
   //      动态量宽，真机仍被算成全屏。最终方案：pill 固定 dp、ball/ring 固定直径，

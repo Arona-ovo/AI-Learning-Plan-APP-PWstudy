@@ -633,6 +633,24 @@ export function capsuleSetPos(pos) {
   return false;
 }
 
+/**
+ * 同步阶段给原生：'focus' / 'rest'。原生据此决定进度弧颜色（专注红 #e4173d / 休息绿 #2FA36B），
+ * 以及 seen() 在休息阶段跳过逃逸拦截。
+ *
+ * ★ 2026-11-02 补：这个桥**一直漏着**（原生 index.uts / interface.uts 都写了，fgsvc 忘了包）。
+ *   focus.js 里 `fgsvc.setCapsulePhase(...)` 被 try/catch 吞掉，于是原生 capsulePhase 永远 'focus'
+ *   —— 用户报的"休息时胶囊不变绿"就是这么来的，而 HBuilderX 控制台只给了一句
+ *   `"setCapsulePhase" is not exported by fgsvc.js`（rollup 警告，不报错）。
+ */
+export function setCapsulePhase(phase) {
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.setCapsulePhase === 'function') return !!fgs.setCapsulePhase(phase === 'rest' ? 'rest' : 'focus');
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
 /* ==================== 休闲提醒后台检测（LeisureGuard） ====================
  *
  * 多邻国式提醒的「真·后台」一腿：即使 App 关着、用户在抖音里，也能周期检测
