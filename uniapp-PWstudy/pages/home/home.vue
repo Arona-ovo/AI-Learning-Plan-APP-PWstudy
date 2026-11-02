@@ -678,14 +678,14 @@
 
           <view class="fc-row">
             <view class="fc-info">
-              <text class="fc-title">{{ $t('灵动岛') }}</text>
+              <text class="fc-title">{{ $t('悬浮胶囊') }}</text>
               <text class="fc-sub">{{ $t('退到别的 App 时显示专注倒计时') }}</text>
             </view>
             <view class="fc-switch" :class="{ 'fc-on': capsuleOn }" @tap="tapCapsule">
               <view class="fc-knob" :class="{ 'fc-knob-on': capsuleOn }"></view>
             </view>
           </view>
-          <view v-if="capsuleOn && !capsuleOk" class="fc-warn" @tap="openCapsulePerm">{{ $t('灵动岛需开启「显示在其他应用上层」') }}</view>
+          <view v-if="capsuleOn && !capsuleOk" class="fc-warn" @tap="openCapsulePerm">{{ $t('悬浮胶囊需开启「显示在其他应用上层」') }}</view>
 
           <!-- 悬浮形态三选一：胶囊（顶部药丸）/ 小球（可拖动）/ 圆环（进度环，可拖动） -->
           <view v-if="capsuleOn" class="fc-style">
@@ -2786,7 +2786,7 @@ export default {
         this.capsuleOk = apptime.canDrawOverlays()
         // 悬浮窗是胶囊的准入条件：没开就直接给路去授权
         if (!this.capsuleOk) {
-          uni.showToast({ title: this.$t('灵动岛需开启「显示在其他应用上层」'), icon: 'none' })
+          uni.showToast({ title: this.$t('悬浮胶囊需开启「显示在其他应用上层」'), icon: 'none' })
           setTimeout(() => this.openCapsulePerm(), 900)
         }
       } else {

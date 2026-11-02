@@ -705,7 +705,7 @@
       <view class="sec-body" v-if="openSec === 'capsule'">
         <view class="row">
           <view class="row-main">
-            <text class="row-title">{{ $t('灵动岛倒计时') }}</text>
+            <text class="row-title">{{ $t('胶囊倒计时') }}</text>
             <text class="row-desc">{{ $t('退到别的 App 时，屏幕上方悬浮专注倒计时，点一下回到 PWstudy') }}</text>
           </view>
           <switch :checked="capsuleOn" :color="brandMain" @change="e => setCapsule('on', e.detail.value)" />

@@ -50,7 +50,6 @@ import ViewGroup from 'android.view.ViewGroup';
 import Gravity from 'android.view.Gravity';
 import Color from 'android.graphics.Color';
 import PixelFormat from 'android.graphics.PixelFormat';
-import GradientDrawable from 'android.graphics.drawable.GradientDrawable';
 import Paint from 'android.graphics.Paint';
 import Canvas from 'android.graphics.Canvas';
 import RectF from 'android.graphics.RectF';
@@ -967,15 +966,19 @@ let capsuleY: Int = 0;               // 小球/圆环当前绝对 y（px）
 
 class CapsuleView extends TextView {
   private mode: string;
+  private diaW: Int;      // 目标绘制宽（px）：窗口被 ROM 撑大时仍按这个尺寸画
+  private diaH: Int;      // 目标绘制高（px）
   private downRawX: Float = 0.0.toFloat();
   private downRawY: Float = 0.0.toFloat();
   private downLPX: Int = 0;
   private downLPY: Int = 0;
   private dragging: Boolean = false;
 
-  constructor(ctx: Context, mode: string) {
+  constructor(ctx: Context, mode: string, w: Int, h: Int) {
     super(ctx);
     this.mode = mode;
+    this.diaW = w;
+    this.diaH = h;
   }
 
   override onTouchEvent(event: MotionEvent): boolean {
@@ -1028,12 +1031,88 @@ class CapsuleView extends TextView {
     } catch (e) {}
   }
 
-  // 圆环形态：先画进度环，再画文字（文字落在环中央）
+  // 背景 + 倒计时文字全部自绘（不调 super.onDraw，也不用 View 的 background）
   override onDraw(canvas: Canvas): void {
-    if (this.mode == 'ring') {
-      drawRing(canvas);
+    try { this.drawCapsule(canvas) } catch (e) {}
+  }
+
+  /**
+   * 自绘整个胶囊：背景（药丸/圆球/圆环）+ 中央倒计时文字。
+   *
+   * ★ 2026-11-02 真机实测（用户截图）：**悬浮窗请求的 width/height 会被 ROM 忽略，
+   *   实际画布是全屏大小** —— 于是"按画布中心画圆"变成一个盖住半个桌面的半透明大圆盘
+   *   （300dp+ 的盘子，用户原话"这么大一个"）。固定 dp 只是让 lp 值确定，管不住画布。
+   *   所以这里**完全不信画布尺寸**：一律按 diaW×diaH（dp × 密度 × 档位，确定性像素）
+   *   从画布左上角 (0,0) 画。
+   *   · 窗口尺寸被正常尊重时：画布恰好 = diaW×diaH，等同于铺满，观感不变；
+   *   · 窗口被撑成全屏时：胶囊仍只占自己那一小块，位置由窗口的 x/y 决定。
+   */
+  private drawCapsule(canvas: Canvas): void {
+    let w = this.diaW.toFloat()
+    let h = this.diaH.toFloat()
+    if (w <= 0.0.toFloat() || h <= 0.0.toFloat()) return
+    let cx = w / 2.0.toFloat()
+    let cy = h / 2.0.toFloat()
+    let r = (Math.min(w, h) / 2.0.toFloat() - 1.0.toFloat()).toFloat()
+
+    if (this.mode == 'pill') {
+      let bg = new Paint()
+      bg.setStyle(Paint.Style.FILL)
+      bg.setColor(capsuleSolidBg())
+      bg.setAntiAlias(true)
+      let rad = h / 2.0.toFloat()
+      canvas.drawRoundRect(new RectF(0.0.toFloat(), 0.0.toFloat(), w, h), rad, rad, bg)
+    } else if (this.mode == 'ball') {
+      let bg = new Paint()
+      bg.setStyle(Paint.Style.FILL)
+      bg.setColor(capsuleSolidBg())
+      bg.setAntiAlias(true)
+      canvas.drawCircle(cx, cy, r, bg)
+    } else {
+      // ring：半透明圆底（任意壁纸上文字都可读）+ 轨道环 + 品牌红进度弧
+      let fill = new Paint()
+      fill.setStyle(Paint.Style.FILL)
+      fill.setColor(capsuleRingFillCol())
+      fill.setAntiAlias(true)
+      canvas.drawCircle(cx, cy, r, fill)
+
+      let sw = capsuleRingStroke()
+      let ir = r - sw / 2.0.toFloat()
+      let bg = new Paint()
+      bg.setStyle(Paint.Style.STROKE)
+      bg.setStrokeWidth(sw)
+      bg.setColor(capsuleRingBgCol())
+      bg.setAntiAlias(true)
+      canvas.drawCircle(cx, cy, ir, bg)
+
+      let total = capsuleTotalSec
+      if (total > 0) {
+        let remain = capsuleRemain
+        if (remain < 0) remain = 0
+        if (remain > total) remain = total
+        let ratio = 1 - remain / total          // 已过比例 0~1
+        let sweep = (-360.0 * ratio).toFloat()  // 负 = 逆时针消耗，视觉上从顶部顺时针走
+        let fg = new Paint()
+        fg.setStyle(Paint.Style.STROKE)
+        fg.setStrokeWidth(sw)
+        fg.setColor(Color.argb(255, 228, 23, 61))    // 品牌红 #e4173d
+        fg.setStrokeCap(Paint.Cap.ROUND)
+        fg.setAntiAlias(true)
+        canvas.drawArc(new RectF(cx - ir, cy - ir, cx + ir, cy + ir), -90.0.toFloat(), sweep, false, fg)
+      }
     }
-    super.onDraw(canvas);
+
+    // 中央文字：按可用宽度自动缩字（长前缀"已暂停 · 专注中 12:34"不许溢出被裁）
+    let p = new Paint()
+    p.setAntiAlias(true)
+    p.setColor(capsuleTextCol())
+    let want = capsuleTextPx()
+    p.setTextSize(want)
+    let maxW = w - 10.0.toFloat() * capsuleDensity()
+    let tw = p.measureText(capsuleText)
+    if (tw > maxW && tw > 0.0.toFloat()) p.setTextSize(want * maxW / tw)
+    let baseY = cy - (p.ascent() + p.descent()) / 2.0.toFloat()
+    canvas.drawText(capsuleText, cx - p.measureText(capsuleText) / 2.0.toFloat(), baseY, p)
   }
 }
 
@@ -1051,47 +1130,7 @@ function capsuleRingBgCol(): Int {
   return capsuleDark ? Color.argb(90, 255, 255, 255) : Color.argb(95, 70, 82, 96)
 }
 
-/** 圆环形态的进度环：背景环 + 品牌红进度弧（从顶部顺时针，长度 = 已过比例） */
-function drawRing(canvas: Canvas) {
-  try {
-    let w = canvas.getWidth().toFloat();
-    let h = canvas.getHeight().toFloat();
-    let cx = w / 2.0.toFloat();
-    let cy = h / 2.0.toFloat();
-    let r = (Math.min(w, h) / 2.0.toFloat() - 4.0.toFloat()).toFloat();
-
-    // 半透明圆底：让中央倒计时文字在任意壁纸上都可读（颜色随 capsuleDark）
-    let fill = new Paint();
-    fill.setStyle(Paint.Style.FILL);
-    fill.setColor(capsuleRingFillCol());
-    fill.setAntiAlias(true);
-    canvas.drawCircle(cx, cy, r + 2.0.toFloat(), fill);
-
-    let bg = new Paint();
-    bg.setStyle(Paint.Style.STROKE);
-    bg.setStrokeWidth(5.0.toFloat());
-    bg.setColor(capsuleRingBgCol());
-    bg.setAntiAlias(true);
-    canvas.drawCircle(cx, cy, r, bg);
-
-    let total = capsuleTotalSec;
-    if (total > 0) {
-      let remain = capsuleRemain;
-      if (remain < 0) remain = 0;
-      if (remain > total) remain = total;
-      let ratio = 1 - remain / total;               // 已过比例 0~1
-      let sweep = (-360.0 * ratio).toFloat();       // 负 = 逆时针消耗，视觉上从顶部顺时针走
-      let fg = new Paint();
-      fg.setStyle(Paint.Style.STROKE);
-      fg.setStrokeWidth(5.0.toFloat());
-      fg.setColor(Color.argb(255, 228, 23, 61));    // 品牌红 #e4173d
-      fg.setStrokeCap(Paint.Cap.ROUND);
-      fg.setAntiAlias(true);
-      let rect = new RectF(cx - r, cy - r, cx + r, cy + r);
-      canvas.drawArc(rect, -90.0.toFloat(), sweep, false, fg);
-    }
-  } catch (e) {}
-}
+/** 圆环形态的进度环已并入 CapsuleView.drawCapsule（自绘，按目标尺寸而不是画布尺寸） */
 
 // 原生每秒自转一次：App 在后台时 WebView 的 JS 计时器被系统挂起，胶囊倒计时会冻住；
 // 但进程因为有前台服务还活着，主线程 Handler 能继续跑 —— 所以倒计时交给原生自己数。
@@ -1105,11 +1144,10 @@ class CapsuleTickTask implements Runnable {
       try {
         // 圆环 / 小球：中央只放 mm:ss（"专注中 " 前缀太长，小球装不下会溢出被裁），药丸照常带前缀
         let txt = capsuleStyle == 'pill' ? (capsuleLabel + capsuleMmss(remain)) : capsuleMmss(remain);
+        capsuleText = txt;              // 自绘读的是这个字段（见 drawCapsule）
         capsuleView!.setText(txt);
+        capsuleView!.invalidate();      // 三种形态都是自绘，每秒都要重画
       } catch (e) {}
-      if (capsuleStyle == 'ring') {
-        try { capsuleView!.invalidate(); } catch (e) {}   // 进度弧每秒重画
-      }
     }
     if (capsuleWanted) mainHandler!.postDelayed(new CapsuleTickTask(), 1000);
   }
@@ -1131,13 +1169,14 @@ function capsuleMmss(sec: number): string {
 }
 
 /**
- * 计算胶囊的固定像素尺寸与窗口参数。
+ * 胶囊尺寸：dp × 屏幕密度 × 尺寸档 → 真实像素。
  *
- * 为什么固定像素：2026-11-01 真机复现两轮（Mate 50 Pro / Android 12）——
+ * 2026-11-01 真机复现两轮（Mate 50 Pro / Android 12）——
  *   ① 悬浮窗上写 WRAP_CONTENT 会被 ROM 当成 MATCH_PARENT，胶囊占满整屏；
  *   ② 改成 Paint.measureText 实测文本宽 + 显式像素，真机仍被算成全屏。
- * 所以最终用固定 dp：pill = 200dp×46dp、ball = 56dp、ring = 64dp，
- * 是完全确定性的像素值，不依赖系统对尺寸（-2 或动态量宽）的任何推断。
+ * 所以尺寸一律用**确定性像素**：pill = 200dp×46dp、ball = 56dp、ring = 72dp。
+ * ⚠️ 2026-11-02 补：这一版把 `× density` 漏掉了（拿 dp 当 px 用），3 倍屏上只有 1/3 大；
+ *    现在密度回来了。更关键的是绘制侧也不再信画布尺寸（见 CapsuleView.drawCapsule）。
  */
 function capsuleFactor(): Float {
   if (capsuleSize == 'compact') return 0.82.toFloat()
@@ -1145,13 +1184,38 @@ function capsuleFactor(): Float {
   return 1.0.toFloat()
 }
 
-/** dp 按尺寸档缩放（固定像素，避免 ROM 把 WRAP_CONTENT 当全屏） */
-function capsuleDp(base: Int): Int {
-  return ((Math.round(base.toFloat() * capsuleFactor())) as Number).toInt()
+/** 屏幕密度（px = dp × density）。拿不到就按 3 倍兜底 */
+function capsuleDensity(): Float {
+  let ctx = UTSAndroid.getAppContext()
+  if (ctx == null) return 3.0.toFloat()
+  return ctx!.getResources().getDisplayMetrics().density
 }
 
-function capsuleTextSize(): Float {
-  return (15.0 * capsuleFactor()).toFloat()
+/** dp → px（含尺寸档） */
+function capsuleDp(base: Int): Int {
+  return ((Math.round(base.toFloat() * capsuleFactor() * capsuleDensity())) as Number).toInt()
+}
+
+/** 字号 px（15sp × 尺寸档） */
+function capsuleTextPx(): Float {
+  let ctx = UTSAndroid.getAppContext()
+  let sd = ctx == null ? 3.0.toFloat() : ctx!.getResources().getDisplayMetrics().scaledDensity
+  return 15.0.toFloat() * capsuleFactor() * sd
+}
+
+/** 环线宽：2dp（原来死写 5px，3 倍屏上细得像头发丝） */
+function capsuleRingStroke(): Float {
+  return 2.0.toFloat() * capsuleDensity()
+}
+
+/** 胶囊目标宽/高（px）：pill 200×46、ball 56、ring 72，再乘尺寸档 */
+function capsuleWidthPx(style: string): Int {
+  if (style == 'pill') return capsuleDp(200)
+  return capsuleDp(style == 'ring' ? 72 : 56)
+}
+function capsuleHeightPx(style: string): Int {
+  if (style == 'pill') return capsuleDp(46)
+  return capsuleWidthPx(style)
 }
 
 function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams {
@@ -1161,7 +1225,7 @@ function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams 
 
   if (style == 'ball' || style == 'ring') {
     // 圆形：ball 56dp、ring 72dp（圆环要更大环面才看得清），再乘尺寸档系数
-    let dia = capsuleDp(style == 'ring' ? 72 : 56)
+    let dia = capsuleWidthPx(style)
     // 位置：优先记忆位置（拖过）；没有再按 capsulePos 选默认角（避开状态栏/底栏）
     if (capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
       let m = ((16 * dm.density) as Number).toInt()
@@ -1182,11 +1246,9 @@ function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams 
     return lp
   }
 
-  // pill：顶部居中固定宽药丸（200dp×46dp × 尺寸档），文字居中单行。
-  // ★ 为什么固定像素：2026-11-01 真机复现两轮 —— 先 WRAP_CONTENT、再 Paint.measureText
-  //   动态量宽，都仍被 ROM 算成占满整屏。固定 dp 是确定性像素，完全不依赖系统对尺寸的推断。
-  let w = capsuleDp(200)
-  let h = capsuleDp(46)
+  // pill：顶部居中固定宽药丸（200dp×46dp × 尺寸档），文字单行居中（自绘）。
+  let w = capsuleWidthPx('pill')
+  let h = capsuleHeightPx('pill')
   let lp = new WindowManager.LayoutParams(w, h)
   lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
   lp.format = PixelFormat.TRANSLUCENT
@@ -1203,27 +1265,10 @@ function applyCapsule(ctx: Context | null) {
     if (!canDrawOverlays(ctx!)) { capsuleWanted = false; return; }
     try {
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-      let v = new CapsuleView(ctx!, capsuleStyle)
+      // 背景/文字全部自绘（见 CapsuleView.drawCapsule）：
+      // ★ 不能再给 view 设 background —— ROM 把窗口撑成全屏时，drawable 会铺满整个屏幕。
+      let v = new CapsuleView(ctx!, capsuleStyle, capsuleWidthPx(capsuleStyle), capsuleHeightPx(capsuleStyle))
       v.setText(capsuleText)
-      v.setTextSize(capsuleTextSize())
-      v.setTextColor(capsuleTextCol())
-      if (capsuleStyle == 'ball') {
-        let bg = new GradientDrawable()
-        bg.setColor(capsuleSolidBg())
-        bg.setShape(GradientDrawable.OVAL)
-        v.setBackground(bg)
-      } else if (capsuleStyle == 'pill') {
-        let bg = new GradientDrawable()
-        bg.setColor(capsuleSolidBg())
-        bg.setCornerRadius(999.0.toFloat())
-        v.setBackground(bg)
-      }
-      // ring：不设背景，圆底 + 环都由 drawRing 画
-      v.setGravity(Gravity.CENTER)
-      if (capsuleStyle == 'pill') {
-        v.setPadding(34, 12, 34, 12)
-        v.setSingleLine(true)   // 固定宽下长前缀（"已暂停 · 专注中 "）不许换行撑破胶囊
-      }
       // ★ 固定像素尺寸（见 capsuleLayout 注释）：悬浮窗上 WRAP_CONTENT 会被当成 MATCH_PARENT
       let lp = capsuleLayout(ctx!, capsuleStyle)
       wm.addView(v, lp)
@@ -1248,10 +1293,10 @@ function applyCapsule(ctx: Context | null) {
     capsuleWM = null
     capsuleLP = null
   } else if (capsuleWanted && capsuleView != null) {
-    // 刷新文案 + 重排宽度：暂停前缀（"已暂停 · 专注中 "）比纯倒计时宽，宽度得自己管
-    // （WRAP_CONTENT 不可靠）。mm:ss 每秒变由原生 tick 直接 setText，不经过这里。
+    // 刷新文案 + 重排窗口（形态/尺寸/配色变了会先 reapply 重建，这里只处理位置与文案）
     try {
       capsuleView!.setText(capsuleText)
+      capsuleView!.invalidate()
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
       let lp = capsuleLayout(ctx!, capsuleStyle)
       capsuleLP = lp
@@ -1295,14 +1340,17 @@ function saveCapsulePos(x: Int, y: Int) {
   } catch (e) {}
 }
 
-/** 挂球/环前：先看有没有记忆位置。读到（>=0）就填进 capsuleX/Y 并返回 true */
+/** 挂球/环前：先看有没有记忆位置。读到有效坐标就填进 capsuleX/Y 并返回 true */
 function restoreCapsulePos(): boolean {
   try {
     let p = capsuleSp();
     if (p == null) return false;
     let x = p.getInt('x', -1);
     let y = p.getInt('y', -1);
-    if (x >= 0 && y >= 0) {
+    // ★ 2026-11-02：(0,0) 当无效 —— 贴死屏幕左上角没有边距，观感很差；
+    //   而且旧版本可能落过 0/0（窗口被撑成全屏时拖动的坐标就是窗口偏移），
+    //   一旦读回来，胶囊会永远钉在角落里，用户怎么改「默认位置」都不生效。
+    if (x > 0 && y > 0) {
       capsuleX = x;
       capsuleY = y;
       return true;

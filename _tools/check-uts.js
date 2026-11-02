@@ -621,8 +621,16 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   else bad('胶囊没走 capsuleLayout/capsuleDp 固定像素 —— WRAP_CONTENT / measureText 动态量宽都会在真机被 ROM 算成全屏');
   if (!/ViewGroup\.LayoutParams\.WRAP_CONTENT/.test(utsSrc)) ok('全文件没有 ViewGroup.LayoutParams.WRAP_CONTENT（悬浮窗上不可靠，一律显式尺寸）');
   else bad('又出现 ViewGroup.LayoutParams.WRAP_CONTENT —— 悬浮窗上会被 ROM 当成 MATCH_PARENT，胶囊占满整屏');
-  if (!/measureText/.test(utsSrc)) ok('胶囊不再用 Paint.measureText 动态量宽（真机复现：动态量宽仍被 ROM 算成全屏）');
-  else bad('胶囊又用 Paint.measureText 动态量宽 —— 真机复现会占满整屏，改固定 dp');
+  //      12.13 布局侧不许用 measureText 量宽（真机复现：动态量宽仍被 ROM 算成全屏）。
+  //      ⚠️ 2026-11-02：自绘文字按可用宽度自动缩字也会用 measureText —— 那是画字，不是量窗口，
+  //      所以这条从"全文件禁止"收窄成"capsuleLayout 里禁止"，否则真修复反而被判红。
+  const layoutFn = (utsSrc.match(/function capsuleLayout\([\s\S]*?\n\}/) || [''])[0];
+  if (!/measureText/.test(layoutFn)) ok('capsuleLayout 里没用 measureText 动态量宽（窗口尺寸只走固定 dp）');
+  else bad('capsuleLayout 又用 measureText 动态量宽 —— 真机复现会占满整屏，改固定 dp');
+  //      12.14 自绘必须按目标尺寸画，不许信画布尺寸（2026-11-02 用户截图：画布被 ROM 撑成全屏，
+  //      按 canvas 中心画圆 = 占半个桌面的半透明大盘子）。这条钉住 drawCapsule 的存在与锚点。
+  if (/private drawCapsule\(canvas: Canvas\)/.test(utsSrc) && /this\.diaW\.toFloat\(\)/.test(utsSrc) && /new RectF\(0\.0\.toFloat\(\), 0\.0\.toFloat\(\), w, h\)/.test(utsSrc)) ok('胶囊自绘按 diaW×diaH 从画布左上角画（不信画布尺寸 → 窗口被撑成全屏也不会变大盘子）');
+  else bad('胶囊绘制又在用画布尺寸定位 —— ROM 把悬浮窗撑成全屏时会画成一个盖住桌面的大圆盘');
   // 12.12 胶囊形态三选一（2026-11-01 用户提"系统胶囊调不了，做成圈/小球可选"）：
   //      setCapsuleStyle 必须在 interface/index 都声明（不声明 = JS 调不到，形态永远退成 pill）
   if (/export function setCapsuleStyle\s*\(/.test(iface) && /export function setCapsuleStyle\s*\(/.test(uts)) ok('setCapsuleStyle 在 interface/index 都声明（形态可选）');
