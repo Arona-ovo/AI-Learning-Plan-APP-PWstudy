@@ -729,6 +729,45 @@
               <text class="cap-desc">{{ $t('环形进度，可拖动') }}</text>
             </view>
           </view>
+          <text class="cap-label">{{ $t('尺寸') }}</text>
+          <view class="cap-opts">
+            <view class="cap-opt" :class="{ 'cap-on': capsuleSize === 'compact' }" @tap="setCapsule('size', 'compact')">
+              <text class="cap-name">{{ $t('紧凑') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsuleSize === 'standard' }" @tap="setCapsule('size', 'standard')">
+              <text class="cap-name">{{ $t('标准') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsuleSize === 'large' }" @tap="setCapsule('size', 'large')">
+              <text class="cap-name">{{ $t('大') }}</text>
+            </view>
+          </view>
+          <text class="cap-label">{{ $t('配色') }}</text>
+          <view class="cap-opts">
+            <view class="cap-opt" :class="{ 'cap-on': capsuleTheme === 'auto' }" @tap="setCapsule('theme', 'auto')">
+              <text class="cap-name">{{ $t('跟随主题') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsuleTheme === 'dark' }" @tap="setCapsule('theme', 'dark')">
+              <text class="cap-name">{{ $t('深红') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsuleTheme === 'light' }" @tap="setCapsule('theme', 'light')">
+              <text class="cap-name">{{ $t('浅色') }}</text>
+            </view>
+          </view>
+          <text class="cap-label">{{ $t('默认位置') }}</text>
+          <view class="cap-opts">
+            <view class="cap-opt" :class="{ 'cap-on': capsulePos === 'tl' }" @tap="setCapsule('pos', 'tl')">
+              <text class="cap-name">{{ $t('左上') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsulePos === 'tr' }" @tap="setCapsule('pos', 'tr')">
+              <text class="cap-name">{{ $t('右上') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsulePos === 'bl' }" @tap="setCapsule('pos', 'bl')">
+              <text class="cap-name">{{ $t('左下') }}</text>
+            </view>
+            <view class="cap-opt" :class="{ 'cap-on': capsulePos === 'br' }" @tap="setCapsule('pos', 'br')">
+              <text class="cap-name">{{ $t('右下') }}</text>
+            </view>
+          </view>
         </view>
       </view>
     </view>
@@ -1165,6 +1204,9 @@ export default {
       // 悬浮胶囊：退后台的专注倒计时，形态三选一（pill 药丸 / ball 小球 / ring 圆环）
       capsuleOn: false,
       capsuleStyle: 'ball',
+      capsuleSize: 'standard',   // compact 紧凑 / standard 标准 / large 大
+      capsuleTheme: 'auto',      // auto 跟随 App 主题 / dark 经典深红 / light 浅底深字
+      capsulePos: 'tr',          // tl 左上 / tr 右上 / bl 左下 / br 右下（无拖动记忆时生效）
       darkOn: false,
       followSystem: false,
       systemDark: false,
@@ -1440,6 +1482,9 @@ export default {
       const f = settings.get().focus || {}
       this.capsuleOn = !!f.capsule
       this.capsuleStyle = f.capsuleStyle || 'pill'
+      this.capsuleSize = f.capsuleSize || 'standard'
+      this.capsuleTheme = f.capsuleTheme || 'auto'
+      this.capsulePos = f.capsulePos || 'tr'
     } catch (e) {}
   },
   methods: {
@@ -1458,19 +1503,31 @@ export default {
       this.openSec = this.openSec === k ? '' : k
     },
 
-    // 悬浮胶囊：开关 / 形态。写 settings（与首页同一份 focus 配置）并即时推原生
+    // 悬浮胶囊：开关 / 形态 / 尺寸 / 配色 / 停靠位。写 settings（与首页同一份 focus 配置）并即时推原生
     setCapsule(key, val) {
+      const map = { on: 'capsule', style: 'capsuleStyle', size: 'capsuleSize', theme: 'capsuleTheme', pos: 'capsulePos' }
+      const fkey = map[key] || key
       try {
         const st = settings.get()
-        st.focus = Object.assign({}, st.focus || {}, { [key === 'on' ? 'capsule' : 'capsuleStyle']: val })
+        st.focus = Object.assign({}, st.focus || {}, { [fkey]: val })
         settings.save()
       } catch (e) {}
       if (key === 'on') {
         this.capsuleOn = !!val
         if (!val) { try { fgsvc.capsuleHide() } catch (e) {} }
-      } else {
+      } else if (key === 'style') {
         this.capsuleStyle = val
         try { fgsvc.capsuleSetStyle(val) } catch (e) {}
+      } else if (key === 'size') {
+        this.capsuleSize = val
+        try { fgsvc.capsuleSetSize(val) } catch (e) {}
+      } else if (key === 'theme') {
+        this.capsuleTheme = val
+        const dark = val === 'dark' ? true : val === 'light' ? false : this.darkOn
+        try { fgsvc.capsuleSetDark(dark) } catch (e) {}
+      } else if (key === 'pos') {
+        this.capsulePos = val
+        try { fgsvc.capsuleSetPos(val) } catch (e) {}
       }
     },
 

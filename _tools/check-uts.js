@@ -617,8 +617,8 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   //      ROM（Mate 50 Pro / Android 12）当成 MATCH_PARENT，胶囊占满整屏；改 Paint.measureText
   //      动态量宽，真机仍被算成全屏。最终方案：pill 固定 dp、ball/ring 固定直径，
   //      完全不依赖系统对尺寸的任何推断 —— 那是"编译能过、真机才炸"的静默坑。
-  if (/function capsuleLayout\(/.test(utsSrc) && /200 \* dm\.density/.test(utsSrc)) ok('胶囊尺寸走 capsuleLayout 固定像素（200dp 药丸 + 固定直径球/环）');
-  else bad('胶囊没走 capsuleLayout 固定像素 —— WRAP_CONTENT / measureText 动态量宽都会在真机被 ROM 算成全屏');
+  if (/function capsuleLayout\(/.test(utsSrc) && /capsuleDp\(200\)/.test(utsSrc) && /capsuleDp\(46\)/.test(utsSrc)) ok('胶囊尺寸走 capsuleLayout + capsuleDp 固定像素（200×46 药丸 + 固定直径球/环，×尺寸档系数）');
+  else bad('胶囊没走 capsuleLayout/capsuleDp 固定像素 —— WRAP_CONTENT / measureText 动态量宽都会在真机被 ROM 算成全屏');
   if (!/ViewGroup\.LayoutParams\.WRAP_CONTENT/.test(utsSrc)) ok('全文件没有 ViewGroup.LayoutParams.WRAP_CONTENT（悬浮窗上不可靠，一律显式尺寸）');
   else bad('又出现 ViewGroup.LayoutParams.WRAP_CONTENT —— 悬浮窗上会被 ROM 当成 MATCH_PARENT，胶囊占满整屏');
   if (!/measureText/.test(utsSrc)) ok('胶囊不再用 Paint.measureText 动态量宽（真机复现：动态量宽仍被 ROM 算成全屏）');

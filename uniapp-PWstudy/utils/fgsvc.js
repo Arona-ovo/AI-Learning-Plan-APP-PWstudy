@@ -603,6 +603,36 @@ export function capsuleSetStyle(style) {
   return false;
 }
 
+/** 设胶囊尺寸档：compact / standard / large。 */
+export function capsuleSetSize(size) {
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.setCapsuleSize === 'function') return !!fgs.setCapsuleSize(String(size || 'standard'));
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 设胶囊深/浅底：true 深底白字（经典深红）/ false 浅底深字（配色跟主题）。 */
+export function capsuleSetDark(dark) {
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.setCapsuleDark === 'function') return !!fgs.setCapsuleDark(!!dark);
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/** 设默认停靠角：tl / tr / bl / br（无拖动记忆时生效）。 */
+export function capsuleSetPos(pos) {
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.setCapsulePos === 'function') return !!fgs.setCapsulePos(String(pos || 'tr'));
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
 /* ==================== 休闲提醒后台检测（LeisureGuard） ====================
  *
  * 多邻国式提醒的「真·后台」一腿：即使 App 关着、用户在抖音里，也能周期检测

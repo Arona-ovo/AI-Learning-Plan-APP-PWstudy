@@ -134,10 +134,10 @@ function isMissed(s) {
 
 function fcfg() {
   try {
-    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false, capsuleStyle: 'ball' },
+    return Object.assign({ notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false, capsuleStyle: 'ball', capsuleSize: 'standard', capsuleTheme: 'auto', capsulePos: 'tr' },
       (settings.get() && settings.get().focus) || {});
   } catch (e) {
-    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false, capsuleStyle: 'ball' };
+    return { notify: true, sound: true, vibe: true, wakeLock: false, strict: false, noise: '', blockNotif: false, autoRest: true, capsule: true, forced: false, capsuleStyle: 'ball', capsuleSize: 'standard', capsuleTheme: 'auto', capsulePos: 'tr' };
   }
 }
 
@@ -179,6 +179,9 @@ function ongoingPair() {
 
 let capsuleShown = false;   // 上次实际想要的状态：避免每秒都重挂 / 重撤
 let capsuleStyleApplied = null;   // 上次同步给原生的形态：变了才推一次（避免每拍都过桥）
+let capsuleSizeApplied = null;    // 上次同步给原生的尺寸档
+let capsuleDarkApplied = null;    // 上次同步给原生的深/浅底
+let capsulePosApplied = null;     // 上次同步给原生的默认停靠角
 
 /**
  * 算出胶囊该显示的 { txt, label, endAt, totalSec }：
@@ -233,6 +236,26 @@ export function syncCapsule() {
     if (capsuleStyleApplied !== style) {
       capsuleStyleApplied = style;
       try { fgsvc.capsuleSetStyle(style); } catch (e) {}
+    }
+    // 尺寸档：变了才推一次（原生已挂则就地撤重挂）
+    const size = c.capsuleSize || 'standard';
+    if (capsuleSizeApplied !== size) {
+      capsuleSizeApplied = size;
+      try { fgsvc.capsuleSetSize(size); } catch (e) {}
+    }
+    // 配色：auto=跟随 App 主题（读 theme.dark）/ dark=经典深红 / light=浅底深字
+    const theme = c.capsuleTheme || 'auto';
+    const dark = theme === 'dark' ? true : theme === 'light' ? false
+      : !!(settings.get() && settings.get().theme && settings.get().theme.dark);
+    if (capsuleDarkApplied !== dark) {
+      capsuleDarkApplied = dark;
+      try { fgsvc.capsuleSetDark(dark); } catch (e) {}
+    }
+    // 默认停靠角：变了才推一次
+    const pos = c.capsulePos || 'tr';
+    if (capsulePosApplied !== pos) {
+      capsulePosApplied = pos;
+      try { fgsvc.capsuleSetPos(pos); } catch (e) {}
     }
     // ★ 阶段始终同步给原生：哪怕这一拍胶囊不显示（休息阶段就不显示），
     //   原生 seen() 也要靠它判断"休息中退出不算逃逸、不弹胶囊、不拉回"

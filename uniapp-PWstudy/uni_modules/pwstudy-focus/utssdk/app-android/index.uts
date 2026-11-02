@@ -955,6 +955,9 @@ let capsuleEndAt = 0;   // 倒计时终点（ms）；0 = 不自转（暂停 / �
 let capsuleLabel = '';  // 阶段前缀（"专注中 " / "休息中 "），原生每秒拼上剩余时间
 let capsulePhase = 'focus';  // 'focus' | 'rest'：休息阶段 seen() 据此跳过拦截（见 seen）
 let capsuleStyle: string = 'ball';   // 'pill' 顶部药丸 | 'ball' 可拖动小球 | 'ring' 圆环进度
+let capsuleSize: string = 'standard';   // 'compact' 紧凑 | 'standard' 标准 | 'large' 大
+let capsuleDark: boolean = true;        // true=深底白字（经典深红）/ false=浅底深字（配色跟主题用）
+let capsulePos: string = 'tr';          // 'tl'|'tr'|'bl'|'br' 无拖动记忆时的默认停靠角
 let capsuleTotalSec: number = 0;     // 本轮总时长（秒），圆环画进度用
 let capsuleRemain: number = 0;       // 当前剩余秒（原生 tick 更新，圆环 onDraw 读）
 let capsuleWM: WindowManager | null = null;        // 挂胶囊时记下（拖动 updateViewLayout 用）
@@ -1034,6 +1037,20 @@ class CapsuleView extends TextView {
   }
 }
 
+/** 胶囊配色：capsuleDark=true 深底白字（经典深红）/ false 浅底深字（配色跟主题用） */
+function capsuleSolidBg(): Int {
+  return capsuleDark ? Color.argb(232, 23, 25, 38) : Color.argb(232, 235, 244, 247)
+}
+function capsuleTextCol(): Int {
+  return capsuleDark ? Color.WHITE : Color.argb(255, 30, 36, 46)
+}
+function capsuleRingFillCol(): Int {
+  return capsuleDark ? Color.argb(200, 23, 25, 38) : Color.argb(205, 238, 246, 250)
+}
+function capsuleRingBgCol(): Int {
+  return capsuleDark ? Color.argb(90, 255, 255, 255) : Color.argb(95, 70, 82, 96)
+}
+
 /** 圆环形态的进度环：背景环 + 品牌红进度弧（从顶部顺时针，长度 = 已过比例） */
 function drawRing(canvas: Canvas) {
   try {
@@ -1043,17 +1060,17 @@ function drawRing(canvas: Canvas) {
     let cy = h / 2.0.toFloat();
     let r = (Math.min(w, h) / 2.0.toFloat() - 4.0.toFloat()).toFloat();
 
-    // 半透明圆底：让中央倒计时文字在任意壁纸上都可读
+    // 半透明圆底：让中央倒计时文字在任意壁纸上都可读（颜色随 capsuleDark）
     let fill = new Paint();
     fill.setStyle(Paint.Style.FILL);
-    fill.setColor(Color.argb(200, 23, 25, 38));
+    fill.setColor(capsuleRingFillCol());
     fill.setAntiAlias(true);
     canvas.drawCircle(cx, cy, r + 2.0.toFloat(), fill);
 
     let bg = new Paint();
     bg.setStyle(Paint.Style.STROKE);
-    bg.setStrokeWidth(4.0.toFloat());
-    bg.setColor(Color.argb(90, 255, 255, 255));
+    bg.setStrokeWidth(5.0.toFloat());
+    bg.setColor(capsuleRingBgCol());
     bg.setAntiAlias(true);
     canvas.drawCircle(cx, cy, r, bg);
 
@@ -1066,7 +1083,7 @@ function drawRing(canvas: Canvas) {
       let sweep = (-360.0 * ratio).toFloat();       // 负 = 逆时针消耗，视觉上从顶部顺时针走
       let fg = new Paint();
       fg.setStyle(Paint.Style.STROKE);
-      fg.setStrokeWidth(4.0.toFloat());
+      fg.setStrokeWidth(5.0.toFloat());
       fg.setColor(Color.argb(255, 228, 23, 61));    // 品牌红 #e4173d
       fg.setStrokeCap(Paint.Cap.ROUND);
       fg.setAntiAlias(true);
@@ -1086,8 +1103,8 @@ class CapsuleTickTask implements Runnable {
       if (remain < 0) remain = 0;
       capsuleRemain = remain;
       try {
-        // 圆环形态：中央只放 mm:ss（"专注中 " 前缀太长，装不进小球），药丸/小球照常带前缀
-        let txt = capsuleStyle == 'ring' ? capsuleMmss(remain) : (capsuleLabel + capsuleMmss(remain));
+        // 圆环 / 小球：中央只放 mm:ss（"专注中 " 前缀太长，小球装不下会溢出被裁），药丸照常带前缀
+        let txt = capsuleStyle == 'pill' ? (capsuleLabel + capsuleMmss(remain)) : capsuleMmss(remain);
         capsuleView!.setText(txt);
       } catch (e) {}
       if (capsuleStyle == 'ring') {
@@ -1122,19 +1139,38 @@ function capsuleMmss(sec: number): string {
  * 所以最终用固定 dp：pill = 200dp×46dp、ball = 56dp、ring = 64dp，
  * 是完全确定性的像素值，不依赖系统对尺寸（-2 或动态量宽）的任何推断。
  */
+function capsuleFactor(): Float {
+  if (capsuleSize == 'compact') return 0.82.toFloat()
+  if (capsuleSize == 'large') return 1.28.toFloat()
+  return 1.0.toFloat()
+}
+
+/** dp 按尺寸档缩放（固定像素，避免 ROM 把 WRAP_CONTENT 当全屏） */
+function capsuleDp(base: Int): Int {
+  return ((Math.round(base.toFloat() * capsuleFactor())) as Number).toInt()
+}
+
+function capsuleTextSize(): Float {
+  return (15.0 * capsuleFactor()).toFloat()
+}
+
 function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams {
   let dm = ctx.getResources().getDisplayMetrics()
   // 非阻塞：不抢焦点（NOT_FOCUSABLE）+ 窗口外点击透传（NOT_TOUCH_MODAL）—— 三种形态都要
   let baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
 
   if (style == 'ball' || style == 'ring') {
-    // 圆形：ball 56dp，ring 64dp（圆环需要更大的环面）
-    let diaDp: Int = style == 'ring' ? 64 : 56
-    let dia = ((diaDp * dm.density) as Number).toInt()
-    // 位置：优先记忆位置（上次拖过）；没有再算默认（贴右边、垂直 55% 处，避开状态栏和底栏）
+    // 圆形：ball 56dp、ring 72dp（圆环要更大环面才看得清），再乘尺寸档系数
+    let dia = capsuleDp(style == 'ring' ? 72 : 56)
+    // 位置：优先记忆位置（拖过）；没有再按 capsulePos 选默认角（避开状态栏/底栏）
     if (capsuleX <= 0 && capsuleY <= 0 && !restoreCapsulePos()) {
-      capsuleX = dm.widthPixels - dia - ((16 * dm.density) as Number).toInt()
-      capsuleY = ((dm.heightPixels * 0.55) as Number).toInt()
+      let m = ((16 * dm.density) as Number).toInt()
+      let topY = ((84 * dm.density) as Number).toInt()
+      let botY = dm.heightPixels - dia - ((84 * dm.density) as Number).toInt()
+      if (capsulePos == 'tl') { capsuleX = m; capsuleY = topY }
+      else if (capsulePos == 'tr') { capsuleX = dm.widthPixels - dia - m; capsuleY = topY }
+      else if (capsulePos == 'bl') { capsuleX = m; capsuleY = botY }
+      else { capsuleX = dm.widthPixels - dia - m; capsuleY = botY }
     }
     let lp = new WindowManager.LayoutParams(dia, dia)
     lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
@@ -1146,11 +1182,11 @@ function capsuleLayout(ctx: Context, style: string): WindowManager.LayoutParams 
     return lp
   }
 
-  // pill：顶部居中固定宽药丸（200dp × 46dp），文字居中单行。
+  // pill：顶部居中固定宽药丸（200dp×46dp × 尺寸档），文字居中单行。
   // ★ 为什么固定像素：2026-11-01 真机复现两轮 —— 先 WRAP_CONTENT、再 Paint.measureText
   //   动态量宽，都仍被 ROM 算成占满整屏。固定 dp 是确定性像素，完全不依赖系统对尺寸的推断。
-  let w = ((200 * dm.density) as Number).toInt()
-  let h = ((46 * dm.density) as Number).toInt()
+  let w = capsuleDp(200)
+  let h = capsuleDp(46)
   let lp = new WindowManager.LayoutParams(w, h)
   lp.type = Build.VERSION.SDK_INT >= 26 ? WINDOW_TYPE_OVERLAY : WINDOW_TYPE_PHONE
   lp.format = PixelFormat.TRANSLUCENT
@@ -1169,16 +1205,16 @@ function applyCapsule(ctx: Context | null) {
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
       let v = new CapsuleView(ctx!, capsuleStyle)
       v.setText(capsuleText)
-      v.setTextSize(15.0.toFloat())
-      v.setTextColor(Color.WHITE)
+      v.setTextSize(capsuleTextSize())
+      v.setTextColor(capsuleTextCol())
       if (capsuleStyle == 'ball') {
         let bg = new GradientDrawable()
-        bg.setColor(Color.argb(232, 23, 25, 38))
+        bg.setColor(capsuleSolidBg())
         bg.setShape(GradientDrawable.OVAL)
         v.setBackground(bg)
       } else if (capsuleStyle == 'pill') {
         let bg = new GradientDrawable()
-        bg.setColor(Color.argb(232, 23, 25, 38))
+        bg.setColor(capsuleSolidBg())
         bg.setCornerRadius(999.0.toFloat())
         v.setBackground(bg)
       }
@@ -1319,25 +1355,52 @@ export function setCapsulePhase(phase: string): boolean {
  * 非法值一律回落 'pill'。持久化；已挂且形态变化时先撤再重挂（背景/尺寸/位置都不同，
  * 就地 updateViewLayout 换不干净）。
  */
+/** 已挂时撤掉重挂（背景/尺寸/颜色/位置都变了，就地 updateViewLayout 换不干净） */
+function reapplyCapsule() {
+  if (capsuleView == null) return;
+  let old = capsuleView;
+  capsuleView = null;
+  try { if (capsuleWM != null) capsuleWM!.removeView(old!); } catch (e) {}
+  capsuleWM = null;
+  capsuleLP = null;
+  if (capsuleWanted) uiPost(new CapsuleApplyTask());
+}
+
+/**
+ * 设胶囊形态：'pill'（顶部药丸，默认）/ 'ball'（可拖动小球）/ 'ring'（圆环进度，可拖动）。
+ * 非法值一律回落 'pill'。持久化；已挂且形态变化时先撤再重挂。
+ */
 export function setCapsuleStyle(style: string): boolean {
   let s = (style == 'ball' || style == 'ring') ? style : 'pill';
   if (capsuleStyle != s) {
     capsuleStyle = s;
-    if (capsuleView != null) {
-      let old = capsuleView;
-      capsuleView = null;
-      try {
-        if (capsuleWM != null) capsuleWM!.removeView(old!);
-      } catch (e) {}
-      capsuleWM = null;
-      capsuleLP = null;
-      if (capsuleWanted) uiPost(new CapsuleApplyTask());
-    }
+    reapplyCapsule();
   }
   try {
     let p = capsuleSp();
     if (p != null) p.edit().putString('style', capsuleStyle).apply();
   } catch (e) {}
+  return true
+}
+
+/** 设胶囊尺寸档：'compact' 紧凑 / 'standard' 标准（默认）/ 'large' 大。已挂立即重排。 */
+export function setCapsuleSize(size: string): boolean {
+  let s = (size == 'compact' || size == 'large') ? size : 'standard';
+  if (capsuleSize != s) { capsuleSize = s; reapplyCapsule(); }
+  return true
+}
+
+/** 设胶囊深/浅底：true=深底白字（经典深红）/ false=浅底深字（配色跟主题用）。已挂立即重排。 */
+export function setCapsuleDark(dark: boolean): boolean {
+  let d = !!dark;
+  if (capsuleDark !== d) { capsuleDark = d; reapplyCapsule(); }
+  return true
+}
+
+/** 设默认停靠角（无拖动记忆时生效）：'tl'|'tr'|'bl'|'br'。已挂且无记忆时立即重排。 */
+export function setCapsulePos(pos: string): boolean {
+  let p = (pos == 'tl' || pos == 'tr' || pos == 'bl' || pos == 'br') ? pos : 'tr';
+  if (capsulePos != p) { capsulePos = p; reapplyCapsule(); }
   return true
 }
 

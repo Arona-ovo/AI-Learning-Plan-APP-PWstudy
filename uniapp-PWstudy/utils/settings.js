@@ -176,7 +176,13 @@ function defaults() {
       // 胶囊形态（2026-11-01 用户提"系统胶囊调不了，弄成圈/小球可选"）：
       //   'pill' 顶部药丸（默认）｜'ball' 可拖动小球｜'ring' 圆环进度（可拖动）。
       //   三种都能点一下回前台；ball/ring 长按拖动、松手记住位置（原生 SP 持久化）。
-      capsuleStyle: 'pill'
+      capsuleStyle: 'pill',
+      // 胶囊尺寸档：compact 紧凑 / standard 标准 / large 大（原生固定 dp × 系数）
+      capsuleSize: 'standard',
+      // 胶囊配色：auto 跟随 App 主题（读 theme.dark）/ dark 经典深红深底 / light 浅底深字
+      capsuleTheme: 'auto',
+      // 胶囊默认停靠角（无拖动记忆时生效）：tl 左上 / tr 右上 / bl 左下 / br 右下
+      capsulePos: 'tr'
     },
     // AI 规划偏好
     //   res  规划任务时让 AI 顺手附学习资料/工具建议（默认关：普通资料名不上网核实，

@@ -248,6 +248,15 @@ export function setCapsulePhase(phase: string): boolean
  */
 export function setCapsuleStyle(style: string): boolean
 
+/** 设胶囊尺寸档：'compact' 紧凑 / 'standard' 标准 / 'large' 大。已挂立即重排。 */
+export function setCapsuleSize(size: string): boolean
+
+/** 设胶囊深/浅底：true=深底白字（经典深红）/ false=浅底深字（配色跟主题用）。 */
+export function setCapsuleDark(dark: boolean): boolean
+
+/** 设默认停靠角（无拖动记忆时生效）：'tl'|'tr'|'bl'|'br'。 */
+export function setCapsulePos(pos: string): boolean
+
 /**
  * ==================== 休闲提醒后台检测（LeisureGuard） ====================
  *
