@@ -647,6 +647,13 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   //      （2026-11-02 用户反馈："悬浮球存在时，球以外的整个页面都无法点击"）。
   if (/addOnComputeInternalInsetsListener\(new CapsuleTouchRegion\(\)\)/.test(utsSrc) && /setTouchableInsets\(3\)/.test(utsSrc)) ok('声明了触摸区（TOUCHABLE_INSETS_REGION）—— 全屏窗口不吞别处的点击');
   else bad('没有声明 TOUCHABLE_INSETS_REGION —— 全屏悬浮窗会把整屏点击全吃掉（用户实测）');
+  //      12.19 拖动期间必须把可触摸区放到全屏：手指一离开球那一小块，部分 ROM 会把
+  //      手势判成"移出可触摸区"而 cancel —— 表现正是"能点、一拖就断"。
+  if (/if \(capsuleDragging\)[\s\S]{0,600}?touchableRegion\.set\(0, 0, dm\.widthPixels, dm\.heightPixels\)/.test(utsSrc)) ok('拖动期间可触摸区放到全屏（避免"一拖就断"）');
+  else bad('拖动时没有把可触摸区放到全屏 —— 手指离开球那块区域会被判移出，表现是"能点不能拖"');
+  //      12.20 region 机制不生效的机器必须自动降级成"只显示"：全屏窗口 + region 失效 = 整台手机点不动。
+  if (/class CapsuleInsetsCheckTask implements Runnable/.test(utsSrc) && /FLAG_NOT_TOUCHABLE/.test(utsSrc) && /degradeCapsuleTouch\(\)/.test(utsSrc)) ok('触摸区自检 + 失效降级（region 不生效时绝不锁死整屏）');
+  else bad('缺触摸区自检降级 —— 万一 ROM 无视 touchableRegion，全屏窗口会把整台手机锁死');
   // 12.12 胶囊形态三选一（2026-11-01 用户提"系统胶囊调不了，做成圈/小球可选"）：
   //      setCapsuleStyle 必须在 interface/index 都声明（不声明 = JS 调不到，形态永远退成 pill）
   if (/export function setCapsuleStyle\s*\(/.test(iface) && /export function setCapsuleStyle\s*\(/.test(uts)) ok('setCapsuleStyle 在 interface/index 都声明（形态可选）');

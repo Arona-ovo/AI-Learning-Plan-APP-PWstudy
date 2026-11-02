@@ -974,6 +974,18 @@ const CAPSULE_IDLE_MS = 15000;       // 15 秒没碰就收起
 let capsuleExpanded: Boolean = true; // false = 迷你态（小圆 + 只画进度环）
 let capsuleIdleAt: number = 0;       // 最后一次交互（触摸 / 展开）的时间戳（ms）
 
+/* ---- 触摸区（2026-11-02）----
+ * 窗口是全屏的，只有 touchableRegion 声明的那一小块接收触摸，其余透传给下层 App。
+ * 两个必须兜住的现实问题：
+ *   ① 手指一离开那块区域，部分 ROM 会把手势判成"移出"而 cancel → 表现是"能点不能拖"。
+ *      所以**拖动期间把 region 临时放到全屏**（此时手指正按着，不担心吞别处的点击）。
+ *   ② 有的 ROM 干脆无视 touchableRegion → 全屏窗口照样吃掉整屏点击（手机像死了一样）。
+ *      所以加一道自检：窗口挂上后 600ms 内一次回调都没来，就把窗口降级成 FLAG_NOT_TOUCHABLE
+ *      —— 胶囊退化成"只显示、点不了"，总比把整台手机锁死强；回调后来才到的会立刻恢复。 */
+let capsuleDragging: Boolean = false;   // 正在拖动（region 临时全屏）
+let capsuleInsetsOk: Boolean = false;   // onComputeInternalInsets 至少回调过一次
+let capsuleDegraded: Boolean = false;   // 触摸区机制不生效 → 窗口已降级为不可触摸
+
 class CapsuleView extends TextView {
   private mode: string;
   private downRawX: Float = 0.0.toFloat();
@@ -988,9 +1000,13 @@ class CapsuleView extends TextView {
   }
 
   override onTouchEvent(event: MotionEvent): boolean {
+    // ★ 一律用 getActionMasked()：带 pointer index 的 action 值（多指、滑动）跟常量直接比会不相等，
+    //   历史上"按下没反应 / 抬手不触发"多半是这里踩的。
+    let act = event.getActionMasked()
+
     // pill：只点击拉回，不拖动（顶部药丸本来就不该被拖得到处跑）
     if (this.mode == 'pill') {
-      if (event.getAction() == MotionEvent.ACTION_UP) {
+      if (act == MotionEvent.ACTION_UP) {
         uiPost(new PullNowTask());
       }
       return true;
@@ -999,7 +1015,7 @@ class CapsuleView extends TextView {
     //   迷你态（只有环、没有时间）点一下 → 展开显示时间（顺带续命 15 秒）；
     //   展开态再点 → 回 App。用户口径："点第二次再展开以后的圆形点击才会跳转 app"，
     //   所以不能一点就走 —— 想瞄一眼时间的人会被直接拉回前台。
-    if (event.getAction() == MotionEvent.ACTION_DOWN) {
+    if (act == MotionEvent.ACTION_DOWN) {
       this.downRawX = event.getRawX();
       this.downRawY = event.getRawY();
       this.downLPX = capsuleX;
@@ -1008,19 +1024,33 @@ class CapsuleView extends TextView {
       capsuleIdleAt = System.currentTimeMillis();   // 碰一下就续命
       return true;
     }
-    if (event.getAction() == MotionEvent.ACTION_MOVE) {
+    if (act == MotionEvent.ACTION_MOVE) {
       let dx = event.getRawX() - this.downRawX;
       let dy = event.getRawY() - this.downRawY;
-      if (Math.abs(dx) > 8.0.toFloat() || Math.abs(dy) > 8.0.toFloat()) this.dragging = true;
+      // 4dp 的抖动阈值（原来写死 8px，3 倍屏上只有 2.7dp，手指微抖就被判成拖动）
+      if (!this.dragging && (Math.abs(dx) > 4.0.toFloat() * capsuleDensity()
+          || Math.abs(dy) > 4.0.toFloat() * capsuleDensity())) this.dragging = true;
       if (this.dragging) {
+        if (!capsuleDragging) {
+          // 进入拖动：可触摸区临时放到全屏，免得手指一离开球那一小块就被 ROM 判成"移出"而断掉
+          capsuleDragging = true;
+          try { this.requestLayout() } catch (e) {}
+        }
         this.moveTo(this.downLPX + dx.toInt(), this.downLPY + dy.toInt());
         capsuleIdleAt = System.currentTimeMillis();
       }
       return true;
     }
-    if (event.getAction() == MotionEvent.ACTION_UP) {
+    if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
       capsuleIdleAt = System.currentTimeMillis();
-      if (this.dragging) {
+      let wasDrag = this.dragging
+      this.dragging = false
+      this.endDrag()
+      if (act == MotionEvent.ACTION_CANCEL) {
+        if (wasDrag) saveCapsulePos(capsuleX, capsuleY)   // 拖一半被系统抢走，位置也得记住
+        return true
+      }
+      if (wasDrag) {
         saveCapsulePos(capsuleX, capsuleY);   // 拖完记住位置，下次挂起还在那
       } else if (!capsuleExpanded) {
         // 第一下：从迷你态展开看时间（tick 里 15 秒没人碰会再收回去）
@@ -1031,7 +1061,14 @@ class CapsuleView extends TextView {
       }
       return true;
     }
-    return super.onTouchEvent(event);
+    return true;   // ★ 不再落到 super：TextView 默认不消费，会让后续 MOVE/UP 全部断掉
+  }
+
+  /** 结束拖动：可触摸区恢复成球那一小块 */
+  endDrag() {
+    if (!capsuleDragging) return
+    capsuleDragging = false
+    try { this.requestLayout() } catch (e) {}
   }
 
   /**
@@ -1430,17 +1467,74 @@ class CapsuleTouchRegion implements ViewTreeObserver.OnComputeInternalInsetsList
   override onComputeInternalInsets(info: ViewTreeObserver.InternalInsetsInfo): void {
     try {
       info.setTouchableInsets(3)   // TOUCHABLE_INSETS_REGION（常量在 UTS 里没导出，写字面量）
+      // 回调来了 = 这台机器认这套机制；万一之前因为"迟迟没回调"降级过，这里立刻恢复交互
+      capsuleInsetsOk = true
+      if (capsuleDegraded) restoreCapsuleTouch()
       let v = capsuleView
       // 胶囊被藏起来（强制模式判定跑偏时 setCapsuleShown(false)）→ 空区域，别偷偷吞掉那块触摸
       if (v == null || v!.getVisibility() != 0) {
         info.touchableRegion.setEmpty()
         return
       }
+      // 拖动中：整屏归这个窗口。手指已经按下，不存在"误伤别处点击"；
+      // 换来的是一旦离开球那块区域也不会被 ROM 判成移出而 cancel（"能点不能拖"的另一个来源）。
+      if (capsuleDragging) {
+        let ctx = UTSAndroid.getAppContext()
+        if (ctx != null) {
+          let dm = ctx!.getResources().getDisplayMetrics()
+          info.touchableRegion.set(0, 0, dm.widthPixels, dm.heightPixels)
+          return
+        }
+      }
       let ox = capsuleDrawX()
       let oy = capsuleDrawY()
       info.touchableRegion.set(ox, oy, ox + capsuleWidthPx(capsuleStyle), oy + capsuleHeightPx(capsuleStyle))
     } catch (e) {}
   }
+}
+
+/**
+ * 触摸区机制自检：窗口挂上 600ms 内一次回调都没来 → 判定这台机器不认 touchableRegion。
+ *
+ * 为什么必须兜：窗口是全屏的，region 不生效就等于整块屏幕的点击都被胶囊吃掉
+ * （用户原话"只要悬浮球存在，整个页面就无法控制"）。宁可选「胶囊只显示、点不动」，
+ * 也不能把用户的手机锁死。降级只加 FLAG_NOT_TOUCHABLE，不撤窗口，倒计时照常看。
+ */
+class CapsuleInsetsCheckTask implements Runnable {
+  override run(): void {
+    if (!capsuleWanted || capsuleView == null) return
+    if (capsuleInsetsOk) return
+    degradeCapsuleTouch()
+  }
+}
+
+function degradeCapsuleTouch() {
+  if (capsuleDegraded) return
+  let v = capsuleView
+  let wm = capsuleWM
+  let lp = capsuleLP
+  if (v == null || wm == null || lp == null) return
+  capsuleDegraded = true
+  try {
+    lp!.flags = lp!.flags | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+    wm!.updateViewLayout(v!, lp!)
+  } catch (e) {}
+}
+
+function restoreCapsuleTouch() {
+  if (!capsuleDegraded) return
+  let v = capsuleView
+  let wm = capsuleWM
+  let lp = capsuleLP
+  if (v == null || wm == null || lp == null) return
+  capsuleDegraded = false
+  try {
+    // 直接重算一份干净 flags（比清 bit 可靠：UTS 的按位清位在不同编译目标下表现不一致）
+    lp!.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+      | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+      | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+    wm!.updateViewLayout(v!, lp!)
+  } catch (e) {}
 }
 
 function applyCapsule(ctx: Context | null) {
@@ -1464,6 +1558,10 @@ function applyCapsule(ctx: Context | null) {
       capsuleView = v
       capsuleWM = wm
       capsuleLP = lp
+      // 新窗口：自检状态归零，600ms 后确认 region 机制有没有真的跑起来（见 CapsuleInsetsCheckTask）
+      capsuleInsetsOk = false
+      capsuleDegraded = false
+      mainHandler!.postDelayed(new CapsuleInsetsCheckTask(), 600)
       // 新建即显示：强制模式逃生现在也是"显示胶囊"而非盖全屏遮罩，所以始终可见
       // （见 seen() 的 2026-11-01 改造）。胶囊点击返回走 pullBackSoft，不弹全屏页。
       setCapsuleShown(true)

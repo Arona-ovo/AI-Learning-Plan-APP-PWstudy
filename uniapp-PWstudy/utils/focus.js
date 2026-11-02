@@ -186,7 +186,7 @@ let capsulePosApplied = null;     // 上次同步给原生的默认停靠角
 /**
  * 算出胶囊该显示的 { txt, label, endAt, totalSec }：
  *   txt      —— 即时兜底文案（首帧 / 静态态直接显示）
- *   label    —— 阶段前缀（"专注中 " / "休息中 "），原生自转时拼在剩余时间前
+ *   label    —— 阶段前缀（"专注中 " / "休息中 "）：**胶囊不再拼**（只显示 xx:xx），留给通知用
  *   endAt    —— 倒计时终点（ms）；0 表示不让原生自转（暂停 / 正计时段由 JS 静态显示）
  *   totalSec —— 本轮总时长（秒），圆环形态画进度弧用
  */
@@ -209,9 +209,11 @@ function capsuleContent() {
   }
   const overSuffix = state.overrun ? (' · ' + overWord) : '';
   const head = state.paused ? (pauseWord + ' · ' + phaseWord + ' ') : (phaseWord + ' ');
-  const full = head + timeStr + overSuffix;
-  const txt = full.length <= 16 ? full : (timeStr + overSuffix);  // 太长就退化为只留倒计时
-  return { txt, label: head, endAt, totalSec: Number(state.totalSec) || 0 };
+  // ★ 2026-11-02 用户口径：胶囊里**只显示 xx:xx**。
+  //   不拼"专注中 / 休息中 / 已暂停"前缀，也不带"· 超时"后缀；
+  //   阶段改由进度弧颜色区分（专注红 #e4173d / 休息绿 #2FA36B，见原生 capsuleAccent）。
+  //   （label / overSuffix 仍算出来给通知与圆盘用，胶囊不再消费。）
+  return { txt: timeStr, label: head, endAt, totalSec: Number(state.totalSec) || 0 };
 }
 
 /**
