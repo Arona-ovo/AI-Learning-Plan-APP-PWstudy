@@ -179,24 +179,39 @@ function normalizeMarker(m) {
 
 /**
  * 从 AI 识别出的固定安排造标注。
- * fixedItem: { name, when, place, weekdays?, type?, color? }
- * 返回新建的标注数组（已落库）。
+ * fixedItem: { name, when, place, weekdays?, dates?, type?, color? }
+ * 返回新建的标注数组（已落库）；数组上额外挂 `skipped`（读不出时间的名字）。
  */
 export function addFromFixed(fixedItems, defaultColors) {
-  const defs = defaultColors || DEFAULT_COLORS;
   const out = [];
+  const skipped = [];
   (Array.isArray(fixedItems) ? fixedItems : []).forEach(f => {
     if (!f || !f.name) return;
-    // 同名已存在（上一次识别过）→ 只补 weekdays / time，不重复建
-    const exist = (get().markers || []).filter(m => m.label === f.name)[0];
-    const weekdays = Array.isArray(f.weekdays) && f.weekdays.length
-      ? f.weekdays
-      : parseWeekdays(f.when);
     const type = inferType(f.type, f.name, f.when);
     const color = safeColor(f.color, type);
+    // ① 模型直接给了结构化日期 / 周几 → 优先用
+    let dates = Array.isArray(f.dates) ? f.dates.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+    let weekdays = Array.isArray(f.weekdays)
+      ? f.weekdays.map(n => Number(n)).filter(n => n >= 0 && n <= 6)
+      : [];
+    // ② 否则从 when 里读：先找具体日期（2026-11-26 / 11月26日），再找周几
+    if (!dates.length && !weekdays.length) {
+      dates = parseDates(f.when);
+      if (!dates.length) weekdays = parseWeekdays(f.when);
+    }
+    // ③ 两样都读不出来 → 这条标注永远不在任何一天命中（rule=weekly + 空 weekdays
+    //    的隐形数据）。宁可跳过并回报，让页面提示用户去日历手动标，
+    //    也不要塞一条"看不见的标注"骗自己已经记上了。
+    if (!dates.length && !weekdays.length) {
+      skipped.push(f.name);
+      return;
+    }
+    // 同名已存在（上一次识别过）→ 只补空的 weekdays / dates / time，不重复建
+    const exist = (get().markers || []).filter(m => m.label === f.name)[0];
     if (exist) {
       const patch = {};
       if (weekdays.length && (!exist.weekdays || !exist.weekdays.length)) patch.weekdays = weekdays;
+      if (dates.length && (!exist.dates || !exist.dates.length)) patch.dates = dates;
       if (f.when && !exist.time) patch.time = f.when;
       if (Object.keys(patch).length) update(exist.id, patch);
       out.push(exist);
@@ -206,12 +221,15 @@ export function addFromFixed(fixedItems, defaultColors) {
       type: type,
       label: f.name,
       color: color,
-      rule: weekdays.length ? 'weekly' : 'dates',
+      rule: dates.length ? 'dates' : 'weekly',
       weekdays: weekdays,
+      dates: dates,
       time: f.when || '',
       auto: true
     }));
   });
+  // 挂在数组上而不是改返回形状：调用方 `added.length` 的老写法保持有效
+  out.skipped = skipped;
   return out;
 }
 
@@ -234,7 +252,14 @@ function inferType(explicit, name, when) {
  * 解析不出返回 []（调用方据此退化为「没排定周期」，让用户自己补）。
  */
 export function parseWeekdays(text) {
-  const s = String(text || '').replace(/[0-9:：\-\s]+/g, ' ').trim();
+  // ⚠️ 先把日期片段整段剔掉再找"周几"：否则「11月26日」里的「日」会被
+  //    当成周日 —— 一条具体日期的补习安排会被错误铺到每个月所有周日上。
+  const s = String(text || '')
+    .replace(/\d{4}\s*[-\/.]\s*\d{1,2}\s*[-\/.]\s*\d{1,2}/g, ' ')
+    .replace(/\d{1,2}\s*月\s*\d{1,2}\s*[日号]?/g, ' ')
+    .replace(/\d{1,2}\s*\/\s*\d{1,2}/g, ' ')
+    .replace(/[0-9:：\-\s]+/g, ' ')
+    .trim();
   const out = [];
   const add = (n) => { if (out.indexOf(n) < 0) out.push(n); };
   // 每天
@@ -260,6 +285,58 @@ export function parseWeekdays(text) {
   while ((m = re.exec(s))) {
     const k = m[1] ? m[1] : m[0].toLowerCase();
     if (k in map) add(map[k]);
+  }
+  return out;
+}
+
+/**
+ * 从文字里抽具体日期 → ['YYYY-MM-DD']。
+ * 支持：2026-11-26 / 2026/11/26 / 11月26日 / 11月26号 / 11/26 / 11月26日-28日
+ * 没写年份按今年算；已过去超过 60 天的往后滚一年
+ * （补习班通知里的"11月26日"更可能是下一次，而不是半年前的）。
+ */
+export function parseDates(text, ref) {
+  const s = String(text || '');
+  if (!s) return [];
+  const base = (ref instanceof Date) ? ref : new Date();
+  const y0 = base.getFullYear();
+  const out = [];
+  const push = (y, mo, d) => {
+    mo = Number(mo); d = Number(d);
+    if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= 31)) return;
+    const dt = new Date(y, mo - 1, d);
+    if (dt.getMonth() !== mo - 1 || dt.getDate() !== d) return;   // 2月30日这类非法日期
+    const iso = y + '-' + pad(mo) + '-' + pad(d);
+    if (out.indexOf(iso) < 0) out.push(iso);
+  };
+  const yearRoll = (mo, d) => {
+    let y = y0;
+    const dt = new Date(y, mo - 1, d);
+    if (base.getTime() - dt.getTime() > 60 * 86400000) y += 1;
+    return y;
+  };
+  let m;
+  // 带年份：2026-11-26 / 2026/11/26 / 2026.11.26
+  const reY = /(\d{4})\s*[-\/.]\s*(\d{1,2})\s*[-\/.]\s*(\d{1,2})/g;
+  while ((m = reY.exec(s))) push(Number(m[1]), m[2], m[3]);
+  // 中文月日：11月26日 / 11月26号 / 11月26
+  const reCN = /(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/g;
+  while ((m = reCN.exec(s))) {
+    const mo = Number(m[1]); const d = Number(m[2]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) push(yearRoll(mo, d), mo, d);
+  }
+  // 斜杠：11/26（9:00 这类时间不会被吃进来）
+  const reSlash = /(?:^|[^\d\/])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d\/])/g;
+  while ((m = reSlash.exec(s))) {
+    const mo = Number(m[1]); const d = Number(m[2]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) push(yearRoll(mo, d), mo, d);
+  }
+  // 同月区间：11月26日-28日（上一轮只补到首尾，这里把中间几天补齐）
+  const reRange = /(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?\s*(?:至|到|-|~|—)\s*(\d{1,2})\s*[日号]/g;
+  while ((m = reRange.exec(s))) {
+    const mo = Number(m[1]); const a = Number(m[2]); const b = Number(m[3]);
+    if (!(mo >= 1 && mo <= 12) || !(a >= 1 && b >= 1 && b >= a)) continue;
+    for (let d = a; d <= b && d - a < 31; d++) push(yearRoll(mo, d), mo, d);
   }
   return out;
 }

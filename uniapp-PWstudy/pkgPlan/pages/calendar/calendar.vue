@@ -70,14 +70,17 @@
       <view class="card-head">
         <text class="card-title">{{ pickedText }}</text>
         <view class="card-more-row">
-          <text class="card-more">{{ list.length ? list.length + ' 项' : $t('空') }}</text>
+          <!-- 「空」只在天和标注都空时说：这天标了补习/节日时还说"空"是自相矛盾的 -->
+          <text class="card-more">{{ list.length ? list.length + ' 项' : (pickedMarks.length ? pickedMarks.length + ' ' + $t('条标注') : $t('空')) }}</text>
           <text class="mk-add" @tap="openMark(picked)">{{ pickedMarks.length ? $t('管理标注') : $t('标注这天') }}</text>
         </view>
       </view>
+      <!-- 标注内容：用户自己打的字必须看得见（颜色只是辅助，内容才是他要的信息） -->
       <view v-if="pickedMarks.length" class="mk-list">
         <view v-for="m in pickedMarks" :key="m.id" class="mk-chip" :style="{ background: rgbaOf(m.color, 0.4) }">
           <text class="mk-dot" :style="{ background: m.color }"></text>
           <text class="mk-label">{{ m.label }}</text>
+          <text v-if="m.time" class="mk-time">{{ m.time }}</text>
           <text class="mk-edit" @tap.stop="editMark(m)">{{ $t('改') }}</text>
           <text class="mk-del" @tap.stop="deleteMark(m.id)">×</text>
         </view>
@@ -86,6 +89,7 @@
         :rows="list"
         :ops="true"
         :tip="true"
+        :empty-text="pickedMarks.length ? $t('这一天没有学习任务，只有上面的标注。') : ''"
         @changed="onListChanged"
         @done="onTaskDone"
       />
@@ -185,13 +189,28 @@ export default {
       markDlg: { show: false, date: '', editingId: '', label: '', type: 'tutor', color: '#bcd0f7' },
       // 淡色色板（标注改色用）+ 三种语义（弹层里的类型选择）
       pastel: calmark.PASTEL,
-      types: []
+      types: [],
+      // 当月「日期 → 标注数组」映射。
+      // ⚠️ 必须放 data（响应式）：原来挂在 this.__marks 这种非 data 属性上，
+      //    模板里碰不到它的变化；配合下面 pickedMarks 用 computed 才能"存完立刻显示"。
+      marksByDate: {}
     }
   },
   computed: {
     // 日期文案（含节假日 / 周末 / 调休）与首页卡同一口径
     pickedText() {
       return schedule.dateLabel(this.picked)
+    },
+    /**
+     * 选中那天的标注。
+     * ⚠️ 必须是 computed，不能是 methods —— 模板里写的是 `pickedMarks`（不带括号），
+     *    methods 时 `pickedMarks` 解析成函数本体，`.length` 是形参个数（0）
+     *    → 永远"没有标注"、v-for 也遍历不出东西。真机现象就是：
+     *    格子颜色变了、内容却一条都不显示、按钮还一直写"标注这天"。
+     */
+    pickedMarks() {
+      const m = this.marksByDate || {}
+      return m[this.picked] || []
     }
   },
   onLoad() {
@@ -272,13 +291,10 @@ export default {
       }
       // 日历标注：把「补习日 / 节日·无法学习日」按色铺到格子上（app 级，独立于目标）
       const marks = calmark.byMonth(this.year, this.month)
-      this.__marks = marks
+      // 响应式写入（模板里 pickedMarks 依赖它）：整个对象换掉，computed 一定会重算
+      this.marksByDate = marks
       cells.forEach(c => { c.marks = marks[c.date] || [] })
       this.cells = cells
-    },
-    /** 选中那天的标注（底部列表上方展示） */
-    pickedMarks() {
-      return (this.__marks && this.__marks[this.picked]) || []
     },
     refreshList() {
       this.list = schedule.rowsOf(this.picked, this.__byDate)
@@ -474,7 +490,15 @@ export default {
     /** 编辑某条已有标注：把它的内容填进表单 */
     editMark(m) {
       if (!m) return
-      this.markDlg = { show: true, date: this.markDlg.date, editingId: m.id, label: m.label, type: m.type, color: m.color }
+      // 从"选中那天的 chip"点进来时弹层还没开过，markDlg.date 是空的 —— 回落到选中日
+      this.markDlg = {
+        show: true,
+        date: this.markDlg.date || this.picked,
+        editingId: m.id,
+        label: m.label,
+        type: m.type,
+        color: m.color
+      }
     },
     /** 保存新增 / 编辑。新增 = 这天的一条「一次性」标注（rule=dates）。 */
     saveMark() {
@@ -538,6 +562,9 @@ export default {
 .cm-cell-rest { /* 假期/周末不再单独上色（按用户要求去掉黄色）；补习/固定安排日以淡蓝标出 */ }
 .cm-cell-today .cm-day { color: var(--brand, #e4173d); font-weight: 600; }
 .cm-cell-on { background: rgba(var(--brand-rgb, 228, 23, 61), 0.16); }
+/* 既有标注又被选中的那天：标注底色会盖住选中底色，补一圈描边，
+   否则"下面这张卡说的是哪天"要靠日期文字去对，一眼看不出来 */
+.cm-cell-on .cm-mark { box-shadow: inset 0 0 0 3rpx rgba(var(--brand-rgb, 228, 23, 61), 0.7); }
 .cm-dots { display: flex; margin-top: 6rpx; }
 .cm-dot {
   width: 8rpx; height: 8rpx; border-radius: 50%; margin: 0 3rpx;
@@ -600,6 +627,7 @@ export default {
 }
 .mk-dot { width: 18rpx; height: 18rpx; border-radius: 50%; margin-right: 12rpx; flex-shrink: 0; }
 .mk-label { flex: 1; min-width: 0; font-size: 24rpx; color: var(--ink-1, #17201a); }
+.mk-time { font-size: 21rpx; color: var(--ink-3, #98a19b); margin-left: 10rpx; }
 .mk-edit { font-size: 22rpx; color: var(--brand-strong, #bb1332); margin-left: 12rpx; }
 .mk-del { font-size: 30rpx; color: var(--ink-3, #98a19b); margin-left: 14rpx; padding: 0 6rpx; }
 

@@ -1487,6 +1487,7 @@ export default {
   '节日 / 无法学习': 'Holiday / unavailable',
   '普通标注': 'General marker',
   '空': 'Empty',
+  '这一天没有学习任务，只有上面的标注。': 'No study tasks today — only the markers above.',
   '管理标注': 'Manage markers',
   '标注这天': 'Mark this day',
   '标注这一天': 'Mark this day',
@@ -1517,6 +1518,7 @@ export default {
   '没有可应用的改动': 'Nothing to apply',
   '已应用调整': 'Plan adjusted',
   '已记录 {n} 条固定安排到日历': 'Recorded {n} fixed schedule(s) to the calendar',
+  '另有 {n} 条没读到具体日期，请到日历手动标注': '{n} item(s) had no readable date — please mark them manually in the calendar',
 
   /* ---------- 专注：休息放弃 + 强制模式暂停配额 ---------- */
   '放弃休息': 'Skip break',

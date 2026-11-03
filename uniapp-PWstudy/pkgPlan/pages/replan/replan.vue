@@ -349,20 +349,25 @@ export default {
       // 把 AI 识别的固定安排（补习 / 节假日）同步到日历 —— 这是"应用后日程没变"的核心修复：
       // 以前 fixed 只写进 goal.places（下次重排的上下文），从不在日历占格，所以用户看不到变化。
       let markersAdded = 0
+      let markersSkipped = 0
       if (this.fixedList && this.fixedList.length) {
         const added = calmark.addFromFixed(this.fixedList, (settings.get() && settings.get().calendar) || {})
         markersAdded = added.length
+        markersSkipped = (added.skipped || []).length
       }
       pw.touch()
       pw.flush()
       // 诚实反馈：没有任何实际改动时，别说"已应用"骗人（用户之前就是被这个假成功误导）
-      if (!changed && !moved && !markersAdded) {
+      if (!changed && !moved && !markersAdded && !markersSkipped) {
         uni.showToast({ title: this.$t('没有可应用的改动'), icon: 'none' })
       } else {
         const parts = []
         if (changed || moved) parts.push(this.$t('已应用调整'))
         if (markersAdded) parts.push(this.$t('已记录 {n} 条固定安排到日历', { n: markersAdded }))
-        uni.showToast({ title: parts.join('，'), icon: 'success' })
+        // 读不出具体时间的固定安排不会生成标注（生成了也永远不显示），
+        // 这里必须说清楚，否则用户又觉得"识别了但没记上"
+        if (markersSkipped) parts.push(this.$t('另有 {n} 条没读到具体日期，请到日历手动标注', { n: markersSkipped }))
+        uni.showToast({ title: parts.join('，'), icon: 'none', duration: 3200 })
       }
       setTimeout(() => uni.navigateBack(), 500)
     },
@@ -414,6 +419,11 @@ export default {
       const list = ((this.result && this.result.fixed) || []).map(f => ({
         name: f.name,
         when: f.when || '',
+        // 结构化时间一并带过来：模型直接给 weekdays / dates 时，
+        // 日历标注就不用再从 when 的文本里猜（猜不出来会变成隐形标注）
+        weekdays: Array.isArray(f.weekdays) ? f.weekdays : [],
+        dates: Array.isArray(f.dates) ? f.dates : [],
+        type: f.type || '',
         place: this.knownPlace(f.name)
       }))
       const said = String(hint || '')

@@ -898,14 +898,28 @@ export function normalizeReplan(raw, tasks, opt) {
   const rk = lv => (typeof rank[lv] === 'number' ? rank[lv] : 1);
   ops.sort((a, b) => rk(a.level) - rk(b.level));
   // 固定安排（补习班 / 上课 / 值班）：模型从截图或文字里读出来的"不可用时段"。
-  // 页面拿它弹「填补习地点」，填完写进 goal.places，下次重排作为上下文喂回来。
+  // 页面拿它弹「填补习地点」，填完写进 goal.places，下次重排作为上下文喂回来；
+  // 同时经 utils/calmark.js 铺到日历上（"应用了日程却没变"的根因就在这里）。
   // 允许模型给字符串数组（"周六 9-12 补习班"）—— 这里统一成对象，页面只认一种形状。
+  // weekdays / dates / type 是可选的"结构化时间"：模型能直接给就别让人再猜文本。
   const fixed = (Array.isArray(o.fixed) ? o.fixed : []).map(f => {
-    if (typeof f === 'string') return { name: deBrand(clampStr(f, 30)), when: '', place: '' };
+    if (typeof f === 'string') {
+      return { name: deBrand(clampStr(f, 30)), when: '', place: '', weekdays: [], dates: [], type: '' };
+    }
+    const src = f || {};
+    const wd = Array.isArray(src.weekdays)
+      ? src.weekdays.map(n => Number(n)).filter(n => n >= 0 && n <= 6 && Math.floor(n) === n)
+      : [];
+    const dt = Array.isArray(src.dates)
+      ? src.dates.filter(x => /^\d{4}-\d{2}-\d{2}$/.test(String(x || ''))).map(x => String(x))
+      : [];
     return {
-      name: deBrand(clampStr(f && f.name, 30)),
-      when: deBrand(clampStr(f && f.when, 40)),
-      place: ''
+      name: deBrand(clampStr(src.name, 30)),
+      when: deBrand(clampStr(src.when, 40)),
+      place: '',
+      weekdays: wd.slice(0, 7),
+      dates: dt.slice(0, 60),
+      type: clampStr(src.type, 12)
     };
   }).filter(f => f.name).slice(0, 6);
   if (!summary && !ops.length) throw new Error('AI 没有给出可执行的重排建议');
@@ -1219,7 +1233,10 @@ async function runReplan(goal, reality, todayBlock, opt, extra, images) {
         '12. **这次带了图**（课表 / 补习班通知 / 排班表）：先读图，认出固定占用时段' +
           '（星期几、几点到几点；图上写了地点也记下），这些时段一律当不可用，' +
           '剩余学习任务排到它之外，并在 summary 里用一句话点明（如"图里周六 9:00-12:00 是补习班"）；' +
-          '同时回填 fixed：[{"name":"补习班","when":"周六 9:00-12:00"}]。',
+          '同时回填 fixed：[{"name":"补习班","when":"周六 9:00-12:00","weekdays":[6],"dates":[]}]。' +
+          '★ when 必须写成能读出时间的形状（"周六 9:00-12:00" 或 "2026-11-26 18:00"）：' +
+          '每周固定的给 weekdays（0=周日…6=周六），只占具体某几天的给 dates（YYYY-MM-DD）。' +
+          '这三样至少要给一样，否则这个占用时段在日历上根本标不出来；',
         '13. 固定安排是客观占用：**不要**建议"砍掉补习班"或"把补习改到别的时间"，' +
           '能调的只有学习任务；已知地点时，当天任务要给通勤留余量。'
       ].join('\n')
