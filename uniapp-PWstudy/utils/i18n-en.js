@@ -1481,6 +1481,43 @@ export default {
   /* ---------- 日历（pkgPlan/pages/calendar）：左右滑动切月 ---------- */
   '左右滑动切月': 'Swipe to change month',
 
+  /* ---------- 日历标注（补习 / 节日 / 普通标注，低饱和淡色） ---------- */
+  '有任务': 'Has tasks',
+  '补习 / 固定安排': 'Tutoring / fixed schedule',
+  '节日 / 无法学习': 'Holiday / unavailable',
+  '普通标注': 'General marker',
+  '空': 'Empty',
+  '管理标注': 'Manage markers',
+  '标注这天': 'Mark this day',
+  '标注这一天': 'Mark this day',
+  '改': 'Edit',
+  '编辑标注': 'Edit marker',
+  '内容': 'Content',
+  '如：补习班 / 春节': 'e.g. Tutoring class / Spring Festival',
+  '类型': 'Type',
+  '颜色（淡色）': 'Color (pastel)',
+  '保存到这天': 'Save to this day',
+  '请填写标注内容': 'Please enter marker content',
+  '已保存标注': 'Marker saved',
+  'AI 添加': 'AI-added',
+
+  /* ---------- 日历标注设置页（pkgManage/pages/settings） ---------- */
+  '日历标注': 'Calendar markers',
+  'AI 识别补习 / 节假日会自动上色，你也可以在这里改默认色、或在日历里直接改单条。颜色都是低饱和的淡色，避免和整体观感打架。':
+    'AI colors tutoring and holiday events automatically; you can change the default colors here or edit individual markers in the calendar. Colors are low-saturation pastels to match the overall look.',
+  '默认颜色': 'Default colors',
+  '新建这类标注时的默认色，可在日历里单条覆盖': 'Default color for new markers of this type; override per marker in the calendar',
+  '现有标注': 'Existing markers',
+  '还没有标注。去日历里点某一天即可添加。': 'No markers yet. Open the calendar and tap a day to add one.',
+  '编辑': 'Edit',
+  '名称': 'Name',
+  '条标注': 'markers',
+
+  /* ---------- 重排：诚实反馈（修复"应用后日程没变"但报成功） ---------- */
+  '没有可应用的改动': 'Nothing to apply',
+  '已应用调整': 'Plan adjusted',
+  '已记录 {n} 条固定安排到日历': 'Recorded {n} fixed schedule(s) to the calendar',
+
   /* ---------- 专注：休息放弃 + 强制模式暂停配额 ---------- */
   '放弃休息': 'Skip break',
   '放弃休息？': 'Skip this break?',

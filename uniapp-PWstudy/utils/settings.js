@@ -88,6 +88,16 @@ function defaults() {
     // ⚠️ 经纬度只存在于**设置**里（用户亲手填的），统计层（pwstore.daily）只存
     //    "在/不在"这个布尔，AI 上下文连地点名都拿不到 —— 见 location.js 的三条红线。
     range: { on: false, places: [], lastCheckAt: 0, lastInside: true, lastDist: 0 },
+    // 日历标注（补习日 / 节日·无法学习日 的颜色，淡色粉彩，不上一多巴胺亮色）
+    //   tutorColor    补习 / 固定安排日的底色（默认淡蓝）
+    //   blockedColor  节日 / 无法学习日的底色（默认淡红）
+    //   eventColor    普通标注的底色（默认淡紫）
+    //   这些值必须在 PASTEL 色板内（见 utils/calmark.js），改这里只改出厂默认色。
+    calendar: {
+      tutorColor: '#bcd0f7',
+      blockedColor: '#f6c2cf',
+      eventColor: '#e7d4f2'
+    },
     // 在线模式（以后接服务器用）。**现在没有服务器 → 默认关**，App 完全跑本地，
     // 功能一条不少（跟伙伴 App 联动同一个原则：可选增强，关了不缺功能）。
     // 服务端就绪后只要两步：填 baseUrl + 打开 enabled。这部分全是 JS/TS，

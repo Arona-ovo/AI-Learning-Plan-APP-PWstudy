@@ -43,10 +43,13 @@
             'cm-cell-out': !c.inMonth,
             'cm-cell-today': c.date === todayStr,
             'cm-cell-on': c.date === picked,
-            'cm-cell-rest': c.rest
+            'cm-cell-rest': c.rest,
+            'cm-cell-mark': c.marks && c.marks.length
           }"
           @tap="pick(c.date)"
         >
+          <view v-if="c.marks && c.marks.length" class="cm-mark" :style="markStyle(c.marks)"></view>
+          <view v-if="c.marks && c.marks.length" class="cm-mark-bar" :style="{ background: markBar(c.marks) }"></view>
           <text class="cm-day">{{ c.d }}</text>
           <view v-if="c.count" class="cm-dots">
             <text v-for="n in dotList(c.count)" :key="n" class="cm-dot"></text>
@@ -55,8 +58,9 @@
         </view>
       </view>
       <view class="cm-legend">
-        <text class="lg-item"><text class="cm-dot"></text> 有任务</text>
-        <text class="lg-item"><text class="lg-rest"></text> 假期 / 周末</text>
+        <text class="lg-item"><text class="cm-dot"></text> {{ $t('有任务') }}</text>
+        <text class="lg-item"><text class="lg-sw" :style="{ background: legTutor }"></text> {{ $t('补习 / 固定安排') }}</text>
+        <text class="lg-item"><text class="lg-sw" :style="{ background: legBlocked }"></text> {{ $t('节日 / 无法学习') }}</text>
         <text class="lg-hint">{{ $t('左右滑动切月') }}</text>
       </view>
     </view>
@@ -65,7 +69,18 @@
     <view class="card">
       <view class="card-head">
         <text class="card-title">{{ pickedText }}</text>
-        <text class="card-more">{{ list.length ? list.length + ' 项' : '空' }}</text>
+        <view class="card-more-row">
+          <text class="card-more">{{ list.length ? list.length + ' 项' : $t('空') }}</text>
+          <text class="mk-add" @tap="openMark(picked)">{{ pickedMarks.length ? $t('管理标注') : $t('标注这天') }}</text>
+        </view>
+      </view>
+      <view v-if="pickedMarks.length" class="mk-list">
+        <view v-for="m in pickedMarks" :key="m.id" class="mk-chip" :style="{ background: rgbaOf(m.color, 0.4) }">
+          <text class="mk-dot" :style="{ background: m.color }"></text>
+          <text class="mk-label">{{ m.label }}</text>
+          <text class="mk-edit" @tap.stop="editMark(m)">{{ $t('改') }}</text>
+          <text class="mk-del" @tap.stop="deleteMark(m.id)">×</text>
+        </view>
       </view>
       <schedule-list
         :rows="list"
@@ -83,6 +98,50 @@
       <coach-box ref="coach" @changed="onCoachChanged" />
     </view>
 
+    <!-- 日历标注编辑弹层：选一天 → 列出当天标注 / 新增或改色（淡色） -->
+    <view class="mark-mask" v-if="markDlg.show" @tap="closeMark" @touchmove.stop.prevent="noop">
+      <view class="mark-card" @tap.stop="noop" @touchmove.stop="noop">
+        <view class="mark-head">
+          <text class="mark-title">{{ markDlg.editingId ? $t('编辑标注') : $t('标注这一天') }}</text>
+          <text class="mark-date">{{ markDlg.date ? markDlg.date.slice(5) : '' }}</text>
+          <text class="mark-x" @tap="closeMark">×</text>
+        </view>
+
+        <!-- 当天已有的标注（新增模式才列，编辑模式聚焦表单） -->
+        <view v-if="!markDlg.editingId && pickedMarks.length" class="mark-have">
+          <view v-for="m in pickedMarks" :key="m.id" class="mark-have-row">
+            <text class="mk-dot" :style="{ background: m.color }"></text>
+            <text class="mark-have-name">{{ m.label }}</text>
+            <text class="mark-have-edit" @tap.stop="editMark(m)">{{ $t('改') }}</text>
+            <text class="mark-have-del" @tap.stop="deleteMark(m.id)">{{ $t('删除') }}</text>
+          </view>
+        </view>
+
+        <!-- 编辑 / 新增表单 -->
+        <view class="mark-form">
+          <view class="mark-label-row">
+            <text class="mark-fl">{{ $t('内容') }}</text>
+            <input class="mark-input" v-model="markDlg.label" :maxlength="20" :placeholder="$t('如：补习班 / 春节')" />
+          </view>
+
+          <text class="mark-fl">{{ $t('类型') }}</text>
+          <view class="mark-types">
+            <view v-for="t in types" :key="t.key" class="mark-type" :class="{ on: markDlg.type === t.key }" @tap="pickMarkType(t.key)">{{ t.name }}</view>
+          </view>
+
+          <text class="mark-fl">{{ $t('颜色（淡色）') }}</text>
+          <view class="mark-colors">
+            <view v-for="c in pastel" :key="c" class="mark-color" :class="{ on: markDlg.color === c }" :style="{ background: c }" @tap="pickMarkColor(c)"></view>
+          </view>
+
+          <view class="mark-btns">
+            <view class="mark-btn ghost" @tap="closeMark">{{ $t('取消') }}</view>
+            <view class="mark-btn primary" @tap="saveMark">{{ markDlg.editingId ? $t('保存') : $t('保存到这天') }}</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <!-- 任务完成弹窗（fixed 层，放在页面根下）：与首页同一个组件、同一套文案 -->
     <task-done-dialog ref="doneDlg" @open="doneDlgOn = true" @close="doneDlgOn = false" />
   </view>
@@ -93,6 +152,8 @@ import * as pw from '../../../utils/pwstore.js'
 import * as holiday from '../../../utils/holiday.js'
 import * as schedule from '../../../utils/schedule.js'
 import * as harvest from '../../../utils/harvest.js'
+import * as calmark from '../../../utils/calmark.js'
+import * as appSettings from '../../../utils/settings.js'
 // 手势阈值借 tab 切页那一套（8px 判轴 / 1.2 纵横比 / 60px 触发）：
 // 同一个人手、两种翻页，手感不该有两套数字。这里只用 DRAG，不用它的切页逻辑。
 import * as tabSlide from '../../../utils/tab-slide.js'
@@ -116,7 +177,15 @@ export default {
       doneDlgOn: false,
       // 翻月进场方向：'' | 'left' | 'right'。动画放完必须清空（同名 class
       // 再来一次不会重播），见 playMonthIn()。
-      cmEnter: ''
+      cmEnter: '',
+      // 日历标注（补习日 / 节日·无法学习日）：图例用的两种默认色，从设置读
+      legTutor: '#bcd0f7',
+      legBlocked: '#f6c2cf',
+      // 标注编辑弹层：选一天 → 列出那天的标注 / 新增或改色
+      markDlg: { show: false, date: '', editingId: '', label: '', type: 'tutor', color: '#bcd0f7' },
+      // 淡色色板（标注改色用）+ 三种语义（弹层里的类型选择）
+      pastel: calmark.PASTEL,
+      types: []
     }
   },
   computed: {
@@ -130,6 +199,15 @@ export default {
     this.year = Number(t[0])
     this.month = Number(t[1])
     this.picked = pw.today()
+    const cal = (appSettings.get() && appSettings.get().calendar) || {}
+    this.legTutor = cal.tutorColor || '#bcd0f7'
+    this.legBlocked = cal.blockedColor || '#f6c2cf'
+    this.pastel = calmark.PASTEL
+    this.types = [
+      { key: 'tutor', name: this.$t('补习 / 固定安排') },
+      { key: 'blocked', name: this.$t('节日 / 无法学习') },
+      { key: 'event', name: this.$t('普通标注') }
+    ]
     this.build()
     this.refreshList()
   },
@@ -192,7 +270,15 @@ export default {
         const nd = holiday.addDays(last.date, 1)
         cells.push({ date: nd, d: Number(nd.slice(8)), inMonth: false, count: (byDate[nd] || []).length })
       }
+      // 日历标注：把「补习日 / 节日·无法学习日」按色铺到格子上（app 级，独立于目标）
+      const marks = calmark.byMonth(this.year, this.month)
+      this.__marks = marks
+      cells.forEach(c => { c.marks = marks[c.date] || [] })
       this.cells = cells
+    },
+    /** 选中那天的标注（底部列表上方展示） */
+    pickedMarks() {
+      return (this.__marks && this.__marks[this.picked]) || []
     },
     refreshList() {
       this.list = schedule.rowsOf(this.picked, this.__byDate)
@@ -350,6 +436,77 @@ export default {
     },
     dotList(n) {
       return n > 3 ? 3 : n
+    },
+    // ---------- 日历标注（补习日 / 节日·无法学习日） ----------
+    /** hex + 透明度 → rgba 字符串（Webview 兼容性最稳，不靠 #rrggbbaa） */
+    rgbaOf(hex, a) {
+      const h = String(hex || '').replace('#', '')
+      if (h.length !== 6 && h.length !== 3) return 'rgba(188,208,247,' + a + ')'
+      let r, g, b
+      if (h.length === 3) { r = parseInt(h[0] + h[0], 16); g = parseInt(h[1] + h[1], 16); b = parseInt(h[2] + h[2], 16) }
+      else { r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16) }
+      return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')'
+    },
+    /** 格子的标注底色（取第一条标注的色，淡色铺底） */
+    markStyle(marks) {
+      const c = (marks && marks[0] && marks[0].color) || '#bcd0f7'
+      return { background: this.rgbaOf(c, 0.42) }
+    },
+    /** 格子顶部的标注色条 */
+    markBar(marks) {
+      return (marks && marks[0] && marks[0].color) || '#bcd0f7'
+    },
+    /** 点格子开标注弹层：新增模式（editingId 为空） */
+    openMark(date) {
+      const t = date || this.picked
+      this.markDlg = { show: true, date: t, editingId: '', label: '', type: 'tutor', color: calmark.defaultColorForType('tutor', appSettings.get()) }
+    },
+    closeMark() {
+      this.markDlg = { show: false, date: '', editingId: '', label: '', type: 'tutor', color: '#bcd0f7' }
+    },
+    noop() {},
+    pickMarkType(key) {
+      this.markDlg.type = key
+      // 切类型时，颜色落到该类型的默认淡色（除非用户已经手动选了别的色）
+      if (!this.markDlg.editingId) this.markDlg.color = calmark.defaultColorForType(key, appSettings.get())
+    },
+    pickMarkColor(c) { this.markDlg.color = c },
+    /** 编辑某条已有标注：把它的内容填进表单 */
+    editMark(m) {
+      if (!m) return
+      this.markDlg = { show: true, date: this.markDlg.date, editingId: m.id, label: m.label, type: m.type, color: m.color }
+    },
+    /** 保存新增 / 编辑。新增 = 这天的一条「一次性」标注（rule=dates）。 */
+    saveMark() {
+      const d = this.markDlg
+      const label = String(d.label || '').trim()
+      if (!label) {
+        uni.showToast({ title: this.$t('请填写标注内容'), icon: 'none' })
+        return
+      }
+      if (d.editingId) {
+        calmark.update(d.editingId, { label: label, type: d.type, color: d.color })
+      } else {
+        calmark.add({ type: d.type, label: label, color: d.color, rule: 'dates', dates: [d.date] })
+      }
+      this.closeMark()
+      this.build(); this.refreshList()
+      this.$forceUpdate && this.$forceUpdate()
+      uni.showToast({ title: this.$t('已保存标注'), icon: 'none' })
+    },
+    deleteMark(id) {
+      if (!id) return
+      calmark.remove(id)
+      this.build(); this.refreshList()
+      this.$forceUpdate && this.$forceUpdate()
+      // 若正在编辑这条，关掉表单
+      if (this.markDlg.editingId === id) this.markDlg.editingId = ''
+    },
+    /** 选中某天：既刷新当日列表，也刷新底部标注条 */
+    pick(date) {
+      if (this.__swipedAt && Date.now() - this.__swipedAt < 320) { this.__swipedAt = 0; return }
+      this.picked = date
+      this.refreshList()
     }
   }
 }
@@ -378,7 +535,7 @@ export default {
 }
 .cm-day { font-size: 25rpx; color: var(--ink-1, #17201a); font-variant-numeric: tabular-nums; }
 .cm-cell-out .cm-day { color: var(--ink-3, #98a19b); opacity: 0.5; }
-.cm-cell-rest { background: rgba(247, 144, 9, 0.08); }
+.cm-cell-rest { /* 假期/周末不再单独上色（按用户要求去掉黄色）；补习/固定安排日以淡蓝标出 */ }
 .cm-cell-today .cm-day { color: var(--brand, #e4173d); font-weight: 600; }
 .cm-cell-on { background: rgba(var(--brand-rgb, 228, 23, 61), 0.16); }
 .cm-dots { display: flex; margin-top: 6rpx; }
@@ -388,7 +545,7 @@ export default {
 }
 .cm-hol {
   position: absolute; bottom: 6rpx;
-  font-size: 17rpx; color: #b25e00;
+  font-size: 17rpx; color: #98a19b;
 }
 /* 允许换行：英文的 "Swipe to change month" 比中文长得多，一行放不下时
    让提示整条落到第二行靠右，而不是把前面两项挤成两行字 */
@@ -411,10 +568,102 @@ export default {
   from { transform: translateX(24rpx); opacity: 0.3; }
   to { transform: translateX(0); opacity: 1; }
 }
-.lg-rest {
+/* 图例色块：补习（淡蓝）/ 节日·无法学习（淡红），颜色由设置页读出来 */
+.lg-sw {
   width: 22rpx; height: 14rpx; border-radius: 4rpx; margin-right: 8rpx;
-  background: rgba(247, 144, 9, 0.28);
 }
+
+/* 日历标注：淡色铺底 + 顶部色条（补习日 / 节日·无法学习日） */
+.cm-mark {
+  position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+  border-radius: 12rpx; z-index: 0;
+}
+.cm-mark-bar {
+  position: absolute; left: 0; top: 0; right: 0; height: 6rpx;
+  border-radius: 12rpx 12rpx 0 0; z-index: 1;
+}
+.cm-cell-mark .cm-day,
+.cm-cell-mark .cm-hol,
+.cm-cell-mark .cm-dots { position: relative; z-index: 2; }
+
+/* 选中那天底部的标注条（与日程表共用那一天） */
+.card-more-row { display: flex; align-items: center; }
+.mk-add {
+  margin-left: 18rpx; font-size: 22rpx; color: var(--brand-strong, #bb1332);
+  padding: 6rpx 18rpx; border-radius: 999rpx;
+  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
+}
+.mk-list { display: flex; flex-direction: column; margin-bottom: 14rpx; }
+.mk-chip {
+  display: flex; align-items: center; margin-top: 10rpx; padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+}
+.mk-dot { width: 18rpx; height: 18rpx; border-radius: 50%; margin-right: 12rpx; flex-shrink: 0; }
+.mk-label { flex: 1; min-width: 0; font-size: 24rpx; color: var(--ink-1, #17201a); }
+.mk-edit { font-size: 22rpx; color: var(--brand-strong, #bb1332); margin-left: 12rpx; }
+.mk-del { font-size: 30rpx; color: var(--ink-3, #98a19b); margin-left: 14rpx; padding: 0 6rpx; }
+
+/* 标注编辑弹层（底部抽屉式） */
+.mark-mask {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(23, 32, 26, 0.42);
+  display: flex; align-items: flex-end; justify-content: center;
+  z-index: 90;
+}
+.mark-card {
+  width: 100%;
+  padding: 26rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: #fffdf8;
+  background: var(--bg, #fffdf8);
+}
+.mark-head { display: flex; align-items: center; margin-bottom: 18rpx; }
+.mark-title { font-size: 30rpx; font-weight: 600; color: var(--ink-1, #17201a); }
+.mark-date { margin-left: 14rpx; font-size: 24rpx; color: var(--ink-3, #98a19b); }
+.mark-x {
+  margin-left: auto; font-size: 40rpx; color: var(--ink-3, #98a19b);
+  padding: 0 8rpx; line-height: 1;
+}
+.mark-have { margin-bottom: 8rpx; }
+.mark-have-row { display: flex; align-items: center; padding: 12rpx 0; border-top: 2rpx solid rgba(23, 32, 26, 0.06); }
+.mark-have-name { flex: 1; min-width: 0; font-size: 26rpx; color: var(--ink-1, #17201a); }
+.mark-have-edit { font-size: 24rpx; color: var(--brand-strong, #bb1332); margin-left: 12rpx; }
+.mark-have-del { font-size: 24rpx; color: var(--ink-3, #98a19b); margin-left: 16rpx; }
+.mark-fl { display: block; font-size: 24rpx; color: var(--ink-2, #5a6560); margin: 18rpx 0 12rpx; }
+.mark-label-row { display: flex; align-items: center; margin-bottom: 4rpx; }
+.mark-input {
+  flex: 1; min-width: 0; height: 72rpx; box-sizing: border-box;
+  padding: 0 22rpx; font-size: 26rpx; color: var(--ink-1, #17201a);
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  border-radius: 16rpx;
+}
+.mark-types { display: flex; flex-wrap: wrap; }
+.mark-type {
+  font-size: 24rpx; padding: 12rpx 24rpx; border-radius: 999rpx; margin-right: 12rpx; margin-bottom: 12rpx;
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  color: var(--ink-2, #5a6560);
+}
+.mark-type.on { background: rgba(var(--brand-rgb, 228, 23, 61), 0.14); color: var(--brand-strong, #bb1332); font-weight: 600; }
+.mark-colors { display: flex; flex-wrap: wrap; }
+.mark-color {
+  width: 60rpx; height: 60rpx; border-radius: 14rpx; margin-right: 14rpx; margin-bottom: 14rpx;
+  border: 4rpx solid transparent;
+}
+.mark-color.on { border-color: var(--ink-1, #17201a); transform: scale(1.06); }
+.mark-btns { display: flex; gap: 18rpx; margin-top: 20rpx; }
+.mark-btn {
+  flex: 1; height: 88rpx; border-radius: 18rpx;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30rpx; font-weight: 600;
+}
+.mark-btn.ghost {
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  color: var(--ink-2, #5a6560);
+}
+.mark-btn.primary { background: var(--brand, #e4173d); color: #fff; }
 
 /* 日程表的 .ct-* 样式已搬到 components/schedule-list —— 页面里不再留一份，
    否则改样式时很容易只改一边（首页和日历页看着就不一样了） */

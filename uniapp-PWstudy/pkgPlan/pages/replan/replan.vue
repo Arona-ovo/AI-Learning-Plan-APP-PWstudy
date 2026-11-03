@@ -181,6 +181,8 @@ import { replanGoal, replanFromToday } from '../../../services/plan-agent.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 import * as loc from '../../../utils/location.js'
+import * as calmark from '../../../utils/calmark.js'
+import * as settings from '../../../utils/settings.js'
 
 export default {
   components: { FloatNavbar, AppDialog },
@@ -322,6 +324,7 @@ export default {
       if (!g) return
       // 顺延期限先落地：后面的 move 要按新的截止日夹取 maxDay
       let moved = 0
+      let changed = 0
       this.result.ops.forEach((op, i) => {
         if (this.pick[i] && op.op === 'defer') moved += this.applyDefer(g, op)
       })
@@ -333,17 +336,34 @@ export default {
           // 夹到目标期限内：模型给的 day 上限是 3650，排到截止日之后的任务
           // 永远不会出现在"今天该做"里，目标会显示"没有待办"但进度不满
           const maxDay = Math.max(1, Math.round((new Date(g.deadline).getTime() - new Date(g.createdAt || Date.now()).getTime()) / 86400000) + 1)
-          t.day = Math.min(Math.max(1, op.day || t.day), maxDay)
+          const nd = Math.min(Math.max(1, op.day || t.day), maxDay)
+          if (nd !== t.day) { t.day = nd; changed++ }
         }
-        else if (op.op === 'resize') t.pomos = op.pomos
-        else if (op.op === 'drop') { t.status = 'dropped'; t.droppedAt = Date.now() }
+        else if (op.op === 'resize') {
+          if (op.pomos !== t.pomos) { t.pomos = op.pomos; changed++ }
+        }
+        else if (op.op === 'drop') {
+          if (t.status !== 'dropped' && t.status !== 'done') { t.status = 'dropped'; t.droppedAt = Date.now(); changed++ }
+        }
       })
+      // 把 AI 识别的固定安排（补习 / 节假日）同步到日历 —— 这是"应用后日程没变"的核心修复：
+      // 以前 fixed 只写进 goal.places（下次重排的上下文），从不在日历占格，所以用户看不到变化。
+      let markersAdded = 0
+      if (this.fixedList && this.fixedList.length) {
+        const added = calmark.addFromFixed(this.fixedList, (settings.get() && settings.get().calendar) || {})
+        markersAdded = added.length
+      }
       pw.touch()
       pw.flush()
-      uni.showToast({
-        title: moved ? ('已应用，截止日顺延 ' + moved + ' 天') : '已应用',
-        icon: 'success'
-      })
+      // 诚实反馈：没有任何实际改动时，别说"已应用"骗人（用户之前就是被这个假成功误导）
+      if (!changed && !moved && !markersAdded) {
+        uni.showToast({ title: this.$t('没有可应用的改动'), icon: 'none' })
+      } else {
+        const parts = []
+        if (changed || moved) parts.push(this.$t('已应用调整'))
+        if (markersAdded) parts.push(this.$t('已记录 {n} 条固定安排到日历', { n: markersAdded }))
+        uni.showToast({ title: parts.join('，'), icon: 'success' })
+      }
       setTimeout(() => uni.navigateBack(), 500)
     },
     back() { uni.navigateBack() },

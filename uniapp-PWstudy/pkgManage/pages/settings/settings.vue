@@ -207,6 +207,47 @@
       </view>
     </view>
 
+    <!-- ===== 日历标注：两类默认色 + 现有标注管理 ===== -->
+    <view class="sec" :class="{ open: openSec === 'calmark' }">
+      <view class="sec-head" data-k="calmark" @tap="toggleSec">
+        <text class="sec-name">{{ $t('日历标注') }}</text>
+        <text v-if="openSec !== 'calmark'" class="sec-hint">{{ secHint('calmark') }}</text>
+        <text class="sec-arrow">›</text>
+      </view>
+      <view class="sec-body" v-if="openSec === 'calmark'">
+        <view class="bg-hint cal-hint">{{ $t('AI 识别补习 / 节假日会自动上色，你也可以在这里改默认色、或在日历里直接改单条。颜色都是低饱和的淡色，避免和整体观感打架。') }}</view>
+
+        <view class="sub-title">{{ $t('默认颜色') }}</view>
+        <view class="row" v-for="ty in markTypes" :key="ty.key">
+          <view class="row-main">
+            <text class="row-title">{{ ty.name }}</text>
+            <text class="row-desc">{{ $t('新建这类标注时的默认色，可在日历里单条覆盖') }}</text>
+          </view>
+          <view class="cal-sw-row">
+            <view
+              v-for="c in pastel"
+              :key="c"
+              class="cal-sw"
+              :class="{ on: calColor(ty.key) === c }"
+              :style="{ background: c }"
+              @tap="setCalColor(ty.key, c)"
+            ></view>
+          </view>
+        </view>
+
+        <view class="sub-title">{{ $t('现有标注') }}（{{ marks.length }}）</view>
+        <view v-if="!marks.length" class="cal-empty">{{ $t('还没有标注。去日历里点某一天即可添加。') }}</view>
+        <view v-for="m in marks" :key="m.id" class="cal-item" @tap="editMarkFromSettings(m)">
+          <view class="cal-dot" :style="{ background: m.color }"></view>
+          <view class="cal-item-main">
+            <text class="cal-item-label">{{ m.label }}</text>
+            <text class="cal-item-type">{{ typeName(m.type) }}{{ m.auto ? ' · ' + $t('AI 添加') : '' }}</text>
+          </view>
+          <text class="cal-item-edit">{{ $t('编辑') }}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- ===== 流畅模式（低端机退路） ===== -->
     <view class="sec" :class="{ open: openSec === 'perf' }">
       <view class="sec-head" data-k="perf" @tap="toggleSec">
@@ -1083,6 +1124,36 @@
         <text class="egg-btn" @tap="closeEgg">{{ $t('收起来') }}</text>
       </view>
     </view>
+
+    <!-- 标注编辑浮层（改单条的类型 / 颜色 / 删除） -->
+    <view class="mark-mask" v-if="editDlg.show" @tap="closeEditMark" @touchmove.stop.prevent="noop">
+      <view class="mark-card" @tap.stop="noop" @touchmove.stop="noop">
+        <view class="mark-top">
+          <text class="mark-title">{{ $t('编辑标注') }}</text>
+          <text class="mark-close" @tap="closeEditMark">×</text>
+        </view>
+        <view class="mark-field">
+          <text class="mark-label">{{ $t('名称') }}</text>
+          <input class="mark-input" v-model="editDlg.label" :maxlength="20" :placeholder="$t('如：补习班 / 春节')" />
+        </view>
+        <view class="mark-field">
+          <text class="mark-label">{{ $t('类型') }}</text>
+          <view class="mark-types">
+            <view v-for="ty in markTypes" :key="ty.key" class="mark-type" :class="{ on: editDlg.type === ty.key }" @tap="editPickType(ty.key)">{{ ty.name }}</view>
+          </view>
+        </view>
+        <view class="mark-field">
+          <text class="mark-label">{{ $t('颜色（淡色）') }}</text>
+          <view class="mark-colors">
+            <view v-for="c in pastel" :key="c" class="mark-color" :class="{ on: editDlg.color === c }" :style="{ background: c }" @tap="editPickColor(c)"></view>
+          </view>
+        </view>
+        <view class="mark-actions">
+          <view class="mark-btn ghost" @tap="deleteMarkFromSettings(editDlg.id)">{{ $t('删除') }}</view>
+          <view class="mark-btn primary" @tap="saveMarkFromSettings">{{ $t('保存') }}</view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -1090,6 +1161,7 @@
 import { t } from '../../../utils/i18n.js';
 import { LOCALES, current as currentLocale, setLocale } from '../../../utils/i18n.js';
 import * as settings from '../../../utils/settings'
+import * as calmark from '../../../utils/calmark.js'
 import { holdScroll, releaseScroll } from '../../../utils/scroll-lock.js';
 import * as onboarding from '../../../utils/onboarding.js'
 import * as timeslot from '../../../utils/timeslot.js'
@@ -1290,7 +1362,14 @@ export default {
       eggLineKey: EGG_LINES[0],
       eggFound: 0,
       eggTaps: 0,
-      eggLastAt: 0
+      eggLastAt: 0,
+      // 日历标注：类型选项 / 淡色色板 / 现有标注列表（来自 utils/calmark.js）
+      markTypes: Object.keys(calmark.MARKER_TYPES).map(k => ({
+        key: k, name: calmark.MARKER_TYPES[k].name
+      })),
+      pastel: calmark.PASTEL,
+      marks: calmark.list(),
+      editDlg: { show: false, id: '', label: '', type: 'tutor', color: '#bcd0f7' }
     }
   },
   watch: {
@@ -1477,6 +1556,8 @@ export default {
     this.version = this.readVersion()
     // 从「开始前的几件事」退回来要重数一次（可能刚在那边开了权限）
     try { this.startPending = setup.pending().length } catch (e) { this.startPending = 0 }
+    // 日历标注列表（AI 重排后新增 / 日历里手标都会进来，回来要重读）
+    this.marks = calmark.list()
     // 悬浮胶囊：形态/开关读 focus 配置（与首页专注设置同一份）
     try {
       const f = settings.get().focus || {}
@@ -1570,6 +1651,10 @@ export default {
       }
       if (k === 'haptic') return this.hapticOn ? t('已开启') : t('已关闭')
       if (k === 'about') return 'v' + this.version
+      if (k === 'calmark') {
+        const n = (this.marks || []).length
+        return n ? n + ' ' + t('条标注') : t('未设置')
+      }
       if (k === 'cache') return this.cacheHint
       if (k === 'perf') return this.smooth ? t('已开启') : t('已关闭')
       // 「开始前的几件事」：收起时直接说还差几项 —— 拆开看才知道缺权限的话，
@@ -1588,6 +1673,51 @@ export default {
       }
       return ''
     },
+
+    // ---------- 日历标注 ----------
+    // 取某类型的当前默认色（来自 settings.calendar，回退内置）
+    calColor(typeKey) {
+      return calmark.defaultColorForType(typeKey, settings.get())
+    },
+    // 改某类型默认色：写回 settings（AI 重排 / 日历新建都读这个）
+    setCalColor(typeKey, c) {
+      try {
+        const patch = {}
+        patch[typeKey + 'Color'] = c
+        settings.set({ calendar: patch })
+      } catch (e) {}
+      // 让对应的 swatch 高亮立刻刷新（settings.set 已落盘，但视图要主动推）
+      this.$forceUpdate()
+    },
+    typeName(typeKey) {
+      const hit = this.markTypes.filter(x => x.key === typeKey)[0]
+      return hit ? hit.name : typeKey
+    },
+    // 从现有标注列表点开编辑浮层
+    editMarkFromSettings(m) {
+      this.editDlg = { show: true, id: m.id, label: m.label, type: m.type, color: m.color }
+    },
+    closeEditMark() {
+      this.editDlg = { show: false, id: '', label: '', type: 'tutor', color: '#bcd0f7' }
+    },
+    editPickType(k) { this.editDlg.type = k },
+    editPickColor(c) { this.editDlg.color = c },
+    saveMarkFromSettings() {
+      const d = this.editDlg
+      if (!d.id) return
+      const label = String(d.label || '').trim()
+      if (!label) { uni.showToast({ title: t('名称不能为空'), icon: 'none' }); return }
+      calmark.update(d.id, { label: label, type: d.type, color: d.color })
+      this.marks = calmark.list()
+      this.closeEditMark()
+    },
+    deleteMarkFromSettings(id) {
+      if (!id) return
+      calmark.remove(id)
+      this.marks = calmark.list()
+      this.closeEditMark()
+    },
+    noop() {},
 
     // 画质档位：先按机器挑一档，下面三个维度还能单独微调
     loadFx() {
@@ -3188,4 +3318,97 @@ export default {
   background: rgba(228, 23, 61, 0.12);
   background: rgba(var(--brand-rgb, 228, 23, 61), 0.12);
 }
+
+/* ===== 日历标注（设置页） ===== */
+.cal-hint { margin-bottom: 8rpx; }
+.cal-sw-row {
+  display: flex; flex-wrap: wrap; gap: 14rpx;
+  justify-content: flex-end; max-width: 380rpx;
+}
+.cal-sw {
+  width: 40rpx; height: 40rpx; border-radius: 10rpx;
+  border: 2rpx solid transparent;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.12);
+}
+.cal-sw.on {
+  border-color: #17201a;
+  border-color: var(--ink-1, #17201a);
+  transform: scale(1.12);
+}
+.cal-empty {
+  font-size: 24rpx; color: #98a19b; color: var(--ink-3, #98a19b);
+  padding: 16rpx 0 4rpx;
+}
+.cal-item {
+  display: flex; align-items: center;
+  padding: 20rpx 0; border-bottom: 1rpx solid rgba(23, 32, 26, 0.06);
+}
+.cal-item:last-child { border-bottom: none; }
+.cal-dot {
+  width: 30rpx; height: 30rpx; border-radius: 8rpx;
+  margin-right: 20rpx; flex-shrink: 0;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.12);
+}
+.cal-item-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.cal-item-label { font-size: 28rpx; color: #17201a; color: var(--ink-1, #17201a); }
+.cal-item-type { font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); margin-top: 4rpx; }
+.cal-item-edit {
+  font-size: 26rpx; color: #e4173d; color: var(--brand, #e4173d);
+  padding: 8rpx 16rpx;
+}
+
+/* 标注编辑浮层（与日历页同一套浮层手势契约：遮罩 stop.prevent，卡片 stop） */
+.mark-mask {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(23, 32, 26, 0.42);
+  display: flex; align-items: flex-end; justify-content: center;
+  z-index: 90;
+}
+.mark-card {
+  width: 100%;
+  padding: 26rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: #fffdf8;
+  background: var(--bg, #fffdf8);
+}
+.mark-top { display: flex; align-items: center; margin-bottom: 18rpx; }
+.mark-title { font-size: 30rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
+.mark-close { margin-left: auto; font-size: 40rpx; color: #98a19b; color: var(--ink-3, #98a19b); padding: 0 8rpx; line-height: 1; }
+.mark-field { margin-bottom: 18rpx; }
+.mark-label { display: block; font-size: 24rpx; color: #5a6560; color: var(--ink-2, #5a6560); margin-bottom: 12rpx; }
+.mark-input {
+  width: 100%; box-sizing: border-box; height: 72rpx;
+  padding: 0 22rpx; font-size: 26rpx; color: #17201a; color: var(--ink-1, #17201a);
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  border-radius: 16rpx;
+}
+.mark-types { display: flex; flex-wrap: wrap; }
+.mark-type {
+  font-size: 24rpx; padding: 12rpx 24rpx; border-radius: 999rpx;
+  margin-right: 12rpx; margin-bottom: 12rpx;
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  color: #5a6560; color: var(--ink-2, #5a6560);
+}
+.mark-type.on { background: rgba(228, 23, 61, 0.14); background: rgba(var(--brand-rgb, 228, 23, 61), 0.14); color: #bb1332; color: var(--brand-strong, #bb1332); font-weight: 600; }
+.mark-colors { display: flex; flex-wrap: wrap; }
+.mark-color {
+  width: 60rpx; height: 60rpx; border-radius: 14rpx;
+  margin-right: 14rpx; margin-bottom: 14rpx;
+  border: 4rpx solid transparent;
+}
+.mark-color.on { border-color: #17201a; border-color: var(--ink-1, #17201a); transform: scale(1.06); }
+.mark-actions { display: flex; gap: 18rpx; margin-top: 20rpx; }
+.mark-btn {
+  flex: 1; height: 88rpx; border-radius: 18rpx;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30rpx; font-weight: 600;
+}
+.mark-btn.ghost {
+  background: rgba(23, 32, 26, 0.05);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
+  color: #5a6560; color: var(--ink-2, #5a6560);
+}
+.mark-btn.primary { background: #e4173d; background: var(--brand, #e4173d); color: #fff; }
 </style>
