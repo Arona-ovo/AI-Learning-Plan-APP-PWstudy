@@ -618,6 +618,13 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   const focusSrc = read(path.join(ROOT, 'utils', 'focus.js'));
   if (/\(!!c\.capsule\s*\|\|\s*!!c\.forced\)/.test(focusSrc)) ok('syncCapsule 在强制模式下无视胶囊开关');
   else bad('syncCapsule 只看 capsule 开关 —— 老用户存了 false 就再也不会看到胶囊');
+  //      12.25 倒计时**只能有一个 writer**（2026-11-03 用户实测 14:25 → 14:22 → 14:23 来回跳）：
+  //      JS 在正常倒计时态必须交空串，文案全交给原生 CapsuleTickTask 按 endAt 自己数。
+  //      两边各算一遍 → 取整方式不同（round / floor）+ 后台 JS 定时器被批处理补跑 → 数字乱跳。
+  const capContentFn = (focusSrc.match(/function capsuleContent\(\)[\s\S]*?\n\}/) || [''])[0];
+  if (/timeStr = '';/.test(capContentFn) && /const txt = timeStr \?/.test(capContentFn)) {
+    ok('倒计时只有一个 writer（JS 交空串，原生按 endAt 自己数）');
+  } else bad('JS 又在算倒计时文案 —— 会和原生 tick 两个 writer 打架，胶囊数字会来回跳');
   //      12.24 fgsvc 桥必须齐全：focus.js 里 `fgsvc.xxx()` 用到的每个名字都得在 fgsvc.js 里 export。
   //      ★ 2026-11-02 真机日志实锤：`"setCapsulePhase" is not exported by utils/fgsvc.js`
   //      （rollup 只警告不报错）→ 调用被 try/catch 吞掉 → 原生 capsulePhase 永远 'focus'
@@ -656,11 +663,15 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
   if (/function capsuleAccent\(\): Int \{[\s\S]*?capsulePhase == 'rest'[\s\S]*?\n\}/.test(utsSrc)) ok('进度弧按阶段换色（专注红 #e4173d / 休息绿 #2FA36B）');
   else bad('进度弧没按阶段换色 —— 休息时必须是绿色（见 capsuleAccent）');
   //      12.21 文案同构（2026-11-02 用户报"闪来闪去、频率太快"的根因）：
-  //      原生 tick 必须用 label + ' ' + mm:ss 重建整串，和 JS 推来的格式一字不差；
+  //      原生 tick 必须重建整串（label + 时间），和 JS 那边一字不差；
   //      任一侧只写 mm:ss，两个 setText 就会每秒交替 → 视觉上闪烁。
+  //      ★ 2026-11-03 起拼法收进 capsuleLine()：倒计时由原生单 writer 负责，
+  //        JS 倒计时态交空串（见 utils/focus.js 的 capsuleContent）。
   const tickFn = (utsSrc.match(/class CapsuleTickTask[\s\S]*?\n\}/) || [''])[0];
-  if (/capsuleLabel \+ ' ' \+ t/.test(tickFn) && !/capsuleText = t;/.test(tickFn)) ok('原生 tick 与 JS 文案同构（label + 时间，不再每秒闪）');
-  else bad('原生 tick 又只写 mm:ss —— 会和 JS 推来的"专注中 12:34"每秒交替，用户看到闪烁');
+  const tickLineOk = /capsuleLine\(capsuleLabel,\s*t\)/.test(tickFn) || /capsuleLabel \+ ' ' \+ t/.test(tickFn);
+  if (/function capsuleLine\(/.test(utsSrc) && tickLineOk && !/capsuleText = t;/.test(tickFn)) {
+    ok('原生 tick 与 JS 文案同构（capsuleLine 单 writer，不再每秒闪）');
+  } else bad('原生 tick 又只写 mm:ss —— 会和 JS 那边的整串交替，用户看到闪烁');
   //      12.17 拖动必须真的挪窗口（小窗口模式下 updateViewLayout 才是最跟手的做法）。
   const moveFn = (utsSrc.match(/moveTo\(x: Int, y: Int\) \{[\s\S]*?\n  \}/) || [''])[0];
   if (/clampCapsulePos\(/.test(moveFn) && /moveCapsuleWindow\(/.test(moveFn)) ok('拖动走 moveCapsuleWindow（挪窗口）+ 屏内钳位');

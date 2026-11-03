@@ -142,7 +142,10 @@ function fcfg() {
 }
 
 function mmss(sec) {
-  const s = Math.max(0, Math.round(Number(sec) || 0));
+  // ★ 2026-11-03：一律 floor，和原生 capsuleMmss 完全一致。
+  //   以前这里 round、原生 floor，同一个 endAt 在 1 秒边界上会算出相差 1 秒的两个值，
+  //   两个 writer 交替写就变成"数字来回跳"（用户实测 14:25 → 14:22 → 14:23）。
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
@@ -205,17 +208,23 @@ function capsuleContent() {
     timeStr = mmss(state.remainSec);    // 暂停冻结：endAt=0，不自转
   } else {
     endAt = state.endAt;                 // 正常倒计时：交给原生自己数秒
-    timeStr = mmss(Math.max(0, Math.round((state.endAt - Date.now()) / 1000)));
+    // ★ 2026-11-03 单 writer（用户实测倒计时 14:25 → 14:22 → 14:23 → 14:20 乱跳 + 偶尔闪）：
+    //   倒计时进行中**JS 不再算这一串**，交空串出去，让原生 CapsuleTickTask 用同一个 endAt
+    //   自己数秒。原因有两个：
+    //     ① 两边取整方式不同（这里原来 round、原生 floor），1 秒边界上会相差 1 秒；
+    //     ② App 在后台时 WebView 的定时器被系统批处理，一恢复就补跑几次、连续推几次旧值。
+    //   只要还有第二个 writer，就一定会出现"同一个数字被两个值来回覆盖"。
+    timeStr = '';
   }
   // ★ 2026-11-02 用户口径（定稿）：前缀**可以显示，但只在展开态**。
   //   展开 = 「专注中 12:34」/「休息中 05:00」/「已暂停 12:34」/「超时 00:12」；
   //   迷你 = 一个字都不画，只留进度环（原生按 capsuleExpanded 决定画不画）。
   //   前缀优先级：超时 > 暂停 > 阶段 —— 否则"已暂停 · 专注中"这种组合在小球里放不下。
-  //   ★ 原生每秒自转时会用 label + mm:ss 重建同一串（见 CapsuleTickTask），
-  //     两边格式必须一模一样，否则每秒在两种文案之间闪一次。
   //   label **不带尾随空格**（原生要单独画这一行，带空格会偏左）；拼接时显式补一个空格。
   const label = state.overrun ? overWord : (state.paused ? pauseWord : phaseWord);
-  return { txt: label + ' ' + timeStr, label, endAt, totalSec: Number(state.totalSec) || 0 };
+  // 倒计时中 txt 为空 = "让原生自己数"；静态态才给完整文案
+  const txt = timeStr ? (label + ' ' + timeStr) : '';
+  return { txt, label, endAt, totalSec: Number(state.totalSec) || 0 };
 }
 
 /**

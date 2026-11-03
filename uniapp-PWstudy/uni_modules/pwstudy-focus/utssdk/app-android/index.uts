@@ -980,6 +980,7 @@ let capsuleIdleAt: number = 0;       // 最后一次交互（触摸 / 展开）�
  * 两者都由 CapsuleView.onSizeChanged 在运行时判定，不猜。 */
 let capsuleCanvasFull: Boolean = false;  // 画布被 ROM 撑成了全屏（不是我们申请的尺寸）
 let capsuleTouchOff: Boolean = false;    // 已降级为不可触摸（只显示，防锁屏）
+let capsuleResizeTried: Boolean = false; // 画布异常时已经试过"把窗口掰回目标尺寸"（只试一次）
 
 class CapsuleView extends TextView {
   private mode: string;
@@ -1098,12 +1099,30 @@ class CapsuleView extends TextView {
       }
       if (full != capsuleCanvasFull) {
         capsuleCanvasFull = full
+        capsuleResizeTried = false
         console.log('[capsule] 画布 ' + cw + 'x' + ch + ' / 目标 ' + tw + 'x' + th
-          + (full ? ' → 被撑大：走偏移绘制 + 关触摸' : ' → 正常'))
+          + (full ? ' → 被撑大：裁剪 + 试着重设窗口 + 关触摸' : ' → 正常'))
         if (full) uiPost(new CapsuleTouchOffTask())
       }
       // 窗口正常时画布就是胶囊本身（原点 0,0）；被撑成全屏时画布原点在屏幕左上角，得平移
-      if (capsuleCanvasFull) canvas.translate(capsuleDrawX().toFloat(), capsuleDrawY().toFloat())
+      if (capsuleCanvasFull) {
+        let ox = capsuleDrawX()
+        let oy = capsuleDrawY()
+        // ★ 2026-11-03 双保险（用户云打包后又出现"整屏大椭圆"）：**先裁剪再平移**。
+        //   不管画布被撑到多大，只允许在胶囊自己那块矩形里落笔 ——
+        //   这样即使某天窗口尺寸又被 ROM 忽略，画出来最多是位置偏，绝不会铺满半屏。
+        canvas.clipRect(ox.toFloat(), oy.toFloat(),
+          (ox + tw).toFloat(), (oy + th).toFloat())
+        canvas.translate(ox.toFloat(), oy.toFloat())
+        // 再试一次把窗口掰回目标尺寸（只试一次，不然每帧 updateViewLayout 会打架）
+        if (!capsuleResizeTried) {
+          capsuleResizeTried = true
+          uiPost(new CapsuleResizeTask())
+        }
+      } else {
+        // 正常小窗口也裁一刀：防某一帧画布异常时把内容画到窗口外
+        canvas.clipRect(0.0.toFloat(), 0.0.toFloat(), tw.toFloat(), th.toFloat())
+      }
       this.drawCapsule(canvas)
     } catch (e) {}
   }
@@ -1312,19 +1331,19 @@ class CapsuleTickTask implements Runnable {
       setCapsuleExpanded(false);   // 闲置 → 缩成小圆、只留进度环
     }
     if (capsuleEndAt > 0) {
-      let remain = Math.floor((capsuleEndAt - System.currentTimeMillis()) / 1000);
-      if (remain < 0) remain = 0;
-      capsuleRemain = remain;
-      try {
-        // ★ 必须和 JS 推来的文案**完全同构**（= label + 时间）。
-        //   历史 bug：原生每秒写 "12:34"、JS 每秒推 "专注中 12:34"，
-        //   两个 setText 交替 → 用户看到"闪来闪去，频率太快"。
-        let t = capsuleMmss(remain);
-        capsuleTime = t;
-        capsuleText = capsuleLabel + ' ' + t;
-        capsuleView!.setText(capsuleText);
-        invalidateCapsule();            // 自绘，每秒局部重画（全屏 View 全量重绘太费电）
-      } catch (e) {}
+      let remain = Math.floor((capsuleEndAt - System.currentTimeMillis()) / 1000)
+      if (remain < 0) remain = 0
+      let t = capsuleMmss(remain)
+      // ★ 2026-11-03：和 JS 侧用同一个 capsuleLine 拼（JS 倒计时态已交空串，这里是唯一 writer）。
+      //   只在文案真的变了才写 + 重绘：主线程偶尔卡顿会让 tick 晚到/连跑，重复写同一串就是"闪一下"。
+      let line = capsuleLine(capsuleLabel, t)
+      if (line != capsuleText) {
+        capsuleRemain = remain
+        capsuleTime = t
+        capsuleText = line
+        try { capsuleView!.setText(line) } catch (e) {}
+        invalidateCapsule()             // 自绘，每秒局部重画（全屏 View 全量重绘太费电）
+      }
     }
     if (capsuleWanted) mainHandler!.postDelayed(new CapsuleTickTask(), 1000);
   }
@@ -1531,6 +1550,30 @@ function syncCapsuleFrame() {
 class CapsuleTouchOffTask implements Runnable {
   override run(): void {
     disableCapsuleTouch()
+  }
+}
+
+/**
+ * 画布被撑大时，试着把窗口尺寸掰回目标值。
+ *
+ * 只在 onDraw 判定"画布异常"时跑一次（capsuleResizeTried 把门）。
+ * 有些 ROM 会忽略第一次 addView 的宽高，但认 updateViewLayout —— 掰回来就永久正常；
+ * 掰不回来也不要紧：绘制侧已经 clip 到胶囊矩形 + 触摸降级，最多是"位置偏 + 点不动"。
+ */
+class CapsuleResizeTask implements Runnable {
+  override run(): void {
+    let v = capsuleView
+    let wm = capsuleWM
+    let lp = capsuleLP
+    if (v == null || wm == null || lp == null) return
+    try {
+      let tw = capsuleWidthPx(capsuleStyle)
+      let th = capsuleHeightPx(capsuleStyle)
+      lp!.width = tw
+      lp!.height = th
+      wm!.updateViewLayout(v!, lp!)
+      console.log('[capsule] 画布异常 → 重设窗口 ' + tw + 'x' + th)
+    } catch (e) {}
   }
 }
 
@@ -1746,27 +1789,51 @@ function restoreCapsulePos(): boolean {
   return false;
 }
 
+/** 拼「阶段 + 时间」：label 为空就只给时间；时间为空就只给阶段 */
+function capsuleLine(label: string, time: string): string {
+  if (label.length == 0) return time
+  if (time.length == 0) return label
+  return label + ' ' + time
+}
+
 function postCapsule(want: boolean, text: string, endAt: number, label: string, totalSec: number) {
   let wasWanted = capsuleWanted
-  capsuleText = text
+  let now = System.currentTimeMillis()
+  // ★ 2026-11-03 只留一个 writer（用户实测倒计时 14:25 → 14:22 → 14:23 → 14:20 来回跳 + 偶尔闪）：
+  //   倒计时进行中（endAt > 0）**一律忽略 JS 传来的文案**，按同一个 endAt 现算 ——
+  //   公式和 CapsuleTickTask 一模一样（floor），拼法也一样。
+  //   以前是 JS 每秒推 "专注中 14:25"（round 上取整）、原生每秒写 "专注中 14:24"（floor），
+  //   两个 setText 在 1 秒边界上交替覆盖 → 数字来回跳；App 在后台时 JS 定时器被系统批处理，
+  //   一恢复还会连续补推几次旧值，跳得更乱。现在 JS 那边倒计时态给空串，这里自己算。
+  let remain: number = 0
+  let t = ''
+  if (endAt > 0) {
+    remain = Math.floor((endAt - now) / 1000)
+    if (remain < 0) remain = 0
+    t = capsuleMmss(remain)
+  } else {
+    // 静态态（暂停 / 超时正计时）：JS 给什么就是什么，从「label + 空格 + 时间」里剥出纯时间
+    t = text
+    if (label.length > 0 && text.length > label.length + 1) t = text.substring(label.length + 1)
+  }
+  let line = capsuleLine(label, t)
+  // ★ 幂等短路：JS 每拍（每秒）都会 syncCapsule → capsuleUpdate 过桥一次，
+  //   但倒计时进行中这些参数全是老样子 —— 直接回去，让原生 tick 当唯一刷新者。
+  //   不短路的话每秒会多一次 setText + 全量重绘，颜色深、刷新快的时候看着就是"闪一下"。
+  let sameStatic = (want == capsuleWanted) && (endAt == capsuleEndAt) && (label == capsuleLabel) && (totalSec == capsuleTotalSec)
+  if (sameStatic && (endAt > 0 || line == capsuleText)) return
+  capsuleText = line
+  capsuleTime = t
   capsuleEndAt = endAt
   capsuleLabel = label
-  // 纯时间 = 完整文案剥掉「前缀 + 一个空格」（展开态圆形分两行画：上阶段、下时间）
-  capsuleTime = text
-  if (label.length > 0 && text.length > label.length + 1) capsuleTime = text.substring(label.length + 1)
   capsuleTotalSec = totalSec
-  // 给圆环一个正确的首帧剩余：endAt>0 按差值算，否则 0（暂停/正计时 = 环画满）
-  if (endAt > 0) {
-    capsuleRemain = Math.max(0, Math.floor((endAt - System.currentTimeMillis()) / 1000));
-  } else {
-    capsuleRemain = 0;
-  }
+  capsuleRemain = remain
   capsuleWanted = want
   // ★ 只有"从无到有"时才回到展开态：updateCapsule 每拍都会进来，
   //   若无条件展开，用户刚点开又会被下一次刷新重置成迷你态/展开态，状态机就乱了。
   if (want && !wasWanted) {
     capsuleExpanded = true
-    capsuleIdleAt = System.currentTimeMillis()
+    capsuleIdleAt = now
   }
   uiPost(new CapsuleApplyTask())
 }
