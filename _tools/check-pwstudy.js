@@ -212,6 +212,22 @@ function ok(cond, msg) {
     '按 策略→内容→时间 排序');
   ok(lv.ops[2].op === 'move' && lv.ops[2].level === 'time', '时间档兜在最后');
 
+  console.log('\n[6b] 固定安排（补习班 / 上课）解析');
+  const nf = planAgent.normalizeReplan({
+    summary: '图里周六上午是补习班',
+    ops: [{ op: 'note', text: '把数学挪到周日下午' }],
+    fixed: [
+      { name: '补习班', when: '周六 9:00-12:00' },
+      { name: '   ' },                       // 空名 → 丢
+      '周日 14:00-16:00 物理'                 // 字符串也认
+    ]
+  }, lvTasks);
+  ok(nf.fixed.length === 2, 'fixed 只留有效条目（空名丢弃、字符串兜底成对象）');
+  ok(nf.fixed[0].name === '补习班' && nf.fixed[0].when === '周六 9:00-12:00', 'fixed 保留名称与时段');
+  ok(nf.fixed[0].place === '', 'fixed 的 place 初始为空（等用户在弹窗里填）');
+  ok(planAgent.normalizeReplan({ summary: 'ok', ops: [{ op: 'note', text: 'x' }] }, lvTasks).fixed.length === 0,
+    '模型没给 fixed 时是空数组，不是 undefined（页面不用判空指针）');
+
   console.log('\n[7] 规划后台任务（未配置 AI 时的人话报错）');
   const task = await import('file:///' + ROOT.replace(/\\/g, '/') + '/utils/plan-task.js');
   task.reset();
@@ -1002,6 +1018,29 @@ function ok(cond, msg) {
       'pickRemind 里直接赋独立字段（普通响应式赋值，必触发）');
     ok(/toggle\(t\) \{[\s\S]*?\$forceUpdate/.test(gd), '勾选任务补 $forceUpdate（同一个坑）');
     ok(/this\.remindAt = \(g && g\.remindAt\) \|\| ''/.test(gd), 'refresh 时独立字段跟库里同步');
+  }
+
+  // ---- 重排页附图 + 补习地点（2026-11-03）----
+  // 场景：临时收到补习班通知，发张截图就该能重排。图片入口原来只在"新建目标"的
+  // 对话里，重排页根本没有 —— 用户原话"是我找的地方不对吗"。
+  {
+    const rp = require('fs').readFileSync(
+      path.join(ROOT, 'pkgPlan', 'pages', 'replan', 'replan.vue'), 'utf8');
+    const pa = require('fs').readFileSync(
+      path.join(ROOT, 'services', 'plan-agent.js'), 'utf8');
+    ok(/uni\.chooseImage\(/.test(rp), '重排页能选图（课表 / 补习班通知截图）');
+    ok(/replanFromToday\(g, log, reality, opt, extra, imgs\)/.test(rp) &&
+      /replanGoal\(g, reality, opt, extra, imgs\)/.test(rp),
+      '两个重排入口都把图片传下去（只传一个 = 收工重排那条路丢图）');
+    ok(/mode="input"[\s\S]{0,200}补习班在哪儿上/.test(rp), '识别到固定安排后弹输入框问地点');
+    ok(/g\.places = merged\.slice\(-12\)/.test(rp), '地点写回目标（按名字合并，不冲掉旧地点）');
+    ok(/type: 'image_url'/.test(pa) && /imgIgnored/.test(pa),
+      'plan-agent 走多模态分段，并在模型不看图时降级标记');
+    ok(/knownPlaces[\s\S]{0,400}fixedBlock/.test(pa),
+      '已填的固定安排（含地点）回灌给重排 prompt（排程才会留通勤）');
+    const gd2 = require('fs').readFileSync(
+      path.join(ROOT, 'pkgPlan', 'pages', 'goal-detail', 'goal-detail.vue'), 'utf8');
+    ok(/g\.places && g\.places\.length/.test(gd2), '目标详情展示固定安排与地点');
   }
 
   // ---- 待勾徽标「专注已满」（2026-10-14 真机反馈）----

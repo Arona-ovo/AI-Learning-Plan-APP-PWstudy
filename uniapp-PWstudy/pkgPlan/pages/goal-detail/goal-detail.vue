@@ -12,6 +12,15 @@
         </view>
         <view class="gd-sub">{{ progress.done }}/{{ progress.total }} 专注 · {{ progress.pct }}%</view>
         <view v-if="g.strategy" class="gd-strategy">{{ g.strategy }}</view>
+        <!-- 固定安排（补习班 / 上课）：重排时从截图或文字里认出来的，地点是用户自己补的。
+             放在目标里而不是某条任务上 —— 它是"每周都占掉一段时间"的事，不属于某一天。 -->
+        <view v-if="g.places && g.places.length" class="gd-fixed">
+          <view v-for="(p, i) in g.places" :key="i" class="gd-fixed-row">
+            <text class="gd-fixed-name">{{ p.name }}</text>
+            <text v-if="p.when" class="gd-fixed-when">· {{ p.when }}</text>
+            <text v-if="p.place" class="gd-fixed-place">· {{ p.place }}</text>
+          </view>
+        </view>
         <view v-if="g.risks.length" class="gd-risks">
           <text v-for="(r, i) in g.risks" :key="i" class="gd-risk">⚠ {{ r }}</text>
         </view>
@@ -465,6 +474,17 @@ export default {
 }
 .gd-risks { margin-top: 14rpx; display: flex; flex-direction: column; }
 .gd-risk { font-size: 23rpx; line-height: 1.7; color: #8a5800; }
+
+/* 固定安排（补习班 / 上课）：名称 + 时段 + 地点，一行读完 */
+.gd-fixed { margin-top: 16rpx; padding-top: 14rpx; border-top: 2rpx solid rgba(23, 32, 26, 0.06); }
+.gd-fixed-row {
+  display: flex; align-items: baseline; flex-wrap: wrap;
+  font-size: 23rpx; line-height: 1.7;
+  color: #5a6560; color: var(--ink-2, #5a6560);
+}
+.gd-fixed-name { margin-right: 8rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
+.gd-fixed-when { margin-right: 8rpx; }
+.gd-fixed-place { color: #98a19b; color: var(--ink-3, #98a19b); }
 
 /* 每日提醒：时间点 chips（与向导页同一套视觉） */
 .chips { display: flex; flex-wrap: wrap; }

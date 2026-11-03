@@ -618,6 +618,15 @@ function fileToDataUrl(p) {
   });
 }
 
+/**
+ * 判断这次失败是不是"模型不看图"。
+ * OpenAI 兼容层五花八门：有的报 `invalid content type`，有的报 `unknown variant image_url`，
+ * 国产模型还会直说"不支持图片"。宁可多匹配几个词，也别让用户对着一个 400 猜半天。
+ */
+function isVisionError(e) {
+  const s = String((e && e.message) || '');
+  return /image_url|image\b|vision|multimodal|content\[\d+\]\.type|unknown variant|不支持.{0,8}图|图.{0,8}不支持/i.test(s);
+}
 // history → wire messages：带图的用户消息转成 [{type:'image_url'},{type:'text'}] 分段 content
 async function historyToWire(history) {
   const out = [];
@@ -888,8 +897,19 @@ export function normalizeReplan(raw, tasks, opt) {
   // 注意：strategy 的 rank 是 0，不能用 `|| 1` 兜底（0 是假值会把策略档降成内容档）
   const rk = lv => (typeof rank[lv] === 'number' ? rank[lv] : 1);
   ops.sort((a, b) => rk(a.level) - rk(b.level));
+  // 固定安排（补习班 / 上课 / 值班）：模型从截图或文字里读出来的"不可用时段"。
+  // 页面拿它弹「填补习地点」，填完写进 goal.places，下次重排作为上下文喂回来。
+  // 允许模型给字符串数组（"周六 9-12 补习班"）—— 这里统一成对象，页面只认一种形状。
+  const fixed = (Array.isArray(o.fixed) ? o.fixed : []).map(f => {
+    if (typeof f === 'string') return { name: deBrand(clampStr(f, 30)), when: '', place: '' };
+    return {
+      name: deBrand(clampStr(f && f.name, 30)),
+      when: deBrand(clampStr(f && f.when, 40)),
+      place: ''
+    };
+  }).filter(f => f.name).slice(0, 6);
   if (!summary && !ops.length) throw new Error('AI 没有给出可执行的重排建议');
-  return { summary, ops };
+  return { summary, ops, fixed };
 }
 
 /* ---------- 周复盘 / 每日复盘 ---------- */
@@ -1081,8 +1101,8 @@ export async function summarizeHarvest(ctx) {
  *   自动重排（utils/harvest.js）靠这一段把"反馈 → 重排 → 再反馈"串成闭环 ——
  *   没有它，模型每次看到的都是同一份冷冰冰的进度，改完也不知道自己上次改了什么。
  */
-export function replanGoal(goal, reality, opt, extra) {
-  return runReplan(goal, reality, '', opt, extra);
+export function replanGoal(goal, reality, opt, extra, images) {
+  return runReplan(goal, reality, '', opt, extra, images);
 }
 
 /**
@@ -1093,11 +1113,17 @@ export function replanGoal(goal, reality, opt, extra) {
  *   B：今天提前把后面第 8 天的活干了（节奏变了 → 往前提）
  * 这两种情况该给的 op 完全相反。拿到填报之后它才判断得出来。
  */
-export function replanFromToday(goal, log, reality, opt, extra) {
-  return runReplan(goal, reality, dailylog.summaryFor(log), opt, extra);
+export function replanFromToday(goal, log, reality, opt, extra, images) {
+  return runReplan(goal, reality, dailylog.summaryFor(log), opt, extra, images);
 }
 
-async function runReplan(goal, reality, todayBlock, opt, extra) {
+/**
+ * @param {string[]} [images] 本地图片路径（课表 / 补习班通知截图，最多 3 张）。
+ *   走到模型那一层是分段 content：`[{type:'image_url'},{type:'text'}]`。
+ *   模型不看图（DeepSeek 这类纯文本模型会 400）时自动去图重试一次，
+ *   结果里 `imgIgnored=true`，页面据此说明"这次只按文字排的"。
+ */
+async function runReplan(goal, reality, todayBlock, opt, extra, images) {
   ensureFeature('replan');
   // reality 可以是对象（推荐）或老的字符串："近期每天分钟数"
   const rd = (typeof reality === 'string')
@@ -1115,6 +1141,25 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
   pending.sort((a, b) => a.day - b.day);
   const view = pending.slice(0, REPLAN_VIEW);
   const maxDefer = Math.max(0, Math.min(90, (opt && typeof opt.maxDeferDays === 'number') ? Math.floor(opt.maxDeferDays) : 30));
+
+  /* ---------- 附图 + 已知固定安排 ---------- */
+  // 图片：课表 / 补习班通知截图。转不出 dataURL（临时文件被系统清掉）就当没这张图，
+  // 绝不能因为一张图让整轮重排失败。
+  let imgUrls = [];
+  for (const p of (Array.isArray(images) ? images.slice(0, 3) : [])) {
+    if (!p) continue;
+    const url = await fileToDataUrl(p);
+    if (url) imgUrls.push(url);
+  }
+  // 模型看不了图时降级用：第一次带图，失败去图重试，结果里标记 imgIgnored
+  let imgIgnored = false;
+  // 用户之前填过的固定安排（名称 / 时段 / 地点）：排程要绕开，地点用来留通勤
+  const knownPlaces = (Array.isArray(goal.places) ? goal.places : []).filter(p => p && p.name);
+  const fixedBlock = knownPlaces.length
+    ? '已知固定安排（这些时段他在上课/补习，排任务必须绕开；地点只用来留通勤时间）：' +
+      knownPlaces.map(p => [p.name, p.when, p.place ? ('@' + p.place) : ''].filter(Boolean).join(' ')).join('；')
+    : '';
+
   const sys = [
     '你是学习规划专家。根据学习者的真实执行情况，对剩余任务提出调整建议。',
     '只输出一个 JSON 对象：{"summary":"总体判断，60字内","ops":[{"op":"move|resize|drop|defer|note","level":"strategy|content|time","headline":"这条改动的大字标题，6-14字","taskId":"任务id","day":新建议第几天,"pomos":新专注数,"days":顺延天数,"reason":"一句话理由","text":note类建议的正文}]}',
@@ -1159,7 +1204,24 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
       '    与你的判断冲突时按他说的来，并在 reason 里说明你是怎么兼顾的；',
       '11. 【上次重排结果】是你自己上次的产出 —— 不要重复提已经做过的调整，',
       '    也不要在没新证据的情况下把它改回去（来回横跳最伤信任）。'
-    ].join('\n') : ''
+    ].join('\n') : '',
+    // 固定安排（补习班 / 上课 / 值班）：客观占用的时间，不是"没完成"。
+    // 用户 2026-11-03 的真实场景：突然收到补习班通知，发张截图就要重排 ——
+    // 模型不把这类时段当"不可用"，就会把学习任务排在上课时间里，第一天就撞车。
+    imgUrls.length
+      ? [
+        '12. **这次带了图**（课表 / 补习班通知 / 排班表）：先读图，认出固定占用时段' +
+          '（星期几、几点到几点；图上写了地点也记下），这些时段一律当不可用，' +
+          '剩余学习任务排到它之外，并在 summary 里用一句话点明（如"图里周六 9:00-12:00 是补习班"）；' +
+          '同时回填 fixed：[{"name":"补习班","when":"周六 9:00-12:00"}]。',
+        '13. 固定安排是客观占用：**不要**建议"砍掉补习班"或"把补习改到别的时间"，' +
+          '能调的只有学习任务；已知地点时，当天任务要给通勤留余量。'
+      ].join('\n')
+      : [
+        '12. 图只作参考、不编造：没有附图时，只按文字与已有数据判断；',
+        '13. 若文字里提到补习/上课这类固定安排，把它当不可用时段，剩余任务绕开，' +
+          '并在 summary 里点明；固定安排本身不建议删改。'
+      ].join('\n')
   ].filter(Boolean).join('\n');
   const user = [
     '目标：' + goal.title + '（截止 ' + goal.deadline + '）',
@@ -1170,6 +1232,7 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
     // 能力画像：调量时要对齐"这个人真能吃多少"，而不是他的意愿
     '学习者画像：' + pacing.promptText(goal.dailyMin || 60),
     todayBlock || '',
+    fixedBlock,
     // 本人最新意见 / 历史反馈 / 上次重排结果（自动重排时由 utils/harvest.js 拼好）
     extra || '',
     '剩余任务（按第几天排序，JSON）：' + JSON.stringify(view) +
@@ -1179,21 +1242,41 @@ async function runReplan(goal, reality, todayBlock, opt, extra) {
         : '')
   ].filter(Boolean).join('\n');
 
+  // 有图时把 user 文本变成分段 content（图片 + 文字）；纯文本模型收到会 400，走下面的降级
+  const wireUser = (text) => {
+    if (!imgUrls.length) return text;
+    const parts = imgUrls.map(u => ({ type: 'image_url', image_url: { url: u } }));
+    parts.push({ type: 'text', text });
+    return parts;
+  };
+
   let lastErr = '';
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const messages = [{ role: 'system', content: sys }];
     if (lastErr) {
-      messages.push({ role: 'user', content: user });
+      messages.push({ role: 'user', content: wireUser(user) });
       messages.push({ role: 'assistant', content: '（上一轮输出不合格：' + lastErr + '）' });
       messages.push({ role: 'user', content: '请严格按格式重新输出完整 JSON。' });
     } else {
-      messages.push({ role: 'user', content: user });
+      messages.push({ role: 'user', content: wireUser(user) });
     }
     try {
       const r = await chatCompletion(messages, { temperature: 0.3, timeout: PLAN_TIMEOUT });
       const raw = extractJSON(r.content);
-      return normalizeReplan(raw, goal.tasks || [], opt);
+      const out = normalizeReplan(raw, goal.tasks || [], opt);
+      // 页面据此说明"这次只按文字排的"，别让用户以为截图被读了
+      out.imgIgnored = imgIgnored;
+      return out;
     } catch (e) {
+      // 模型看不了图（DeepSeek / Kimi 这类纯文本模型会直接 400）：
+      // 去掉图立刻重来一次，结果标记 imgIgnored。传张截图最多是"没读到图"，
+      // 不能变成整轮重排失败 —— 那是最让人放弃的一个死法。
+      if (!imgIgnored && imgUrls.length && isVisionError(e)) {
+        imgIgnored = true;
+        imgUrls = [];
+        round--;                 // 这一轮是能力不匹配，不占重排次数
+        continue;
+      }
       if (e instanceof LLMError) throw humanPlanError(e);
       lastErr = (e && e.message) || '输出解析失败';
     }

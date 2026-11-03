@@ -580,9 +580,12 @@ console.log('== 12. 悬浮灵动岛胶囊（与强制模式解耦的独立悬浮
     else bad('index.uts 没实现 ' + fn + '()');
   });
   // 12.2 胶囊复用拉回链路：点一下 = PullNowTask（回前台）。
-  //   形态多了拖动分支后类体变长，**不再用字符距离**（原来卡 2000，加一段注释就假红）：
-  //   直接截出 CapsuleView 类体来判断，意图不变 —— 拉回调用必须在这个类里。
-  const capsuleCls = (uts.match(/class CapsuleView extends TextView[\s\S]*?\n\}\n/) || [''])[0];
+  //   形态多了拖动分支后类体变长，**不再用字符距离**（原来卡 2000，加一段注释就假红）；
+  //   也别用 `[\s\S]*?\n\}\n` 截类体 —— 类里只要出现一处顶格 `}` 就会被提前截断
+  //   （2026-11-03 就这样假红过一次）。按"下一个顶层 class"切，边界才是稳的。
+  const clsStart = uts.indexOf('class CapsuleView extends TextView');
+  const nextCls = clsStart >= 0 ? uts.indexOf('\nclass ', clsStart + 10) : -1;
+  const capsuleCls = clsStart >= 0 ? uts.slice(clsStart, nextCls > 0 ? nextCls : uts.length) : '';
   if (capsuleCls.length > 0 && /new PullNowTask\(\)/.test(capsuleCls)) ok('胶囊点击复用 PullNowTask 拉回链路（点一下回前台）');
   else bad('胶囊没接到 PullNowTask 拉回链路');
   // 12.3 非阻塞：要 FLAG_NOT_FOCUSABLE + FLAG_NOT_TOUCH_MODAL，否则会吞掉别家 App 的操作

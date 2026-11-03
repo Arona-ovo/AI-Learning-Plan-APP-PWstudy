@@ -185,10 +185,12 @@ const rp = R('pkgPlan/pages/replan/replan.vue');
 assert(/v-model="hint"/.test(rp), '有给 AI 补话的输入框（v-model=hint）');
 assert(/extra = hint \? \('本人补充（重排时优先考虑这句话）：' \+ hint\) : ''/.test(rp),
   '补的话走 extra 通道追加给模型（与自动重排闭环同一入口，不另起一条）');
-assert(/await replanGoal\(g, reality, opt, extra\)/.test(rp), '常规重排带上 extra');
-assert(/await replanFromToday\(g, log, reality, opt, extra\)/.test(rp), '按今日记录重排也带上 extra');
-assert(/:disabled="loading \|\| !hint\.trim\(\)"/.test(rp),
-  '空话不能提交（不然等于没补，还多花一次调用）');
+assert(/await replanGoal\(g, reality, opt, extra, imgs\)/.test(rp), '常规重排带上 extra + 附图');
+assert(/await replanFromToday\(g, log, reality, opt, extra, imgs\)/.test(rp), '按今日记录重排也带上 extra + 附图');
+// 2026-11-03：重排页支持"只发一张截图、不写字"（补习班通知就是这么用的），
+// 但仍然不允许"什么都没填就点" —— 那等于白跑一次模型
+assert(/:disabled="loading \|\| \(!hint\.trim\(\) && !pendingImgs\.length\)"/.test(rp),
+  '没话也没图不能提交（不然等于没补，还多花一次调用）');
 // 出错时也要留着输入框：用户往往正是想"换个说法再试"
 assert(/class="hint-input hint-err"/.test(rp), '出错态也留着补话入口（换个说法再试）');
 

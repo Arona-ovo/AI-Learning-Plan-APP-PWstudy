@@ -23,15 +23,42 @@
         :auto-height="true"
       />
       <button class="btn-primary retry" @tap="run">再试一次</button>
+      <text v-if="pendingImgs.length" class="img-kept">
+        {{ $t('已附 {n} 张图，重试时会一起发', { n: pendingImgs.length }) }}
+      </text>
     </view>
 
-    <!-- 结果预览 -->
+      <!-- 结果预览 -->
     <view v-else-if="result" class="body">
       <view class="card" v-if="result.summary">
         <text v-if="logText" class="log-tip">今天的出入：{{ logText }}</text>
         <text class="summary">{{ result.summary }}</text>
+        <!-- 模型不看图时说明一句：否则用户会以为截图被读了，实际只按文字排 -->
+        <text v-if="result.imgIgnored" class="img-ignored">
+          {{ $t('当前模型看不了图片，这次只按文字重排了。换成支持视觉的模型（如 gpt-4o-mini）就能读图。') }}
+        </text>
         <text v-if="overdueText" class="overdue-tip">{{ overdueText }}</text>
         <text v-if="streakText" class="overdue-tip">{{ streakText }}</text>
+      </view>
+
+      <!-- 固定安排：补习班 / 上课这类"客观占用"的时段。
+           用户 2026-11-03 的场景：临时收到补习班通知，重排完顺手把上课地点也记下来，
+           否则过两周只记得"周六有事"，忘了在哪个校区。 -->
+      <view v-if="fixedList.length" class="card fixed-card">
+        <view class="fixed-head">
+          <text class="fixed-title">{{ $t('固定安排') }}</text>
+          <text class="fixed-tip">{{ $t('这些时段不排学习任务') }}</text>
+        </view>
+        <view v-for="(f, i) in fixedList" :key="i" class="fixed-row">
+          <view class="fixed-main">
+            <view class="fixed-line">
+              <text class="fixed-name">{{ f.name }}</text>
+              <text v-if="f.when" class="fixed-when">{{ f.when }}</text>
+            </view>
+            <text v-if="f.place" class="fixed-place">{{ $t('地点') }}：{{ f.place }}</text>
+          </view>
+          <text class="fixed-add" @tap.stop="askPlace(i)">{{ f.place ? $t('改地点') : $t('加地点') }}</text>
+        </view>
       </view>
 
       <view class="card op-card" v-for="(op, i) in result.ops" :key="i" @tap="pick[i] = !pick[i]">
@@ -63,7 +90,9 @@
 
       <!-- 对 AI 补一句话再重排（2026-10-25 真机反馈："目标规划好了，
            却不能重新和 AI 说话再生成"）。这里就是那个说话的口子：
-           写点近况 / 新要求，AI 会把这句话当成本人意见一起看。 -->
+           写点近况 / 新要求，AI 会把这句话当成本人意见一起看。
+           2026-11-03：加了图片 —— "突然收到补习班通知"这类事，打一百个字
+           不如发一张截图；原来的图片入口只在新建目标的对话里，重排页没有。 -->
       <view class="card hint-card">
         <view class="hint-title">{{ $t('对结果不满意？跟 AI 说一声') }}</view>
         <textarea
@@ -75,11 +104,36 @@
           placeholder-style="color:#a8b0ab;font-size:25rpx"
           :auto-height="true"
         />
-        <button class="btn-primary hint-btn" :disabled="loading || !hint.trim()" @tap="run">
-          {{ loading ? $t('AI 正在重新生成…') : $t('带这句话重新生成') }}
+        <view v-if="pendingImgs.length" class="img-strip">
+          <view v-for="(p, i) in pendingImgs" :key="i" class="img-thumb">
+            <image :src="p" mode="aspectFill" @tap="previewImg(pendingImgs, i)" />
+            <text class="img-x" @tap.stop="removeImg(i)">×</text>
+          </view>
+        </view>
+        <view class="hint-foot">
+          <text class="hint-img" @tap="pickImg">{{ $t('＋ 图片') }}</text>
+          <text class="hint-img-tip">{{ $t('课表、补习班通知都能发') }}</text>
+        </view>
+        <button class="btn-primary hint-btn" :disabled="loading || (!hint.trim() && !pendingImgs.length)" @tap="run">
+          {{ loading ? $t('AI 正在重新生成…') : (pendingImgs.length ? $t('带这张图重新生成') : $t('带这句话重新生成')) }}
         </button>
       </view>
     </view>
+
+    <!-- 补习地点：AI 从图/文字里读出固定安排后弹一次，填完存进目标 -->
+    <app-dialog
+      :show="placeDlg.show"
+      mode="input"
+      :title="$t('补习班在哪儿上？')"
+      :content="placeDlg.content"
+      :value="placeDlg.value"
+      :placeholder="$t('例如：城东校区 3 号楼')"
+      :maxlength="40"
+      :confirm-text="$t('保存')"
+      :cancel-text="$t('跳过')"
+      @confirm="savePlace"
+      @cancel="closePlace"
+    />
   </view>
 </template>
 
@@ -88,15 +142,23 @@ import * as pw from '../../../utils/pwstore.js'
 import * as dailylog from '../../../utils/dailylog.js'
 import { replanGoal, replanFromToday } from '../../../services/plan-agent.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
+import AppDialog from '../../../components/app-dialog/app-dialog.vue'
 
 export default {
-  components: { FloatNavbar },
+  components: { FloatNavbar, AppDialog },
   data() {
     return {
       id: '', loading: false, error: '', result: null, pick: {},
       overdueText: '', streakText: '', fromLog: false, logText: '',
       // 用户想对 AI 补的话（可为空）：run() 会把它作为"本人最新意见"喂给模型
-      hint: ''
+      hint: '',
+      // 随这次重排一起发的图（本地临时路径，最多 3 张）：课表 / 补习班通知截图
+      pendingImgs: [],
+      // 本次结果里识别出的固定安排（补习班等），带用户填的地点
+      fixedList: [],
+      // 地点补录弹窗：i = fixedList 下标
+      placeDlg: { show: false, i: -1, content: '', value: '' },
+      placeAsked: false
     }
   },
   computed: {
@@ -157,12 +219,19 @@ export default {
         // 用户补的话 = 本人最新意见，走 extra 追加给模型（自动重排闭环用的同一入口）
         const hint = String(this.hint || '').trim()
         const extra = hint ? ('本人补充（重排时优先考虑这句话）：' + hint) : ''
+        // 附图（课表 / 补习班通知）：跟正文一起走多模态，最多 3 张
+        const imgs = this.pendingImgs.slice()
         this.result = log
-          ? await replanFromToday(g, log, reality, opt, extra)
-          : await replanGoal(g, reality, opt, extra)
+          ? await replanFromToday(g, log, reality, opt, extra, imgs)
+          : await replanGoal(g, reality, opt, extra, imgs)
         this.pick = {}
         // 默认勾选：策略与内容类直接采纳；时间类（改期限/顺延）交给用户确认 —— 它是最后手段
         this.result.ops.forEach((op, i) => { this.pick[i] = op.op !== 'note' && op.level !== 'time' })
+        this.fixedList = this.buildFixed(imgs, hint)
+        // 时段先落库：即使用户跳过地点，"周六 9-12 有补习班"这件事下次重排也得知道
+        if (this.fixedList.length) this.persistPlaces()
+        // 等用户先看见计划长什么样，再问地点（同帧弹会盖住刚出来的结果）
+        if (this.fixedList.length) setTimeout(() => this.autoAskPlace(), 500)
       } catch (e) {
         this.error = (e && e.message) || '重排失败，请稍后再试'
       } finally {
@@ -237,7 +306,129 @@ export default {
       })
       setTimeout(() => uni.navigateBack(), 500)
     },
-    back() { uni.navigateBack() }
+    back() { uni.navigateBack() },
+
+    /* ---------- 附图：课表 / 补习班通知截图 ---------- */
+    pickImg() {
+      const left = 3 - this.pendingImgs.length
+      if (left <= 0) {
+        uni.showToast({ title: this.$t('一次最多带 3 张图'), icon: 'none' })
+        return
+      }
+      uni.chooseImage({
+        count: left,
+        sizeType: ['compressed'],
+        success: (res) => {
+          this.pendingImgs = this.pendingImgs.concat(res.tempFilePaths || []).slice(0, 3)
+          this.compressPending()
+        }
+      })
+    },
+    // 截图动辄 2-4MB，base64 塞请求体太肥：压一道质量，压不动就按原图发
+    compressPending() {
+      // #ifdef APP-PLUS
+      Promise.all(this.pendingImgs.map((p) => new Promise((resolve) => {
+        uni.compressImage({
+          src: p,
+          quality: 55,
+          success: (r) => resolve((r && r.tempFilePath) || p),
+          fail: () => resolve(p)
+        })
+      }))).then((arr) => { this.pendingImgs = arr })
+      // #endif
+    },
+    removeImg(i) {
+      this.pendingImgs = this.pendingImgs.filter((x, idx) => idx !== i)
+    },
+    previewImg(list, i) {
+      uni.previewImage({ urls: list, current: i })
+    },
+
+    /* ---------- 固定安排与地点 ---------- */
+    /**
+     * AI 的 fixed + 目标里已存的地点。
+     * 兜底：模型偶尔不吐 fixed（纯文本模型尤其），只要这次带了图、或话里提到补习，
+     * 就补一条 —— "补习班该有地点"不能全指望模型记性。
+     */
+    buildFixed(imgs, hint) {
+      const list = ((this.result && this.result.fixed) || []).map(f => ({
+        name: f.name,
+        when: f.when || '',
+        place: this.knownPlace(f.name)
+      }))
+      const said = String(hint || '')
+      const looksLikeTutoring = imgs.length > 0 || /补习|补课|上课|报班|课程表|课表|辅导/.test(said)
+      if (!list.length && looksLikeTutoring) {
+        const name = this.$t('补习班')
+        list.push({ name: name, when: '', place: this.knownPlace(name) })
+      }
+      return list.slice(0, 6)
+    },
+    /** 这个固定安排以前填过地点吗（名字允许包含关系，模型每次叫法可能不同） */
+    knownPlace(name) {
+      const g = this.goal()
+      const list = (g && g.places) || []
+      const n = String(name || '').trim()
+      if (!n) return ''
+      const hit = list.filter(p => p && p.name === n)[0]
+        || list.filter(p => p && p.name && (p.name.indexOf(n) >= 0 || n.indexOf(p.name) >= 0))[0]
+      return hit ? (hit.place || '') : ''
+    },
+    autoAskPlace() {
+      // 只自动问一次：用户点过"跳过"就别追着问，加地点按钮还在卡片上
+      if (this.placeAsked) return
+      const miss = this.fixedList.filter(f => f && !f.place)
+      if (!miss.length) return
+      this.placeAsked = true
+      this.askPlace(this.fixedList.indexOf(miss[0]))
+    },
+    askPlace(i) {
+      const f = this.fixedList[i]
+      if (!f) return
+      this.placeDlg = {
+        show: true,
+        i: i,
+        // 改地点时带出旧值，别让用户重敲一遍
+        value: f.place || '',
+        content: this.$t('「{name}」{when}已经排进计划。填一下上课地点，以后排程会为通勤留出时间。', {
+          name: f.name,
+          when: f.when ? ('（' + f.when + '）') : ''
+        })
+      }
+    },
+    savePlace(text) {
+      const v = String(text || '').trim()
+      const i = this.placeDlg.i
+      this.placeDlg = { show: false, i: -1, content: '', value: '' }
+      const f = this.fixedList[i]
+      if (!f || !v) return
+      f.place = v.slice(0, 40)
+      this.persistPlaces()
+      uni.showToast({ title: this.$t('地点已记下'), icon: 'none' })
+    },
+    closePlace() {
+      this.placeDlg = { show: false, i: -1, content: '', value: '' }
+    },
+    /** 写回目标：按名字合并，别把用户以前填的地点冲掉 */
+    persistPlaces() {
+      const g = this.goal()
+      if (!g) return
+      const merged = (g.places || []).slice()
+      this.fixedList.forEach(f => {
+        if (!f || !f.name) return
+        const hit = merged.filter(p => p && p.name === f.name)[0]
+        if (hit) {
+          if (f.when) hit.when = f.when
+          if (f.place) hit.place = f.place
+        } else {
+          merged.push({ name: f.name, when: f.when || '', place: f.place || '' })
+        }
+      })
+      // 固定安排不会太多，留最近 12 条足够，别让 goal 无限膨胀
+      g.places = merged.slice(-12)
+      pw.touch()
+      pw.flush()
+    }
   }
 }
 </script>
@@ -247,6 +438,7 @@ export default {
 .state-txt { margin-top: 26rpx; font-size: 26rpx; line-height: 1.7; color: #5a6560; color: var(--ink-2, #5a6560); text-align: center; }
 .error { font-size: 26rpx; line-height: 1.7; color: #c2323a; text-align: center; }
 .retry { margin-top: 30rpx; width: 300rpx; height: 84rpx; font-size: 28rpx; }
+.img-kept { margin-top: 18rpx; font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
 
 .spin {
   width: 64rpx; height: 64rpx;
@@ -352,6 +544,66 @@ export default {
 }
 .hint-err { margin-top: 24rpx; }
 .hint-btn { margin-top: 18rpx; height: 84rpx; font-size: 27rpx; }
+
+/* 附图：课表 / 补习班通知截图 */
+.img-strip { display: flex; padding: 16rpx 0 0; }
+.img-thumb {
+  position: relative;
+  width: 128rpx; height: 128rpx;
+  margin-right: 14rpx;
+  border-radius: 14rpx;
+  overflow: hidden;
+  background: rgba(23, 32, 26, 0.06);
+}
+.img-thumb image { width: 100%; height: 100%; display: block; }
+.img-x {
+  position: absolute; top: 0; right: 0;
+  width: 40rpx; height: 40rpx; line-height: 36rpx;
+  text-align: center;
+  font-size: 28rpx;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.45);
+  border-bottom-left-radius: 14rpx;
+}
+.hint-foot { display: flex; align-items: center; margin-top: 14rpx; }
+.hint-img {
+  font-size: 25rpx;
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+  border: 2rpx solid rgba(228, 23, 61, 0.25);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.25);
+}
+.hint-img-tip {
+  margin-left: 14rpx;
+  font-size: 22rpx;
+  color: #98a19b;
+  color: var(--ink-3, #98a19b);
+}
+
+/* 固定安排（补习班 / 上课）：时段不排任务，地点单独一行 */
+.fixed-card { padding-bottom: 10rpx; }
+.fixed-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4rpx; }
+.fixed-title { font-size: 27rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
+.fixed-tip { font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
+.fixed-row { display: flex; align-items: center; padding: 16rpx 0; border-top: 2rpx solid rgba(23, 32, 26, 0.06); }
+.fixed-main { flex: 1; min-width: 0; }
+.fixed-line { display: flex; align-items: baseline; flex-wrap: wrap; }
+.fixed-name { margin-right: 12rpx; font-size: 26rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
+.fixed-when { font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
+.fixed-place { display: block; margin-top: 6rpx; font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
+.fixed-add {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  padding: 8rpx 4rpx 8rpx 16rpx;
+  font-size: 24rpx;
+  color: #bb1332;
+  color: var(--brand-strong, #bb1332);
+}
+
+/* 模型看不了图时的说明（不是错误，别用红色） */
+.img-ignored { display: block; margin-top: 14rpx; font-size: 22rpx; line-height: 1.6; color: #8a5800; }
 
 .actions { display: flex; margin: 10rpx 0 30rpx; }
 .act-btn { flex: 1; }
