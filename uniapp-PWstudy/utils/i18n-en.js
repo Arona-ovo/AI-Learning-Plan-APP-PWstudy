@@ -1059,6 +1059,9 @@ export default {
   '补习班在哪儿上？': 'Where is the tutoring class?',
   '例如：城东校区 3 号楼': 'e.g. East Campus, Building 3',
   '地点已记下': 'Place saved',
+  '在地图上点一下选位置，或选已有学习地点': 'Tap the map to pick a location, or pick a saved study place',
+  '请在地图上点一下选位置': 'Tap the map to pick a location',
+  '地点名称（如：城东校区）': 'Place name (e.g. East Campus)',
   '「{name}」{when}已经排进计划。填一下上课地点，以后排程会为通勤留出时间。':
     '"{name}" {when} is now in your plan. Add the place — future schedules will leave room for the commute.',
   '权限与后台保活': 'Permissions & background',

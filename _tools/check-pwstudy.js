@@ -1032,7 +1032,8 @@ function ok(cond, msg) {
     ok(/replanFromToday\(g, log, reality, opt, extra, imgs\)/.test(rp) &&
       /replanGoal\(g, reality, opt, extra, imgs\)/.test(rp),
       '两个重排入口都把图片传下去（只传一个 = 收工重排那条路丢图）');
-    ok(/mode="input"[\s\S]{0,200}补习班在哪儿上/.test(rp), '识别到固定安排后弹输入框问地点');
+    ok(/补习班在哪儿上/.test(rp) && /onMapTap/.test(rp) && /pickStudyPlace/.test(rp),
+      '识别到固定安排后在地图里选地点（点地图取坐标，或选已有学习地点）');
     ok(/g\.places = merged\.slice\(-12\)/.test(rp), '地点写回目标（按名字合并，不冲掉旧地点）');
     ok(/type: 'image_url'/.test(pa) && /imgIgnored/.test(pa),
       'plan-agent 走多模态分段，并在模型不看图时降级标记');

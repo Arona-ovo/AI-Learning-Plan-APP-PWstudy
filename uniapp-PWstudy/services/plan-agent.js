@@ -1155,9 +1155,15 @@ async function runReplan(goal, reality, todayBlock, opt, extra, images) {
   let imgIgnored = false;
   // 用户之前填过的固定安排（名称 / 时段 / 地点）：排程要绕开，地点用来留通勤
   const knownPlaces = (Array.isArray(goal.places) ? goal.places : []).filter(p => p && p.name);
+  // 地点可能是结构化对象（{name,lat,lng,r}）或旧版纯字符串，留通勤时间时只用名称
+  const placeNameOf = (p) => {
+    if (!p || !p.place) return ''
+    if (typeof p.place === 'string') return p.place
+    return p.place.name || ''
+  }
   const fixedBlock = knownPlaces.length
     ? '已知固定安排（这些时段他在上课/补习，排任务必须绕开；地点只用来留通勤时间）：' +
-      knownPlaces.map(p => [p.name, p.when, p.place ? ('@' + p.place) : ''].filter(Boolean).join(' ')).join('；')
+      knownPlaces.map(p => [p.name, p.when, placeNameOf(p) ? ('@' + placeNameOf(p)) : ''].filter(Boolean).join(' ')).join('；')
     : '';
 
   const sys = [

@@ -84,22 +84,42 @@ export function syncTabbar(vm) {
 }
 
 /**
- * 带一次重试的 navigateTo。
+ * 带重试的 navigateTo —— 专治 uni 的 `navigateTo:fail <url> locked`。
  *
- * uni 的路由在"上一次页面切换还没完成"时会拒绝新的跳转，报
- * `navigateTo:fail <url> locked` —— 平时碰不到，但目标页/当前页恰好有重活时
- * （比如应用列表页在枚举图标），第一次点击就会被吞掉，用户看起来就是"点了没反应"。
- * locked 是暂态，歇一拍再跳就能过，所以这里自动补一次。
+ * uni 路由在"上一次页面切换还没完成 / 目标页正在做重活（枚举应用图标、读 UsageStats 等）"
+ * 时会拒绝新跳转并报 locked。这是**暂态**：歇几拍再跳就能过，所以这里指数退避重试。
+ * 之前只有单次 350ms 重试，目标页重活稍久（比如「学习 App」页的图标编码队列）就漏了，
+ * 用户看到的就是"点了没反应"，或直接弹「打开失败」（那些不走 safeNav 的入口）。
+ *
+ * 非 locked 的错误（url 写错、页面不存在等）不重试，直接交回 onFail，
+ * 避免把明确的错误也塞进无限重试。
+ *
+ * @param {string} url
+ * @param {{success?:Function,onFail?:Function}} [opts]
  */
-export function safeNav(url) {
+export function safeNav(url, opts) {
   if (!url) return
-  uni.navigateTo({
-    url,
-    fail: () => {
-      setTimeout(() => {
-        uni.navigateTo({ url })
-      }, 350)
-    }
-  })
+  const onFail = opts && opts.onFail
+  const onSucc = opts && opts.success
+  let tries = 0
+  const MAX = 6
+  // 退避节奏（ms）：头几次快补，后面拉长，封顶约 6.3s 仍打不开就认栽
+  const delayAt = (n) => [0, 350, 700, 1100, 1600, 2200, 2500][Math.min(n, 6)]
+  const attempt = () => {
+    tries++
+    uni.navigateTo({
+      url,
+      success: onSucc,
+      fail: (e) => {
+        const msg = (e && (e.errMsg || e.message)) || ''
+        if (/locked/i.test(msg) && tries < MAX) {
+          setTimeout(attempt, delayAt(tries))
+          return
+        }
+        if (onFail) onFail(e)
+      }
+    })
+  }
+  attempt()
 }
 

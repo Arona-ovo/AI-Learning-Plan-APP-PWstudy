@@ -121,7 +121,7 @@ import { t } from '../../utils/i18n.js';
 import * as settings from '../../utils/settings'
 import * as pw from '../../utils/pwstore.js'
 import * as auth from '../../services/auth'
-import { hideNativeTabBar, syncTabbar } from '../../utils/nav.js'
+import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import * as updater from '../../utils/updater.js'
 import * as setup from '../../utils/setup.js'
 import * as forced from '../../utils/forced.js'
@@ -238,12 +238,11 @@ export default {
       this.refresh()
       uni.showToast({ title: t('已保存'), icon: 'success' })
     },
-    // 跳转失败要能看见：uni 的默认行为是静默失败，之前"点了没反应"排查半天没有线索，
-    // 这里把 fail 的原因直接 toast 出来。
+    // 跳转统一走 safeNav：撞上路由 locked（目标页正在做重活）会自动退避重试，
+    // 不再"点了没反应 / 直接弹打开失败"。只有真失败（页面不存在等）才提示。
     go(url) {
-      uni.navigateTo({
-        url,
-        fail: (e) => {
+      safeNav(url, {
+        onFail: (e) => {
           console.error('[profile] 跳转失败 ' + url, e)
           uni.showToast({ title: '打开失败：' + ((e && (e.errMsg || e.message)) || '未知原因'), icon: 'none' })
         }

@@ -18,7 +18,7 @@
           <view v-for="(p, i) in g.places" :key="i" class="gd-fixed-row">
             <text class="gd-fixed-name">{{ p.name }}</text>
             <text v-if="p.when" class="gd-fixed-when">· {{ p.when }}</text>
-            <text v-if="p.place" class="gd-fixed-place">· {{ p.place }}</text>
+            <text v-if="p.place" class="gd-fixed-place">· {{ p.place && typeof p.place === 'object' ? (p.place.name || '') : (p.place || '') }}</text>
           </view>
         </view>
         <view v-if="g.risks.length" class="gd-risks">
