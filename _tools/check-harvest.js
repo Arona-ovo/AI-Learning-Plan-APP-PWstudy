@@ -65,6 +65,9 @@ const pw = load('utils/pwstore.js');
 const holiday = load('utils/holiday.js');
 const schedule = load('utils/schedule.js', { pw, holiday });
 const dailylog = load('utils/dailylog.js', { pw });
+// tutor.js 只依赖 calmark + pwstore（无 AI / 无 uni 定位），直接真装
+const calmark = load('utils/calmark.js');
+const tutor = load('utils/tutor.js', { calmark, pw });
 
 /* AI 替身：把"喂进去什么、吐出来什么"都记下来 */
 let aiOn = true;
@@ -74,7 +77,7 @@ let nextOps = [];
 let nextSummary = '';
 let aiThrows = false;
 const deps = {
-  pw, schedule, dailylog,
+  pw, schedule, dailylog, tutor,
   isAIEnabled: () => aiOn,
   featureOn: (k) => !!featureSet[k],
   summarizeHarvest: async (ctx) => {

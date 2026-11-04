@@ -11,6 +11,7 @@
 
 import * as pw from './pwstore.js';
 import * as dailylog from './dailylog.js';
+import * as tutor from './tutor.js';
 
 // 一天最多留这么多条：防止聊嗨了把 storage 撑大，且重排时也不会拿太长的历史去喂模型
 const MAX_KEEP = 40;
@@ -143,6 +144,12 @@ export function context(date) {
         rg.outMin + ' 分钟' + (rg.topHours.length ? '，多在 ' + rg.topHours.join('、') + ' 点' : '') +
         '；这些时段人客观不在场，不是懈怠，别据此下调任务量。');
     }
+  } catch (e) {}
+  // 今日补习打卡：跟"在/不在学习范围"是一对的反面 —— 一个说"人不在"、一个说"人在上课"。
+  // 用户说"今天没怎么学"时，模型得知道今天有补习班，才不至于把"客观在上课"误判成懈怠。
+  try {
+    const tb = tutor.tutorBlock()
+    if (tb) lines.push(tb)
   } catch (e) {}
   if (tasks.length) {
     lines.push('可记功的任务（说过"做完了"就按 id 记专注）：' +

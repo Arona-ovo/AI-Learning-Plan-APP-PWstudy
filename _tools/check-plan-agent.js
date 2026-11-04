@@ -163,17 +163,14 @@ assert(/this\.g = g \? Object\.assign\(\{\}, g\) : null/.test(gd), '空目标也
 
 /* ---------- 5. 目标详情阶段折叠（goal-detail.vue） ---------- */
 // 真机反馈："这个页面无法把阶段收起来，太长了" —— 长方案一排几十条任务全糊在一屏。
-// 折叠UI 与 wizard 同一套，但缺省不一样：wizard 是预览（展开第一个），
-// 详情页是执行中（展开"当前该做的那个阶段"，全做完了退回第一个）。
+// 2026-11-04 用户要求：默认**全部收起**，点哪个阶段才展开哪个（不再替用户展开当前阶段）。
 console.log('== 5. 目标详情阶段可折叠（goal-detail.vue）==');
 assert(/@tap="toggleFold\(gi\)"/.test(gd), '阶段卡头部可以点（toggleFold）');
 assert(/v-if="!folded\(gi\)"/.test(gd), '折叠真的藏起任务列表（v-if，不是只变样式）');
 assert(/folded\(gi\) \? \$t\('展开'\) : \$t\('收起'\)/.test(gd), '头部有展开 / 收起的字样');
-assert(/defaultOpen\(\)/.test(gd), '有 defaultOpen（缺省展开哪个阶段）');
-assert(/t\.status === 'todo' && \(t\.day \|\| 1\) <= elapsed/.test(gd),
-  '缺省展开"还有活干且排期已到"的阶段（不是死板的第一个）');
+assert(/if \(this\.fold\[gi\] === undefined\) return true/.test(gd), '缺省全部收起（folded 默认 true，没有 defaultOpen）');
 assert(/this\.fold\[gi\] = !this\.folded\(gi\)/.test(gd),
-  '点过就显式写回（不再跟着 defaultOpen 走，用户意图优先）');
+  '点过就显式写回（用户意图优先）');
 assert(/\$t\('阶段 \{n\} · \{c\} 个任务 · 第 \{a\}-\{b\} 天'/.test(gd),
   '折叠头上能看到"N 个任务 · 第 x-y 天"（与 wizard 同一口径）');
 

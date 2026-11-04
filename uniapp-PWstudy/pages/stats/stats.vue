@@ -114,6 +114,29 @@
         <view class="hr-best">速度按最近 7 天实际完成的专注算，没学的日子算 0 —— 是对自己诚实的值。</view>
       </view>
 
+      <!-- AI 今日复盘（日结，2026-11-04 新增：比周复盘更"每天"，一句话说清今天 + 明天怎么做） -->
+      <view class="card">
+        <view class="card-head">
+          <text class="card-title">{{ $t('AI 今日复盘') }}</text>
+          <text class="card-more" @tap="loadDayReview">{{ dayReview ? $t('重新生成') : $t('生成') }}</text>
+        </view>
+        <view v-if="dayReviewLoading" class="rv-loading">
+          <text class="rv-dot">·</text><text class="rv-dot">·</text><text class="rv-dot">·</text>
+          <text> {{ $t('AI 正在看今天') }}</text>
+        </view>
+        <view v-else-if="dayReviewError" class="rv-err">{{ dayReviewError }}</view>
+        <view v-else-if="dayReview" class="rv-body">
+          <view class="rv-summary">{{ dayReview.summary }}</view>
+          <view v-if="dayReview.good" class="rv-line"><text class="rv-tag rv-tag-good">{{ $t('做得好') }}</text>{{ dayReview.good }}</view>
+          <view v-if="dayReview.bad" class="rv-line"><text class="rv-tag rv-tag-bad">{{ $t('该改的') }}</text>{{ dayReview.bad }}</view>
+          <view v-if="dayReview.focus" class="rv-focus">{{ $t('明天最重要的一件事') }}：{{ dayReview.focus }}</view>
+          <view v-if="dayReview.next.length" class="rv-next">
+            <view v-for="(s, i) in dayReview.next" :key="i" class="rv-next-item">· {{ s }}</view>
+          </view>
+        </view>
+        <view v-else class="rv-hint">{{ $t('把今天的学习数据交给 AI，换一句人话总结 + 明天该怎么做。') }}</view>
+      </view>
+
       <!-- AI 周复盘 -->
       <view class="card">
         <view class="card-head">
@@ -175,7 +198,9 @@ import * as link from '../../utils/link.js'
 import * as apptime from '../../utils/apptime.js'
 import * as forced from '../../utils/forced.js'
 import * as holiday from '../../utils/holiday.js'
-import { reviewWeek } from '../../services/plan-agent.js'
+import * as dailylog from '../../utils/dailylog.js'
+import * as tutor from '../../utils/tutor.js'
+import { reviewWeek, reviewDay } from '../../services/plan-agent.js'
 import { aiGateReason } from '../../services/config.js'
 import { hideNativeTabBar, syncTabbar, safeNav } from '../../utils/nav.js'
 import tabSlideMixin from '../../utils/tab-slide-mixin.js'
@@ -198,7 +223,10 @@ export default {
       forecasts: [],
       review: null,
       reviewLoading: false,
-      reviewError: ''
+      reviewError: '',
+      dayReview: null,
+      dayReviewLoading: false,
+      dayReviewError: ''
     }
   },
   computed: {
@@ -324,6 +352,46 @@ export default {
         this.reviewLoading = false
         this.reviewError = (e && e.message) ? e.message : '生成失败，请稍后再试'
       })
+    },
+    // ---------- AI 今日复盘（日结） ----------
+    loadDayReview() {
+      let gate = ''
+      try { gate = aiGateReason() || '' } catch (e) {}
+      if (gate) {
+        this.dayReviewError = gate
+        return
+      }
+      this.dayReviewLoading = true
+      this.dayReviewError = ''
+      const today = pw.today()
+      const d = pw.get().daily[today] || {}
+      const focusMin = Number(d.focusMin) || 0
+      const pomo = Number(d.pomo) || 0
+      const done = (pw.ledgerList(today) || []).length
+      const queue = pw.todayQueue(99)
+      const taskTotal = queue.length
+      const taskDone = queue.filter(x => x.task && x.task.status === 'done').length
+      const overdue = queue.filter(x => x.overdue).length
+      const goals = pw.activeGoals().map(g => {
+        const p = pw.goalProgress(g)
+        return {
+          title: g.title, done: p.done, total: p.total, pct: p.pct,
+          remainDays: pw.dayDiff(today, g.deadline)
+        }
+      })
+      let logText = ''
+      try { logText = dailylog.driftText(dailylog.logOf(today)) } catch (e) {}
+      let tutorText = ''
+      try { tutorText = tutor.tutorBlock() } catch (e) {}
+      reviewDay({ focusMin, pomo, done, taskDone, taskTotal, overdue, goals, logText, tutorText })
+        .then(r => {
+          this.dayReview = r
+          this.dayReviewLoading = false
+        })
+        .catch(e => {
+          this.dayReviewLoading = false
+          this.dayReviewError = (e && e.message) ? e.message : this.$t('生成失败，请稍后再试')
+        })
     },
     buildAppRows() {
       const d = pw.get().daily[pw.today()]

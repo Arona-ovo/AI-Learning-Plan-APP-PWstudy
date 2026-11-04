@@ -20,6 +20,7 @@
 import * as pw from './pwstore.js';
 import * as schedule from './schedule.js';
 import * as dailylog from './dailylog.js';
+import * as tutor from './tutor.js';
 import { replanGoal, replanFromToday, summarizeHarvest } from '../services/plan-agent.js';
 import { featureOn } from '../services/ai-gate.js';
 import { isAIEnabled } from '../services/config.js';
@@ -398,6 +399,10 @@ function extraBlock() {
   // 两个混在一段里讲不清楚，分开两块给，模型才知道这两件事性质不同。
   const rb = rangeBlock();
   if (rb) parts.push(rb);
+  // 今日补习打卡：跟 rangeBlock 是一对的反面 —— 一个说"人不在"、一个说"人在上课"。
+  // 两条自动重排主线都走这里，所以补习打卡会在"全完成 / 跨天"两个时刻一起被分析。
+  const tb = tutor.tutorBlock();
+  if (tb) parts.push(tb);
   return parts.join('\n');
 }
 

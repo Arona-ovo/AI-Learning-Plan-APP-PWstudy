@@ -172,11 +172,10 @@ async function shouldCatch(label, mutations) {
   await shouldCatch('折叠只改样式不真的移除节点', [
     ['detail', '<view v-if="!folded(gi)">', '<view v-show="!folded(gi)">']
   ]);
-  await shouldCatch('缺省展开写死第一个（排期未到的阶段也糊在脸上）', [
-    ['detail', "if (this.grouped[i].tasks.some(t => t.status === 'todo' && (t.day || 1) <= elapsed)) return i",
-      "if (this.grouped[i].tasks.some(t => t.status === 'todo')) return i"]
+  await shouldCatch('缺省不收起（全部展开，长方案一屏全糊上）', [
+    ['detail', 'if (this.fold[gi] === undefined) return true', 'if (this.fold[gi] === undefined) return false']
   ]);
-  await shouldCatch('点过还跟着 defaultOpen 走（用户刚收起的又被弹开）', [
+  await shouldCatch('点过还跟着缺省走（用户刚收起的又被弹开）', [
     ['detail', 'this.fold[gi] = !this.folded(gi)', 'delete this.fold[gi]']
   ]);
   await shouldCatch('折叠头没有"N 个任务 · 第 x-y 天"摘要', [
@@ -192,13 +191,13 @@ async function shouldCatch(label, mutations) {
     ['replan', "const extra = hint ? ('本人补充（重排时优先考虑这句话）：' + hint) : ''", "const extra = ''"]
   ]);
   await shouldCatch('常规重排不带 extra', [
-    ['replan', 'await replanGoal(g, reality, opt, extra)', 'await replanGoal(g, reality, opt)']
+    ['replan', 'await replanGoal(g, reality, opt, extra, imgs)', 'await replanGoal(g, reality, opt, imgs)']
   ]);
   await shouldCatch('按今日记录重排不带 extra', [
-    ['replan', 'await replanFromToday(g, log, reality, opt, extra)', 'await replanFromToday(g, log, reality, opt)']
+    ['replan', 'await replanFromToday(g, log, reality, opt, extra, imgs)', 'await replanFromToday(g, log, reality, opt, imgs)']
   ]);
-  await shouldCatch('空话也能提交（多点一次调用，结果还一样）', [
-    ['replan', ':disabled="loading || !hint.trim()"', ':disabled="loading"']
+  await shouldCatch('空话没图也能提交（多点一次调用，结果还一样）', [
+    ['replan', ':disabled="loading || (!hint.trim() && !pendingImgs.length)"', ':disabled="loading"']
   ]);
   await shouldCatch('出错态不留补话入口（用户想"换个说法再试"都没地方）', [
     ['replan', 'class="hint-input hint-err"', 'class="hint-input"']

@@ -955,6 +955,21 @@ export default {
   // 否则英文态的「首页自定义」里一半是中文（check-i18n 第 5 组会盯）
   '专注': 'Focus',
   '专注已满': 'Pomos done',
+  // 补习班打卡（utils/tutor.js / 首页"今天"面板）
+  '打卡': 'Check in',
+  '已打卡': 'Checked in',
+  '已取消打卡': 'Check-in undone',
+  // AI 今日复盘（pages/stats/stats.vue 的日结卡）
+  'AI 今日复盘': 'AI daily review',
+  '重新生成': 'Regenerate',
+  '生成': 'Generate',
+  'AI 正在看今天': 'AI is reviewing today',
+  '做得好': 'Doing well',
+  '该改的': 'To fix',
+  '明天最重要的一件事': "Tomorrow's top priority",
+  '把今天的学习数据交给 AI，换一句人话总结 + 明天该怎么做。':
+    'Hand today\'s data to AI for a plain-spoken recap plus what to do tomorrow.',
+  '生成失败，请稍后再试': 'Failed to generate, please try again later',
   // 逐日铺满（plan-agent 的 ensureFullCover 补出来的复习日）
   '补位复习': 'Filler review',
   '展开剩余 {n} 条': 'Show {n} more',

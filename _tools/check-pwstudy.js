@@ -1020,9 +1020,11 @@ function ok(cond, msg) {
     ok(/this\.remindAt = \(g && g\.remindAt\) \|\| ''/.test(gd), 'refresh 时独立字段跟库里同步');
   }
 
-  // ---- 重排页附图 + 补习地点（2026-11-03）----
+  // ---- 重排页附图 + 固定安排（2026-11-03 附图；2026-11-04 砍掉地图选点）----
   // 场景：临时收到补习班通知，发张截图就该能重排。图片入口原来只在"新建目标"的
   // 对话里，重排页根本没有 —— 用户原话"是我找的地方不对吗"。
+  // 2026-11-04：地图选点太简陋又定位不准，"补习班在哪儿上"弹窗整个删掉，
+  //   固定安排只留名称+时间、直接铺日历；判断"到没到课"改由主页打卡（utils/tutor.js）。
   {
     const rp = require('fs').readFileSync(
       path.join(ROOT, 'pkgPlan', 'pages', 'replan', 'replan.vue'), 'utf8');
@@ -1032,16 +1034,17 @@ function ok(cond, msg) {
     ok(/replanFromToday\(g, log, reality, opt, extra, imgs\)/.test(rp) &&
       /replanGoal\(g, reality, opt, extra, imgs\)/.test(rp),
       '两个重排入口都把图片传下去（只传一个 = 收工重排那条路丢图）');
-    ok(/补习班在哪儿上/.test(rp) && /onMapTap/.test(rp) && /pickStudyPlace/.test(rp),
-      '识别到固定安排后在地图里选地点（点地图取坐标，或选已有学习地点）');
-    ok(/g\.places = merged\.slice\(-12\)/.test(rp), '地点写回目标（按名字合并，不冲掉旧地点）');
+    ok(!/onMapTap/.test(rp) && !/map-mask/.test(rp) && !/askPlace/.test(rp),
+      '补习班地图选点弹窗已删（不再拖地图选地点）');
+    ok(/calmark\.addFromFixed/.test(rp), '固定安排直接铺进日历（识别后日程有变化）');
+    ok(/g\.places = merged\.slice\(-12\)/.test(rp), '固定安排写回目标（按名字合并，不冲掉旧的）');
     ok(/type: 'image_url'/.test(pa) && /imgIgnored/.test(pa),
       'plan-agent 走多模态分段，并在模型不看图时降级标记');
     ok(/knownPlaces[\s\S]{0,400}fixedBlock/.test(pa),
-      '已填的固定安排（含地点）回灌给重排 prompt（排程才会留通勤）');
+      '已填的固定安排回灌给重排 prompt（排程会绕开这些时段）');
     const gd2 = require('fs').readFileSync(
       path.join(ROOT, 'pkgPlan', 'pages', 'goal-detail', 'goal-detail.vue'), 'utf8');
-    ok(/g\.places && g\.places\.length/.test(gd2), '目标详情展示固定安排与地点');
+    ok(/g\.places && g\.places\.length/.test(gd2), '目标详情展示固定安排（名称 + 时段）');
   }
 
   // ---- 待勾徽标「专注已满」（2026-10-14 真机反馈）----

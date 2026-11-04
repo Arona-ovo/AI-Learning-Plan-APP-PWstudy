@@ -898,8 +898,9 @@ export function normalizeReplan(raw, tasks, opt) {
   const rk = lv => (typeof rank[lv] === 'number' ? rank[lv] : 1);
   ops.sort((a, b) => rk(a.level) - rk(b.level));
   // 固定安排（补习班 / 上课 / 值班）：模型从截图或文字里读出来的"不可用时段"。
-  // 页面拿它弹「填补习地点」，填完写进 goal.places，下次重排作为上下文喂回来；
+  // 写进 goal.places，下次重排作为上下文喂回来；
   // 同时经 utils/calmark.js 铺到日历上（"应用了日程却没变"的根因就在这里）。
+  // 2026-11-04：地点字段已砍（地图选点太简陋又定位不准），"有没有到课"改由主页打卡判定。
   // 允许模型给字符串数组（"周六 9-12 补习班"）—— 这里统一成对象，页面只认一种形状。
   // weekdays / dates / type 是可选的"结构化时间"：模型能直接给就别让人再猜文本。
   const fixed = (Array.isArray(o.fixed) ? o.fixed : []).map(f => {
@@ -982,6 +983,65 @@ export async function reviewWeek(payload) {
     }
   }
   throw new Error('AI 连续几轮都没给出合格的复盘（' + lastErr + '）');
+}
+
+/**
+ * 日结：把今天这一天的真实投入摊给 AI，让它说一句人话（轻量版周报）。
+ * payload: { focusMin, pomo, done, taskDone, taskTotal, overdue,
+ *            goals:[{title,done,total,pct,remainDays}], logText, tutorText }
+ * 返回 { summary, good, bad, next:[], focus }
+ */
+export async function reviewDay(payload) {
+  ensureFeature('review');
+  const p = payload || {};
+  const sys = [
+    '你是学习教练。下面是学习者今天一天的真实数据，请给出一份简短、说人话的日结。',
+    '只输出一个 JSON 对象：{"summary":"一句话总结今天，50字内","good":"今天做得好的一点，30字内","bad":"今天最该改的一点，30字内","next":["明天建议1","明天建议2"],"focus":"明天最重要的一件事"}',
+    TERM_RULE,
+    '要求：',
+    '1. 只基于给的数据说话，不要编造；今天没学就直说"今天还没开始"；',
+    '2. bad 只挑一条最该改的，别列一筐让人无从下手；',
+    '3. next 要具体到能照做（如"明天先做 2 段专注的真题阅读"），不要"继续保持"；',
+    '4. 语气像朋友复盘，不像老师评语；',
+    '5. 今天有补习打卡就把它算作"有学习"，别判成偷懒。'
+  ].join('\n');
+  const goals = (p.goals || []).map(g => g.title + '（' + g.done + '/' + g.total + ' 专注，' + g.pct + '%' +
+    (typeof g.remainDays === 'number' ? '，剩 ' + g.remainDays + ' 天' : '') + '）').join('；') || '没有进行中的目标';
+  const user = [
+    '今天专注：' + (p.focusMin || 0) + ' 分钟 / ' + (p.pomo || 0) + ' 段',
+    '今天完成了 ' + (p.done || 0) + ' 项；今日任务完成 ' + (p.taskDone || 0) + '/' + (p.taskTotal || 0),
+    '当前超期未完成任务：' + (p.overdue || 0) + ' 个',
+    '目标进度：' + goals,
+    p.logText ? '今日收工填报：' + p.logText : '',
+    p.tutorText ? p.tutorText : ''
+  ].filter(Boolean).join('\n');
+
+  let lastErr = '';
+  for (let i = 0; i < MAX_ROUNDS; i++) {
+    const msgs = [{ role: 'system', content: sys }, { role: 'user', content: user }];
+    if (lastErr) {
+      msgs.push({ role: 'assistant', content: '（上一轮输出不合格：' + lastErr + '）' });
+      msgs.push({ role: 'user', content: '请严格按格式重新输出 JSON。' });
+    }
+    try {
+      const r = await chatCompletion(msgs, { temperature: 0.6, timeout: PLAN_TIMEOUT });
+      const o = extractJSON(r.content);
+      const next = Array.isArray(o.next) ? o.next.map(s => clampStr(s, 60)).filter(Boolean).slice(0, 3) : [];
+      const summary = clampStr(o.summary, 100);
+      if (!summary && !next.length) throw new Error('日结内容是空的');
+      return {
+        summary: summary || '今天的数据还太少，先做起来再说',
+        good: clampStr(o.good, 50),
+        bad: clampStr(o.bad, 50),
+        next,
+        focus: clampStr(o.focus, 50)
+      };
+    } catch (e) {
+      if (e instanceof LLMError) { if (e.notConfigured || !e.retryable) throw humanPlanError(e); lastErr = e.message; }
+      else lastErr = (e && e.message) || '输出解析失败';
+    }
+  }
+  throw new Error('AI 连续几轮都没给出合格的日结（' + lastErr + '）');
 }
 
 /* ---------- 任务级学习要点（点一个任务，告诉你"学什么 / 怎么学 / 怎么自查"） ---------- */
@@ -1167,17 +1227,11 @@ async function runReplan(goal, reality, todayBlock, opt, extra, images) {
   }
   // 模型看不了图时降级用：第一次带图，失败去图重试，结果里标记 imgIgnored
   let imgIgnored = false;
-  // 用户之前填过的固定安排（名称 / 时段 / 地点）：排程要绕开，地点用来留通勤
+  // 用户之前填过的固定安排（名称 / 时段）：排程要绕开这些时段
   const knownPlaces = (Array.isArray(goal.places) ? goal.places : []).filter(p => p && p.name);
-  // 地点可能是结构化对象（{name,lat,lng,r}）或旧版纯字符串，留通勤时间时只用名称
-  const placeNameOf = (p) => {
-    if (!p || !p.place) return ''
-    if (typeof p.place === 'string') return p.place
-    return p.place.name || ''
-  }
   const fixedBlock = knownPlaces.length
-    ? '已知固定安排（这些时段他在上课/补习，排任务必须绕开；地点只用来留通勤时间）：' +
-      knownPlaces.map(p => [p.name, p.when, placeNameOf(p) ? ('@' + placeNameOf(p)) : ''].filter(Boolean).join(' ')).join('；')
+    ? '已知固定安排（这些时段他在上课/补习，排任务必须绕开）：' +
+      knownPlaces.map(p => [p.name, p.when].filter(Boolean).join(' ')).join('；')
     : '';
 
   const sys = [

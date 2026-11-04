@@ -42,8 +42,9 @@
       </view>
 
       <!-- 固定安排：补习班 / 上课这类"客观占用"的时段。
-           用户 2026-11-03 的场景：临时收到补习班通知，重排完顺手把上课地点也记下来，
-           否则过两周只记得"周六有事"，忘了在哪个校区。 -->
+           用户 2026-11-03 的场景：临时收到补习班通知，重排完把上课时间记进日历。
+           2026-11-04：地图选点太简陋又定位不准，砍掉"地点"，只留名称 + 时间；
+           判断"有没有去上课"改由主页打卡完成（见 utils/tutor.js）。 -->
       <view v-if="fixedList.length" class="card fixed-card">
         <view class="fixed-head">
           <text class="fixed-title">{{ $t('固定安排') }}</text>
@@ -55,9 +56,7 @@
               <text class="fixed-name">{{ f.name }}</text>
               <text v-if="f.when" class="fixed-when">{{ f.when }}</text>
             </view>
-            <text v-if="f.place" class="fixed-place">{{ $t('地点') }}：{{ placeLabel(f.place) }}</text>
           </view>
-          <text class="fixed-add" @tap.stop="askPlace(i)">{{ f.place ? $t('改地点') : $t('加地点') }}</text>
         </view>
       </view>
 
@@ -119,58 +118,6 @@
         </button>
       </view>
     </view>
-
-    <!-- 补习地点：在地图上选，并可直接从已有学习地点里挑（选在一起，纳入"人是否在场"统计） -->
-    <view class="map-mask" v-if="mapDlg.show" @tap="closeMap" @touchmove.stop.prevent="noop">
-      <view class="map-card" @tap.stop="noop" @touchmove.stop="noop">
-        <view class="map-head">
-          <text class="map-title">{{ $t('补习班在哪儿上？') }}</text>
-          <text class="map-hint">{{ $t('在地图上点一下选位置，或选已有学习地点') }}</text>
-        </view>
-
-        <!-- 已有学习地点：一键选用（选在一起，避免重复登记） -->
-        <scroll-view v-if="studyPlaces.length" class="map-sp" scroll-x>
-          <text
-            v-for="p in studyPlaces"
-            :key="p.id"
-            class="map-sp-chip"
-            hover-class="map-sp-hover"
-            :hover-stay-time="60"
-            @tap="pickStudyPlace(p)"
-          >{{ p.name }}</text>
-        </scroll-view>
-
-        <map
-          class="map-view"
-          :id="mapId"
-          :key="mapDlg.mapSeq"
-          :latitude="mapDlg.lat || 39.9042"
-          :longitude="mapDlg.lng || 116.4074"
-          :scale="mapDlg.scale"
-          :markers="mapMarkers()"
-          :show-location="true"
-          :enable-scroll="true"
-          :enable-zoom="true"
-          @tap="onMapTap"
-        ></map>
-
-        <view class="map-row">
-          <text class="map-loc" :class="{ 'map-busy': mapDlg.locating }" @tap="locateMe(false)">{{ mapDlg.locating ? $t('定位中…') : $t('定位') }}</text>
-          <input
-            class="map-name"
-            v-model="mapDlg.name"
-            :maxlength="30"
-            :placeholder="$t('地点名称（如：城东校区）')"
-            placeholder-style="color:#a8b0ab;font-size:25rpx"
-          />
-        </view>
-
-        <view class="map-btns">
-          <view class="map-btn ghost" hover-class="map-btn-hover" :hover-stay-time="60" @tap="closeMap">{{ $t('跳过') }}</view>
-          <view class="map-btn primary" hover-class="map-btn-hover" :hover-stay-time="60" @tap="savePlaceMap">{{ $t('保存') }}</view>
-        </view>
-      </view>
-    </view>
   </view>
 </template>
 
@@ -180,7 +127,6 @@ import * as dailylog from '../../../utils/dailylog.js'
 import { replanGoal, replanFromToday } from '../../../services/plan-agent.js'
 import FloatNavbar from '../../../components/float-navbar/float-navbar.vue'
 import AppDialog from '../../../components/app-dialog/app-dialog.vue'
-import * as loc from '../../../utils/location.js'
 import * as calmark from '../../../utils/calmark.js'
 import * as settings from '../../../utils/settings.js'
 
@@ -194,13 +140,8 @@ export default {
       hint: '',
       // 随这次重排一起发的图（本地临时路径，最多 3 张）：课表 / 补习班通知截图
       pendingImgs: [],
-      // 本次结果里识别出的固定安排（补习班等），带用户选的地点
-      fixedList: [],
-      // 补习地点选点弹窗：地图选点 + 从已有学习地点里挑（选在一起，纳入"人是否在场"统计）
-      mapDlg: { show: false, i: -1, name: '', lat: 0, lng: 0, r: 200, locating: false, scale: 16, mapSeq: 1, has: false },
-      mapId: 'replanmap',
-      studyPlaces: [],
-      placeAsked: false
+      // 本次结果里识别出的固定安排（补习班等）
+      fixedList: []
     }
   },
   computed: {
@@ -270,10 +211,8 @@ export default {
         // 默认勾选：策略与内容类直接采纳；时间类（改期限/顺延）交给用户确认 —— 它是最后手段
         this.result.ops.forEach((op, i) => { this.pick[i] = op.op !== 'note' && op.level !== 'time' })
         this.fixedList = this.buildFixed(imgs, hint)
-        // 时段先落库：即使用户跳过地点，"周六 9-12 有补习班"这件事下次重排也得知道
+        // 时段先落库："周六 9-12 有补习班"这件事下次重排也得知道
         if (this.fixedList.length) this.persistPlaces()
-        // 等用户先看见计划长什么样，再问地点（同帧弹会盖住刚出来的结果）
-        if (this.fixedList.length) setTimeout(() => this.autoAskPlace(), 500)
       } catch (e) {
         this.error = (e && e.message) || '重排失败，请稍后再试'
       } finally {
@@ -409,11 +348,11 @@ export default {
       uni.previewImage({ urls: list, current: i })
     },
 
-    /* ---------- 固定安排与地点 ---------- */
+    /* ---------- 固定安排 ---------- */
     /**
-     * AI 的 fixed + 目标里已存的地点。
-     * 兜底：模型偶尔不吐 fixed（纯文本模型尤其），只要这次带了图、或话里提到补习，
-     * 就补一条 —— "补习班该有地点"不能全指望模型记性。
+     * AI 的 fixed。兜底：模型偶尔不吐 fixed（纯文本模型尤其），只要这次带了图、
+     * 或话里提到补习，就补一条 —— 不能全指望模型记性。
+     * 2026-11-04：地点字段随地图弹窗一起砍掉，这里只留名称 + 时间。
      */
     buildFixed(imgs, hint) {
       const list = ((this.result && this.result.fixed) || []).map(f => ({
@@ -423,134 +362,16 @@ export default {
         // 日历标注就不用再从 when 的文本里猜（猜不出来会变成隐形标注）
         weekdays: Array.isArray(f.weekdays) ? f.weekdays : [],
         dates: Array.isArray(f.dates) ? f.dates : [],
-        type: f.type || '',
-        place: this.knownPlace(f.name)
+        type: f.type || ''
       }))
       const said = String(hint || '')
       const looksLikeTutoring = imgs.length > 0 || /补习|补课|上课|报班|课程表|课表|辅导/.test(said)
       if (!list.length && looksLikeTutoring) {
-        const name = this.$t('补习班')
-        list.push({ name: name, when: '', place: this.knownPlace(name) })
+        list.push({ name: this.$t('补习班'), when: '' })
       }
       return list.slice(0, 6)
     },
-    /** 这个固定安排以前填过地点吗（名字允许包含关系，模型每次叫法可能不同） */
-    knownPlace(name) {
-      const g = this.goal()
-      const list = (g && g.places) || []
-      const n = String(name || '').trim()
-      if (!n) return ''
-      const hit = list.filter(p => p && p.name === n)[0]
-        || list.filter(p => p && p.name && (p.name.indexOf(n) >= 0 || n.indexOf(p.name) >= 0))[0]
-      if (!hit) return ''
-      const pl = hit.place
-      if (!pl) return ''
-      // 兼容旧数据（地点曾是纯字符串）；新数据是结构化对象
-      if (typeof pl === 'string') return { name: hit.name, label: pl, lat: 0, lng: 0, r: 200 }
-      return { name: hit.name, label: pl.name || hit.name, lat: pl.lat, lng: pl.lng, r: pl.r }
-    },
-    autoAskPlace() {
-      // 只自动问一次：用户点过"跳过"就别追着问，加地点按钮还在卡片上
-      if (this.placeAsked) return
-      const miss = this.fixedList.filter(f => f && !f.place)
-      if (!miss.length) return
-      this.placeAsked = true
-      this.askPlace(this.fixedList.indexOf(miss[0]))
-    },
-    noop() {},
-    askPlace(i) {
-      const f = this.fixedList[i]
-      if (!f) return
-      this.studyPlaces = loc.places()
-      const known = this.knownPlace(f.name)
-      this.mapDlg = {
-        show: true,
-        i: i,
-        // 改地点时带出旧值，别让用户重敲一遍
-        name: (known && (known.label || known.name)) || f.name || this.$t('补习班'),
-        lat: 0, lng: 0, r: 200, locating: false, scale: 16, mapSeq: 1, has: false
-      }
-      // 自动定位一次作为地图中心（成功即视为已选当前位置）
-      this.locateMe(false)
-    },
-    mapMarkers() {
-      if (!this.mapDlg.has) return []
-      return [{
-        id: 1,
-        latitude: this.mapDlg.lat,
-        longitude: this.mapDlg.lng,
-        width: 48, height: 60, anchor: { x: 0.5, y: 1 }, draggable: true
-      }]
-    },
-    onMapTap(e) {
-      const d = e && e.detail
-      if (!d) return
-      const lat = d.latitude != null ? d.latitude : d.lat
-      const lng = d.longitude != null ? d.longitude : d.lng
-      if (lat == null || lng == null) return
-      this.mapDlg.lat = Number(lat)
-      this.mapDlg.lng = Number(lng)
-      this.mapDlg.has = true
-    },
-    locateMe(silent) {
-      if (this.mapDlg.locating) return
-      this.mapDlg.locating = true
-      loc.fetch().then((pos) => {
-        this.mapDlg.locating = false
-        this.mapDlg.lat = pos.lat
-        this.mapDlg.lng = pos.lng
-        this.mapDlg.has = true
-        this.mapDlg.scale = 16
-        this.mapDlg.mapSeq += 1
-      }).catch(() => { this.mapDlg.locating = false })
-    },
-    pickStudyPlace(p) {
-      if (!p) return
-      this.mapDlg.name = p.name
-      this.mapDlg.lat = p.lat
-      this.mapDlg.lng = p.lng
-      this.mapDlg.r = Number(p.r) || 200
-      this.mapDlg.has = true
-      this.mapDlg.mapSeq += 1
-    },
-    savePlaceMap() {
-      const i = this.mapDlg.i
-      const f = this.fixedList[i]
-      if (!f) { this.closeMap(); return }
-      if (!this.mapDlg.has) {
-        uni.showToast({ title: this.$t('请在地图上点一下选位置'), icon: 'none' })
-        return
-      }
-      const name = (this.mapDlg.name || '').trim() || f.name || this.$t('补习班')
-      const place = {
-        name: name,
-        lat: Number(this.mapDlg.lat),
-        lng: Number(this.mapDlg.lng),
-        r: Math.max(30, Math.min(5000, Number(this.mapDlg.r) || 200))
-      }
-      // 选在一起：注册为学习地点，纳入"人是否在场"统计（去重：同名或极近坐标不重复加）
-      this.registerStudyPlace(place)
-      f.place = place
-      this.closeMap()
-      this.persistPlaces()
-      uni.showToast({ title: this.$t('地点已记下'), icon: 'none' })
-    },
-    registerStudyPlace(place) {
-      const list = loc.places()
-      const dup = list.filter(p => p.name === place.name)[0]
-        || list.filter(p => loc.distanceM(p.lat, p.lng, place.lat, place.lng) < 50)[0]
-      if (dup) return
-      loc.addPlace({ name: place.name, lat: place.lat, lng: place.lng, r: place.r })
-    },
-    closeMap() {
-      this.mapDlg = { show: false, i: -1, name: '', lat: 0, lng: 0, r: 200, locating: false, scale: 16, mapSeq: 1, has: false }
-    },
-    placeLabel(p) {
-      if (!p) return ''
-      if (typeof p === 'string') return p
-      return (p.label || p.name || '')
-    },
-    /** 写回目标：按名字合并，别把用户以前填的地点冲掉 */
+    /** 写回目标：按名字合并，别把用户以前填的固定安排冲掉 */
     persistPlaces() {
       const g = this.goal()
       if (!g) return
@@ -560,9 +381,8 @@ export default {
         const hit = merged.filter(p => p && p.name === f.name)[0]
         if (hit) {
           if (f.when) hit.when = f.when
-          if (f.place) hit.place = f.place
         } else {
-          merged.push({ name: f.name, when: f.when || '', place: f.place || '' })
+          merged.push({ name: f.name, when: f.when || '' })
         }
       })
       // 固定安排不会太多，留最近 12 条足够，别让 goal 无限膨胀
@@ -723,7 +543,7 @@ export default {
   color: var(--ink-3, #98a19b);
 }
 
-/* 固定安排（补习班 / 上课）：时段不排任务，地点单独一行 */
+/* 固定安排（补习班 / 上课）：时段不排任务 */
 .fixed-card { padding-bottom: 10rpx; }
 .fixed-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4rpx; }
 .fixed-title { font-size: 27rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
@@ -733,75 +553,6 @@ export default {
 .fixed-line { display: flex; align-items: baseline; flex-wrap: wrap; }
 .fixed-name { margin-right: 12rpx; font-size: 26rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .fixed-when { font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
-.fixed-place { display: block; margin-top: 6rpx; font-size: 23rpx; color: #5a6560; color: var(--ink-2, #5a6560); }
-.fixed-add {
-  flex-shrink: 0;
-  margin-left: 16rpx;
-  padding: 8rpx 4rpx 8rpx 16rpx;
-  font-size: 24rpx;
-  color: #bb1332;
-  color: var(--brand-strong, #bb1332);
-}
-
-/* 补习地点选点弹窗：地图选点 + 从已有学习地点里挑（选在一起） */
-.map-mask {
-  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
-  background: rgba(23, 32, 26, 0.42);
-  display: flex; align-items: flex-end; justify-content: center;
-  z-index: 90;
-}
-.map-card {
-  width: 100%;
-  padding: 26rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
-  border-radius: 32rpx 32rpx 0 0;
-  background: #fffdf8;
-  background: var(--bg, #fffdf8);
-}
-.map-head { display: flex; flex-direction: column; margin-bottom: 16rpx; }
-.map-title { font-size: 30rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
-.map-hint { margin-top: 8rpx; font-size: 22rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
-.map-sp { white-space: nowrap; margin-bottom: 14rpx; overscroll-behavior: contain; }
-.map-sp-chip {
-  display: inline-block; font-size: 24rpx; color: #17201a; color: var(--ink-1, #17201a);
-  padding: 12rpx 22rpx; border-radius: 999rpx; margin-right: 12rpx;
-  background: rgba(23, 32, 26, 0.05);
-  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
-}
-.map-sp-hover { opacity: 0.7; }
-.map-view {
-  width: 100%; height: 420rpx; border-radius: 24rpx; overflow: hidden;
-  border: 2rpx solid rgba(23, 32, 26, 0.07);
-  border: 2rpx solid var(--hairline, rgba(23, 32, 26, 0.07));
-}
-.map-row { display: flex; align-items: center; gap: 16rpx; margin-top: 16rpx; }
-.map-loc {
-  flex-shrink: 0; font-size: 26rpx; font-weight: 600;
-  color: #bb1332; color: var(--brand-strong, #bb1332);
-  background: rgba(228, 23, 61, 0.1);
-  background: rgba(var(--brand-rgb, 228, 23, 61), 0.1);
-  padding: 14rpx 28rpx; border-radius: 999rpx;
-}
-.map-busy { color: #98a19b; color: var(--ink-3, #98a19b); }
-.map-name {
-  flex: 1; min-width: 0; height: 72rpx; box-sizing: border-box;
-  padding: 0 22rpx; font-size: 26rpx; color: #17201a; color: var(--ink-1, #17201a);
-  background: rgba(23, 32, 26, 00.05);
-  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
-  border-radius: 16rpx;
-}
-.map-btns { display: flex; gap: 18rpx; margin-top: 20rpx; }
-.map-btn {
-  flex: 1; height: 88rpx; border-radius: 18rpx;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 30rpx; font-weight: 600;
-}
-.map-btn-hover { opacity: 0.85; }
-.map-btn.ghost {
-  background: rgba(23, 32, 26, 0.05);
-  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.05);
-  color: #5a6560; color: var(--ink-2, #5a6560);
-}
-.map-btn.primary { background: #e4173d; background: var(--brand, #e4173d); color: #fff; }
 
 /* 模型看不了图时的说明（不是错误，别用红色） */
 .img-ignored { display: block; margin-top: 14rpx; font-size: 22rpx; line-height: 1.6; color: #8a5800; }

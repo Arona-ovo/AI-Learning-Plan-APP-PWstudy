@@ -12,13 +12,12 @@
         </view>
         <view class="gd-sub">{{ progress.done }}/{{ progress.total }} 专注 · {{ progress.pct }}%</view>
         <view v-if="g.strategy" class="gd-strategy">{{ g.strategy }}</view>
-        <!-- 固定安排（补习班 / 上课）：重排时从截图或文字里认出来的，地点是用户自己补的。
+        <!-- 固定安排（补习班 / 上课）：重排时从截图或文字里认出来的。
              放在目标里而不是某条任务上 —— 它是"每周都占掉一段时间"的事，不属于某一天。 -->
         <view v-if="g.places && g.places.length" class="gd-fixed">
           <view v-for="(p, i) in g.places" :key="i" class="gd-fixed-row">
             <text class="gd-fixed-name">{{ p.name }}</text>
             <text v-if="p.when" class="gd-fixed-when">· {{ p.when }}</text>
-            <text v-if="p.place" class="gd-fixed-place">· {{ p.place && typeof p.place === 'object' ? (p.place.name || '') : (p.place || '') }}</text>
           </view>
         </view>
         <view v-if="g.risks.length" class="gd-risks">
@@ -46,7 +45,7 @@
       </view>
 
       <!-- 阶段与任务：长方案一排几十条任务，一屏全糊上没法看（真机反馈"太长了"）。
-           头部可点：默认只展开"当前该做的那个阶段"，其余收起，
+           头部可点：默认**全部收起**，点哪个阶段才展开哪个，
            收起时头部能看到"N 个任务 · 第 x-y 天 · 已完成 m"。 -->
       <view class="card" v-for="(group, gi) in grouped" :key="gi">
         <view class="card-head" @tap="toggleFold(gi)">
@@ -200,19 +199,6 @@ export default {
     slotStarts() {
       return timeslot.SLOTS.map(s => s.name + ' ' + s.start).join('、')
     },
-    /**
-     * 缺省该展开哪个阶段：第一个"还有活干"的（todo 且排期已到）。
-     * 全做完了就退回第一个阶段 —— 头上总得有一个开着的。
-     */
-    defaultOpen() {
-      if (!this.g) return 0
-      const start = this.g.createdAt ? pw.dateStr(new Date(this.g.createdAt)) : pw.today()
-      const elapsed = pw.dayDiff(start, pw.today()) + 1
-      for (let i = 0; i < this.grouped.length; i++) {
-        if (this.grouped[i].tasks.some(t => t.status === 'todo' && (t.day || 1) <= elapsed)) return i
-      }
-      return 0
-    },
     progress() {
       return this.g ? pw.goalProgress(this.g) : { done: 0, total: 0, pct: 0 }
     },
@@ -280,9 +266,12 @@ export default {
       //    "点了没反应，退出重进才变"。
       this.$forceUpdate && this.$forceUpdate()
     },
-    // ---------- 阶段折叠（头部点开 / 收起，缺省看 defaultOpen） ----------
+    // ---------- 阶段折叠（头部点开 / 收起） ----------
+    // 2026-11-04 用户要求：默认**全部收起**，点哪个阶段才展开哪个。
+    // 长方案一排几十条任务，一屏全糊上没法看 —— 头部只留"阶段 N · 摘要"，
+    // 用户自己决定要看哪一段，不再替用户展开"当前该做的阶段"。
     folded(gi) {
-      if (this.fold[gi] === undefined) return gi !== this.defaultOpen
+      if (this.fold[gi] === undefined) return true
       return !!this.fold[gi]
     },
     toggleFold(gi) {
@@ -475,7 +464,7 @@ export default {
 .gd-risks { margin-top: 14rpx; display: flex; flex-direction: column; }
 .gd-risk { font-size: 23rpx; line-height: 1.7; color: #8a5800; }
 
-/* 固定安排（补习班 / 上课）：名称 + 时段 + 地点，一行读完 */
+/* 固定安排（补习班 / 上课）：名称 + 时段，一行读完 */
 .gd-fixed { margin-top: 16rpx; padding-top: 14rpx; border-top: 2rpx solid rgba(23, 32, 26, 0.06); }
 .gd-fixed-row {
   display: flex; align-items: baseline; flex-wrap: wrap;
@@ -484,7 +473,6 @@ export default {
 }
 .gd-fixed-name { margin-right: 8rpx; font-weight: 600; color: #17201a; color: var(--ink-1, #17201a); }
 .gd-fixed-when { margin-right: 8rpx; }
-.gd-fixed-place { color: #98a19b; color: var(--ink-3, #98a19b); }
 
 /* 每日提醒：时间点 chips（与向导页同一套视觉） */
 .chips { display: flex; flex-wrap: wrap; }

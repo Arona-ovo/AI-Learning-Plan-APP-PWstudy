@@ -230,6 +230,22 @@
               <text class="hc-sub">{{ $t('查看全部 ›') }}</text>
             </view>
           </block>
+          <!-- ④ 补习打卡（2026-11-04）：当天有补习固定安排（日历标注 type=tutor）时，
+               在任务清单里给一个打卡入口 —— 打卡 = "今天到课了"，不算专注时长，
+               喂给 AI 别把补习日判成没学；旁边"专注" = 补习时也能起一段自由专注（可切换）。 -->
+          <view v-if="todayTutors.length" class="tutor-block">
+            <view v-for="m in todayTutors" :key="m.id" class="tutor-row">
+              <view class="tutor-info">
+                <text class="tutor-name">{{ m.label }}</text>
+                <text v-if="m.time" class="tutor-time">{{ m.time }}</text>
+              </view>
+              <text class="tutor-focus" @tap.stop="startTutorFocus(m)">{{ $t('专注') }}</text>
+              <text class="tutor-ck" :class="{ 'tutor-ck-on': tutorChecked(m.id) }" @tap.stop="toggleTutorCheck(m)">
+                {{ tutorChecked(m.id) ? $t('已打卡') : $t('打卡') }}
+              </text>
+            </view>
+          </view>
+
           <!-- ③ 收工与每日任务**同组**（2026-10-25 用户拍板）：收工就是"给今天记账"，
                和任务清单是一回事，不单独占面板底部一层。
                填过就变成「改一下」，不重复催促；编辑首页时让位给编辑按钮。 -->
@@ -821,6 +837,7 @@ import * as updater from '../../utils/updater.js'
 import { holdScroll, releaseScroll, resetScrollLock } from '../../utils/scroll-lock.js'
 import * as layout from '../../utils/home-layout.ts'
 import * as schedule from '../../utils/schedule.js'
+import * as tutor from '../../utils/tutor.js'
 import * as reminder from '../../utils/reminder.js'
 import * as onboarding from '../../utils/onboarding.js'
 // 只为了判「AI 到底配没配」——判定逻辑只有一处（services/config.js），别在页面里另写
@@ -1326,6 +1343,10 @@ export default {
     /** 「今天」面板头上的日期：永远是今天（schedLabel 可能是用户翻到的别天） */
     todayLabel() {
       try { return schedule.dateLabel(pw.today()) } catch (e) { return pw.today() }
+    },
+    /** 今天有没有补习固定安排（日历标注 type=tutor）—— 有才显示打卡入口 */
+    todayTutors() {
+      try { return tutor.todayTutors() } catch (e) { return [] }
     },
     gdTotal() {
       return onboarding.count(this.guideOpts())
@@ -2974,6 +2995,27 @@ export default {
              '&title=' + encodeURIComponent(item.task.title)
       })
     },
+    /* ---------- 补习班打卡（2026-11-04） ----------
+       当天有补习固定安排时，主页"今天"面板给一个打卡入口：
+       · 打卡 = "今天到课了"，不算专注时长，喂给 AI 别把补习日判成没学；
+       · 旁边"专注" = 补习时也能起一段自由专注（可切换）。 */
+    tutorChecked(id) {
+      try { return tutor.isChecked(pw.today(), id) } catch (e) { return false }
+    },
+    toggleTutorCheck(m) {
+      if (!m || !m.id) return
+      let on = false
+      try { on = tutor.toggle(pw.today(), m.id) } catch (e) {}
+      try { uni.showToast({ title: on ? this.$t('已打卡') : this.$t('已取消打卡'), icon: 'none' }) } catch (e) {}
+      this.$forceUpdate && this.$forceUpdate()
+    },
+    startTutorFocus(m) {
+      if (this.cur) {
+        uni.showToast({ title: '有一段专注正在进行', icon: 'none' })
+        return
+      }
+      uni.navigateTo({ url: '/pkgPlan/pages/focus/focus' })
+    },
     /**
      * 拼专注页链接。
      * 默认绑当天第一个没做完的任务：首页的"开始"应该接着计划走，
@@ -4471,6 +4513,36 @@ export default {
 .hc-empty { padding: 8rpx 0 4rpx; }
 .hc-more { padding: 14rpx 4rpx 2rpx; text-align: right; }
 .hc-more .hc-sub { color: #98a19b; color: var(--ink-3, #98a19b); }
+
+/* ④ 补习打卡（2026-11-04）：当天有补习固定安排时，任务清单里的一行打卡入口 */
+.tutor-block { margin-top: 6rpx; border-top: 2rpx solid rgba(23, 32, 26, 0.05); }
+.tutor-row { display: flex; align-items: center; padding: 14rpx 0 0; }
+.tutor-info { flex: 1; min-width: 0; }
+.tutor-name {
+  display: block; font-size: 26rpx; font-weight: 600;
+  color: #17201a; color: var(--ink-1, #17201a);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tutor-time { display: block; margin-top: 2rpx; font-size: 21rpx; color: #98a19b; color: var(--ink-3, #98a19b); }
+.tutor-focus {
+  flex-shrink: 0; margin-left: 16rpx;
+  font-size: 22rpx; color: #5a6560; color: var(--ink-2, #5a6560);
+  padding: 8rpx 20rpx; border-radius: 999rpx;
+  background: rgba(23, 32, 26, 0.06);
+  background: rgba(var(--neutral-rgb, 23, 32, 26), 0.06);
+}
+.tutor-ck {
+  flex-shrink: 0; margin-left: 12rpx;
+  font-size: 22rpx; color: #bb1332; color: var(--brand-strong, #bb1332);
+  padding: 8rpx 22rpx; border-radius: 999rpx;
+  border: 2rpx solid rgba(228, 23, 61, 0.3);
+  border: 2rpx solid rgba(var(--brand-rgb, 228, 23, 61), 0.3);
+}
+.tutor-ck-on {
+  color: #ffffff;
+  background: #e4173d; background: var(--brand, #e4173d);
+  border-color: transparent;
+}
 
 /* ④ 今日紧迫度 = **一条进度条**（2026-10-25 简化）：标题 / 档位胶囊 / 读数全砍，
    轴与一个小问号并排 —— 问号是"真需要解释"时的统一入口（用户的设计理念：
