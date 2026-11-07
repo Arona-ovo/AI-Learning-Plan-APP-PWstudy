@@ -535,6 +535,7 @@ export default {
         '\nepisode=' + y(d.episode) + ' tries=' + d.tries + ' blind=' + d.blind +
         '\npulls=' + d.pulls + ' escapes=' + d.escapes + ' allow=' + d.allowN +
         '\novGrant=' + y(d.ovGrant) + ' ovWanted=' + y(d.ovWanted) + ' ovOn=' + y(d.ovOn) +
+        ' smallWin=' + y(d.smallWin) +
         '\na11y=' + y(d.a11y) + ' ev=' + d.a11yEv + ' tripped=' + y(d.tripped)
     }
   },

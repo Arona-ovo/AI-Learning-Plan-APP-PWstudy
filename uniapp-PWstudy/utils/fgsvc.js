@@ -333,7 +333,7 @@ export function watchDiag() {
   const empty = {
     svc: false, watch: false, fg: '', src: '', episode: false, tries: 0, blind: 0,
     allowN: 0, pulls: 0, escapes: 0, ovGrant: false, ovWanted: false, ovOn: false,
-    a11y: false, a11yEv: 0, tripped: false
+    a11y: false, a11yEv: 0, tripped: false, smallWin: false
   };
   // #ifdef APP-PLUS
   try {
@@ -349,7 +349,7 @@ export function watchDiag() {
       episode: b(o.episode), tries: n(o.tries), blind: n(o.blind), allowN: n(o.allowN),
       pulls: n(o.pulls), escapes: n(o.escapes), ovGrant: b(o.ovGrant),
       ovWanted: b(o.ovWanted), ovOn: b(o.ovOn), a11y: b(o.a11y),
-      a11yEv: n(o.a11yEv), tripped: b(o.tripped)
+      a11yEv: n(o.a11yEv), tripped: b(o.tripped), smallWin: b(o.smallWin)
     };
   } catch (e) {}
   // #endif

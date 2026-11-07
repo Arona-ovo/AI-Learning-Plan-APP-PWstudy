@@ -122,6 +122,10 @@ const PULL_INTERCEPT_SEC: Int = 2;
 //   "那个页面最好弹出再快一点"）。桌面现在明确算逃逸，这一拍没有存在价值了：
 //   真误判的代价只是一次拉回（人还在合规 App 里的话，下一拍 seen() 就复位）。
 const ESC_TICKS: Int = 1;
+// 小窗 / 分屏用的合成"前台包名"哨兵。它永远不会出现在白名单里，
+// 所以 seen() 会把它当跑偏处理 —— 小窗时 UsageStats 报的前台常常仍是 PWstudy 自己，
+// 靠"前台是谁"根本发现不了这个绕过口子，只能自己另造一个跑偏源。
+const SMALL_WIN_PKG: string = '#pw-small-window';
 // 拦截页刚 startActivity 出去之后的"遮罩接管窗口"（毫秒）。
 // 遮罩和拦截页都是全屏黑，谁后到谁盖住谁 —— 拦截页才是要的那条（2 秒倒数自动回），
 // 遮罩只是它被 ROM 拦掉时的兜底。拉回那一拍立刻判定前台的话，拦截页还没抢到焦点，
@@ -620,6 +624,15 @@ class PWFocusService extends Service {
       return false;
     }
 
+    // ★ 2026-11-07：小窗 / 分屏是强制模式最大的绕过口子。
+    //   PWstudy 被拖成小窗后，前台包名（UsageStats / 无障碍窗口事件）往往**仍是自己**，
+    //   isAllowed 分支一直判合规 → 不拉回也不盖遮罩，用户在大屏区域随便用别的 App，
+    //   "强制模式就等于没开"。所以这里不猜前台是谁，直接问当前窗口的形态：
+    //   只要自己不是全屏独占，就合成一条跑偏交给 seen()，走和"切去别的 App"完全
+    //   相同的硬拦链（全屏拦截页 + 全屏黑遮罩 + 全屏通知 + 拉回）。
+    //   fromEvent=true 是为了跳过 ESC_TICKS 去抖：小窗不是"路过"，是持续状态。
+    if (inSmallWindow()) return this.seen(SMALL_WIN_PKG, true);
+
     let fg = queryForeground(ctx!);
     if (fg.length == 0) {
       // 查不到 ≠ 合规。
@@ -653,7 +666,9 @@ class PWFocusService extends Service {
     if (!this.watchOn) return false;
     if (pkg.length == 0) return false;
 
-    if (this.isAllowed(pkg)) {
+    // ★ 小窗/分屏时即使前台报的是自己，也**不许**复位：窗口还是小的，用户照样能
+    //   在大屏区域操作别的 App。得一直保持逃逸态，直到他把 PWstudy 恢复全屏。
+    if (this.isAllowed(pkg) && !inSmallWindow()) {
       // 回到合规状态：这一次逃逸结束，撤遮罩撤通知，下次离开重新计数
       this.escTicks = 0;
       this.pullTries = 0;
@@ -682,54 +697,51 @@ class PWFocusService extends Service {
     //   窗口到点会自己踢一次看门狗（armInterceptGrace），不会漏判。
     if (interceptGrace) return true;
 
-    // ★ 2026-10-31：**新的一次逃逸零节流，当场拉**。
-    //   这是"切走以后 3~4 秒才弹窗"的最大一处来源：原来首拍也要过 PULL_GAP_SEC，
-    //   而那个判断是秒级差值。用户切走的那一刻只要距上次拉回不足 2 秒
-    //   （刚被拉回来又切走、或刚开始专注就切走 —— setWatch 还会把 lastPullSec 预置成当前时刻），
-    //   整次事件就被**静默吞掉**，只能等看门狗下一拍重新走到这里。
-    //   新的一次逃逸没有任何"抗抖动"的意义：人确实走了，就该立刻动手。
-    // ★ 2026-11-01：强制模式逃生改为「可移动小胶囊」，**彻底移除全屏拦截页 / 全屏遮罩 /
-    //   全屏通知**这三道满屏机制（用户原话："满屏控制不了" → 要"可移动的胶囊，点一下返回"）。
-    //   判定跑偏后先 setCapsuleShown(true) 把胶囊亮出来，**同时**走软拉回把 App 提回前台
-    //   （2026-11-07 补回，见下面 autoPullSoft 的注释）；全程不弹任何全屏页。
-    //   回到学习 App / PWstudy 时，上面 isAllowed 分支会把 inEpisode / pullTries 复位。
-    if (!this.inEpisode) {
+    // ★ 2026-11-07：按用户要求**恢复旧版全套硬拦**。
+    //   两次"去满屏"改造（11-01 原生 seen 移除三件套 / 11-02 449bec6 把 JS pullNow
+    //   改成 return false）把强制模式削成"只亮个胶囊，等你自己点"；11-07 补回自动拉回
+    //   又只走软拉回 —— 结果就是用户说的"退出 App 等 1~2 秒回到 App，然后其他就没了"：
+    //   没有拦截页、没有全屏黑遮罩、没有全屏通知，那 1~2 秒里以及拉回之后用户都能
+    //   自由操作别的 App，小窗下更是完全绕得过。强制模式的"强制"二字本来就在那三层
+    //   视觉拦截上，光把人切回来等于没锁。
+    //   现在把调用链原样接回：pullSelf（拦截页 + 无障碍豁免 + moveTaskToFront + launch）
+    //   → 全屏意图通知 → 前台还是别人就盖全屏黑遮罩。胶囊照常显示，两者不冲突。
+    //
+    // ★ 保留 2026-10-31 的「新逃逸零节流」：首拍当场动手，不等 PULL_GAP_SEC；
+    //   只有同一段逃逸里的重复拉才需要节流（毫秒闸 + 秒级兜底）。
+    // ★ 用户 11-07 口径「不设拉回次数上限」照旧：OVERLAY_MAX_TRIES 只撤遮罩，
+    //   拉回本身一次不停；真正的止损仍是上层「连续离开 3 次 → 本轮作废」。
+    let firstSeen = !this.inEpisode;
+    if (firstSeen) {
       this.inEpisode = true;
       watchEscapeCount = watchEscapeCount + 1;
+      // 胶囊只管显示倒计时，不参与拦截判定，也不再被藏掉（11-01 用户要保留它）
+      setCapsuleShown(true);
+    } else {
+      if (!pullGateOpen) return true;
+      if (nowSec() - this.lastPullSec < PULL_GAP_SEC) return true;
     }
-    setCapsuleShown(true);
-    // ★ 2026-11-07：把**自动拉回**加回来，但只走软拉回（pullBackSoft：moveTaskToFront /
-    //   launch intent，把人切回专注页），**绝不**走 pullSelf(1) 那条会弹全屏拦截页
-    //   PWPullActivity 的老路。
-    //
-    //   为什么必须加回来：2026-11-01 为去掉"满屏控制不了"砍掉三件套（拦截页/遮罩/全屏通知），
-    //   2026-11-02（449bec6）又把 JS 侧最后一处自动拉回也删了 —— 结果强制模式退化成
-    //   "只亮个胶囊，等你自己点"。用户 2026-11-07 反馈"开了强制模式，他不会拉回了"，
-    //   自检里 tries=0 / pulls=0 就是这条链彻底没有拉回动作的直接证据。
-    //   软拉回没有满屏页：人一回来看到的就是专注页本身，想走随时还能再走。
-    this.autoPullSoft();
-    return true;
-  }
 
-  /**
-   * 自动软拉回：把 PWstudy 提到前台，不弹任何全屏页。
-   *
-   * ★ 2026-11-07 用户口径：**开了强制模式就必须拉回，跟胶囊无关**。
-   *   所以这里没有"拉几次就停"的上限 —— 只要还在跑偏就一直拉（1 秒节流，
-   *   给系统切前台留时间）。真正的止损是上层那套「连续离开 3 次 → 本轮专注作废」，
-   *   而不是"拉几次之后改成只亮胶囊"：胶囊只是倒计时展示，不是拦截手段。
-   *
-   * 唯一的闸是秒级节流：拉回后系统要几百毫秒才把前台切过来，这期间每一拍都拉
-   * 只会跟系统抢焦点；节流 1 秒既不影响体感，也不会漏掉持续的跑偏。
-   */
-  private autoPullSoft(): void {
-    let t = nowSec();
-    if (this.lastPullSec > 0 && t - this.lastPullSec < PULL_GAP_SEC) return;
-    this.lastPullSec = t;
+    this.lastPullSec = nowSec();
     this.pullTries = this.pullTries + 1;
-    if (pullBackSoft()) {
-      watchPullCount = watchPullCount + 1;
-    }
+    watchPullCount = watchPullCount + 1;
+
+    // 拉回：奇数轮先弹 PWPullActivity 全屏黑页（2 秒倒数自动回计时页），
+    // 偶数轮换 moveTaskToFront / launch intent，四条通路轮换避免被某个 ROM 卡死。
+    let ok = pullSelf(this.pullTries);
+    closePullGate();
+    // 全屏意图通知放在拉回**之后**：build + notify 是一串 binder 调用（首次还要建渠道），
+    // 放在前面等于给"界面弹出来"凭空加几十毫秒。
+    if (firstSeen) postPullNotify();
+    // 前台**确实还是别人**（或小窗没退出）就盖全屏黑遮罩：用户点不到下面的内容，
+    // 也就没法在拉回这段时间里继续操作别的 App。
+    // ⚠️ 判据不是 pullSelf 的返回值（moveTaskToFront 返回 void，只能报"没抛异常"），
+    //    而是再看一眼前台。早期版本写 `pullTries >= 2`，等于白等约 2 秒才上遮罩。
+    if (!ok || this.needOverlay()) postOverlay(true);
+    // 安全阀：连续拉了很多次还回不来，先把遮罩撤掉，免得把人锁在屏幕外面。
+    // 拉回动作照旧继续，下一轮逃逸会重新盖上。
+    if (this.pullTries >= OVERLAY_MAX_TRIES) postOverlay(false);
+    return true;
   }
 
   /**
@@ -744,11 +756,57 @@ class PWFocusService extends Service {
    *    用户看到的就是"强制模式完全没反应"（2026-10-14 修复）。
    */
   needOverlay(): boolean {
+    // 小窗/分屏时前台报的常是自己，但大屏那块区域必须被黑遮罩盖住，
+    // 否则用户照样能点别的 App —— 不能因为 queryForeground 说"合规"就撤遮罩。
+    if (inSmallWindow()) return true;
     let ctx = UTSAndroid.getAppContext();
     if (ctx == null) return false;
     let fg = queryForeground(ctx!);
     if (fg.length == 0) return this.inEpisode;
     return !this.isAllowed(fg);
+  }
+}
+
+/**
+ * 当前 PWstudy 是不是被塞进了小窗 / 分屏 / 画中画。
+ *
+ * 为什么必须单独判：强制模式原本只看"前台是谁"，而华为智慧多窗、小米小窗、
+ * 系统分屏这些形态下，小窗里的 Activity 仍是 resumed，UsageStats / 无障碍窗口事件
+ * 报回来的包名**还是自己**。看门狗于是一直走 isAllowed 分支，遮罩不盖、拦截页不弹，
+ * 用户在大屏区域想开哪个 App 就开哪个 —— 强制模式形同虚设。
+ *
+ * 三道判定（各自独立 try，任一抛异常只让这一条失效，绝不能把整条看门狗带崩）：
+ *   ① isInMultiWindowMode()        标准分屏 / 自由窗口（API 24+）
+ *   ② isInPictureInPictureMode()   画中画（API 24+）
+ *   ③ 窗口实际尺寸明显小于整块屏幕（<85%）—— ROM 私有小窗常常不上报 ①，
+ *      但一定会把 Activity 的窗口缩窄，这一条是兜底。
+ * 全屏独占时 decorView 只比屏幕少状态栏/导航栏那几十像素，远不到 15%，不会误判。
+ * ⚠️ 整数比较写成 w*100 < sw*85：UTS 的 Int 不会自动放宽成 Float/Double，
+ *    直接写 0.85 会编译失败（跟 WatchLoop 里 Thread.sleep 的坑同源）。
+ */
+function inSmallWindow(): boolean {
+  try {
+    let act = UTSAndroid.getUniActivity();
+    if (act == null) return false;
+    try { if (act!.isInMultiWindowMode()) return true; } catch (e) {}
+    try { if (act!.isInPictureInPictureMode()) return true; } catch (e) {}
+    try {
+      // getWindow() 可空 → 断言一次；其余都是 Android platform type，直接取，
+      // 取不到就让它抛到这层 catch（别为了"可能为空"把 Kotlin 类型写复杂）。
+      let win = act!.getWindow();
+      let decor = win!.getDecorView();
+      let d = act!.getWindowManager().getDefaultDisplay();
+      let w = decor.getWidth();
+      let h = decor.getHeight();
+      let sw = d.getWidth();
+      let sh = d.getHeight();
+      if (w > 0 && h > 0 && sw > 0 && sh > 0) {
+        if (w * 100 < sw * 85 || h * 100 < sh * 85) return true;
+      }
+    } catch (e) {}
+    return false;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -926,7 +984,7 @@ function applyOverlay(ctx: Context | null) {
     try {
       let wm = ctx!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
       let v = new PullOverlay(ctx!)
-      v.setText('强制模式 · 这段专注还没跑完\n\n点一下回到 PWstudy')
+      v.setText('强制模式 · 这段专注还没跑完\n\n点一下回到 PWstudy\n要退出请下拉通知栏结束专注')
       v.setTextSize(22.0.toFloat())
       v.setTextColor(Color.WHITE)
       v.setBackgroundColor(Color.argb(236, 23, 32, 26))
@@ -2939,6 +2997,8 @@ export function watchDiag(): string {
     ',"ovGrant":' + (ctx != null && canDrawOverlays(ctx!) ? '1' : '0') +
     ',"ovWanted":' + (overlayWanted ? '1' : '0') +
     ',"ovOn":' + (overlayView != null ? '1' : '0') +
+    // 小窗/分屏检测有没有认出来：真机验「拖进小窗还拦不拦」时一眼能看
+    ',"smallWin":' + (inSmallWindow() ? '1' : '0') +
     ',"a11y":' + (guardOn ? '1' : '0') +
     ',"a11yEv":' + guardEvents +
     ',"tripped":' + (a11yTripped ? '1' : '0') + '}';

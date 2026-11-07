@@ -423,21 +423,27 @@ function detectJs() {
   pullNow();
 }
 
+let pullRound = 0;
 function pullNow() {
-  // ★ 2026-11-07：恢复自动拉回，但只走**软拉回**（fgsvc.pullBackSoft）。
-  //   2026-11-02（449bec6）为了干掉"巨大不可移动的弹窗"把这里整个改成 return false，
-  //   代价是强制模式只剩"亮个胶囊等你点"——用户 2026-11-07 反馈"开了强制模式，他不会拉回了"，
-  //   自检里 tries=0 / pulls=0 就是这条链没有任何拉回动作的直接证据。
-  //   软拉回只把 PWstudy 提到前台（moveTaskToFront / launch intent），
-  //   **不弹 PWPullActivity 全屏拦截页、不挂遮罩**——控制权还在用户手里，想走随时能再走。
-  //   原生看门狗在后台做同一件事，两条路互为兜底，各自有节流，不会叠成连环拉。
+  // ★ 2026-11-07：与原生看门狗统一回**全套硬拦**。
+  //   449bec6 为去掉满屏页把这里改成 return false，11-07 又只补了软拉回 —— 结果
+  //   强制模式退化成"退出 App 等 1~2 秒回 App，中间和之后都能自由操作别的 App"。
+  //   原生 seen() 已恢复「拦截页 + 全屏黑遮罩 + 全屏通知 + 拉回」，JS 兜底也走同一套：
+  //   奇数轮 fgsvc.bringToFront() = 原生 pullSelf(1)（先弹全屏拦截页），
+  //   偶数轮/失败时补 pullBackSoft()，防止"拦截页被 ROM 静默拦掉但 startActivity 不抛异常"
+  //   的假 true 把人永远堵在别处 —— 这套奇偶轮换和原生 pullSelf 是同一个思路。
   const now = Date.now();
   if (now - lastPullAt < PULL_GAP_MS) return false;   // 系统切前台要时间，连着拉会打架
   lastPullAt = now;
-  try {
-    if (fgsvc.pullBackSoft()) return true;
-  } catch (e) {}
-  return false;
+  pullRound += 1;
+  let pulled = false;
+  if (pullRound % 2 === 1) {
+    try { pulled = !!fgsvc.bringToFront(); } catch (e) {}
+  }
+  if (!pulled) {
+    try { pulled = !!fgsvc.pullBackSoft(); } catch (e) {}
+  }
+  return pulled;
 }
 
 function warn() {
