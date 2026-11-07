@@ -424,12 +424,19 @@ function detectJs() {
 }
 
 function pullNow() {
-  // ★ 2026-11-02：强制模式不再自动把人拉回前台。
-  // 旧逻辑会 fgsvc.bringToFront() → 原生 pullSelf() → 弹出全屏拦截页 PWPullActivity
-  // （就是用户说的"巨大不可移动的弹窗"）。改版后逃生是「可移动小胶囊 + 点一下返回」：
-  // 原生 seen() 判跑偏只 setCapsuleShown(true) 把胶囊亮出来，返回完全交给胶囊点击
-  // （PullNowTask → pullBackSoft，仅 moveTaskToFront / launch intent，不弹任何全屏页）。
-  // 所以 JS 兜底检测也彻底不拉，只让计数 / 提醒逻辑照常走。
+  // ★ 2026-11-07：恢复自动拉回，但只走**软拉回**（fgsvc.pullBackSoft）。
+  //   2026-11-02（449bec6）为了干掉"巨大不可移动的弹窗"把这里整个改成 return false，
+  //   代价是强制模式只剩"亮个胶囊等你点"——用户 2026-11-07 反馈"开了强制模式，他不会拉回了"，
+  //   自检里 tries=0 / pulls=0 就是这条链没有任何拉回动作的直接证据。
+  //   软拉回只把 PWstudy 提到前台（moveTaskToFront / launch intent），
+  //   **不弹 PWPullActivity 全屏拦截页、不挂遮罩**——控制权还在用户手里，想走随时能再走。
+  //   原生看门狗在后台做同一件事，两条路互为兜底，各自有节流，不会叠成连环拉。
+  const now = Date.now();
+  if (now - lastPullAt < PULL_GAP_MS) return false;   // 系统切前台要时间，连着拉会打架
+  lastPullAt = now;
+  try {
+    if (fgsvc.pullBackSoft()) return true;
+  } catch (e) {}
   return false;
 }
 

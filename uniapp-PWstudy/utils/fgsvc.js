@@ -109,6 +109,23 @@ export function bringToFront() {
 }
 
 /**
+ * 软拉回：只把 PWstudy 提到前台（moveTaskToFront / launch intent），
+ * **不弹全屏拦截页**。强制模式的自动拉回（原生看门狗 / JS 兜底）与胶囊点击都走这条。
+ *
+ * 与 bringToFront 的区别：后者 = 原生 pullSelf(1)，奇数轮会先弹 PWPullActivity
+ * 全屏拦截页（2026-11-01 用户说"满屏控制不了"的就是它）。自动拉回绝不能用那个。
+ */
+export function pullBackSoft() {
+  if (!available()) return false;
+  // #ifdef APP-PLUS
+  try {
+    if (typeof fgs.pullBackSoft === 'function') return !!fgs.pullBackSoft();
+  } catch (e) {}
+  // #endif
+  return false;
+}
+
+/**
  * 前台服务现在是否真的活着（不是"我们起过"的记账）。
  *
  * 为什么要这个：服务被系统回收后，`active` 还是 true —— JS 侧据此认为"原生在盯"，

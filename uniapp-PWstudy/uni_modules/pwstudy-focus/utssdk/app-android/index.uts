@@ -344,7 +344,7 @@ class PWFocusService extends Service {
   private escTicks: Int = 0;       // 连续跑偏的 tick 数
   blindTicks: Int = 0;             // 连续"查不出前台是谁"的 tick 数（探测失灵 ≠ 合规）
   inEpisode = false;               // 当前处在一次"逃逸"里（防止同一次离开被重复计数）
-  pullTries: Int = 0;              // 本次逃逸已经尝试拉回几次（第 2 次起升级为遮罩）
+  pullTries: Int = 0;              // 本次逃逸已自动软拉几次（诊断用；强制模式下不设上限，见 autoPullSoft）
   private lastPullSec: Int = 0;
   private stopped = false;
   private loop: WatchLoop | null = null;
@@ -690,17 +690,46 @@ class PWFocusService extends Service {
     //   新的一次逃逸没有任何"抗抖动"的意义：人确实走了，就该立刻动手。
     // ★ 2026-11-01：强制模式逃生改为「可移动小胶囊」，**彻底移除全屏拦截页 / 全屏遮罩 /
     //   全屏通知**这三道满屏机制（用户原话："满屏控制不了" → 要"可移动的胶囊，点一下返回"）。
-    //   判定跑偏（退出到非学习 App）后只把胶囊亮出来（setCapsuleShown(true)），
-    //   返回动作完全交给胶囊自身的点击（PullNowTask → pullBackSoft，只做 moveTaskToFront /
-    //   launch intent，不弹任何全屏页）。强制模式从"硬拦"降级为"胶囊提醒 + 一键返回"，
-    //   用户要可控、不再被满屏锁住。回到学习 App / PWstudy 时，上面 isAllowed 分支会
-    //   把 inEpisode 复位、胶囊照常显示。
+    //   判定跑偏后先 setCapsuleShown(true) 把胶囊亮出来，**同时**走软拉回把 App 提回前台
+    //   （2026-11-07 补回，见下面 autoPullSoft 的注释）；全程不弹任何全屏页。
+    //   回到学习 App / PWstudy 时，上面 isAllowed 分支会把 inEpisode / pullTries 复位。
     if (!this.inEpisode) {
       this.inEpisode = true;
       watchEscapeCount = watchEscapeCount + 1;
     }
     setCapsuleShown(true);
+    // ★ 2026-11-07：把**自动拉回**加回来，但只走软拉回（pullBackSoft：moveTaskToFront /
+    //   launch intent，把人切回专注页），**绝不**走 pullSelf(1) 那条会弹全屏拦截页
+    //   PWPullActivity 的老路。
+    //
+    //   为什么必须加回来：2026-11-01 为去掉"满屏控制不了"砍掉三件套（拦截页/遮罩/全屏通知），
+    //   2026-11-02（449bec6）又把 JS 侧最后一处自动拉回也删了 —— 结果强制模式退化成
+    //   "只亮个胶囊，等你自己点"。用户 2026-11-07 反馈"开了强制模式，他不会拉回了"，
+    //   自检里 tries=0 / pulls=0 就是这条链彻底没有拉回动作的直接证据。
+    //   软拉回没有满屏页：人一回来看到的就是专注页本身，想走随时还能再走。
+    this.autoPullSoft();
     return true;
+  }
+
+  /**
+   * 自动软拉回：把 PWstudy 提到前台，不弹任何全屏页。
+   *
+   * ★ 2026-11-07 用户口径：**开了强制模式就必须拉回，跟胶囊无关**。
+   *   所以这里没有"拉几次就停"的上限 —— 只要还在跑偏就一直拉（1 秒节流，
+   *   给系统切前台留时间）。真正的止损是上层那套「连续离开 3 次 → 本轮专注作废」，
+   *   而不是"拉几次之后改成只亮胶囊"：胶囊只是倒计时展示，不是拦截手段。
+   *
+   * 唯一的闸是秒级节流：拉回后系统要几百毫秒才把前台切过来，这期间每一拍都拉
+   * 只会跟系统抢焦点；节流 1 秒既不影响体感，也不会漏掉持续的跑偏。
+   */
+  private autoPullSoft(): void {
+    let t = nowSec();
+    if (this.lastPullSec > 0 && t - this.lastPullSec < PULL_GAP_SEC) return;
+    this.lastPullSec = t;
+    this.pullTries = this.pullTries + 1;
+    if (pullBackSoft()) {
+      watchPullCount = watchPullCount + 1;
+    }
   }
 
   /**
@@ -796,8 +825,9 @@ class PullNowTask implements Runnable {
 
 /** 胶囊点击返回用的软拉回：只把 PWstudy 提到最前（moveTaskToFront / REORDER_TO_FRONT launch），
  *  不弹全屏拦截页（PWPullActivity）、不挂遮罩、不带 fullScreenIntent 通知。
- *  用于「用户主动想回来」的场景，不需要任何强制视觉。 */
-function pullBackSoft(): boolean {
+ *  用于「用户主动想回来」的场景，不需要任何强制视觉。
+ *  ★ 2026-11-07 起看门狗自动拉回也走这条（autoPullSoft）：同样是软拉回，不弹满屏页。 */
+export function pullBackSoft(): boolean {
   let ctx = UTSAndroid.getAppContext();
   if (ctx == null) return false;
   let pkg = ctx!.getPackageName();

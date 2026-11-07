@@ -51,6 +51,13 @@ export function resetWatchStats(): boolean
  */
 export function bringToFront(): boolean
 
+/**
+ * 软拉回：只把 PWstudy 提到前台（moveTaskToFront / launch intent），
+ * **不弹全屏拦截页、不挂遮罩**。看门狗自动拉回与胶囊点击都走这条。
+ * 强制模式要的是"人回到专注页"，不是"盖一屏控制不了的东西"。
+ */
+export function pullBackSoft(): boolean
+
 /** 有没有"拉回前台"的原生能力（标准基座返回 false） */
 export function bringToFrontSupported(): boolean
 
